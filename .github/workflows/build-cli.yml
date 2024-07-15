@@ -1,0 +1,147 @@
+name: Build and release
+on:
+  push:
+    tags:
+      - "v*"
+jobs:
+  determine-pex-platforms:
+    strategy:
+      matrix:
+        include:
+          - image: macos-latest
+            arch: aarch64
+          - image: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.image }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Determine complete_platforms for pex
+        run: |
+          pip install pex
+          pex3 interpreter inspect --markers --tags > macos_py310_${{ matrix.arch }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos_py310_${{ matrix.arch }}
+          path: macos_py310_${{ matrix.arch }}.json
+          overwrite: true
+  build-bin-artifacts-macos:
+    name: Build macOS binaries
+    needs: [determine-pex-platforms]
+    # Ideally this would run on macOS, which would enable combining the `determine-pex-platforms`,
+    # `build-bin-artifacts-macos`, and `exercise-macos-artifacts` jobs.
+    # But the `scie_binary` target does not appear to work on macOS.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: macos_py310_*
+          path: build-support/pex_platforms
+          merge-multiple: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - uses: pantsbuild/actions/init-pants@v9
+        # This action bootstraps pants and manages 2-3 GHA caches.
+        # See: github.com/pantsbuild/actions/tree/main/init-pants/
+        with:
+          # v0 makes it easy to bust the cache if needed
+          # just increase the integer to start with a fresh cache
+          gha-cache-key: v0
+          # The Python backend uses named_caches for Pip/PEX state,
+          # so it is appropriate to invalidate on lockfile changes.
+          named-caches-hash: ${{ hashFiles('build-support/lockfiles/python-default.lock') }}
+          # Note that named_caches and lmdb_store falls back to partial restore keys which
+          # may give a useful partial result that will save time over completely clean state,
+          # but will cause the cache entry to grow without bound over time.
+          # See https://www.pantsbuild.org/2.21/docs/using-pants/using-pants-in-ci for tips on how to periodically clean it up.
+          # Alternatively you change gha-cache-key to ignore old caches.
+      - name: Conformance
+        run: |
+          pants check ::
+          pants test ::
+      - name: Create binaries
+        run: |
+          pants package :roboto
+          pants package :roboto-agent
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifacts
+          path: dist/
+          overwrite: true
+  exercise-macos-artifacts:
+    needs: [build-bin-artifacts-macos]
+    strategy:
+      matrix:
+        include:
+          - image: macos-latest
+            arch: aarch64
+          - image: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-artifacts
+          path: dist
+      - name: Exercise roboto CLI
+        run: |
+          chmod +x ./dist/roboto-macos-${{ matrix.arch }}
+          ./dist/roboto-macos-${{ matrix.arch }} --version --suppress-upgrade-check
+      - name: Exercise roboto-agent
+        run: |
+          chmod +x ./dist/roboto-agent-macos-${{ matrix.arch }}
+          ./dist/roboto-agent-macos-${{ matrix.arch }} --help
+  build-bin-artifacts-linux-and-windows:
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            # Build on oldest version of linux available, re:
+            # https://pyinstaller.org/en/stable/usage.html#making-gnu-linux-apps-forward-compatible
+            image: ubuntu-20.04
+            arch: x86_64
+          - os: windows
+            image: windows-latest
+            arch: x86_64
+    name: Build (${{ matrix.os }}/${{ matrix.arch }}) binary
+    runs-on: ${{ matrix.image }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+    - name: Install deps
+      run: |
+        pip install .
+        pip install pyinstaller
+    - name: Create binaries
+      run: |
+        python -m PyInstaller --name roboto-${{ matrix.os }}-${{ matrix.arch }} --target-architecture ${{ matrix.arch }} --onefile --paths src --collect-data cookiecutter cli_entrypoint.py
+        python -m PyInstaller --name roboto-agent-${{ matrix.os }}-${{ matrix.arch }} --target-architecture ${{ matrix.arch }} --onefile --paths src agent_entrypoint.py
+    - name: Exercise roboto CLI
+      run: ./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check
+    - name: Exercise roboto-agent
+      run: ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }} --help
+    - uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.os }}-${{ matrix.arch }}-artifacts
+        path: dist/
+        overwrite: true
+  release:
+    needs: [exercise-macos-artifacts, build-bin-artifacts-linux-and-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - name: List artifacts
+        run: ls -R dist
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/roboto-*
+          make_latest: true

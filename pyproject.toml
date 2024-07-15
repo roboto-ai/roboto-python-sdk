@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "roboto"
+dependencies = [
+    "boto3~=1.26",
+    "botocore~=1.29",
+    "cookiecutter~=2.5.0",
+    "filelock~=3.15",
+    "packaging~=24.0",
+    "pathspec~=0.11",
+    "pydantic~=2.5",
+    "pydantic-core~=2.14",
+    "pydantic-settings~=2.1",
+    "tenacity~=8.2",
+    "tqdm~=4.65",
+    "typing-extensions ~= 4.8 ; python_version<'3.10'",
+]
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = {attr = "roboto.version.__version__"}

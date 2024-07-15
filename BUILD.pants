@@ -1,0 +1,51 @@
+python_requirements(
+  name="3rdparty",
+  source="pyproject.toml"
+)
+
+python_tests(
+    name="test",
+    sources=["test/**/test_*.py"],
+    dependencies=[
+      "src/roboto:roboto-src"
+    ]
+)
+
+pex_binary(
+    name="roboto-cli",
+    dependencies=[
+        "src/roboto:roboto-src",
+        "src/roboto:py_typed",
+    ],
+    entry_point="roboto.cli.entry:entry",
+    execution_mode="venv",
+    complete_platforms=[
+      "build-support/pex_platforms:macos_py310_aarch64",
+      "build-support/pex_platforms:macos_py310_x86_64",
+    ],
+)
+
+pex_binary(
+    name="upload-agent",
+    dependencies=[
+        "src/roboto:roboto-src",
+    ],
+    entry_point="roboto.upload_agent.__main__:main",
+    execution_mode="venv",
+    complete_platforms=[
+      "build-support/pex_platforms:macos_py310_aarch64",
+      "build-support/pex_platforms:macos_py310_x86_64",
+    ],
+)
+
+scie_binary(
+    name="roboto",
+    dependencies=[":roboto-cli"],
+    platforms=["macos-aarch64", "macos-x86_64"]
+)
+
+scie_binary(
+    name="roboto-agent",
+    dependencies=[":upload-agent"],
+    platforms=["macos-aarch64", "macos-x86_64"]
+)

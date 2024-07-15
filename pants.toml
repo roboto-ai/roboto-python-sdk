@@ -1,0 +1,33 @@
+[GLOBAL]
+pants_version = "2.21.0"
+
+plugins = [
+    "robotpajamas.pants.scie==0.0.3",
+]
+
+backend_packages = [
+    "experimental.scie",
+    "pants.backend.python",
+    "pants.backend.python.typecheck.mypy",
+]
+
+build_patterns = ["BUILD.pants", "BUILD"]
+
+[python]
+enable_resolves = false
+default_resolve = "python-default"
+interpreter_constraints = ["==3.10.*"]
+
+[python.resolves]
+python-default = "build-support/lockfiles/python-default.lock"
+
+[mypy]
+args = [
+    "--check-untyped-defs",
+    "--follow-imports silent",
+]
+config = "build-support/requirements/tools/pyproject.toml"
+install_from_resolve = "python-default"
+
+[pytest]
+install_from_resolve = "python-default"
