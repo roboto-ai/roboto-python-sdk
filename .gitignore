@@ -1,0 +1,29 @@
+**/build/
+.aws-sam/
+.idea/
+.roboto/
+.env
+.env.production
+**/node_modules/
+**/cdk.out/
+cdk/**/*.d.ts
+cdk/**/*.js
+cdk/cdk.context.json
+.DS_Store
+
+# Pants Build
+/.pants.d
+/dist/
+
+# IDEs
+.vscode
+
+# Python
+**/*.egg-info
+**/.mypy_cache/
+**/.venv/
+**/__pycache__/
+**/.pytest_cache
+**/dist/
+**/venv/
+
