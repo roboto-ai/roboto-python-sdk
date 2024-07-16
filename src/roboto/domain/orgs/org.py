@@ -51,7 +51,7 @@ class Org:
     @classmethod
     def for_self(
         cls, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> collections.abc.Collection["Org"]:
+    ) -> collections.abc.Sequence["Org"]:
         roboto_client = RobotoClient.defaulted(roboto_client)
         records = roboto_client.get("v1/orgs/caller").to_record_list(OrgRecord)
         return [cls(record=record, roboto_client=roboto_client) for record in records]
@@ -59,7 +59,7 @@ class Org:
     @classmethod
     def for_user(
         cls, user_id: str, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> collections.abc.Collection["Org"]:
+    ) -> collections.abc.Sequence["Org"]:
         roboto_client = RobotoClient.defaulted(roboto_client)
         records = roboto_client.get(
             f"v1/users/id/{urllib.parse.quote_plus(user_id)}/orgs"

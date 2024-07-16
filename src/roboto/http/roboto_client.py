@@ -37,16 +37,15 @@ class RobotoClient:
     __http_client: HttpClient
 
     @classmethod
+    def from_config(cls, config: RobotoConfig) -> "RobotoClient":
+        auth_decorator = BearerTokenDecorator(token=config.api_key)
+        return RobotoClient(endpoint=config.endpoint, auth_decorator=auth_decorator)
+
+    @classmethod
     def from_env(cls) -> "RobotoClient":
-        if cls.__from_env_instance:
-            return cls.__from_env_instance
+        if cls.__from_env_instance is None:
+            cls.__from_env_instance = RobotoClient.from_config(RobotoConfig.from_env())
 
-        cfg = RobotoConfig.from_env()
-
-        auth_decorator = BearerTokenDecorator(token=cfg.api_key)
-        cls.__from_env_instance = RobotoClient(
-            endpoint=cfg.endpoint, auth_decorator=auth_decorator
-        )
         return cls.__from_env_instance
 
     @classmethod

@@ -6,4 +6,6 @@
 
 
 class ActionRuntimeException(Exception):
-    pass
+    """
+    Base class for all exceptions raised by the action_runtime submodule.
+    """

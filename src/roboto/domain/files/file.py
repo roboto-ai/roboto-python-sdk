@@ -226,6 +226,12 @@ class File:
             ),
         )
 
+    def put_metadata(self, metadata: dict[str, typing.Any]) -> "File":
+        return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
+
+    def put_tags(self, tags: list[str]) -> "File":
+        return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
+
     def to_dict(self) -> dict[str, Any]:
         return pydantic_jsonable_dict(self.__record)
 

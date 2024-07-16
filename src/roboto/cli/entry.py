@@ -31,6 +31,9 @@ from .context import CLIContext
 from .datasets import (
     command_set as datasets_command_set,
 )
+from .devices import (
+    command_set as devices_command_set,
+)
 from .extension import (
     apply_roboto_cli_command_extensions,
     apply_roboto_cli_context_extensions,
@@ -56,6 +59,7 @@ COMMAND_SETS = [
     actions_command_set,
     collections_command_set,
     datasets_command_set,
+    devices_command_set,
     images_command_set,
     invocations_command_set,
     orgs_command_set,
