@@ -9,7 +9,7 @@ from typing import Any, Optional, Type
 
 import pydantic_core
 
-from ..serde import safe_dict_drill
+from ..collection_utils import get_by_path
 from .http import HttpError
 
 AUTHENTICATION_FAILURE_MESSAGE = (
@@ -60,10 +60,10 @@ class RobotoDomainException(Exception):
     def from_json(
         contents: dict[str, Any], headers: dict[str, str] = {}
     ) -> "RobotoDomainException":
-        error_code = safe_dict_drill(contents, ["error", "error_code"])
-        inner_message = safe_dict_drill(contents, ["error", "message"])
+        error_code = get_by_path(contents, ["error", "error_code"])
+        inner_message = get_by_path(contents, ["error", "message"])
         kwargs: dict[str, Any] = {}
-        error = safe_dict_drill(contents, ["error"])
+        error = get_by_path(contents, ["error"])
         if error is not None:
             kwargs.update(error)
             kwargs.pop("error_code")

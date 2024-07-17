@@ -19,8 +19,8 @@ from roboto.exceptions import (
     RobotoDomainException,
 )
 
+from ..collection_utils import get_by_path
 from ..logging import default_logger
-from ..serde import safe_dict_drill
 
 logger = default_logger()
 
@@ -235,7 +235,7 @@ class HttpResponse:
             if json_path is None:
                 return unmarsalled
 
-            return safe_dict_drill(unmarsalled, json_path)
+            return get_by_path(unmarsalled, json_path)
 
     def to_string(self):
         with self.__response:

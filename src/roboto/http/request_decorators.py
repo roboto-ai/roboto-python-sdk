@@ -45,7 +45,6 @@ class BearerTokenDecorator:
         return request
 
 
-# Candidate for internal
 class SigV4AuthDecorator:
     __credentials: ReadOnlyCredentials
     __region: str

@@ -113,24 +113,26 @@ class FileService:
         progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory(),
         max_concurrency: int = 20,
     ) -> None:
-        extra_args: Optional[dict[str, Any]] = None
-        if tags is not None:
-            serializable_tags = {tag.value: value for tag, value in tags.items()}
-            encoded_tags = urllib.parse.urlencode(serializable_tags)
-            extra_args = {"Tagging": encoded_tags}
-
         expected_file_count = progress_monitor_factory.get_context().get(
             "expected_file_count", "?"
         )
 
         if expected_file_count >= MANY_FILES:
-            self.__upload_many_files(
-                bucket=bucket,
+            base_path = progress_monitor_factory.get_context().get("base_path", "?")
+            expected_file_size = progress_monitor_factory.get_context().get(
+                "expected_file_size", -1
+            )
+
+            progress_monitor = progress_monitor_factory.upload_monitor(
+                source=f"{expected_file_count} files from {base_path}",
+                size=expected_file_size,
+            )
+            self.upload_many_files(
                 file_generator=file_generator,
                 credential_provider=credential_provider,
-                progress_monitor_factory=progress_monitor_factory,
                 max_concurrency=max_concurrency,
-                extra_args=extra_args,
+                progress_monitor=progress_monitor,
+                tags=tags,
             )
         else:
             for src, key in file_generator:
@@ -257,46 +259,3 @@ class FileService:
                     subscribers=[subscriber],
                 )
         progress_monitor.close()
-
-    # TODO - Prune this in favor of public version
-    def __upload_many_files(
-        self,
-        bucket: str,
-        file_generator: collections.abc.Generator[tuple[pathlib.Path, str], None, None],
-        credential_provider: CredentialProvider,
-        progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory(),
-        max_concurrency: int = 20,
-        extra_args: Optional[dict[str, Any]] = None,
-    ):
-        transfer_manager = self.__transfer_manager_for_client_provider(
-            credential_provider, max_concurrency
-        )
-
-        base_path = progress_monitor_factory.get_context().get("base_path", "?")
-        expected_file_count = progress_monitor_factory.get_context().get(
-            "expected_file_count", "?"
-        )
-        expected_file_size = progress_monitor_factory.get_context().get(
-            "expected_file_size", -1
-        )
-
-        progress_monitor = progress_monitor_factory.upload_monitor(
-            source=f"{expected_file_count} files from {base_path}",
-            size=expected_file_size,
-        )
-
-        try:
-            for src, key in file_generator:
-                transfer_manager.upload(
-                    str(src),
-                    bucket,
-                    key,
-                    extra_args=extra_args,
-                    subscribers=[
-                        s3_transfer.ProgressCallbackInvoker(progress_monitor.update)
-                    ],
-                )
-
-            transfer_manager.shutdown()
-        finally:
-            progress_monitor.close()

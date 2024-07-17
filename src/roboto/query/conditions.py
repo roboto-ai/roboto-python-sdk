@@ -12,7 +12,7 @@ import typing
 
 import pydantic
 
-from ..serde import safe_dict_drill
+from ..collection_utils import get_by_path
 
 
 class Comparator(str, enum.Enum):
@@ -90,7 +90,7 @@ class Condition(pydantic.BaseModel):
     value: typing.Optional[typing.Union[str, bool, int, float, decimal.Decimal]] = None
 
     def matches(self, target: dict) -> bool:
-        value = safe_dict_drill(target, self.field.split("."))
+        value = get_by_path(target, self.field.split("."))
 
         if self.comparator in [Comparator.NotExists, Comparator.IsNull]:
             return value is None

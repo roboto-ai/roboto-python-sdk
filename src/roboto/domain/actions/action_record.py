@@ -18,8 +18,6 @@ from roboto.pydantic.serializers import (
 )
 from roboto.types import UserMetadata
 
-from ...serde import pydantic_jsonable_dict
-
 
 class Accessibility(str, enum.Enum):
     """
@@ -257,7 +255,7 @@ class ActionRecord(pydantic.BaseModel):
             # https://docs.python.org/3.9/library/hashlib.html#personalization
             person=b"ActionRecord",
         )
-        digestable = pydantic_jsonable_dict(self, exclude_unset=True)
+        digestable = self.model_dump(exclude_unset=True, mode="json")
         hasher.update(json.dumps(digestable, sort_keys=True).encode("utf-8"))
         return hasher.hexdigest()
 

@@ -21,11 +21,11 @@ from ...exceptions import (
 )
 from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger
-from ...query import QuerySpecification
-from ...serde import exclude_patterns_to_spec
-from ...serde.paths import (
-    git_pathspec_escape_path,
+from ...paths import (
+    excludespec_from_patterns,
+    path_to_pattern,
 )
+from ...query import QuerySpecification
 from ...updates import (
     MetadataChangeset,
     StrSequence,
@@ -272,7 +272,7 @@ class Dataset:
             >>> print(file.file_id)
             file-abc123
         """
-        escaped_path = git_pathspec_escape_path(str(relative_path))
+        escaped_path = path_to_pattern(str(relative_path))
 
         matching = list(self.list_files(include_patterns=[escaped_path]))
         if not matching:
@@ -458,7 +458,7 @@ class Dataset:
             ...     ],
             ... )
         """
-        exclude_spec: typing.Optional[pathspec.PathSpec] = exclude_patterns_to_spec(
+        exclude_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(
             exclude_patterns
         )
         all_files = self.__list_directory_files(

@@ -11,7 +11,6 @@ import typing
 
 import pydantic
 
-from ...serde import pydantic_jsonable_dict
 from .action_record import (
     ComputeRequirements,
     ContainerParameters,
@@ -177,21 +176,21 @@ class InvocationRecord(pydantic.BaseModel):
         return json.dumps(
             {
                 "created": self.created.isoformat(),
-                "data_source": pydantic_jsonable_dict(self.data_source),
+                "data_source": self.data_source.model_dump(mode="json"),
                 "input_data": self.input_data,
                 "invocation_id": self.invocation_id,
                 "idempotency_id": self.idempotency_id,
-                "compute_requirements": pydantic_jsonable_dict(
-                    self.compute_requirements
+                "compute_requirements": self.compute_requirements.model_dump(
+                    mode="json"
                 ),
-                "container_parameters": pydantic_jsonable_dict(
-                    self.container_parameters
+                "container_parameters": self.container_parameters.model_dump(
+                    mode="json"
                 ),
                 "last_heartbeat": self.last_heartbeat,
                 "last_status": self.last_status,
                 "org_id": self.org_id,
                 "parameter_values": self.parameter_values,
-                "provenance": pydantic_jsonable_dict(self.provenance),
+                "provenance": self.provenance.model_dump(mode="json"),
                 "status": [
                     status_record.to_presentable_dict() for status_record in self.status
                 ],

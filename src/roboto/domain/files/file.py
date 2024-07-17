@@ -25,7 +25,6 @@ from ...sentinels import (
     NotSetType,
     remove_not_set,
 )
-from ...serde import pydantic_jsonable_dict
 from ...updates import MetadataChangeset
 from ..topics import Topic
 from .operations import UpdateFileRecordRequest
@@ -233,7 +232,7 @@ class File:
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
     def to_dict(self) -> dict[str, Any]:
-        return pydantic_jsonable_dict(self.__record)
+        return self.__record.model_dump(mode="json")
 
     def update(
         self,
