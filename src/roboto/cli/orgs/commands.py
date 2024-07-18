@@ -13,10 +13,14 @@ from ...domain.orgs import (
     OrgInvite,
     OrgRoleName,
 )
+from ...domain.orgs.s3_integration import (
+    S3IntegrationService,
+)
 from ..command import (
     RobotoCommand,
     RobotoCommandSet,
 )
+from ..common_args import get_defaulted_org_id
 from ..context import CLIContext
 
 GENERIC_ORG_ONLY_SETUP_PARSER_DEFAULT_HELP = "perform some action"
@@ -287,6 +291,43 @@ def list_email_domains(args, context: CLIContext, parser: argparse.ArgumentParse
         sys.stdout.write(domain + "\n")
 
 
+def register_bucket(
+    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
+) -> None:
+    service = S3IntegrationService(context.roboto_client)
+    org_id = get_defaulted_org_id(args.org)
+
+    service.register_bucket(
+        org_id=org_id,
+        bucket_name=args.bucket_name,
+        account_id=args.aws_account,
+    )
+
+    print(
+        "Bucket registered successfully! It will be used to store files for all new datasets.",
+        file=sys.stderr,
+    )
+
+
+def register_bucket_setup_parser(parser: argparse.ArgumentParser) -> None:
+    generic_org_add_argument(parser, "register an S3 bring-your-own-bucket")
+    parser.add_argument(
+        "--bucket-name",
+        type=str,
+        required=True,
+        help="The base name of the S3 bucket you want to register, e.g. 'my-company-roboto-byob'",
+    )
+    parser.add_argument(
+        "--aws-account",
+        type=str,
+        required=True,
+        help="The AWS account to register the bucket in. This command will only work if you also have the calling "
+        + "environment configured with AWS credentials for this account that the underlying boto3 client can use. "
+        + "For more information on configuring AWS credentials, see "
+        + "https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html.",
+    )
+
+
 create_command = RobotoCommand(
     name="create",
     logic=create,
@@ -384,6 +425,15 @@ remove_role_command = RobotoCommand(
     command_kwargs={"help": "Demotes a user to a less permissive org access level."},
 )
 
+register_bucket_command = RobotoCommand(
+    name="register-bucket",
+    logic=register_bucket,
+    setup_parser=register_bucket_setup_parser,
+    command_kwargs={
+        "help": "Registers an S3 bring-your-own-bucket with Roboto. Only available to premium tier orgs."
+    },
+)
+
 commands = [
     add_role_command,
     bind_email_domain_command,
@@ -392,6 +442,7 @@ commands = [
     list_email_domains_command,
     list_invites_command,
     list_org_members_command,
+    register_bucket_command,
     remove_role_command,
     remove_user_command,
     show_command,

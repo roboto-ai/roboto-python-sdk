@@ -78,22 +78,6 @@ PROGRAMMATIC_ACCESS_BLURB = (
 )
 
 
-def __populate_context(
-    context: CLIContext, profile_override: typing.Optional[str] = None
-):
-    config = RobotoConfig.from_env(profile_override=profile_override)
-    auth_decorator = BearerTokenDecorator(config.api_key)
-
-    context.roboto_service_base_url = config.endpoint
-    context.roboto_client = RobotoClient(
-        endpoint=config.endpoint,
-        auth_decorator=auth_decorator,
-    )
-    context.http_client = context.roboto_client.http_client
-
-    context.extensions = {}
-
-
 def construct_parser(
     context: typing.Optional[CLIContext] = None,
 ) -> argparse.ArgumentParser:
@@ -188,7 +172,9 @@ def entry():
         if args.version:
             print(__version__)
         elif "func" in args:
-            __populate_context(context, profile_override=args.profile)
+            __populate_context(
+                context=context, parser=parser, profile_override=args.profile
+            )
             apply_roboto_cli_context_extensions(base_context=context)
 
             args.func(args)
@@ -197,3 +183,25 @@ def entry():
     finally:
         if not args.suppress_upgrade_check:
             check_last_update()
+
+
+def __populate_context(
+    context: CLIContext,
+    parser: argparse.ArgumentParser,
+    profile_override: typing.Optional[str] = None,
+):
+    try:
+        config = RobotoConfig.from_env(profile_override=profile_override)
+    except Exception as exc:
+        parser.error(str(exc))
+
+    auth_decorator = BearerTokenDecorator(config.api_key)
+
+    context.roboto_service_base_url = config.endpoint
+    context.roboto_client = RobotoClient(
+        endpoint=config.endpoint,
+        auth_decorator=auth_decorator,
+    )
+    context.http_client = context.roboto_client.http_client
+
+    context.extensions = {}

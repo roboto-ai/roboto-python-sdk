@@ -71,7 +71,8 @@ class S3IntegrationService:
 
         if available_account_id != account_id:
             raise RobotoInvalidRequestException(
-                f"Account ID mismatch. Expected {account_id}, got {available_account_id}"
+                f"Account ID mismatch: you're trying to add a bucket to account {account_id}, "
+                + f"but your current credentials are for {available_account_id}"
             )
 
         buckets = self.__s3_client.list_buckets().get("Buckets", [])

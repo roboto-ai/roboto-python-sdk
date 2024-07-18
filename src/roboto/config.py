@@ -24,6 +24,12 @@ DEFAULT_ROBOTO_CONFIG_DIR = DEFAULT_ROBOTO_DIR / "config.json"
 DEFAULT_ROBOTO_PROFILE_NAME = "default"
 
 
+_CONFIG_ERROR_SUFFIX = (
+    "For more information on setting up the config file used by Roboto's first-party tools, please refer to "
+    + "https://docs.roboto.ai/getting-started/programmatic-access.html."
+)
+
+
 class RobotoConfig(pydantic.BaseModel):
     api_key: str
     endpoint: str = ROBOTO_API_ENDPOINT
@@ -48,10 +54,19 @@ class RobotoConfig(pydantic.BaseModel):
 
         if not config_file.is_file():
             raise FileNotFoundError(
-                f"Roboto config file '{config_file}' was not found."
+                f"No Roboto config file found at specified path '{config_file}'. This may mean that a "
+                + "config file was never created, or that your ROBOTO_CONFIG_FILE override environment "
+                + "variable is set incorrectly. "
+                + _CONFIG_ERROR_SUFFIX
             )
 
-        config_file_dict = json.loads(config_file.read_text())
+        try:
+            config_file_dict = json.loads(config_file.read_text())
+        except json.JSONDecodeError:
+            raise ValueError(
+                f"Roboto config file at path '{config_file}' is not valid JSON. "
+                + _CONFIG_ERROR_SUFFIX
+            )
 
         profile_name: typing.Optional[str] = default_env.profile
         profiles: dict[str, RobotoConfig] = {}
@@ -76,6 +91,12 @@ class RobotoConfig(pydantic.BaseModel):
                     except pydantic.ValidationError:
                         pass
 
+        if len(profiles) == 0:
+            raise ValueError(
+                f"No user profiles found in config file '{config_file}'. "
+                + _CONFIG_ERROR_SUFFIX
+            )
+
         # If a profile name was explicitly passed to this function (for example when called in the CLI's entry.py),
         # that blows over anything else we've seen. Otherwise, use the profile name extracted from either
         # an env variable or the default_profile_name param of a config file.
@@ -85,7 +106,8 @@ class RobotoConfig(pydantic.BaseModel):
 
         if profile_name not in profiles.keys():
             raise ValueError(
-                f"Profile '{profile_name}' was not found in config file '{config_file}'."
+                f"User profile '{profile_name}' was not found in config file '{config_file}'. "
+                + _CONFIG_ERROR_SUFFIX
             )
 
         return profiles[profile_name]
