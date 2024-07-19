@@ -104,7 +104,7 @@ jobs:
             image: ubuntu-20.04
             arch: x86_64
           - os: linux
-            image: ubuntu-20.04
+            image: ubuntu-24.04-arm64
             arch: aarch64
           - os: windows
             image: windows-latest
@@ -141,7 +141,7 @@ jobs:
         mkdir -p roboto_deb/usr/bin
         cp ./dist/roboto-linux-${{ matrix.arch }} roboto_deb/usr/bin/roboto
         cp ./dist/roboto-agent-linux-${{ matrix.arch }} roboto_deb/usr/bin/roboto-agent
-        dpkg-deb --build roboto_deb dist/roboto-linux-${{ matrix.arch }}.deb
+        dpkg-deb --build roboto_deb dist/roboto-linux-${{ matrix.arch }}_${VERSION}.deb
     - uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.os }}-${{ matrix.arch }}-artifacts
