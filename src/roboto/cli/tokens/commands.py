@@ -6,7 +6,6 @@
 
 import argparse
 import json
-import sys
 
 from ...domain.tokens import Token
 from ..command import (
@@ -24,12 +23,14 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
         roboto_client=context.roboto_client,
     )
 
-    creds_example_json = json.dumps({"username": "<your email>", "token": secret})
+    creds_example_json = json.dumps(
+        {"username": "<your email>", "token": secret}, indent=2
+    )
 
-    sys.stderr.write(
+    print(
         "This secret will only be available to you once, so store it somewhere safe!\n"
         + "To use this personal access token, create a file at ~/.roboto/config.json, and populate it with "
-        + f"{creds_example_json}.\n"
+        + f"{creds_example_json}."
     )
 
 
@@ -59,12 +60,12 @@ def create_setup_parser(parser):
 def list(args, context: CLIContext, parser: argparse.ArgumentParser):
     tokens = Token.for_self(roboto_client=context.roboto_client)
     for token in tokens:
-        sys.stdout.write(json.dumps(token.to_dict()) + "\n")
+        print(json.dumps(token.to_dict(), indent=2))
 
 
 def show(args, context: CLIContext, parser: argparse.ArgumentParser):
     token = Token.from_id(token_id=args.id, roboto_client=context.roboto_client)
-    sys.stdout.write(json.dumps(token.to_dict()) + "\n")
+    print(json.dumps(token.to_dict(), indent=2))
 
 
 def show_setup_parser(parser):
@@ -78,7 +79,7 @@ def show_setup_parser(parser):
 
 def delete(args, context: CLIContext, parser: argparse.ArgumentParser):
     Token.from_id(token_id=args.id, roboto_client=context.roboto_client).delete()
-    sys.stdout.write(f"Successfully deleted token '{args.id}'!\n")
+    print(f"Successfully deleted token '{args.id}'!")
 
 
 def delete_setup_parser(parser):

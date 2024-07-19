@@ -6,7 +6,6 @@
 
 import argparse
 import json
-import textwrap
 from typing import Any, Optional
 
 from ...domain import actions
@@ -155,14 +154,12 @@ def create_setup_parser(parser):
         type=str,
         nargs="+",
         action="extend",
-        # fmt: off
-        help=textwrap.dedent("""\
-            One or many file patterns for data to download from the data source. Examples:
-                front camera images, "--input-data '**/cam_front/*.jpg'";
-                front and rear camera images, "--input-data '**/cam_front/*.jpg' --input-data '**/cam_rear/*.jpg'";
-                all data, "--input-data '**/*'"
-        """),
-        # fmt: on
+        help="""\
+        One or many file patterns for data to download from the data source. Examples:
+        front camera images, ``--required-inputs '**/cam_front/*.jpg'``;
+        front and rear camera images, ``--required-inputs'**/cam_front/*.jpg' --required-inputs '**/cam_rear/*.jpg'``;
+        all data, ``--required-inputs '**/*'``.
+        """,
     )
     parser.add_argument(
         "--additional-inputs",
@@ -170,14 +167,9 @@ def create_setup_parser(parser):
         type=str,
         nargs="+",
         action="extend",
-        # fmt: off
-        help=textwrap.dedent("""\
-            One or many file patterns for data to download from the data source which is NOT considered as part of
-            trigger evaluation. Examples:
-                front and rear camera images, "--input-data '**/cam_front/*.jpg' --input-data '**/cam_rear/*.jpg'";
-                all data, "--input-data '**/*'"
-        """),
-        # fmt: on
+        help="""\
+        One or many file patterns for data to download from the data source which is NOT considered as part of
+        trigger evaluation. Example: front camera images, ``--additional-inputs '**/cam_front/*.jpg'``.""",
     )
     parser.add_argument(
         "--parameter-value",
@@ -186,8 +178,8 @@ def create_setup_parser(parser):
         nargs="*",
         action=KeyValuePairsAction,
         help=(
-            "Zero or more '<parameter_name>=<parameter_value>' pairs to pass to the invocation. "
-            "`parameter_value` is parsed as JSON. "
+            "Zero or more ``<parameter_name>=<parameter_value>`` pairs to pass to the invocation. "
+            "``parameter_value`` is parsed as JSON."
         ),
     )
     parser.add_argument(
@@ -227,9 +219,9 @@ def create_setup_parser(parser):
         nargs="*",
         action=KeyValuePairsAction,
         help="Dataset metadata "
-        + "key=value conditions which all must be met for this trigger to run against a given dataset. "
+        + "``key=value`` conditions which all must be met for this trigger to run against a given dataset. "
         + "If provided, these are used to construct a trigger condition, and as such they cannot be "
-        + "used if 'condition-json' is specified.",
+        + "used if ``condition-json`` is specified.",
     )
 
 
@@ -305,14 +297,12 @@ def update_setup_parser(parser):
         type=str,
         nargs="+",
         action="extend",
-        # fmt: off
-        help=textwrap.dedent("""\
-            One or many file patterns for data to download from the data source. Examples:
-                front camera images, "--input-data '**/cam_front/*.jpg'";
-                front and rear camera images, "--input-data '**/cam_front/*.jpg' --input-data '**/cam_rear/*.jpg'";
-                all data, "--input-data '**/*'"
-        """),
-        # fmt: on
+        help="""\
+        One or many file patterns for data to download from the data source. Examples:
+        front camera images, ``--required-inputs '**/cam_front/*.jpg'``;
+        front and rear camera images, ``--required-inputs '**/cam_front/*.jpg' --required-inputs '**/cam_rear/*.jpg'``;
+        all data, ``--required-inputs '**/*'``.
+        """,
     )
     parser.add_argument(
         "--additional-inputs",
@@ -320,15 +310,10 @@ def update_setup_parser(parser):
         type=str,
         nargs="+",
         action="extend",
-        # fmt: off
-        help=textwrap.dedent("""\
-            One or many file patterns for data to download from the data source which is NOT considered as part of
-            trigger evaluation. Examples:
-                front camera images, "--input-data '**/cam_front/*.jpg'";
-                front and rear camera images, "--input-data '**/cam_front/*.jpg' --input-data '**/cam_rear/*.jpg'";
-                all data, "--input-data '**/*'"
-        """),
-        # fmt: on
+        help="""\
+        One or many file patterns for data to download from the data source which is NOT considered as part of
+        trigger evaluation. Example:
+        front camera images, ``--additional-inputs '**/cam_front/*.jpg'``.""",
     )
 
     parser.add_argument(
@@ -385,8 +370,8 @@ def update_setup_parser(parser):
         nargs="*",
         action=KeyValuePairsAction,
         help=(
-            "Zero or more '<parameter_name>=<parameter_value>' pairs to pass to the invocation. "
-            "`parameter_value` is parsed as JSON. "
+            "Zero or more ``<parameter_name>=<parameter_value>`` pairs to pass to the invocation. "
+            "``parameter_value`` is parsed as JSON. "
         ),
     )
 

@@ -6,7 +6,6 @@
 
 import argparse
 import json
-import sys
 
 from ...domain.orgs import Org
 from ...domain.users import User
@@ -20,7 +19,7 @@ from ..context import CLIContext
 
 def show(args, context: CLIContext, parser: argparse.ArgumentParser):
     user = User.from_id(user_id=args.id, roboto_client=context.roboto_client).to_dict()
-    sys.stdout.write(json.dumps(user) + "\n")
+    print(json.dumps(user, indent=2))
 
 
 def show_setup_parser(parser):
@@ -33,16 +32,14 @@ def show_setup_parser(parser):
 
 def delete(args, context: CLIContext, parser: argparse.ArgumentParser):
     if not args.ignore_prompt:
-        sys.stdout.write(
-            "Are you absolutely sure you want to delete your user? [y/n]: "
-        )
+        print("Are you absolutely sure you want to delete your user? [y/n]:", end=" ")
         choice = input().lower()
         if choice not in ["y", "yes"]:
             return
 
     user = User.from_id(user_id=args.id, roboto_client=context.roboto_client)
     user.delete()
-    sys.stdout.write(f"Successfully deleted user '{args.id}'\n")
+    print(f"Successfully deleted user '{args.id}'")
 
 
 def delete_setup_parser(parser):
@@ -61,7 +58,7 @@ def delete_setup_parser(parser):
 def orgs(args, context: CLIContext, parser: argparse.ArgumentParser):
     records = Org.for_self(roboto_client=context.roboto_client)
     for record in records:
-        sys.stdout.write(json.dumps(record.to_dict()) + "\n")
+        print(json.dumps(record.to_dict(), indent=2))
 
 
 def whoami(args, context: CLIContext, parser: argparse.ArgumentParser):
@@ -69,7 +66,7 @@ def whoami(args, context: CLIContext, parser: argparse.ArgumentParser):
         contents = context.http_client.get(
             context.http_client.url("v1/users/whoami")
         ).to_dict(json_path=["data"])
-        sys.stdout.write(json.dumps(contents) + "\n")
+        print(json.dumps(contents, indent=2))
 
 
 delete_command = RobotoCommand(

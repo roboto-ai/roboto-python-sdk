@@ -216,7 +216,7 @@ def create(
         )
 
         print(f"Successfully created action '{action.name}'. Record: ")
-        print(json.dumps(action.to_dict(), indent=4))
+        print(json.dumps(action.to_dict(), indent=2))
     except RobotoConflictException:
         action = actions.Action.from_name(
             name=config_with_overrides.name,
@@ -237,10 +237,10 @@ def create(
         if updates:
             action.update(**updates)
             print(f"Successfully updated action '{action.name}'. Record: ")
-            print(json.dumps(action.to_dict(), indent=4))
+            print(json.dumps(action.to_dict(), indent=2))
         else:
             print(f"Action '{action.name}' is up-to-date. Record: ")
-            print(json.dumps(action.to_dict(), indent=4))
+            print(json.dumps(action.to_dict(), indent=2))
 
 
 def create_parser(parser: argparse.ArgumentParser):
@@ -283,9 +283,9 @@ def create_parser(parser: argparse.ArgumentParser):
         arg_name="inherits_from",
         arg_help=(
             "Partially or fully qualified reference to action from which to inherit configuration. "
-            "Inheriting from another action is mutually exclusive with specifying a container image (--image), "
-            "entrypoint (--entrypoint), command (--command), working directory (--workdir), env vars (--env), "
-            "or parameter(s) (--parameter). "
+            "Inheriting from another action is mutually exclusive with specifying a container image (``--image``), "
+            "entrypoint (``--entrypoint``), command (``--command``), working directory (``--workdir``), "
+            "env vars (``--env``), or parameter(s) (``--parameter``). "
         ),
         positional=False,
         required=False,
@@ -305,12 +305,12 @@ def create_parser(parser: argparse.ArgumentParser):
         action=ActionParameterArg,
         help=(
             "Zero or more parameters (space-separated) accepted by this action. "
-            "'name' is the only required attribute. "
-            "'default' values, if provided, are JSON parsed. "
+            "``name`` is the only required attribute. "
+            "``default`` values, if provided, are JSON parsed. "
             "This argument can be specified multiple times. "
             "Parameters can be modified after creation. "
             "Argument values must be wrapped in quotes. E.g.: "
-            "--put-parameter 'name=my_param|required=true|description=My description of my_param'"
+            "``--put-parameter 'name=my_param|required=true|description=My description of my_param'``"
         ),
     )
     parser.add_argument(
@@ -320,8 +320,8 @@ def create_parser(parser: argparse.ArgumentParser):
         nargs="*",
         action=KeyValuePairsAction,
         help=(
-            "Zero or more 'key=value' format key/value pairs which represent action metadata. "
-            "`value` is parsed as JSON. "
+            "Zero or more ``<key>=<value>`` format key/value pairs which represent action metadata. "
+            "``value`` is parsed as JSON. "
             "Metadata can be modified after creation."
         ),
     )

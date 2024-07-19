@@ -27,7 +27,7 @@ def status(
                     status_record.to_presentable_dict()
                     for status_record in invocation.status_log
                 ],
-                indent=4,
+                indent=2,
             )
         )
         return
@@ -47,7 +47,7 @@ def status(
             if status_records_to_print:
                 for status_record in status_records_to_print:
                     printed.add(status_record.status)
-                    print(json.dumps(status_record.to_presentable_dict(), indent=4))
+                    print(json.dumps(status_record.to_presentable_dict(), indent=2))
 
             if invocation.reached_terminal_status:
                 break

@@ -64,7 +64,7 @@ def search(args, context: CLIContext, parser: argparse.ArgumentParser):
         roboto_client=context.roboto_client,
         owner_org_id=args.org,
     )
-    print(json.dumps([result.to_dict() for result in results], indent=4))
+    print(json.dumps([result.to_dict() for result in results], indent=2))
 
 
 def search_setup_parser(parser):
@@ -75,7 +75,7 @@ def search_setup_parser(parser):
         nargs="*",
         action=KeyValuePairsAction,
         help=(
-            "Zero or more 'key=value' pairs which represent dataset metadata. "
+            "Zero or more ``<key>=<value>`` pairs which represent dataset metadata. "
             "`value` is parsed as JSON. E.g.: --metadata foo=bar --metadata baz.nested=200"
         ),
     )
@@ -84,7 +84,7 @@ def search_setup_parser(parser):
         required=False,
         type=str,
         nargs="*",
-        help="One or more tags associated with this dataset. E.g.: --tag foo --tag bar",
+        help="One or more tags associated with this dataset. E.g.: ``--tag foo --tag bar``",
         action="extend",
     )
     add_org_arg(parser=parser)

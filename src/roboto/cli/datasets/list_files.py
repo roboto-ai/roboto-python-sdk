@@ -5,7 +5,6 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import argparse
-import sys
 
 from ...domain.datasets import Dataset
 from ..command import RobotoCommand
@@ -17,7 +16,7 @@ def list_files(args, context: CLIContext, parser: argparse.ArgumentParser):
     dataset = Dataset.from_id(args.dataset_id, context.roboto_client)
 
     for f in dataset.list_files(args.include, args.exclude):
-        sys.stdout.write(f"{f.relative_path}\n")
+        print(f"{f.relative_path}")
 
 
 def list_files_setup_parser(parser):

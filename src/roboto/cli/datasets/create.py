@@ -25,7 +25,7 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
         caller_org_id=args.org,
     )
 
-    print(json.dumps(dataset.to_dict(), indent=4))
+    print(json.dumps(dataset.to_dict(), indent=2))
 
 
 def create_setup_parser(parser):
@@ -35,8 +35,8 @@ def create_setup_parser(parser):
         metavar="KEY=VALUE",
         nargs="*",
         action=KeyValuePairsAction,
-        help="Zero or more 'key=value' format key/value pairs which represent dataset metadata. "
-        + "Metadata can be mutated after creation.",
+        help="Zero or more ``<key>=<value>`` pairs which represent dataset metadata. "
+        + "Metadata can be changed after creation.",
     )
     parser.add_argument(
         "-t",

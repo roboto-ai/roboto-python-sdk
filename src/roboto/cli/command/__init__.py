@@ -9,7 +9,10 @@ from .args import (
     JsonFileOrStrType,
     KeyValuePairsAction,
 )
-from .model import RobotoCommand, RobotoCommandSet
+from .roboto_command import (
+    RobotoCommand,
+    RobotoCommandSet,
+)
 
 __all__ = [
     "ExistingPathlibPath",

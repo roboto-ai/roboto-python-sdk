@@ -22,7 +22,7 @@ def list_all(args, context: CLIContext, parser: argparse.ArgumentParser):
         roboto_client=context.roboto_client,
         content_mode=args.content_mode,
     ):
-        print(collection.record.json())
+        print(collection.record.model_dump_json(indent=2))
 
 
 def list_all_setup_parser(parser: argparse.ArgumentParser):

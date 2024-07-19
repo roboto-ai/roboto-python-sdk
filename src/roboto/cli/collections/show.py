@@ -28,7 +28,7 @@ def show(args, context: CLIContext, parser: argparse.ArgumentParser):
         roboto_client=context.roboto_client,
         content_mode=content_mode,
     )
-    print(collection.record.json())
+    print(collection.record.model_dump_json(indent=2))
 
 
 def show_setup_parser(parser):

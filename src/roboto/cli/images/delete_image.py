@@ -25,7 +25,7 @@ def delete_image_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "remote_image",
         action="store",
-        help="Specify the remote image to delete, in the format '<repository>:<tag>'.",
+        help="Specify the remote image to delete, in the format ``<repository>:<tag>``.",
     )
 
 

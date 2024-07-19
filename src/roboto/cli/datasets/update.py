@@ -33,7 +33,7 @@ def update(
     dataset.update(metadata_changeset=metadata_changeset, description=args.description)
 
     print(f"Successfully updated dataset '{dataset.dataset_id}'. Record: ")
-    print(json.dumps(dataset.to_dict(), indent=4))
+    print(json.dumps(dataset.to_dict(), indent=2))
 
 
 def update_parser(parser: argparse.ArgumentParser):
@@ -64,12 +64,12 @@ def update_parser(parser: argparse.ArgumentParser):
         nargs="*",
         action=KeyValuePairsAction,
         help=(
-            "Zero or more 'key_path=value' formatted pairs. "
-            "An attempt is made to parse `value` as JSON; if this fails, `value` is stored as a string. "
-            "If `key_path` already exists, existing value will be overwritten. "
+            "Zero or more ``<key>=<value>`` formatted pairs. "
+            "An attempt is made to parse ``value`` as JSON; if this fails, ``value`` is stored as a string. "
+            "If ``key`` already exists, existing value will be overwritten. "
             "Dot notation is supported for nested keys. "
             "Examples: "
-            "--put-metadata 'key1=value1' 'key2.subkey1=value2' 'key3.sublist1=[\"a\",\"b\",\"c\"]'"  # noqa: E501
+            "``--put-metadata 'key1=value1' 'key2.subkey1=value2' 'key3.sublist1=[\"a\",\"b\",\"c\"]'``"  # noqa: E501
         ),
     )
 
@@ -80,7 +80,7 @@ def update_parser(parser: argparse.ArgumentParser):
         nargs="*",
         help=(
             "Remove each key from dataset metadata if it exists. "
-            "Dot notation is supported for nested keys. E.g.: --remove-metadata key1 key2.subkey3"
+            "Dot notation is supported for nested keys. E.g.: ``--remove-metadata key1 key2.subkey3``"
         ),
     )
 

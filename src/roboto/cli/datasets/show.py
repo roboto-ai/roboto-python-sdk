@@ -15,7 +15,7 @@ from .shared_helpdoc import DATASET_ID_HELP
 
 def show(args, context: CLIContext, parser: argparse.ArgumentParser):
     record = Dataset.from_id(args.dataset_id, context.roboto_client)
-    print(json.dumps(record.to_dict(), indent=4))
+    print(json.dumps(record.to_dict(), indent=2))
 
 
 def show_setup_parser(parser):

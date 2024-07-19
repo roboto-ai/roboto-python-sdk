@@ -96,7 +96,7 @@ def update(
     action.update(**updates)
 
     print(f"Successfully updated action '{action.name}'. Record: ")
-    print(json.dumps(action.to_dict(), indent=4))
+    print(json.dumps(action.to_dict(), indent=2))
 
 
 def update_parser(parser: argparse.ArgumentParser):
@@ -111,7 +111,7 @@ def update_parser(parser: argparse.ArgumentParser):
         action="store",
         type=lambda s: s if s != "null" else null,
         default=NotSet,
-        help="Optional description of action. Specify 'null' to unset existing description.",
+        help="Optional description of action. Specify ``null`` to unset existing description.",
     )
     parser.add_argument(
         "--short-description",
@@ -119,7 +119,7 @@ def update_parser(parser: argparse.ArgumentParser):
         action="store",
         type=lambda s: s if s != "null" else null,
         default=NotSet,
-        help="Optional short description of an action. Specify 'null' to unset existing description.",
+        help="Optional short description of an action. Specify ``null`` to unset existing description.",
     )
     parser.add_argument(
         "--image",
@@ -148,7 +148,7 @@ def update_parser(parser: argparse.ArgumentParser):
         help=(
             "Add parameter(s) or overwrite existing parameter(s) with the same name. "
             "Argument values must be wrapped in quotes. E.g.: "
-            "--put-parameter 'name=my_param|required=true|description=My description of my_param'"
+            "``--put-parameter 'name=my_param|required=true|description=My description of my_param'``"
         ),
     )
     parser.add_argument(
@@ -178,12 +178,12 @@ def update_parser(parser: argparse.ArgumentParser):
         nargs="*",
         action=KeyValuePairsAction,
         help=(
-            "Zero or more 'key_path=value' formatted pairs. "
-            "An attempt is made to parse `value` as JSON; if this fails, `value` is stored as a string. "
-            "If `key_path` already exists, existing value will be overwritten. "
+            "Zero or more ``key_path=value`` formatted pairs. "
+            "An attempt is made to parse ``value`` as JSON; if this fails, ``value`` is stored as a string. "
+            "If ``key_path`` already exists, existing value will be overwritten. "
             "Dot notation is supported for nested keys. "
             "Examples: "
-            "--put-metadata 'key1=value1' 'key2.subkey1=value2' 'key3.sublist1=[\"a\",\"b\",\"c\"]'"  # noqa: E501
+            "``--put-metadata 'key1=value1' 'key2.subkey1=value2' 'key3.sublist1=[\"a\",\"b\",\"c\"]'``"  # noqa: E501
         ),
     )
 
@@ -194,7 +194,7 @@ def update_parser(parser: argparse.ArgumentParser):
         nargs="*",
         help=(
             "Remove each key from dataset metadata if it exists. "
-            "Dot notation is supported for nested keys. E.g.: --remove-metadata key1 key2.subkey3"
+            "Dot notation is supported for nested keys. E.g.: ``--remove-metadata key1 key2.subkey3``"
         ),
     )
     add_org_arg(parser=parser)

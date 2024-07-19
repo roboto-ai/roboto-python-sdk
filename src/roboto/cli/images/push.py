@@ -139,9 +139,9 @@ def push_parser(parser: argparse.ArgumentParser) -> None:
         "local_image",
         action="store",
         help=(
-            "Specify the local image to push, in the format '<repository>:<tag>'. "
-            "If no tag is specified, 'latest' is assumed. "
-            "Image must exist locally (i.e. 'docker images' must list it)."
+            "Specify the local image to push, in the format ``<repository>:<tag>``. "
+            "If no tag is specified, ``latest`` is assumed. "
+            "Image must exist locally (i.e. ``docker images`` must list it)."
         ),
     )
 

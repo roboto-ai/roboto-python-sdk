@@ -78,7 +78,7 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
         remove_resources=NotSet if len(remove_resources) == 0 else remove_resources,
     )
 
-    print(collection.record.json())
+    print(collection.record.model_dump_json(indent=2))
 
 
 def update_setup_parser(parser):

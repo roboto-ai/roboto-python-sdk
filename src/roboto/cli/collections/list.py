@@ -17,7 +17,7 @@ def list(args, context: CLIContext, parser: argparse.ArgumentParser):
         owner_org_id=args.org,
         roboto_client=context.roboto_client,
     ):
-        print(collection.record.json())
+        print(collection.record.model_dump_json(indent=2))
 
 
 list_command = RobotoCommand(

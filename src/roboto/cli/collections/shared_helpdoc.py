@@ -11,7 +11,7 @@ COLLECTION_VERSION_HELP = (
     + " Allows caller to ensure that they're referencing an immutable representation of a given collection."
 )
 CONTENT_MODE_HELP = (
-    "The type of content to return for a collection or set of collections. 'summary_only' returns "
-    + "only metadata, 'references' will return each id in the collection, and 'full' will retrieve the full content "
-    + "of each resource in the collection."
+    "The type of content to return for a collection or set of collections. ``summary_only`` returns "
+    + "only metadata, ``references`` will return each id in the collection, "
+    + "and ``full`` will retrieve the full content of each resource in the collection."
 )

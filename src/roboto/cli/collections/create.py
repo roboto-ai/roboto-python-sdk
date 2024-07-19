@@ -47,7 +47,7 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
         caller_org_id=args.org,
         roboto_client=context.roboto_client,
     )
-    print(collection.record.json())
+    print(collection.record.model_dump_json(indent=2))
 
 
 def create_setup_parser(parser):

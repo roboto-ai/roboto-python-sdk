@@ -26,7 +26,7 @@ def show(
         owner_org_id=owner_org_id,
         roboto_client=context.roboto_client,
     )
-    print(json.dumps(action.to_dict(), indent=4))
+    print(json.dumps(action.to_dict(), indent=2))
 
 
 def show_parser(parser: argparse.ArgumentParser):

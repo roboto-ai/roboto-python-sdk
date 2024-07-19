@@ -20,7 +20,7 @@ def show(args, context: CLIContext, parser: argparse.ArgumentParser):
     for change in collection.changes(
         from_version=args.from_version, to_version=args.to_version
     ):
-        print(change.json())
+        print(change.model_dump_json(indent=2))
 
 
 def show_setup_parser(parser):

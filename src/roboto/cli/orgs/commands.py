@@ -6,7 +6,6 @@
 
 import argparse
 import json
-import sys
 
 from ...domain.orgs import (
     Org,
@@ -53,7 +52,7 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
         bind_email_domain=args.bind_email_domain,
         roboto_client=context.roboto_client,
     )
-    sys.stdout.write(json.dumps(org.to_dict()) + "\n")
+    print(json.dumps(org.to_dict(), indent=2))
 
 
 def create_setup_parser(parser):
@@ -71,14 +70,14 @@ def delete(args, context: CLIContext, parser: argparse.ArgumentParser):
     org = Org.from_id(org_id=args.org, roboto_client=context.roboto_client)
 
     if not args.ignore_prompt:
-        sys.stdout.write("Are you absolutely sure you want to delete your org? [y/n]: ")
+        print("Are you absolutely sure you want to delete your org? [y/n]: ")
 
         choice = input().lower()
         if choice not in ["y", "yes"]:
             return
 
     org.delete()
-    sys.stdout.write("Successfully deleted!\n")
+    print("Successfully deleted!")
 
 
 def delete_setup_parser(parser):
@@ -98,7 +97,7 @@ def delete_setup_parser(parser):
 
 def show(args, context: CLIContext, parser: argparse.ArgumentParser):
     record = Org.from_id(org_id=args.org, roboto_client=context.roboto_client)
-    sys.stdout.write(json.dumps(record.to_dict()) + "\n")
+    print(json.dumps(record.to_dict(), indent=2))
 
 
 def show_setup_parser(parser):
@@ -138,7 +137,7 @@ def list_org_members_setup_parser(parser):
 def remove_user(args, context: CLIContext, parser: argparse.ArgumentParser):
     org = Org.from_id(org_id=args.org, roboto_client=context.roboto_client)
     org.remove_user(user_id=args.user)
-    sys.stdout.write("Successfully removed!\n")
+    print("Successfully removed!")
 
 
 def remove_user_setup_parser(parser):
@@ -162,7 +161,7 @@ def invite_user(args, context: CLIContext, parser: argparse.ArgumentParser):
         org_id=args.org,
         roboto_client=context.roboto_client,
     )
-    sys.stdout.write("Invite sent!\n")
+    print("Invite sent!")
 
 
 def invite_user_setup_parser(parser):
@@ -182,7 +181,7 @@ def invite_user_setup_parser(parser):
 def list_invites(args, context: CLIContext, parser: argparse.ArgumentParser):
     invites = OrgInvite.for_org(org_id=args.org, roboto_client=context.roboto_client)
     for invite in invites:
-        sys.stdout.write(json.dumps(invite.to_dict()) + "\n")
+        print(json.dumps(invite.to_dict(), indent=2))
 
 
 def list_invites_setup_parser(parser):
@@ -197,7 +196,7 @@ def add_role(args, context: CLIContext, parser: argparse.ArgumentParser):
     Org.from_id(org_id=args.org, roboto_client=context.roboto_client).add_role_for_user(
         user_id=args.user, role=args.role
     )
-    sys.stdout.write("Added!\n")
+    print("Added!")
 
 
 def add_role_setup_parser(parser):
@@ -225,7 +224,7 @@ def remove_role(args, context: CLIContext, parser: argparse.ArgumentParser):
     Org.from_id(
         org_id=args.org, roboto_client=context.roboto_client
     ).remove_role_from_user(user_id=args.user, role=args.role)
-    sys.stdout.write("Removed!\n")
+    print("Removed!")
 
 
 def remove_role_setup_parser(parser):
@@ -254,7 +253,7 @@ def bind_email_domain(args, context: CLIContext, parser: argparse.ArgumentParser
     Org.from_id(org_id=args.org, roboto_client=context.roboto_client).bind_email_domain(
         args.email_domain
     )
-    sys.stderr.write(f"Successfully bound domain {args.email_domain}\n")
+    print(f"Successfully bound domain {args.email_domain}")
 
 
 def bind_email_domain_setup_parser(parser):
@@ -271,7 +270,7 @@ def unbind_email_domain(args, context: CLIContext, parser: argparse.ArgumentPars
     Org.from_id(
         org_id=args.org, roboto_client=context.roboto_client
     ).unbind_email_domain(args.email_domain)
-    sys.stderr.write(f"Successfully unbound domain {args.email_domain}\n")
+    print(f"Successfully unbound domain {args.email_domain}")
 
 
 def unbind_email_domain_setup_parser(parser):
@@ -288,7 +287,7 @@ def list_email_domains(args, context: CLIContext, parser: argparse.ArgumentParse
     for domain in Org.from_id(
         org_id=args.org, roboto_client=context.roboto_client
     ).email_domains():
-        sys.stdout.write(domain + "\n")
+        print(domain)
 
 
 def register_bucket(
@@ -304,8 +303,7 @@ def register_bucket(
     )
 
     print(
-        "Bucket registered successfully! It will be used to store files for all new datasets.",
-        file=sys.stderr,
+        "Bucket registered successfully! It will be used to store files for all new datasets."
     )
 
 

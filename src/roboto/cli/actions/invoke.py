@@ -5,7 +5,6 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import argparse
-import textwrap
 
 from ...domain import actions
 from ..command import (
@@ -65,14 +64,12 @@ def invoke_parser(parser: argparse.ArgumentParser) -> None:
         type=str,
         nargs="+",
         action="extend",
-        # fmt: off
-        help=textwrap.dedent("""\
-            One or many file patterns for data to download from the data source. Examples:
-                front camera images, "--input-data '**/cam_front/*.jpg'";
-                front and rear camera images, "--input-data '**/cam_front/*.jpg' --input-data '**/cam_rear/*.jpg'";
-                all data, "--input-data '**/*'"
-        """),
-        # fmt: on
+        help=(
+            "One or many file patterns for data to download from the data source. Examples: "
+            "front camera images, ``--input-data '**/cam_front/*.jpg'``; "
+            "front and rear camera images, ``--input-data '**/cam_front/*.jpg' --input-data '**/cam_rear/*.jpg'``; "
+            "all data, ``--input-data '**/*'``."
+        ),
     )
 
     parser.add_argument(
@@ -110,8 +107,8 @@ def invoke_parser(parser: argparse.ArgumentParser) -> None:
         nargs="*",
         action=KeyValuePairsAction,
         help=(
-            "Zero or more '<parameter_name>=<parameter_value>' pairs. "
-            "`parameter_value` is parsed as JSON. "
+            "Zero or more ``<parameter_name>=<parameter_value>`` pairs. "
+            "``parameter_value`` is parsed as JSON. "
         ),
     )
 

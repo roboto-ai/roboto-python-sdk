@@ -81,7 +81,7 @@ def search(
         owner_org_id=args.org,
         roboto_client=context.roboto_client,
     )
-    print(json.dumps([action.to_dict() for action in matching_actions], indent=4))
+    print(json.dumps([action.to_dict() for action in matching_actions], indent=2))
 
 
 def search_parser(parser: argparse.ArgumentParser):
@@ -104,8 +104,8 @@ def search_parser(parser: argparse.ArgumentParser):
         nargs="*",
         action=KeyValuePairsAction,
         help=(
-            "Zero or more 'key=value' pairs which represent action metadata. "
-            "`value` is parsed as JSON. E.g.: --metadata foo=bar --metadata baz.nested=200"
+            "Zero or more ``key=value`` pairs which represent action metadata. "
+            "``value`` is parsed as JSON. E.g.: ``--metadata foo=bar --metadata baz.nested=200``"
         ),
     )
     parser.add_argument(
@@ -113,7 +113,7 @@ def search_parser(parser: argparse.ArgumentParser):
         required=False,
         type=str,
         nargs="*",
-        help="One or more tags associated with this action. E.g.: --tag foo --tag bar",
+        help="One or more tags associated with this action. E.g.: ``--tag foo --tag bar``",
         action="extend",
     )
     add_org_arg(parser=parser)

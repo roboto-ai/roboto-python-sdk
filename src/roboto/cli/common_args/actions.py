@@ -311,7 +311,7 @@ def add_container_parameters_args(parser: argparse.ArgumentParser) -> None:
         help=(
             "Container ENTRYPOINT override."
             ' Supports passing empty string ("") as an override, which unsets the ENTRYPOINT specified in the docker image.'  # noqa: E501
-            " If updating or invoking action which has existing ENTRYPOINT override, specify 'null' to remove the override."  # noqa: E501
+            " If updating or invoking action which has existing ENTRYPOINT override, specify ``null`` to remove the override."  # noqa: E501
             " Refer to docker documentation for more: "
             "https://docs.docker.com/engine/reference/builder/#entrypoint"
             " and https://docs.docker.com/engine/reference/run/#entrypoint-default-command-to-execute-at-runtime"
@@ -325,7 +325,7 @@ def add_container_parameters_args(parser: argparse.ArgumentParser) -> None:
         dest="command",
         help=(
             "Container CMD override."
-            " If updating or invoking action which has existing CMD override, specify 'null' to remove the override."
+            " If updating or invoking action which has existing CMD override, specify ``null`` to remove the override."
             " Refer to docker documentation for more: "
             "https://docs.docker.com/engine/reference/builder/#cmd and"
             " https://docs.docker.com/engine/reference/run/#cmd-default-command-or-options"
@@ -339,10 +339,10 @@ def add_container_parameters_args(parser: argparse.ArgumentParser) -> None:
         default=DockerInstructionForm.Exec.value,
         dest="command_form",
         help=(
-            "In 'exec' form, the provided '--command' str is split into a list of strings"
-            ' (e.g., \'--command "-c \'print(123)\'"\' is parsed as ["-c", "print(123)"]).'
-            " In 'shell' form, the provided '--command' str is not split"
-            " (e.g., '--command \"python -c 'print(123)'\"' is parsed as [\"python -c 'print(123)'\"])."
+            "In ``exec`` form, the provided ``--command`` str is split into a list of strings"
+            ' (e.g., ``--command "-c \'print(123)\'"`` is parsed as ``["-c", "print(123)"]``).'
+            " In ``shell`` form, the provided ``--command`` str is not split"
+            " (e.g., ``--command \"python -c 'print(123)'\"`` is parsed as ``[\"python -c 'print(123)'\"]``)."
         ),
     )
 
@@ -352,7 +352,7 @@ def add_container_parameters_args(parser: argparse.ArgumentParser) -> None:
         type=lambda s: s if s != "null" else null,
         dest="workdir",
         help=(
-            "If updating, specify 'null' to clear existing workdir."
+            "If updating, specify ``null`` to clear existing workdir."
             " Refer to docker documentation for more: https://docs.docker.com/engine/reference/run/#workdir"
         ),
     )
@@ -364,7 +364,7 @@ def add_container_parameters_args(parser: argparse.ArgumentParser) -> None:
         nargs="*",
         action=KeyValuePairsAction,
         help=(
-            "Zero or more 'key=value' formatted pairs to set as container ENV vars. "
+            "Zero or more ``<key>=<value>`` formatted pairs to set as container ENV vars. "
             "Do not use ENV vars for secrets (such as API keys). "
             "See documentation: https://docs.docker.com/engine/reference/run/#env-environment-variables"
         ),
