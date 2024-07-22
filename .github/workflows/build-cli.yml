@@ -74,20 +74,32 @@ jobs:
         run: |
           pants package :roboto
           pants package :roboto-agent
-      - name: Package .deb (linux only)
-        if: matrix.os == 'linux'
+      - name: Package Arm64 .deb
         run: |
           VERSION="$(./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check)"
-          mkdir -p roboto_deb/DEBIAN
-          echo "Package: roboto" > roboto_deb/DEBIAN/control
-          echo "Version: ${VERSION}" >> roboto_deb/DEBIAN/control
-          echo "Architecture: arm64" >> roboto_deb/DEBIAN/control
-          echo "Maintainer: Roboto AI <support@roboto.ai>" >> roboto_deb/DEBIAN/control
-          echo "Description: Roboto CLI and Agent" >> roboto_deb/DEBIAN/control
-          mkdir -p roboto_deb/usr/bin
-          cp ./dist/roboto-linux-${{ matrix.arch }} roboto_deb/usr/bin/roboto
-          cp ./dist/roboto-agent-linux-${{ matrix.arch }} roboto_deb/usr/bin/roboto-agent
-          dpkg-deb --build roboto_deb dist/roboto-linux-${{ matrix.arch }}_${VERSION}.deb
+          mkdir -p roboto_arm_deb/DEBIAN
+          echo "Package: roboto" > roboto_arm_deb/DEBIAN/control
+          echo "Version: ${VERSION}" >> roboto_arm_deb/DEBIAN/control
+          echo "Architecture: arm64" >> roboto_arm_deb/DEBIAN/control
+          echo "Maintainer: Roboto AI <support@roboto.ai>" >> roboto_arm_deb/DEBIAN/control
+          echo "Description: Roboto CLI and Agent" >> roboto_arm_deb/DEBIAN/control
+          mkdir -p roboto_arm_deb/usr/bin
+          cp ./dist/roboto-linux-aarch64 roboto_arm_deb/usr/bin/roboto
+          cp ./dist/roboto-agent-linux-aarch64 roboto_arm_deb/usr/bin/roboto-agent
+          dpkg-deb --build roboto_arm_deb dist/roboto-linux-aarch64_${VERSION}.deb
+      - name: Package x86_64 .deb
+        run: |
+          VERSION="$(./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check)"
+          mkdir -p roboto_x86_64_deb/DEBIAN
+          echo "Package: roboto" > roboto_x86_64_deb/DEBIAN/control
+          echo "Version: ${VERSION}" >> roboto_x86_64_deb/DEBIAN/control
+          echo "Architecture: x86_64" >> roboto_x86_64_deb/DEBIAN/control
+          echo "Maintainer: Roboto AI <support@roboto.ai>" >> roboto_x86_64_deb/DEBIAN/control
+          echo "Description: Roboto CLI and Agent" >> roboto_x86_64_deb/DEBIAN/control
+          mkdir -p roboto_x86_64_deb/usr/bin
+          cp ./dist/roboto-linux-x86_64 roboto_x86_64_deb/usr/bin/roboto
+          cp ./dist/roboto-agent-linux-x86_64 roboto_x86_64_deb/usr/bin/roboto-agent
+          dpkg-deb --build roboto_x86_64_deb dist/roboto-linux-x86_64_${VERSION}.deb
       - uses: actions/upload-artifact@v4
         with:
           name: bin-artifacts
