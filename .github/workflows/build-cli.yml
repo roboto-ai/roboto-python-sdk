@@ -19,9 +19,6 @@ jobs:
           - os: linux
             image: ubuntu-24.04-arm64
             arch: aarch64
-          - os: windows
-            image: windows-latest
-            arch: x86_64
     runs-on: ${{ matrix.image }}
     steps:
       - uses: actions/setup-python@v5
@@ -129,8 +126,47 @@ jobs:
         run: |
           chmod +x ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }}
           ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }} --help
+  build-and-exercise-windows:
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            # Build on oldest version of linux available, re:
+            # https://pyinstaller.org/en/stable/usage.html#making-gnu-linux-apps-forward-compatible
+            image: ubuntu-20.04
+            arch: x86_64
+          - os: linux
+            image: ubuntu-24.04-arm64
+            arch: aarch64
+          - os: windows
+            image: windows-latest
+            arch: x86_64
+    name: Build (windows/x86_64) binary
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install deps
+        run: |
+          pip install .
+          pip install pyinstaller
+      - name: Create binaries
+        run: |
+          python -m PyInstaller --name roboto-windows-x86_64 --target-architecture x86_64  --onefile --paths src --collect-data cookiecutter cli_entrypoint.py
+          python -m PyInstaller --name roboto-agent-windows-x86_64 --target-architecture x86_64  --onefile --paths src agent_entrypoint.py
+      - name: Exercise roboto CLI
+        run: ./dist/roboto-windows-x86_64 --version --suppress-upgrade-check
+      - name: Exercise roboto-agent
+        run: ./dist/roboto-agent-windows-x86_64 --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: dist/
+          overwrite: true
   release:
-    needs: [exercise-artifacts, build-bin-artifacts]
+    needs: [exercise-artifacts, build-bin-artifacts, build-and-exercise-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
