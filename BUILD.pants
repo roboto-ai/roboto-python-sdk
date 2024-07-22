@@ -20,6 +20,8 @@ pex_binary(
     entry_point="roboto.cli.entry:entry",
     execution_mode="venv",
     complete_platforms=[
+      "build-support/pex_platforms:linux_py310_aarch64",
+      "build-support/pex_platforms:linux_py310_x86_64",
       "build-support/pex_platforms:macos_py310_aarch64",
       "build-support/pex_platforms:macos_py310_x86_64",
     ],
@@ -33,6 +35,8 @@ pex_binary(
     entry_point="roboto.upload_agent.__main__:main",
     execution_mode="venv",
     complete_platforms=[
+      "build-support/pex_platforms:linux_py310_aarch64",
+      "build-support/pex_platforms:linux_py310_x86_64",
       "build-support/pex_platforms:macos_py310_aarch64",
       "build-support/pex_platforms:macos_py310_x86_64",
     ],
@@ -41,11 +45,21 @@ pex_binary(
 scie_binary(
     name="roboto",
     dependencies=[":roboto-cli"],
-    platforms=["macos-aarch64", "macos-x86_64"]
+    platforms=[
+      "linux-aarch64",
+      "linux-x86_64",
+      "macos-aarch64",
+      "macos-x86_64",
+    ]
 )
 
 scie_binary(
     name="roboto-agent",
     dependencies=[":upload-agent"],
-    platforms=["macos-aarch64", "macos-x86_64"]
+    platforms=[
+      "linux-aarch64",
+      "linux-x86_64",
+      "macos-aarch64",
+      "macos-x86_64",
+    ]
 )
