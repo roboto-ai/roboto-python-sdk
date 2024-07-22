@@ -29,6 +29,10 @@ from .request import (
     HttpRequestDecorator,
     RetryWaitFn,
 )
+from .requester import (
+    ROBOTO_REQUESTER_HEADER,
+    RobotoRequester,
+)
 from .response import HttpResponse
 
 logger = logging.getLogger(LOGGER_NAME)
@@ -106,8 +110,13 @@ class HttpClient:
         base_headers: typing.Optional[dict[str, str]] = None,
         default_endpoint: typing.Optional[str] = None,
         default_auth: typing.Optional[HttpRequestDecorator] = None,
+        requester: typing.Optional[RobotoRequester] = None,
     ):
         self.__base_headers = base_headers if base_headers is not None else {}
+
+        if requester is not None:
+            self.set_requester(requester)
+
         self.__default_auth = default_auth
         self.__default_endpoint = default_endpoint
 
@@ -198,6 +207,11 @@ class HttpClient:
             retry_wait=retry_wait,
         )
         return self.__request(request)
+
+    def set_requester(self, requester: RobotoRequester):
+        self.__base_headers[ROBOTO_REQUESTER_HEADER] = requester.model_dump_json(
+            exclude_none=True
+        )
 
     def url(self, path: str) -> str:
         if self.__default_endpoint is None:

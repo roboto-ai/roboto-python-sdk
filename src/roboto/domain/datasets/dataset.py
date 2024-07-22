@@ -31,7 +31,11 @@ from ...updates import (
     StrSequence,
     UpdateCondition,
 )
-from ..files import File, FileRecord
+from ..files import (
+    DirectoryRecord,
+    File,
+    FileRecord,
+)
 from ..files.file_service import FileService
 from ..files.progress import (
     TqdmProgressMonitorFactory,
@@ -42,6 +46,8 @@ from .operations import (
     BeginManifestTransactionResponse,
     CreateDatasetRequest,
     QueryDatasetFilesRequest,
+    RenameDirectoryRequest,
+    RenameFileRequest,
     ReportTransactionProgressRequest,
     UpdateDatasetRequest,
 )
@@ -432,6 +438,29 @@ class Dataset:
             data=request,
         ).to_record(DatasetRecord)
         return self
+
+    def rename_file(self, old_path: str, new_path: str) -> FileRecord:
+
+        response = self.__roboto_client.put(
+            f"v1/datasets/{self.dataset_id}/files/rename",
+            data=RenameFileRequest(
+                old_path=old_path,
+                new_path=new_path,
+            ),
+        )
+
+        return response.to_record(FileRecord)
+
+    def rename_directory(self, old_path: str, new_path: str) -> DirectoryRecord:
+        response = self.__roboto_client.put(
+            f"v1/datasets/{self.dataset_id}/directory/rename",
+            data=RenameDirectoryRequest(
+                old_path=old_path,
+                new_path=new_path,
+            ),
+        )
+
+        return response.to_record(DirectoryRecord)
 
     def upload_directory(
         self,

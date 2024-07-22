@@ -14,6 +14,8 @@ from .operations import (
     DeleteDirectoriesRequest,
     QueryDatasetFilesRequest,
     QueryDatasetsRequest,
+    RenameDirectoryRequest,
+    RenameFileRequest,
     ReportTransactionProgressRequest,
     UpdateDatasetRequest,
 )
@@ -50,4 +52,6 @@ __all__ = (
     "TransactionRecordV1",
     "UpdateDatasetRequest",
     "DeleteDirectoriesRequest",
+    "RenameFileRequest",
+    "RenameDirectoryRequest",
 )

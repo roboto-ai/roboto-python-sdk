@@ -102,3 +102,13 @@ class TransactionCompletionResponse(pydantic.BaseModel):
 
 class DeleteDirectoriesRequest(pydantic.BaseModel):
     directory_paths: list[str]
+
+
+class RenameFileRequest(pydantic.BaseModel):
+    old_path: str
+    new_path: str
+
+
+class RenameDirectoryRequest(pydantic.BaseModel):
+    new_path: str
+    old_path: str

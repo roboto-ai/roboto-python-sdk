@@ -16,6 +16,11 @@ import pydantic
 
 from ..config import DEFAULT_ROBOTO_DIR
 from ..domain import datasets
+from ..http import (
+    RobotoClient,
+    RobotoRequester,
+    RobotoTool,
+)
 from ..logging import default_logger
 from .agent import UploadAgent
 from .files import UploadAgentConfig
@@ -120,6 +125,11 @@ def run() -> None:
             + "formatted. Please run 'roboto-agent configure' to generate a new one."
         )
         return
+
+    roboto_client = RobotoClient.from_env()
+    roboto_client.http_client.set_requester(
+        RobotoRequester.for_tool(RobotoTool.UploadAgent)
+    )
 
     upload_agent = UploadAgent(agent_config)
 

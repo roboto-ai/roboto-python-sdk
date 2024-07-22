@@ -14,6 +14,8 @@ from ..config import RobotoConfig
 from ..http import (
     BearerTokenDecorator,
     RobotoClient,
+    RobotoRequester,
+    RobotoTool,
 )
 from ..version import __version__
 from .actions import (
@@ -203,5 +205,6 @@ def __populate_context(
         auth_decorator=auth_decorator,
     )
     context.http_client = context.roboto_client.http_client
+    context.http_client.set_requester(RobotoRequester.for_tool(RobotoTool.Cli))
 
     context.extensions = {}

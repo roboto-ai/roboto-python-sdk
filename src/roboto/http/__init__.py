@@ -28,6 +28,11 @@ from .request_decorators import (
     BearerTokenDecorator,
     SigV4AuthDecorator,
 )
+from .requester import (
+    ROBOTO_REQUESTER_HEADER,
+    RobotoRequester,
+    RobotoTool,
+)
 from .response import (
     BatchResponse,
     BatchResponseElement,
@@ -59,6 +64,7 @@ __all__ = (
     "PaginationTokenScheme",
     "RESOURCE_OWNER_OVERRIDE_HEADER",
     "RESOURCE_OWNER_OVERRIDE_QUERY_PARAM",
+    "ROBOTO_REQUESTER_HEADER",
     "ServerError",
     "SigV4AuthDecorator",
     "StreamedList",
@@ -66,4 +72,6 @@ __all__ = (
     "USER_OVERRIDE_QUERY_PARAM",
     "roboto_headers",
     "RobotoClient",
+    "RobotoRequester",
+    "RobotoTool",
 )

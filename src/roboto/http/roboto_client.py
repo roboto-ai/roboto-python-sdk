@@ -18,6 +18,7 @@ from .request import HttpRequestDecorator
 from .request_decorators import (
     BearerTokenDecorator,
 )
+from .requester import RobotoRequester, RobotoTool
 from .response import HttpResponse
 from .retry import RetryWaitFn
 
@@ -45,6 +46,12 @@ class RobotoClient:
     def from_env(cls) -> "RobotoClient":
         if cls.__from_env_instance is None:
             cls.__from_env_instance = RobotoClient.from_config(RobotoConfig.from_env())
+
+            # We know we're in the SDK right now, the CLI or Upload Agent will explicitly re-call set_requester
+            # after this is returned if they're the more correct value for tool.
+            cls.__from_env_instance.http_client.set_requester(
+                RobotoRequester.for_tool(RobotoTool.Sdk)
+            )
 
         return cls.__from_env_instance
 
