@@ -19,6 +19,7 @@ jobs:
           - os: linux
             image: ubuntu-24.04-arm64
             arch: aarch64
+    name: Determine pex platforms (${{ matrix.os }}/${{ matrix.arch }})
     runs-on: ${{ matrix.image }}
     steps:
       - uses: actions/setup-python@v5
@@ -34,7 +35,7 @@ jobs:
           path: "${{ matrix.os }}_py310_${{ matrix.arch }}.json"
           overwrite: true
   build-bin-artifacts:
-    name: Build macOS binaries
+    name: Build MacOS + Linux binaries
     needs: [determine-pex-platforms]
     # Ideally this would run on macOS, which would enable combining the `determine-pex-platforms`,
     # `build-bin-artifacts-macos`, and `exercise-macos-artifacts` jobs.
@@ -112,6 +113,7 @@ jobs:
           - image: windows-latest
             os: windows
             arch: x86_64
+    name: Exercise (${{ matrix.os }}/${{ matrix.arch }}) Binaries
     runs-on: ${{ matrix.image }}
     steps:
       - uses: actions/download-artifact@v4
@@ -127,21 +129,7 @@ jobs:
           chmod +x ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }}
           ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }} --help
   build-and-exercise-windows:
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            # Build on oldest version of linux available, re:
-            # https://pyinstaller.org/en/stable/usage.html#making-gnu-linux-apps-forward-compatible
-            image: ubuntu-20.04
-            arch: x86_64
-          - os: linux
-            image: ubuntu-24.04-arm64
-            arch: aarch64
-          - os: windows
-            image: windows-latest
-            arch: x86_64
-    name: Build (windows/x86_64) binary
+    name: Build (windows/x86_64) binaries
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
