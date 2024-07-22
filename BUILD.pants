@@ -47,7 +47,7 @@ scie_binary(
     dependencies=[":roboto-cli"],
     platforms=[
       "linux-aarch64",
-      "linux-x86_64"
+      "linux-x86_64",
       "macos-aarch64",
       "macos-x86_64",
     ]
@@ -58,7 +58,7 @@ scie_binary(
     dependencies=[":upload-agent"],
     platforms=[
       "linux-aarch64",
-      "linux-x86_64"
+      "linux-x86_64",
       "macos-aarch64",
       "macos-x86_64",
     ]
