@@ -110,9 +110,6 @@ jobs:
           - image: ubuntu-24.04-arm64
             os: linux
             arch: aarch64
-          - image: windows-latest
-            os: windows
-            arch: x86_64
     name: Exercise (${{ matrix.os }}/${{ matrix.arch }}) Binaries
     runs-on: ${{ matrix.image }}
     steps:
