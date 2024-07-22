@@ -76,7 +76,7 @@ jobs:
           pants package :roboto-agent
       - name: Package Arm64 .deb
         run: |
-          VERSION="$(./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check)"
+          VERSION="$(./dist/roboto-linux-x86_64 --version --suppress-upgrade-check)"
           mkdir -p roboto_arm_deb/DEBIAN
           echo "Package: roboto" > roboto_arm_deb/DEBIAN/control
           echo "Version: ${VERSION}" >> roboto_arm_deb/DEBIAN/control
@@ -89,7 +89,7 @@ jobs:
           dpkg-deb --build roboto_arm_deb dist/roboto-linux-aarch64_${VERSION}.deb
       - name: Package x86_64 .deb
         run: |
-          VERSION="$(./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check)"
+          VERSION="$(./dist/roboto-linux-x86_64 --version --suppress-upgrade-check)"
           mkdir -p roboto_x86_64_deb/DEBIAN
           echo "Package: roboto" > roboto_x86_64_deb/DEBIAN/control
           echo "Version: ${VERSION}" >> roboto_x86_64_deb/DEBIAN/control
