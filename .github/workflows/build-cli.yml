@@ -11,6 +11,16 @@ jobs:
           - image: macos-latest
             arch: aarch64
           - image: macos-13
+            os: macos
+            arch: x86_64
+          - os: linux
+            image: ubuntu-20.04
+            arch: x86_64
+          - os: linux
+            image: ubuntu-24.04-arm64
+            arch: aarch64
+          - os: windows
+            image: windows-latest
             arch: x86_64
     runs-on: ${{ matrix.image }}
     steps:
@@ -20,13 +30,13 @@ jobs:
       - name: Determine complete_platforms for pex
         run: |
           pip install pex
-          pex3 interpreter inspect --markers --tags > macos_py310_${{ matrix.arch }}.json
+          pex3 interpreter inspect --markers --tags > ${{ matrix.os }}_py310_${{ matrix.arch }}.json
       - uses: actions/upload-artifact@v4
         with:
-          name: macos_py310_${{ matrix.arch }}
-          path: macos_py310_${{ matrix.arch }}.json
+          name: "${{ matrix.os }}_py310_${{ matrix.arch }}"
+          path: "${{ matrix.os }}_py310_${{ matrix.arch }}.json"
           overwrite: true
-  build-bin-artifacts-macos:
+  build-bin-artifacts:
     name: Build macOS binaries
     needs: [determine-pex-platforms]
     # Ideally this would run on macOS, which would enable combining the `determine-pex-platforms`,
@@ -37,7 +47,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: macos_py310_*
+          pattern: .*_py310_*
           path: build-support/pex_platforms
           merge-multiple: true
       - uses: actions/setup-python@v5
@@ -66,89 +76,61 @@ jobs:
         run: |
           pants package :roboto
           pants package :roboto-agent
+      - name: Package .deb (linux only)
+        if: matrix.os == 'linux'
+        run: |
+          VERSION="$(./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check)"
+          mkdir -p roboto_deb/DEBIAN
+          echo "Package: roboto" > roboto_deb/DEBIAN/control
+          echo "Version: ${VERSION}" >> roboto_deb/DEBIAN/control
+          echo "Architecture: arm64" >> roboto_deb/DEBIAN/control
+          echo "Maintainer: Roboto AI <support@roboto.ai>" >> roboto_deb/DEBIAN/control
+          echo "Description: Roboto CLI and Agent" >> roboto_deb/DEBIAN/control
+          mkdir -p roboto_deb/usr/bin
+          cp ./dist/roboto-linux-${{ matrix.arch }} roboto_deb/usr/bin/roboto
+          cp ./dist/roboto-agent-linux-${{ matrix.arch }} roboto_deb/usr/bin/roboto-agent
+          dpkg-deb --build roboto_deb dist/roboto-linux-${{ matrix.arch }}_${VERSION}.deb
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-artifacts
+          name: bin-artifacts
           path: dist/
           overwrite: true
-  exercise-macos-artifacts:
-    needs: [build-bin-artifacts-macos]
+  exercise-artifacts:
+    needs: [build-bin-artifacts]
     strategy:
       matrix:
         include:
           - image: macos-latest
+            os: macos
             arch: aarch64
           - image: macos-13
+            os: macos
+            arch: x86_64
+          - image: ubuntu-20.04
+            os: linux
+            arch: x86_64
+          - image: ubuntu-24.04-arm64
+            os: linux
+            arch: aarch64
+          - image: windows-latest
+            os: windows
             arch: x86_64
     runs-on: ${{ matrix.image }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: macos-artifacts
+          name: bin-artifacts
           path: dist
       - name: Exercise roboto CLI
         run: |
-          chmod +x ./dist/roboto-macos-${{ matrix.arch }}
-          ./dist/roboto-macos-${{ matrix.arch }} --version --suppress-upgrade-check
+          chmod +x ./dist/roboto-${{ matrix.os }}-${{ matrix.arch }}
+          ./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check
       - name: Exercise roboto-agent
         run: |
-          chmod +x ./dist/roboto-agent-macos-${{ matrix.arch }}
-          ./dist/roboto-agent-macos-${{ matrix.arch }} --help
-  build-bin-artifacts-linux-and-windows:
-    strategy:
-      matrix:
-        include:
-          - os: linux
-            # Build on oldest version of linux available, re:
-            # https://pyinstaller.org/en/stable/usage.html#making-gnu-linux-apps-forward-compatible
-            image: ubuntu-20.04
-            arch: x86_64
-          - os: linux
-            image: ubuntu-24.04-arm64
-            arch: aarch64
-          - os: windows
-            image: windows-latest
-            arch: x86_64
-    name: Build (${{ matrix.os }}/${{ matrix.arch }}) binary
-    runs-on: ${{ matrix.image }}
-    steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-    - name: Install deps
-      run: |
-        pip install .
-        pip install pyinstaller
-    - name: Create binaries
-      run: |
-        python -m PyInstaller --name roboto-${{ matrix.os }}-${{ matrix.arch }} --target-architecture ${{ matrix.arch }} --onefile --paths src --collect-data cookiecutter cli_entrypoint.py
-        python -m PyInstaller --name roboto-agent-${{ matrix.os }}-${{ matrix.arch }} --target-architecture ${{ matrix.arch }} --onefile --paths src agent_entrypoint.py
-    - name: Exercise roboto CLI
-      run: ./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check
-    - name: Exercise roboto-agent
-      run: ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }} --help
-    - name: Package .deb (linux only)
-      if: matrix.os == 'linux'
-      run: |
-        VERSION="$(./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check)"
-        mkdir -p roboto_deb/DEBIAN
-        echo "Package: roboto" > roboto_deb/DEBIAN/control
-        echo "Version: ${VERSION}" >> roboto_deb/DEBIAN/control
-        echo "Architecture: arm64" >> roboto_deb/DEBIAN/control
-        echo "Maintainer: Roboto AI <support@roboto.ai>" >> roboto_deb/DEBIAN/control
-        echo "Description: Roboto CLI and Agent" >> roboto_deb/DEBIAN/control
-        mkdir -p roboto_deb/usr/bin
-        cp ./dist/roboto-linux-${{ matrix.arch }} roboto_deb/usr/bin/roboto
-        cp ./dist/roboto-agent-linux-${{ matrix.arch }} roboto_deb/usr/bin/roboto-agent
-        dpkg-deb --build roboto_deb dist/roboto-linux-${{ matrix.arch }}_${VERSION}.deb
-    - uses: actions/upload-artifact@v4
-      with:
-        name: ${{ matrix.os }}-${{ matrix.arch }}-artifacts
-        path: dist/
-        overwrite: true
+          chmod +x ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }}
+          ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }} --help
   release:
-    needs: [exercise-macos-artifacts, build-bin-artifacts-linux-and-windows]
+    needs: [exercise-artifacts, build-bin-artifacts]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

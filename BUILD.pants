@@ -41,11 +41,11 @@ pex_binary(
 scie_binary(
     name="roboto",
     dependencies=[":roboto-cli"],
-    platforms=["macos-aarch64", "macos-x86_64"]
+    platforms=["macos-aarch64", "macos-x86_64", "linux-aarch64", "linux-x86_64", "windows-x86_64"]
 )
 
 scie_binary(
     name="roboto-agent",
     dependencies=[":upload-agent"],
-    platforms=["macos-aarch64", "macos-x86_64"]
+    platforms=["macos-aarch64", "macos-x86_64", "linux-aarch64", "linux-x86_64", "windows-x86_64"]
 )
