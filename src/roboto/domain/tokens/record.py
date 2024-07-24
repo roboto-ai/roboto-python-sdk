@@ -16,6 +16,7 @@ class TokenContext(pydantic.BaseModel):
     description: Optional[str] = None
     expires: datetime.datetime
     last_used: Optional[datetime.datetime] = None
+    enabled: bool = True
 
 
 class TokenRecord(pydantic.BaseModel):

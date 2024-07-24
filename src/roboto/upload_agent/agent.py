@@ -10,7 +10,9 @@ import typing
 
 import pydantic
 
+from ..config import DEFAULT_ROBOTO_DIR
 from ..domain import datasets
+from ..env import resolve_env_variables
 from ..http import RobotoClient
 from ..logging import default_logger
 from ..time import utcnow
@@ -26,6 +28,10 @@ from .files import (
 logger = default_logger()
 
 
+DEFAULT_ROBOTO_UPLOAD_FILE = DEFAULT_ROBOTO_DIR / "default_roboto_upload.json"
+"""If you put a template JSON file here, it'll be used by `:func:`~create_upload_configs`"""
+
+
 class UploadAgent:
     __roboto_client: RobotoClient
     __agent_config: UploadAgentConfig
@@ -38,7 +44,70 @@ class UploadAgent:
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__agent_config = agent_config
 
-    def run(self) -> collections.abc.Sequence[datasets.Dataset]:
+    def create_upload_configs(self):
+        directories_to_consider: list[pathlib.Path] = []
+
+        for search_path in self.__agent_config.search_paths:
+            if not search_path.is_dir():
+                continue
+
+            directories_to_consider.extend(
+                [subdir for subdir in search_path.iterdir() if subdir.is_dir()]
+            )
+
+        upload_config_file_contents = UploadConfigFile()
+        if DEFAULT_ROBOTO_UPLOAD_FILE.is_file():
+            try:
+                upload_config_file_contents = UploadConfigFile.model_validate_json(
+                    resolve_env_variables(DEFAULT_ROBOTO_UPLOAD_FILE.read_text())
+                )
+                logger.info(
+                    "Successfully loaded default config file %s, using it for new uploads.",
+                    DEFAULT_ROBOTO_UPLOAD_FILE,
+                )
+            except Exception:
+                logger.warning(
+                    "Couldn't parse default config file at %s, using blank contents '{}' instead.",
+                    DEFAULT_ROBOTO_UPLOAD_FILE,
+                )
+        else:
+            logger.info(
+                "No default upload config file found at %s, using blank contents '{}' instead.",
+                DEFAULT_ROBOTO_UPLOAD_FILE,
+            )
+
+        for subdir in directories_to_consider:
+            if len(list(subdir.iterdir())) == 0:
+                logger.info("Directory %s is empty, skipping", subdir)
+                continue
+
+            upload_config_file = subdir / self.__agent_config.upload_config_filename
+            if upload_config_file.is_file():
+                logger.info(
+                    "Directory %s already has an upload config file, skipping", subdir
+                )
+                continue
+
+            upload_in_progress_file = subdir / UPLOAD_IN_PROGRESS_FILENAME
+            if upload_in_progress_file.is_file():
+                logger.info(
+                    "Directory %s has an upload in progress file, skipping", subdir
+                )
+                continue
+
+            upload_complete_file = subdir / UPLOAD_COMPLETE_FILENAME
+            if upload_complete_file.is_file():
+                logger.info(
+                    "Directory %s has an upload completed file, skipping", subdir
+                )
+                continue
+
+            upload_config_file.write_text(
+                upload_config_file_contents.model_dump_json(indent=2)
+            )
+            logger.info("Wrote upload config file to %s", upload_config_file)
+
+    def process_uploads(self) -> collections.abc.Sequence[datasets.Dataset]:
         upload_config_files = self.__get_upload_config_files()
         if len(upload_config_files) == 0:
             logger.info(
@@ -106,11 +175,32 @@ class UploadAgent:
 
         return upload_config_files
 
+    def __delete_uploaded_dir_if_safe(self, path: pathlib.Path):
+        if not path.is_dir():
+            return
+
+        files = [f for f in path.iterdir()]
+
+        if len(files) > 1:
+            return
+
+        if len(files) == 1:
+            if files[0].name != UPLOAD_COMPLETE_FILENAME:
+                return
+
+            files[0].unlink(missing_ok=True)
+
+        path.rmdir()
+
+        logger.info("Cleaned up empty upload directory %s", path)
+
     def __handle_upload_config_file(
         self, file: UploadConfigFile, path: pathlib.Path
     ) -> typing.Optional[datasets.Dataset]:
-        upload_in_progress_file = path.parent / UPLOAD_IN_PROGRESS_FILENAME
-        upload_complete_file = path.parent / UPLOAD_COMPLETE_FILENAME
+        dir_to_upload = path.parent
+
+        upload_in_progress_file = dir_to_upload / UPLOAD_IN_PROGRESS_FILENAME
+        upload_complete_file = dir_to_upload / UPLOAD_COMPLETE_FILENAME
 
         if upload_complete_file.is_file():
             try:
@@ -154,7 +244,7 @@ class UploadAgent:
 
         dataset: datasets.Dataset
         if existing_dataset is None:
-            logger.info("Creating a dataset for directory: %s", path.parent)
+            logger.info("Creating a dataset for directory: %s", dir_to_upload)
             dataset = datasets.Dataset.create(
                 description=file.dataset.description,
                 metadata=file.dataset.metadata,
@@ -184,7 +274,7 @@ class UploadAgent:
 
         logger.info(
             "Uploading files from %s to dataset %s. Delete after upload is %s",
-            path.parent,
+            dir_to_upload,
             dataset.dataset_id,
             delete_uploaded_files,
         )
@@ -194,7 +284,7 @@ class UploadAgent:
         exclude_patterns.append(UPLOAD_IN_PROGRESS_FILENAME)
 
         dataset.upload_directory(
-            directory_path=path.parent,
+            directory_path=dir_to_upload,
             exclude_patterns=exclude_patterns,
             delete_after_upload=delete_uploaded_files,
         )
@@ -221,7 +311,10 @@ class UploadAgent:
         dataset.upload_file(upload_complete_file, UPLOAD_COMPLETE_FILENAME)
 
         logger.info(
-            f"Upload completed, view at https://app.roboto.ai/datasets/{dataset.dataset_id}"
+            f"Upload completed, view at {self.__roboto_client.frontend_endpoint}/datasets/{dataset.dataset_id}"
         )
+
+        if self.__agent_config.delete_empty_directories:
+            self.__delete_uploaded_dir_if_safe(dir_to_upload)
 
         return dataset

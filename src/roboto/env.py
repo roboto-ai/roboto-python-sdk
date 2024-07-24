@@ -5,12 +5,39 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import enum
+import os
+import re
 import typing
 
 import pydantic
 import pydantic_settings
 
 ROBOTO_ENV_VAR_PREFIX = "ROBOTO_"
+
+
+def resolve_env_variables(value: str):
+    """
+    Given any input string, resolves any environment variables in the string against the current environment.
+    """
+    resolved_value = value
+
+    # Left side of | is $MY_ENV_VAR style, right side is ${MY_ENV_VAR}
+    #
+    # Each side has the actual variable name inside an inner capture group (separate from $ or ${}) to make it easier
+    # to pass to os.getenv
+    pattern = re.compile(r"(\$(\w+))|(\$\{(\w+)})")
+    matches = pattern.findall(resolved_value)
+
+    for match in matches:
+        left, left_word, right, right_word = match
+
+        if left != "" and left_word != "":
+            resolved_value = resolved_value.replace(left, os.getenv(left_word, ""))
+
+        if right != "" and right_word != "":
+            resolved_value = resolved_value.replace(right, os.getenv(right_word, ""))
+
+    return resolved_value
 
 
 class RobotoEnvKey(str, enum.Enum):

@@ -107,7 +107,7 @@ def configure_subcommand(args: argparse.Namespace) -> None:
     configure()
 
 
-def run() -> None:
+def run(auto_create_upload_configs: bool) -> None:
     if not agent_config_file.is_file():
         logger.error(
             f"No upload agent config file found at {agent_config_file}. Please run "
@@ -137,7 +137,10 @@ def run() -> None:
 
     try:
         with filelock.FileLock(agent_config_lockfile, timeout=1):
-            uploaded_datasets = upload_agent.run()
+            if auto_create_upload_configs:
+                upload_agent.create_upload_configs()
+
+            uploaded_datasets = upload_agent.process_uploads()
     except filelock.Timeout:
         logger.info(
             "Roboto upload agent appears to already be running, nothing to do. If you don't think this is correct, "
@@ -149,7 +152,7 @@ def run() -> None:
     logger.info("Uploaded %d datasets", len(uploaded_datasets))
 
 
-def run_forever(scan_period_seconds: int) -> None:
+def run_forever(scan_period_seconds: int, auto_create_upload_configs: bool) -> None:
     print(
         "Starting roboto-agent in run forever mode, press Ctrl+C to stop.",
         file=sys.stdout,
@@ -158,7 +161,7 @@ def run_forever(scan_period_seconds: int) -> None:
     try:
         while True:
             logger.info("Running upload agent")
-            run()
+            run(auto_create_upload_configs=auto_create_upload_configs)
             logger.info(
                 f"Run completed, sleeping for {scan_period_seconds} seconds before next attempt."
             )
@@ -169,13 +172,12 @@ def run_forever(scan_period_seconds: int) -> None:
 
 def run_subcommand(args: argparse.Namespace) -> None:
     if args.forever:
-        run_forever(30)
+        run_forever(
+            scan_period_seconds=30,
+            auto_create_upload_configs=args.auto_create_upload_configs,
+        )
     else:
-        run()
-
-
-def watch_subcommand(args: argparse.Namespace) -> None:
-    run_forever(scan_period_seconds=args.scan_period)
+        run(auto_create_upload_configs=args.auto_create_upload_configs)
 
 
 def main():
@@ -203,10 +205,25 @@ def main():
 
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument(
+        "-f",
         "--forever",
-        help="Attempt to call run every 30 seconds forever, "
+        help="Attempts to call run every 30 seconds forever, "
         + "and sleeps between runs.",
         action="store_true",
+    )
+    run_parser.add_argument(
+        "-a",
+        "--auto-create-upload-configs",
+        action="store_true",
+        help="If set, the agent will attempt to create upload configs for any directories one level under your "
+        + "configured search paths which don't already have a .roboto_upload.json, "
+        + ".roboto_upload_in_progress.json, or .roboto_upload_complete.json file. "
+        + "For example, if your search_paths are set to ['/home/username/output'], a directory like "
+        + "/home/username/output/2024_01_01T00_00_00 will be automatically prepared for upload. "
+        + "By default the contents of the generated .roboto_upload.json file will be {}, but you can override "
+        + "this by writing a ~/.roboto/default_roboto_upload.json file, whose contents will always be used instead. "
+        + "Environment variables referenced in this file will be resolved appropriately, so you can add something "
+        + 'like {"dataset":{"metadata":{"user_from_env":"$USER"}}}.',
     )
     run_parser.set_defaults(func=run_subcommand)
 

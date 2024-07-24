@@ -44,9 +44,26 @@ class UploadConfigFile(pydantic.BaseModel):
 class UploadAgentConfig(pydantic.BaseModel):
     version: typing.Literal["v1"] = "v1"
 
+    delete_empty_directories: bool = pydantic.Field(default=False)
+    """
+    If set to true, directories which are empty (or only contain a .roboto_upload_complete.json) after being uploaded
+    will be automatically deleted. This is most useful if combined with delete_upload_files=True
+    """
+
     delete_uploaded_files: bool = pydantic.Field(default=False)
+    """
+    If set to true, will delete files from disk after they've been successfully uploaded to Roboto.
+    """
+
     search_paths: list[pathlib.Path]
+    """
+    Directories to recursively scan for files to upload.
+    """
+
     upload_config_filename: str = ".roboto_upload.json"
+    """
+    The name of the upload marker file to look for.
+    """
 
 
 class UploadInProgressFile(pydantic.BaseModel):

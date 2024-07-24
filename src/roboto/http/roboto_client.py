@@ -77,6 +77,10 @@ class RobotoClient:
     def endpoint(self) -> str:
         return self.__endpoint
 
+    @property
+    def frontend_endpoint(self) -> str:
+        return self.__endpoint.replace("api", "app")
+
     def delete(
         self,
         path: ApiRelativePath,
