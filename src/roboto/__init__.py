@@ -8,6 +8,10 @@ from .action_runtime import (
     ActionRuntime,
     FilesChangesetFileManager,
 )
+from .association import (
+    Association,
+    AssociationType,
+)
 from .config import RobotoConfig
 from .domain.actions import (
     Accessibility,
@@ -87,6 +91,7 @@ from .domain.devices import (
     Device,
     DeviceRecord,
 )
+from .domain.events import Event, EventRecord
 from .domain.files import (
     CredentialProvider,
     DeleteFileRequest,
@@ -137,6 +142,8 @@ __all__ = [
     "ActionRuntime",
     "AddMessagePathRepresentationRequest",
     "AddMessagePathRequest",
+    "Association",
+    "AssociationType",
     "BeginManifestTransactionRequest",
     "BeginSingleFileUploadRequest",
     "CanonicalDataType",
@@ -176,6 +183,8 @@ __all__ = [
     "EvaluateTriggersRequest",
     "ExecutableProvenance",
     "ExecutorContainer",
+    "Event",
+    "EventRecord",
     "File",
     "FilesChangesetFileManager",
     "FileRecord",
