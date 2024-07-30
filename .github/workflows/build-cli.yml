@@ -38,8 +38,7 @@ jobs:
   build-bin-artifacts:
     name: Build MacOS + Linux binaries
     needs: [determine-pex-platforms]
-    # Ideally this would run on macOS, which would enable combining the `determine-pex-platforms`,
-    # `build-bin-artifacts-macos`, and `exercise-macos-artifacts` jobs.
+    # Ideally `determine-pex-platforms`, `build-bin-artifacts`, and `exercise-artifacts` jobs would be combined.
     # But the `scie_binary` target does not appear to work on macOS.
     runs-on: ubuntu-latest
     steps:
