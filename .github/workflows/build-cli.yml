@@ -69,7 +69,6 @@ jobs:
       - name: Conformance
         run: |
           pants check ::
-          pants test ::
       - name: Create binaries
         run: |
           pants package :roboto

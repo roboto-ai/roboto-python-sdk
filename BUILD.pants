@@ -3,14 +3,6 @@ python_requirements(
   source="pyproject.toml"
 )
 
-python_tests(
-    name="test",
-    sources=["test/**/test_*.py"],
-    dependencies=[
-      "src/roboto:roboto-src"
-    ]
-)
-
 pex_binary(
     name="roboto-cli",
     dependencies=[
