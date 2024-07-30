@@ -92,7 +92,7 @@ jobs:
           mkdir -p roboto_x86_64_deb/DEBIAN
           echo "Package: roboto" > roboto_x86_64_deb/DEBIAN/control
           echo "Version: ${VERSION}" >> roboto_x86_64_deb/DEBIAN/control
-          echo "Architecture: x86_64" >> roboto_x86_64_deb/DEBIAN/control
+          echo "Architecture: amd64" >> roboto_x86_64_deb/DEBIAN/control
           echo "Maintainer: Roboto AI <support@roboto.ai>" >> roboto_x86_64_deb/DEBIAN/control
           echo "Description: Roboto CLI and Agent" >> roboto_x86_64_deb/DEBIAN/control
           mkdir -p roboto_x86_64_deb/usr/bin
