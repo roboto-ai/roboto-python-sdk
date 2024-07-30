@@ -8,10 +8,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - image: macos-latest
+          - os: macos
+            image: macos-latest
             arch: aarch64
-          - image: macos-13
-            os: macos
+          - os: macos
+            image: macos-13
             arch: x86_64
           - os: linux
             image: ubuntu-20.04
