@@ -9,6 +9,8 @@ import typing
 import pydantic
 
 from ...association import Association
+from ...sentinels import NotSet, NotSetType
+from ...updates import MetadataChangeset
 
 
 class CreateEventRequest(pydantic.BaseModel):
@@ -61,3 +63,24 @@ class QueryEventsForAssociationsRequest(pydantic.BaseModel):
 
     page_token: typing.Optional[str] = None
     """Token to use to fetch the next page of results, use None for the first page."""
+
+
+class UpdateEventRequest(pydantic.BaseModel):
+    """
+    Request payload for the Update Event operation. Allows any of the mutable fields of an event to be changed.
+    """
+
+    description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
+    """
+    An optional human-readable description of the event.
+    """
+
+    metadata_changeset: typing.Optional[MetadataChangeset] = None
+    """
+    Metadata and tag changes to make for this event
+    """
+
+    # This is required to get NotSet/NotSetType to serialize appropriately.
+    model_config = pydantic.ConfigDict(
+        extra="forbid", json_schema_extra=NotSetType.openapi_schema_modifier
+    )

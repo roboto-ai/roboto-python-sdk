@@ -16,6 +16,7 @@ from ..env import resolve_env_variables
 from ..http import RobotoClient
 from ..logging import default_logger
 from ..time import utcnow
+from ..updates import MetadataChangeset
 from .files import (
     UPLOAD_COMPLETE_FILENAME,
     UPLOAD_IN_PROGRESS_FILENAME,
@@ -107,7 +108,14 @@ class UploadAgent:
             )
             logger.info("Wrote upload config file to %s", upload_config_file)
 
-    def process_uploads(self) -> collections.abc.Sequence[datasets.Dataset]:
+    def process_uploads(
+        self, merge_uploads: bool = False
+    ) -> collections.abc.Sequence[datasets.Dataset]:
+        """
+        If merge is true, everything will be combined into a single dataset. Otherwise, each directory will be uploaded
+        to a separate dataset.
+        """
+
         upload_config_files = self.__get_upload_config_files()
         if len(upload_config_files) == 0:
             logger.info(
@@ -120,16 +128,25 @@ class UploadAgent:
                 len(upload_config_files),
             )
 
-        uploaded_datasets: list[datasets.Dataset] = []
+        update_dataset: typing.Optional[datasets.Dataset] = None
+        created_datasets: list[datasets.Dataset] = []
+
+        if merge_uploads:
+            update_dataset = datasets.Dataset.create(
+                roboto_client=self.__roboto_client,
+                caller_org_id=self.__agent_config.default_org_id,
+            )
+
+            created_datasets.append(update_dataset)
 
         for upload_config_file, path in upload_config_files:
             uploaded_dataset = self.__handle_upload_config_file(
-                upload_config_file, path
+                file=upload_config_file, path=path, update_dataset=update_dataset
             )
             if uploaded_dataset is not None:
-                uploaded_datasets.append(uploaded_dataset)
+                created_datasets.append(uploaded_dataset)
 
-        return uploaded_datasets
+        return created_datasets
 
     def __get_upload_config_files(
         self,
@@ -195,8 +212,18 @@ class UploadAgent:
         logger.info("Cleaned up empty upload directory %s", path)
 
     def __handle_upload_config_file(
-        self, file: UploadConfigFile, path: pathlib.Path
+        self,
+        file: UploadConfigFile,
+        path: pathlib.Path,
+        update_dataset: typing.Optional[datasets.Dataset] = None,
     ) -> typing.Optional[datasets.Dataset]:
+        """
+        If you pass in an update_dataset, it will be used instead of creating a new one, and any
+        dataset properties in the upload config file will be applied as an update.
+
+        This will return a dataset if one is created, which means it will NOT return a dataset passed into the
+        ``update_dataset`` param.
+        """
         dir_to_upload = path.parent
 
         upload_in_progress_file = dir_to_upload / UPLOAD_IN_PROGRESS_FILENAME
@@ -221,19 +248,19 @@ class UploadAgent:
 
             return None
 
-        existing_dataset: typing.Optional[datasets.Dataset] = None
+        in_progress_dataset: typing.Optional[datasets.Dataset] = None
 
         if upload_in_progress_file.is_file():
             try:
                 parsed_in_progress_file = UploadInProgressFile.model_validate_json(
                     upload_in_progress_file.read_text()
                 )
-                existing_dataset = datasets.Dataset.from_id(
+                in_progress_dataset = datasets.Dataset.from_id(
                     parsed_in_progress_file.dataset_id
                 )
                 logger.warning(
                     "Found upload-in-progress file for dataset %s at path %s, resuming upload",
-                    existing_dataset.dataset_id,
+                    in_progress_dataset.dataset_id,
                     upload_in_progress_file.resolve(),
                 )
             except pydantic.ValidationError:
@@ -243,7 +270,35 @@ class UploadAgent:
                 )
 
         dataset: datasets.Dataset
-        if existing_dataset is None:
+        should_write_in_progress_file: bool
+
+        # Order of figuring out what dataset we're working on:
+        # 1. In progress is always the first choice, because if it exists, it means we already made a decision that
+        #    we want to stick with, and for some reason the upload failed. Let's not change that.
+        # 2. Explicit update
+        # 3. Create new
+        if in_progress_dataset is not None:
+            dataset = in_progress_dataset
+            should_write_in_progress_file = False
+
+        elif update_dataset is not None:
+            logger.info(
+                "Applying update to existing dataset %s for directory: %s",
+                update_dataset.dataset_id,
+                dir_to_upload,
+            )
+            dataset = update_dataset
+            dataset.update(
+                description=file.dataset.description,
+                metadata_changeset=MetadataChangeset(
+                    put_fields=file.dataset.metadata,
+                    put_tags=file.dataset.tags,
+                ),
+            )
+            logger.info("Successfully updated dataset %s", dataset.dataset_id)
+            should_write_in_progress_file = True
+
+        else:
             logger.info("Creating a dataset for directory: %s", dir_to_upload)
             dataset = datasets.Dataset.create(
                 description=file.dataset.description,
@@ -253,6 +308,9 @@ class UploadAgent:
                 roboto_client=self.__roboto_client,
             )
             logger.info("Created dataset %s for path %s", dataset.dataset_id, path)
+            should_write_in_progress_file = True
+
+        if should_write_in_progress_file:
             logger.debug(
                 "Writing in progress file to %s", upload_in_progress_file.resolve()
             )
@@ -263,8 +321,6 @@ class UploadAgent:
                     started=dataset.record.created,
                 ).model_dump_json(indent=2)
             )
-        else:
-            dataset = existing_dataset
 
         # Default to using the delete-uploaded-files strategy from the agent config file, but override it if it
         # has been explicitly set in the upload file.
@@ -281,11 +337,12 @@ class UploadAgent:
 
         exclude_patterns = file.upload.exclude_patterns or []
         # Explicitly opt out of uploading the upload-in-progress file.
-        exclude_patterns.append(UPLOAD_IN_PROGRESS_FILENAME)
+        exclude_patterns.append(f"**/{UPLOAD_IN_PROGRESS_FILENAME}")
 
         dataset.upload_directory(
             directory_path=dir_to_upload,
             exclude_patterns=exclude_patterns,
+            include_patterns=file.upload.include_patterns,
             delete_after_upload=delete_uploaded_files,
         )
 
@@ -316,5 +373,10 @@ class UploadAgent:
 
         if self.__agent_config.delete_empty_directories:
             self.__delete_uploaded_dir_if_safe(dir_to_upload)
+
+        # If we were passed in an update_dataset, we don't want to return it, because the intention of the return
+        # is to be added to an array of created datasets. This one already exists / wasn't created by this call.
+        if update_dataset is not None:
+            return None
 
         return dataset

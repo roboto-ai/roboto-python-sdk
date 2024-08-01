@@ -13,6 +13,7 @@ import typing
 
 import pathspec
 
+from ...association import Association
 from ...auth import Permissions
 from ...env import RobotoEnv
 from ...exceptions import (
@@ -418,6 +419,9 @@ class Dataset:
         """Remove each tag in this sequence if it exists"""
         self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
+    def to_association(self) -> Association:
+        return Association.dataset(self.dataset_id)
+
     def to_dict(self) -> dict[str, typing.Any]:
         return self.__record.model_dump(mode="json")
 
@@ -465,18 +469,18 @@ class Dataset:
     def upload_directory(
         self,
         directory_path: pathlib.Path,
+        include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
         delete_after_upload: bool = False,
     ) -> None:
         """
-        Upload everything, recursively, in directory, ignoring files that match any of the ignore patterns.
-
-        `exclude_patterns` is a list of gitignore-style patterns.
-        See https://git-scm.com/docs/gitignore#_pattern_format.
+        Uploads all files and directories recursively from the specified directory path. You can use
+        `include_patterns` and `exclude_patterns` to control what files and directories are uploaded, and can
+        use `delete_after_upload` to clean up your local filesystem after the uploads succeed.
 
         Example:
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset(...)
+            >>> from roboto import Dataset
+            >>> dataset = Dataset(...)
             >>> dataset.upload_directory(
             ...     pathlib.Path("/path/to/directory"),
             ...     exclude_patterns=[
@@ -486,12 +490,21 @@ class Dataset:
             ...         "**/*.log",
             ...     ],
             ... )
+
+        Notes:
+            - Both `include_patterns` and `exclude_patterns` follow the 'gitignore' pattern format described
+              in https://git-scm.com/docs/gitignore#_pattern_format.
+            - If both `include_patterns` and `exclude_patterns` are provided, files matching
+              `exclude_patterns` will be excluded even if they match `include_patterns`.
         """
+        include_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(
+            include_patterns
+        )
         exclude_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(
             exclude_patterns
         )
         all_files = self.__list_directory_files(
-            directory_path, exclude_spec=exclude_spec
+            directory_path, include_spec=include_spec, exclude_spec=exclude_spec
         )
         file_destination_paths = {
             path: os.path.relpath(path, directory_path) for path in all_files
@@ -609,13 +622,19 @@ class Dataset:
     def __list_directory_files(
         self,
         directory_path: pathlib.Path,
+        include_spec: typing.Optional[pathspec.PathSpec] = None,
         exclude_spec: typing.Optional[pathspec.PathSpec] = None,
     ) -> collections.abc.Iterable[pathlib.Path]:
         all_files = set()
 
         for root, _, files in os.walk(directory_path):
             for file in files:
-                if not exclude_spec or not exclude_spec.match_file(file):
+                should_include = include_spec is None or include_spec.match_file(file)
+                should_exclude = exclude_spec is not None and exclude_spec.match_file(
+                    file
+                )
+
+                if should_include and not should_exclude:
                     all_files.add(pathlib.Path(root, file))
 
         return all_files

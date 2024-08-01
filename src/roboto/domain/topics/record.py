@@ -84,10 +84,11 @@ class MessagePathRecord(pydantic.BaseModel):
     Path to a typed attribute within individual datum records contained within a Topic.
     """
 
-    message_path: str
-    """
-    Dot-delimited path to the attribute within the datum record.
-    """
+    canonical_data_type: CanonicalDataType
+    """Normalized data type, used primarily internally by the Roboto Platform."""
+
+    created: datetime.datetime
+    created_by: str
 
     data_type: str
     """
@@ -95,17 +96,10 @@ class MessagePathRecord(pydantic.BaseModel):
     E.g. "float32", "unint8[]", "geometry_msgs/Pose", "string".
     """
 
-    canonical_data_type: CanonicalDataType
-
-    representations: collections.abc.MutableSequence[RepresentationRecord] = (
-        pydantic.Field(default_factory=list)
-    )
+    message_path: str
     """
-    Zero to many Representations of this MessagePath.
+    Dot-delimited path to the attribute within the datum record.
     """
-
-    topic_message_path_id: int
-    """Internal identifier for this MessagePath, joined to a particular Topic."""
 
     metadata: collections.abc.Mapping[str, typing.Any] = pydantic.Field(
         default_factory=dict,
@@ -114,6 +108,22 @@ class MessagePathRecord(pydantic.BaseModel):
     Key-value pairs to associate with this metadata for discovery and search, e.g.
     `{ 'min': '0.71', 'max': '1.77 }`
     """
+
+    modified: datetime.datetime
+    modified_by: str
+
+    representations: collections.abc.MutableSequence[RepresentationRecord] = (
+        pydantic.Field(default_factory=list)
+    )
+    """
+    Zero to many Representations of this MessagePath.
+    """
+
+    topic_id: int
+    """Internal identifier for Topic with which this MessagePath is associated."""
+
+    topic_message_path_id: int
+    """Internal identifier for this MessagePath, joined to a particular Topic."""
 
 
 class TopicRecord(pydantic.BaseModel):

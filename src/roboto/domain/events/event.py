@@ -10,10 +10,16 @@ import typing
 
 from ...association import Association
 from ...http import RobotoClient
+from ...sentinels import NotSet, NotSetType
 from ...time import to_epoch_nanoseconds
+from ...updates import (
+    MetadataChangeset,
+    StrSequence,
+)
 from .operations import (
     CreateEventRequest,
     QueryEventsForAssociationsRequest,
+    UpdateEventRequest,
 )
 from .record import EventRecord
 
@@ -123,5 +129,41 @@ class Event:
     def delete(self) -> None:
         self.__roboto_client.delete(f"v1/events/id/{self.event_id}")
 
+    def put_metadata(self, metadata: dict[str, typing.Any]) -> "Event":
+        return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
+
+    def put_tags(self, tags: list[str]) -> "Event":
+        return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
+
+    def remove_metadata(
+        self,
+        metadata: StrSequence,
+    ) -> "Event":
+        return self.update(metadata_changeset=MetadataChangeset(remove_fields=metadata))
+
+    def remove_tags(
+        self,
+        tags: StrSequence,
+    ) -> "Event":
+        return self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
+
+    def set_description(self, description: typing.Optional[str]) -> "Event":
+        return self.update(description=description)
+
     def to_dict(self) -> dict[str, typing.Any]:
         return self.__record.model_dump(mode="json")
+
+    def update(
+        self,
+        description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
+        metadata_changeset: typing.Optional[MetadataChangeset] = None,
+    ) -> "Event":
+        request = UpdateEventRequest(
+            description=description, metadata_changeset=metadata_changeset
+        )
+
+        self.__record = self.__roboto_client.put(
+            f"/v1/events/id/{self.event_id}", data=request
+        ).to_record(EventRecord)
+
+        return self

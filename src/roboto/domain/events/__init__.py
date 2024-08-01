@@ -8,12 +8,14 @@ from .event import Event
 from .operations import (
     CreateEventRequest,
     QueryEventsForAssociationsRequest,
+    UpdateEventRequest,
 )
 from .record import EventRecord
 
 __all__ = [
-    "Event",
     "CreateEventRequest",
+    "Event",
     "EventRecord",
     "QueryEventsForAssociationsRequest",
+    "UpdateEventRequest",
 ]

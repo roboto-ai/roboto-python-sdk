@@ -231,6 +231,9 @@ class File:
     def put_tags(self, tags: list[str]) -> "File":
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
+    def to_association(self) -> Association:
+        return Association.file(self.file_id)
+
     def to_dict(self) -> dict[str, Any]:
         return self.__record.model_dump(mode="json")
 

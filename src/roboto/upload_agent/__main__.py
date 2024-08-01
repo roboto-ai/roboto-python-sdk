@@ -107,7 +107,7 @@ def configure_subcommand(args: argparse.Namespace) -> None:
     configure()
 
 
-def run(auto_create_upload_configs: bool) -> None:
+def run(auto_create_upload_configs: bool, merge_uploads: bool) -> None:
     if not agent_config_file.is_file():
         logger.error(
             f"No upload agent config file found at {agent_config_file}. Please run "
@@ -140,7 +140,9 @@ def run(auto_create_upload_configs: bool) -> None:
             if auto_create_upload_configs:
                 upload_agent.create_upload_configs()
 
-            uploaded_datasets = upload_agent.process_uploads()
+            uploaded_datasets = upload_agent.process_uploads(
+                merge_uploads=merge_uploads
+            )
     except filelock.Timeout:
         logger.info(
             "Roboto upload agent appears to already be running, nothing to do. If you don't think this is correct, "
@@ -152,7 +154,9 @@ def run(auto_create_upload_configs: bool) -> None:
     logger.info("Uploaded %d datasets", len(uploaded_datasets))
 
 
-def run_forever(scan_period_seconds: int, auto_create_upload_configs: bool) -> None:
+def run_forever(
+    scan_period_seconds: int, auto_create_upload_configs: bool, merge_uploads: bool
+) -> None:
     print(
         "Starting roboto-agent in run forever mode, press Ctrl+C to stop.",
         file=sys.stdout,
@@ -161,7 +165,10 @@ def run_forever(scan_period_seconds: int, auto_create_upload_configs: bool) -> N
     try:
         while True:
             logger.info("Running upload agent")
-            run(auto_create_upload_configs=auto_create_upload_configs)
+            run(
+                auto_create_upload_configs=auto_create_upload_configs,
+                merge_uploads=merge_uploads,
+            )
             logger.info(
                 f"Run completed, sleeping for {scan_period_seconds} seconds before next attempt."
             )
@@ -175,9 +182,13 @@ def run_subcommand(args: argparse.Namespace) -> None:
         run_forever(
             scan_period_seconds=30,
             auto_create_upload_configs=args.auto_create_upload_configs,
+            merge_uploads=args.merge_uploads,
         )
     else:
-        run(auto_create_upload_configs=args.auto_create_upload_configs)
+        run(
+            auto_create_upload_configs=args.auto_create_upload_configs,
+            merge_uploads=args.merge_uploads,
+        )
 
 
 def main():
@@ -210,6 +221,20 @@ def main():
         help="Attempts to call run every 30 seconds forever, "
         + "and sleeps between runs.",
         action="store_true",
+    )
+    run_parser.add_argument(
+        "-m",
+        "--merge-uploads",
+        action="store_true",
+        help=(
+            "If set, all uploads will be merged into a single dataset. If combined with "
+            "--auto-create-upload-configs, this will allow you to set many disparate output locations as your "
+            "search paths, and still unite everything under a single dataset. "
+            "Any tags/metadata/description set in .roboto_upload.json files will be applied sequentially as updates "
+            "to the created dataset. If there are collisions, like multiple different descriptions or multiple "
+            "metadata values for the same key, the last one encountered will be used, and the traversal order will "
+            "be non-deterministic."
+        ),
     )
     run_parser.add_argument(
         "-a",

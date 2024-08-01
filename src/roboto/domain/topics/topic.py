@@ -238,6 +238,9 @@ class Topic:
         self.__refresh()
         return representation_record
 
+    def to_association(self) -> Association:
+        return Association.topic(self.record.topic_id)
+
     def update(
         self,
         end_time: typing.Union[typing.Optional[int], NotSetType] = NotSet,

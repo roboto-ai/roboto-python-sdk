@@ -28,6 +28,7 @@ class UploadConfigFileDatasetSection(CreateDatasetRequest):
 class UploadConfigFileUploadSection(pydantic.BaseModel):
     delete_uploaded_files: typing.Optional[bool] = None
     exclude_patterns: typing.Optional[typing.List[str]] = None
+    include_patterns: typing.Optional[typing.List[str]] = None
 
 
 class UploadConfigFile(pydantic.BaseModel):
@@ -44,13 +45,18 @@ class UploadConfigFile(pydantic.BaseModel):
 class UploadAgentConfig(pydantic.BaseModel):
     version: typing.Literal["v1"] = "v1"
 
-    delete_empty_directories: bool = pydantic.Field(default=False)
+    default_org_id: typing.Optional[str] = None
+    """
+    The org ID to use when creating datasets via --merge-uploads, or other operations which may have an ambiguous org.
+    """
+
+    delete_empty_directories: bool = False
     """
     If set to true, directories which are empty (or only contain a .roboto_upload_complete.json) after being uploaded
     will be automatically deleted. This is most useful if combined with delete_upload_files=True
     """
 
-    delete_uploaded_files: bool = pydantic.Field(default=False)
+    delete_uploaded_files: bool = False
     """
     If set to true, will delete files from disk after they've been successfully uploaded to Roboto.
     """
