@@ -13,6 +13,7 @@ from ..config import (
     RobotoConfigFileV1,
 )
 from ..domain import devices
+from ..exceptions import RobotoConflictException
 from ..logging import default_logger
 from .command import (
     RobotoCommand,
@@ -94,6 +95,78 @@ def enable_device_access_setup_parser(parser: argparse.ArgumentParser) -> None:
     add_org_arg(parser)
 
 
+def generate_device_creds(
+    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
+) -> None:
+    config_file: pathlib.Path = args.config_file
+    if config_file.is_file():
+        parser.error(
+            f"Specified config file {args.config_file} already exists and would be overwritten. "
+            + "Please provide a different --config-file, or delete the existing one."
+        )
+
+    org_id = get_defaulted_org_id(args.org)
+
+    device = devices.Device.from_id(
+        device_id=args.device_id,
+        roboto_client=context.roboto_client,
+        org_id=org_id,
+    )
+
+    generate_device_creds_common_logic(device, config_file, context)
+
+
+def generate_device_creds_common_logic(
+    device: devices.Device,
+    config_file: pathlib.Path,
+    context: CLIContext,
+):
+    """
+    Used in `generate-creds` and `register`
+    """
+    device_token, device_secret = device.create_token()
+
+    profiles: dict[str, RobotoConfig] = {}
+
+    # Name the default profile after the fully qualified device ID
+    default_profile = f"{device.org_id}_{device.device_id}"
+    profiles[default_profile] = RobotoConfig(
+        api_key=device_secret,
+        endpoint=context.roboto_client.endpoint,
+    )
+
+    config_file_content = RobotoConfigFileV1(
+        version="v1", profiles=profiles, default_profile=default_profile
+    )
+
+    config_file.write_text(config_file_content.model_dump_json())
+
+    print(
+        (
+            f"Saved Roboto credentials for device {device.device_id} to {config_file.resolve()}\n\n"
+            "This file should be copied to '$HOME/.roboto/config.json' on the device's operating system.\n\n"
+            "You can also store this file in a different location, and use the environment variable "
+            "ROBOTO_CONFIG_FILE to point to its location.\n\n"
+            "Any first-party Roboto software, including `roboto` and "
+            "`roboto-agent`, will use this file to authenticate with Roboto."
+        ),
+        file=sys.stderr,
+    )
+
+
+def generate_device_creds_setup_parser(parser: argparse.ArgumentParser) -> None:
+    __add_device_arg(parser)
+    add_org_arg(parser)
+    parser.add_argument(
+        "-f",
+        "--config-file",
+        type=pathlib.Path,
+        default="config.json",
+        help="Where on local disk to save the config file containing the device's generated Roboto credentials. "
+        + "Defaults to 'config.json' in the current directory.",
+    )
+
+
 def list_devices(
     args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
 ) -> None:
@@ -118,38 +191,25 @@ def register_device(
 
     org_id = get_defaulted_org_id(args.org)
 
-    device = devices.Device.create(
-        device_id=args.device_id,
-        caller_org_id=org_id,
-        roboto_client=context.roboto_client,
-    )
+    try:
+        device = devices.Device.create(
+            device_id=args.device_id,
+            caller_org_id=org_id,
+            roboto_client=context.roboto_client,
+        )
+    except RobotoConflictException:
+        device = devices.Device.from_id(
+            device_id=args.device_id,
+            org_id=org_id,
+            roboto_client=context.roboto_client,
+        )
 
-    device_token, device_secret = device.create_token()
+        print(
+            f"Device {device.device_id} already exists, generating new credentials for it.\n",
+            file=sys.stderr,
+        )
 
-    profiles: dict[str, RobotoConfig] = {}
-
-    # Name the default profile after the fully qualified device ID
-    default_profile = f"{device.org_id}_{device.device_id}"
-    profiles[default_profile] = RobotoConfig(
-        api_key=device_secret,
-        endpoint=context.roboto_client.endpoint,
-    )
-
-    config_file_content = RobotoConfigFileV1(
-        version="v1", profiles=profiles, default_profile=default_profile
-    )
-
-    config_file.write_text(config_file_content.model_dump_json())
-
-    print(
-        f"Created device {device.device_id}, and saved Roboto credentials to {config_file.resolve()}\n\n"
-        + "This file should be copied to '$HOME/.roboto/config.json' on the device's operating system.\n\n"
-        + "You can also store this file in a different location, and use the environment variable "
-        + "ROBOTO_CONFIG_FILE to point to its location.\n\n"
-        + "Any first-party Roboto software, including `roboto` and "
-        + "`roboto-agent`, will use this file to authenticate with Roboto.",
-        file=sys.stderr,
-    )
+    generate_device_creds_common_logic(device, config_file, context)
 
 
 def register_device_setup_parser(parser: argparse.ArgumentParser) -> None:
@@ -202,7 +262,6 @@ disable_access_command = RobotoCommand(
     },
 )
 
-
 enable_access_command = RobotoCommand(
     name="enable",
     logic=enable_device_access,
@@ -213,6 +272,14 @@ enable_access_command = RobotoCommand(
     },
 )
 
+generate_creds_command = RobotoCommand(
+    name="generate-creds",
+    logic=generate_device_creds,
+    setup_parser=generate_device_creds_setup_parser,
+    command_kwargs={
+        "help": "Generates a new access credentials file for an existing device."
+    },
+)
 
 list_command = RobotoCommand(
     name="list",
@@ -241,6 +308,7 @@ commands = [
     enable_access_command,
     disable_access_command,
     delete_command,
+    generate_creds_command,
     list_command,
     register_command,
     show_command,

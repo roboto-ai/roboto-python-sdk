@@ -18,8 +18,11 @@ from ..context import CLIContext
 
 
 def show(args, context: CLIContext, parser: argparse.ArgumentParser):
-    user = User.from_id(user_id=args.id, roboto_client=context.roboto_client).to_dict()
-    print(json.dumps(user, indent=2))
+    if not args.id:
+        user = User.for_self(roboto_client=context.roboto_client)
+    else:
+        user = User.from_id(user_id=args.id, roboto_client=context.roboto_client)
+    print(json.dumps(user.to_dict(), indent=2))
 
 
 def show_setup_parser(parser):

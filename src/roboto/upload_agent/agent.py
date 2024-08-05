@@ -348,7 +348,7 @@ class UploadAgent:
 
         if path.is_file():
             logger.info("Deleting marker file %s", path)
-            path.unlink()
+            path.unlink(missing_ok=True)
 
         logger.debug(
             "Writing upload complete file to %s", upload_complete_file.resolve()
@@ -361,7 +361,7 @@ class UploadAgent:
 
         # Delete the in progress file after writing the complete file, because that's when we know for sure that
         # our completion has been signaled to both Roboto service and the local OS.
-        upload_in_progress_file.unlink()
+        upload_in_progress_file.unlink(missing_ok=True)
 
         # Explicitly write the upload complete file, because it's useful as an "everything is ready" triggers signal,
         # as well as a diagnostic aid.
