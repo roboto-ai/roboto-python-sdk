@@ -1,6 +1,10 @@
 python_requirements(
   name="3rdparty",
-  source="pyproject.toml"
+  source="pyproject.toml",
+  module_mapping={
+      "mcap-ros1-support": ("mcap_ros1",),
+      "mcap-ros2-support": ("mcap_ros2",)
+  },
 )
 
 pex_binary(
