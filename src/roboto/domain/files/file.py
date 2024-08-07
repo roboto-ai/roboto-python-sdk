@@ -216,14 +216,25 @@ class File:
         )
         return res.to_dict(json_path=["data", "url"])
 
-    def get_topics(self) -> collections.abc.Generator["Topic", None, None]:
-        return Topic.get_by_association(
+    def get_topics(
+        self,
+        include: typing.Optional[collections.abc.Sequence[str]] = None,
+        exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+    ) -> collections.abc.Generator["Topic", None, None]:
+        for topic in Topic.get_by_association(
             owner_org_id=self.org_id,
             association=Association(
                 association_type=AssociationType.File,
                 association_id=self.file_id,
             ),
-        )
+        ):
+            if include is not None and topic.name not in include:
+                continue
+
+            if exclude is not None and topic.name in exclude:
+                continue
+
+            yield topic
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "File":
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))

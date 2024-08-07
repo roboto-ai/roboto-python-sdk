@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import argparse
+import collections.abc
 import json
 import os
 import pathlib
@@ -32,7 +33,16 @@ def JsonFileOrStrType(arg):
 class KeyValuePairsAction(argparse.Action):
     value_dict: dict[str, typing.Any] = {}
 
-    def __call__(self, parser, namespace, values, option_string):
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | collections.abc.Sequence[typing.Any] | None,
+        option_string: str | None = None,
+    ):
+        if values is None:
+            return
+
         try:
             for pair in values:
                 key, value = pair.split("=")

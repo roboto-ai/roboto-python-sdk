@@ -17,6 +17,8 @@ from ...updates import (
 )
 from .record import (
     CanonicalDataType,
+    MessagePathRecord,
+    RepresentationRecord,
     RepresentationStorageFormat,
 )
 
@@ -43,6 +45,13 @@ class AddMessagePathRepresentationRequest(BaseAddRepresentationRequest):
     # 'ignore' used to avoid backwards incompatible change to remove `org_id` from BaseAddRepresentationRequest
     # Should be changed back to 'forbid' for SDK v1.0
     model_config = pydantic.ConfigDict(extra="ignore")
+
+
+class MessagePathRepresentationMapping(pydantic.BaseModel):
+    """Latest representation of topic data in particular storage format containing given message paths"""
+
+    message_paths: collections.abc.MutableSequence[MessagePathRecord]
+    representation: RepresentationRecord
 
 
 class AddMessagePathRequest(pydantic.BaseModel):

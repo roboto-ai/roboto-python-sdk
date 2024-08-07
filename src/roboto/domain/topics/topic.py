@@ -5,11 +5,14 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import pathlib
 import typing
 import urllib.parse
+import urllib.request
 
 from ...association import Association
 from ...http import RobotoClient
+from ...logging import default_logger
 from ...sentinels import (
     NotSet,
     NotSetType,
@@ -34,11 +37,15 @@ from .record import (
     RepresentationStorageFormat,
     TopicRecord,
 )
+from .topic_data_service import TopicDataService
+
+logger = default_logger()
 
 
 class Topic:
     __record: TopicRecord
     __roboto_client: RobotoClient
+    __topic_data_service: TopicDataService
 
     @classmethod
     def create(
@@ -125,9 +132,13 @@ class Topic:
         self,
         record: TopicRecord,
         roboto_client: typing.Optional[RobotoClient] = None,
+        topic_data_service: typing.Optional[TopicDataService] = None,
     ):
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
+        self.__topic_data_service = topic_data_service or TopicDataService(
+            self.__roboto_client
+        )
 
     def __repr__(self) -> str:
         return self.__record.model_dump_json()
@@ -215,6 +226,87 @@ class Topic:
         self.__roboto_client.delete(
             f"v1/topics/association/{encoded_association}/name/{self.url_quoted_name}",
             owner_org_id=self.org_id,
+        )
+
+    def get_data(
+        self,
+        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        cache_dir: typing.Union[str, pathlib.Path, None] = None,
+    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        """
+        Return this topic's underlying data.
+        Each yielded datum is a dictionary that matches this topic's schema.
+
+        If ``message_paths_include`` or ``message_paths_exclude`` are defined,
+        they should be dot notation paths that match attributes of individual data records.
+
+        For each example below, assume the following is a sample datum record that can be found in this topic:
+
+        ::
+
+            {
+                "angular_velocity": {
+                    "x": <uint32>,
+                    "y": <uint32>,
+                    "z": <uint32>
+                },
+                "orientation": {
+                    "x": <uint32>,
+                    "y": <uint32>,
+                    "z": <uint32>,
+                    "w": <uint32>
+                }
+            }
+
+        Examples:
+            Print all data to stdout.
+
+            >>> topic = Topic.from_name_and_association(...)
+            >>> for record in topic.get_data():
+            >>>      print(record)
+
+            Only include the `"angular_velocity"` sub-object, but filter out its `"y"` property.
+
+            >>> topic = Topic.from_name_and_association(...)
+            >>> for record in topic.get_data(
+            >>>   message_paths_include=["angular_velocity"],
+            >>>   message_paths_exclude=["angular_velocity.y"],
+            >>> ):
+            >>>      print(record)
+
+            Collect all topic data into a dataframe. Requires installing ``pandas`` into the same Python environment.
+
+            >>> import pandas as pd
+            >>> topic = Topic.from_name_and_association(...)
+            >>> df = pd.json_normalize(data=list(topic.get_data()))
+
+        """
+        message_paths = set(
+            message_path_record.message_path
+            for message_path_record in self.__record.message_paths
+        )
+        if message_paths_include and message_paths.isdisjoint(
+            set(message_paths_include)
+        ):
+            difference = set(message_paths_include) - message_paths
+            raise ValueError(
+                f"Unknown message_paths passed as 'message_paths_include': {difference}"
+            )
+
+        if message_paths_exclude and message_paths.isdisjoint(
+            set(message_paths_exclude)
+        ):
+            difference = set(message_paths_exclude) - message_paths
+            raise ValueError(
+                f"Unknown message_paths passed as 'message_paths_exclude': {difference}"
+            )
+
+        yield from self.__topic_data_service.get_data(
+            topic_id=self.__record.topic_id,
+            message_paths_include=message_paths_include,
+            message_paths_exclude=message_paths_exclude,
+            cache_dir_override=cache_dir,
         )
 
     def set_default_representation(
