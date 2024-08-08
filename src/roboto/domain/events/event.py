@@ -38,6 +38,7 @@ class Event:
         cls,
         associations: collections.abc.Sequence[Association],
         start_time: typing.Union[int, datetime.datetime],
+        name: str = "Custom Event",
         end_time: typing.Optional[typing.Union[int, datetime.datetime]] = None,
         description: typing.Optional[str] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
@@ -53,6 +54,7 @@ class Event:
             description=description,
             metadata=metadata or {},
             tags=tags or [],
+            name=name,
         )
         record = roboto_client.post(
             "v1/events/create", caller_org_id=caller_org_id, data=request
@@ -150,6 +152,9 @@ class Event:
     def set_description(self, description: typing.Optional[str]) -> "Event":
         return self.update(description=description)
 
+    def set_name(self, name: str) -> "Event":
+        return self.update(name=name)
+
     def to_dict(self) -> dict[str, typing.Any]:
         return self.__record.model_dump(mode="json")
 
@@ -157,9 +162,10 @@ class Event:
         self,
         description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         metadata_changeset: typing.Optional[MetadataChangeset] = None,
+        name: typing.Optional[str] = None,
     ) -> "Event":
         request = UpdateEventRequest(
-            description=description, metadata_changeset=metadata_changeset
+            description=description, metadata_changeset=metadata_changeset, name=name
         )
 
         self.__record = self.__roboto_client.put(

@@ -63,6 +63,12 @@ class EventRecord(pydantic.BaseModel):
     The user who last modified this device record.
     """
 
+    name: str
+    """
+    A brief human-readable name for the event. Many events can have the same name. "Takeoff", "Crash", "CPU Spike",
+    "Bad Image Quality", and "Unexpected Left" are a few potential examples.
+    """
+
     org_id: str = pydantic.Field(description="The org to which this device belongs.")
     """
     The org to which this device belongs.

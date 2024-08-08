@@ -42,6 +42,12 @@ class CreateEventRequest(pydantic.BaseModel):
     Initial key-value pairs to associate with this event for discovery and search.
     """
 
+    name: str
+    """
+    A brief human-readable name for the event. Many events can have the same name. "Takeoff", "Crash", "CPU Spike",
+    "Bad Image Quality", and "Unexpected Left" are a few potential examples.
+    """
+
     start_time: int
     """
     The start time of the event, in nanoseconds since epoch (assumed Unix epoch).
@@ -78,6 +84,12 @@ class UpdateEventRequest(pydantic.BaseModel):
     metadata_changeset: typing.Optional[MetadataChangeset] = None
     """
     Metadata and tag changes to make for this event
+    """
+
+    name: typing.Optional[str] = None
+    """
+    A brief human-readable name for the event. Many events can have the same name. "Takeoff", "Crash", "CPU Spike",
+    "Bad Image Quality", and "Unexpected Left" are a few potential examples.
     """
 
     # This is required to get NotSet/NotSetType to serialize appropriately.
