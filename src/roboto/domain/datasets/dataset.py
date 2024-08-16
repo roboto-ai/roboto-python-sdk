@@ -524,7 +524,7 @@ class Dataset:
     ) -> None:
         """
         Upload a single file to the dataset.
-        If `file_destination_path` is not provided, it will be set to the file's relative path.
+        If `file_destination_path` is not provided, the file will be uploaded to the top-level of the dataset.
 
         Example:
             >>> from roboto.domain import datasets
@@ -544,6 +544,23 @@ class Dataset:
         files: collections.abc.Iterable[pathlib.Path],
         file_destination_paths: collections.abc.Mapping[pathlib.Path, str] = {},
     ):
+        """
+        Upload multiple files to the dataset.
+        If `file_destination_paths` is not provided, files will be uploaded to the top-level of the dataset.
+
+        Example:
+            >>> from roboto.domain import datasets
+            >>> dataset = datasets.Dataset(...)
+            >>> dataset.upload_files(
+            ...     [
+            ...         pathlib.Path("/path/to/file.txt"),
+            ...         ...
+            ...     ],
+            ...     file_destination_paths={
+            ...         pathlib.Path("/path/to/file.txt"): "foo/bar.txt",
+            ...     },
+            ... )
+        """
         working_set: list[pathlib.Path] = []
 
         for file in files:

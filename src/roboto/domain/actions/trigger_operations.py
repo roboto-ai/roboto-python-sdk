@@ -4,11 +4,10 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import enum
 import typing
 
 import pydantic
-from pydantic import ConfigDict, ValidationInfo
+from pydantic import ConfigDict
 
 from roboto.sentinels import NotSet, NotSetType
 
@@ -81,44 +80,5 @@ class UpdateTriggerRequest(pydantic.BaseModel):
     )
 
 
-class EvaluateTriggerPrincipalType(str, enum.Enum):
-    Dataset = "dataset"
-    File = "file"
-
-
-class EvaluateTriggerScope(str, enum.Enum):
-    Dataset = "dataset"
-    DatasetFiles = "dataset_files"
-    File = "file"
-
-
 class EvaluateTriggersRequest(pydantic.BaseModel):
-    principal_id: str
-    principal_type: EvaluateTriggerPrincipalType
-    evaluation_scope: EvaluateTriggerScope
-
-    @staticmethod
-    def is_valid_combination(
-        principal_type: EvaluateTriggerPrincipalType,
-        evaluation_scope: EvaluateTriggerScope,
-    ) -> bool:
-        return (principal_type, evaluation_scope) in [
-            (EvaluateTriggerPrincipalType.File, EvaluateTriggerScope.File),
-            (EvaluateTriggerPrincipalType.Dataset, EvaluateTriggerScope.Dataset),
-            (EvaluateTriggerPrincipalType.Dataset, EvaluateTriggerScope.DatasetFiles),
-        ]
-
-    @pydantic.field_validator("evaluation_scope")
-    def validate_evaluation_scope(
-        cls, evaluation_scope: EvaluateTriggerScope, info: ValidationInfo
-    ) -> EvaluateTriggerScope:
-        principal_type = typing.cast(
-            EvaluateTriggerPrincipalType, info.data.get("principal_type")
-        )
-        if not cls.is_valid_combination(principal_type, evaluation_scope):
-            raise ValueError(
-                f"'{principal_type}', '{evaluation_scope}' is not a valid tuple of "
-                + "principal_type, evaluation_scope"
-            )
-
-        return evaluation_scope
+    dataset_id: str

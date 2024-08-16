@@ -16,6 +16,7 @@ import urllib.request
 from ...association import AssociationType
 from ...http import RobotoClient
 from ...logging import default_logger
+from ...time import Time, to_epoch_nanoseconds
 from .mcap_reader import McapReader
 from .operations import (
     MessagePathRepresentationMapping,
@@ -38,7 +39,11 @@ class TopicDataService:
     prefer :py:meth:`~roboto.domain.topics.Topic.get_data` instead.
     """
 
-    __cache_dir: pathlib.Path = pathlib.Path.home() / ".cache" / "roboto" / "topic-data"
+    DEFAULT_CACHE_DIR: typing.ClassVar[pathlib.Path] = (
+        pathlib.Path.home() / ".cache" / "roboto" / "topic-data"
+    )
+
+    __cache_dir: pathlib.Path
     __roboto_client: RobotoClient
 
     @staticmethod
@@ -63,14 +68,19 @@ class TopicDataService:
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
     ):
         self.__roboto_client = roboto_client
-        if cache_dir is not None:
-            self.__cache_dir = pathlib.Path(cache_dir)
+        self.__cache_dir = (
+            pathlib.Path(cache_dir)
+            if cache_dir is not None
+            else TopicDataService.DEFAULT_CACHE_DIR
+        )
 
     def get_data(
         self,
         topic_id: int,
         message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
         message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        start_time: typing.Optional[Time] = None,
+        end_time: typing.Optional[Time] = None,
         cache_dir_override: typing.Union[str, pathlib.Path, None] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         cache_dir = (
@@ -135,15 +145,24 @@ class TopicDataService:
                 cache_dir=cache_dir,
             )
 
+        normalized_start_time = (
+            to_epoch_nanoseconds(start_time) if start_time is not None else None
+        )
+        normalized_end_time = (
+            to_epoch_nanoseconds(end_time) if end_time is not None else None
+        )
+
         with contextlib.ExitStack() as exit_stack:
             readers = [
                 McapReader(
-                    exit_stack.enter_context(
+                    stream=exit_stack.enter_context(
                         repr_id_to_outfile_map[
                             message_path_repr_map.representation.representation_id
                         ].open(mode="rb")
                     ),
-                    message_path_repr_map.message_paths,
+                    message_paths=message_path_repr_map.message_paths,
+                    start_time=normalized_start_time,
+                    end_time=normalized_end_time,
                 )
                 for message_path_repr_map in message_path_repr_mappings
             ]

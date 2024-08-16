@@ -44,8 +44,6 @@ from .invocation_record import (
 from .trigger import Trigger
 from .trigger_operations import (
     CreateTriggerRequest,
-    EvaluateTriggerPrincipalType,
-    EvaluateTriggerScope,
     EvaluateTriggersRequest,
     QueryTriggersRequest,
     UpdateTriggerRequest,
@@ -68,8 +66,6 @@ __all__ = (
     "CreateActionRequest",
     "CreateInvocationRequest",
     "CreateTriggerRequest",
-    "EvaluateTriggerPrincipalType",
-    "EvaluateTriggerScope",
     "EvaluateTriggersRequest",
     "ExecutableProvenance",
     "ExecutorContainer",

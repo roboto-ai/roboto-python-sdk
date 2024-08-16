@@ -32,11 +32,15 @@ class McapReader:
         self,
         stream: typing.IO[bytes],
         message_paths: collections.abc.Sequence[MessagePathRecord],
+        start_time: typing.Optional[int] = None,
+        end_time: typing.Optional[int] = None,
     ):
         reader = mcap.reader.make_reader(
             stream, decoder_factories=[json_decoder, ros1_decoder, ros2_decoder]
         )
-        self.__message_iterator = reader.iter_decoded_messages()
+        self.__message_iterator = reader.iter_decoded_messages(
+            start_time=start_time, end_time=end_time
+        )
         self.__message_paths = message_paths
         self.__decode_next()
 

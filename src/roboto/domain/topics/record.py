@@ -79,6 +79,16 @@ class CanonicalDataType(enum.Enum):
     Unknown = "unknown"  # This is a fallback and should be used sparingly.
 
 
+class MessagePathStatistic(enum.Enum):
+    """Statistics computed by Roboto in our standard ingestion actions."""
+
+    Count = "count"
+    Max = "max"
+    Mean = "mean"
+    Median = "median"
+    Min = "min"
+
+
 class MessagePathRecord(pydantic.BaseModel):
     """
     Path to a typed attribute within individual datum records contained within a Topic.

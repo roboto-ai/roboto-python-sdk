@@ -10,7 +10,7 @@ import typing
 
 import pydantic
 
-from .query import QuerySpecification
+from .specification import QuerySpecification
 
 
 class QueryTarget(str, enum.Enum):

@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from .message_path import MessagePath
 from .operations import (
     AddMessagePathRepresentationRequest,
     AddMessagePathRequest,
@@ -16,6 +17,7 @@ from .operations import (
 from .record import (
     CanonicalDataType,
     MessagePathRecord,
+    MessagePathStatistic,
     RepresentationRecord,
     RepresentationStorageFormat,
     TopicRecord,
@@ -27,8 +29,10 @@ __all__ = (
     "AddMessagePathRepresentationRequest",
     "CreateTopicRequest",
     "CanonicalDataType",
+    "MessagePath",
     "MessagePathRepresentationMapping",
     "MessagePathRecord",
+    "MessagePathStatistic",
     "RepresentationRecord",
     "RepresentationStorageFormat",
     "SetDefaultRepresentationRequest",

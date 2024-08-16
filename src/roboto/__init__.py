@@ -26,8 +26,6 @@ from .domain.actions import (
     CreateActionRequest,
     CreateInvocationRequest,
     CreateTriggerRequest,
-    EvaluateTriggerPrincipalType,
-    EvaluateTriggerScope,
     EvaluateTriggersRequest,
     ExecutableProvenance,
     ExecutorContainer,
@@ -110,6 +108,7 @@ from .domain.topics import (
     AddMessagePathRequest,
     CanonicalDataType,
     CreateTopicRequest,
+    MessagePath,
     MessagePathRecord,
     RepresentationRecord,
     RepresentationStorageFormat,
@@ -127,6 +126,7 @@ from .domain.users import (
 )
 from .env import RobotoEnv
 from .http import RobotoClient
+from .query.roboto_search import RobotoSearch
 from .warnings import (
     roboto_default_warning_behavior,
 )
@@ -178,8 +178,6 @@ __all__ = [
     "DeleteFileRequest",
     "Device",
     "DeviceRecord",
-    "EvaluateTriggerPrincipalType",
-    "EvaluateTriggerScope",
     "EvaluateTriggersRequest",
     "ExecutableProvenance",
     "ExecutorContainer",
@@ -202,7 +200,9 @@ __all__ = [
     "InvocationStatusRecord",
     "LogRecord",
     "LogsLocation",
+    "MessagePath",
     "MessagePathRecord",
+    "MessagePathStatistic",
     "QueryDatasetFilesRequest",
     "QueryDatasetsRequest",
     "QueryFilesRequest",
@@ -213,6 +213,7 @@ __all__ = [
     "RobotoClient",
     "RobotoConfig",
     "RobotoEnv",
+    "RobotoSearch",
     "S3Credentials",
     "SetActionAccessibilityRequest",
     "SetContainerInfoRequest",

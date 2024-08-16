@@ -27,7 +27,7 @@ from .conditions import (
 from .precanned import (
     git_paths_to_condition_group,
 )
-from .query import (
+from .specification import (
     QuerySpecification,
     SortDirection,
 )

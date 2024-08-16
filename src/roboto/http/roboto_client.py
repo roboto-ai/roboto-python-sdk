@@ -211,7 +211,7 @@ class RobotoClient:
 
         normalized_path = normalized_path.lstrip("/")
 
-        if query is None:
+        if not query:
             return f"{self.__endpoint}/{normalized_path}"
         else:
             return (

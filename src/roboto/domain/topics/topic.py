@@ -18,10 +18,12 @@ from ...sentinels import (
     NotSetType,
     remove_not_set,
 )
+from ...time import Time
 from ...updates import (
     MetadataChangeset,
     TaglessMetadataChangeset,
 )
+from .message_path import MessagePath
 from .operations import (
     AddMessagePathRepresentationRequest,
     AddMessagePathRequest,
@@ -232,6 +234,8 @@ class Topic:
         self,
         message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
         message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        start_time: typing.Optional[Time] = None,
+        end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         """
@@ -240,6 +244,16 @@ class Topic:
 
         If ``message_paths_include`` or ``message_paths_exclude`` are defined,
         they should be dot notation paths that match attributes of individual data records.
+
+        If ``start_time`` or ``end_time`` are defined,
+        they should either be integers that represent nanoseconds since UNIX epoch,
+        or convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
+        Either or both may be omitted.
+        ``start_time`` is inclusive, while ``end_time`` is exclusive.
+
+        If ``cache_dir`` is defined, topic data will be downloaded to this location if necessary.
+        If not provided, ``cache_dir`` defaults to
+        :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
 
         For each example below, assume the following is a sample datum record that can be found in this topic:
 
@@ -275,6 +289,15 @@ class Topic:
             >>> ):
             >>>      print(record)
 
+            Only include data between two timestamps:
+
+            >>> topic = Topic.from_name_and_association(...)
+            >>> for record in topic.get_data(
+            >>>   start_time=1722870127699468923,
+            >>>   end_time=1722870127699468924,
+            >>> ):
+            >>>      print(record)
+
             Collect all topic data into a dataframe. Requires installing ``pandas`` into the same Python environment.
 
             >>> import pandas as pd
@@ -306,7 +329,22 @@ class Topic:
             topic_id=self.__record.topic_id,
             message_paths_include=message_paths_include,
             message_paths_exclude=message_paths_exclude,
+            start_time=start_time,
+            end_time=end_time,
             cache_dir_override=cache_dir,
+        )
+
+    def get_message_path(self, message_path: str) -> MessagePath:
+        for message_path_record in self.__record.message_paths:
+            if message_path_record.message_path == message_path:
+                return MessagePath(
+                    message_path_record,
+                    roboto_client=self.__roboto_client,
+                    topic_data_service=self.__topic_data_service,
+                )
+
+        raise ValueError(
+            f"Topic '{self.name}' does not have a message path matching '{message_path}'"
         )
 
     def set_default_representation(

@@ -4,113 +4,142 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from collections.abc import Generator
+import collections.abc
 import typing
 
-from roboto.exceptions import (
-    RobotoHttpExceptionParse,
-)
-from roboto.http import (
-    HttpClient,
-    PaginatedList,
-    roboto_headers,
-)
-from roboto.waiters import wait_for
-
+from ..config import RobotoConfig
+from ..http import RobotoClient
+from ..waiters import wait_for
 from .api import (
     QueryRecord,
     QueryStatus,
+    QueryTarget,
     SubmitRoboqlQueryRequest,
     SubmitStructuredQueryRequest,
 )
+from .specification import QuerySpecification
 
-Model = typing.TypeVar("Model")
+RoboQLQuery: typing.TypeAlias = str
+Query: typing.TypeAlias = typing.Union[RoboQLQuery, QuerySpecification]
 
 
 class QueryClient:
-    __http_client: HttpClient
-    __roboto_service_endpoint: str
+    """
+    A low-level Roboto query client. Prefer :py:class:`~roboto.query.roboto_search.RobotoSearch` for a simpler,
+    more curated query interface.
+    """
 
-    def __init__(self, http_client: HttpClient, roboto_service_endpoint: str):
-        self.__http_client = http_client
-        self.__roboto_service_endpoint = roboto_service_endpoint
+    __owner_org_id: typing.Optional[str] = None
+    __roboto_client: RobotoClient
 
-    def submit_structured(
-        self, request: SubmitStructuredQueryRequest, org_id: str
-    ) -> QueryRecord:
-        with RobotoHttpExceptionParse():
-            url = f"{self.__roboto_service_endpoint}/v1/query/submit/structured"
-            result = self.__http_client.post(
-                url=url,
-                data=request.model_dump(mode="json"),
-                headers=roboto_headers(resource_owner_id=org_id),
-            )
+    def __init__(
+        self,
+        roboto_client: typing.Optional[RobotoClient] = None,
+        owner_org_id: typing.Optional[str] = None,
+        roboto_profile: typing.Optional[str] = None,
+    ):
+        self.__owner_org_id = owner_org_id
 
-            return QueryRecord.model_validate(result.to_dict(json_path=["data"]))
+        if roboto_client is None:
+            roboto_config = RobotoConfig.from_env(profile_override=roboto_profile)
+            roboto_client = RobotoClient.from_config(roboto_config)
 
-    def submit_roboql(
-        self, request: SubmitRoboqlQueryRequest, org_id: str
-    ) -> QueryRecord:
-        with RobotoHttpExceptionParse():
-            url = f"{self.__roboto_service_endpoint}/v1/query/submit/roboql"
-            result = self.__http_client.post(
-                url=url,
-                data=request.model_dump(mode="json"),
-                headers=roboto_headers(resource_owner_id=org_id),
-            )
+        self.__roboto_client = roboto_client
 
-            return QueryRecord.model_validate(result.to_dict(json_path=["data"]))
+    @property
+    def roboto_client(self) -> RobotoClient:
+        return self.__roboto_client
 
-    def get_query_record(self, query_id: str) -> QueryRecord:
-        with RobotoHttpExceptionParse():
-            url = f"{self.__roboto_service_endpoint}/v1/query/id/{query_id}"
-            return QueryRecord.model_validate(
-                self.__http_client.get(url=url).to_dict(json_path=["data"])
-            )
-
-    def check_query_is_complete(self, query_id: str) -> bool:
+    def is_query_completed(self, query_id: str) -> bool:
         return self.get_query_record(query_id).status == QueryStatus.Completed
 
-    def get_query_results(self, query_id: str) -> PaginatedList[dict[str, typing.Any]]:
-        with RobotoHttpExceptionParse():
-            url = f"{self.__roboto_service_endpoint}/v1/query/id/{query_id}/results"
-            unmarshalled = self.__http_client.get(url=url).to_dict(json_path=["data"])
-            return PaginatedList(
-                items=unmarshalled["items"], next_token=unmarshalled.get("next_token")
+    def get_query_record(self, query_id: str) -> QueryRecord:
+        response = self.__roboto_client.get(
+            f"v1/query/id/{query_id}",
+        )
+        return response.to_record(QueryRecord)
+
+    def get_query_results(
+        self, query_id: str
+    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        query_params: dict[str, str] = {}
+        while True:
+            response = self.__roboto_client.get(
+                f"v1/query/id/{query_id}/results", query=query_params
+            )
+            response_data = response.to_dict(json_path=["data"])
+            for record in response_data["items"]:
+                yield record
+
+            if "next_token" in response_data and response_data["next_token"]:
+                query_params["page_token"] = response_data["next_token"]
+            else:
+                break
+
+    def submit_query(
+        self,
+        query: typing.Optional[Query],
+        target: QueryTarget,
+        timeout_seconds: float,
+    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        if query is None:
+            query = QuerySpecification()
+
+        if isinstance(query, QuerySpecification):
+            return self.submit_structured_and_await_results(
+                request=SubmitStructuredQueryRequest(query=query, target=target),
+                timeout_seconds=timeout_seconds,
             )
 
-    def submit_structured_and_await_results(
-        self,
-        request: SubmitStructuredQueryRequest,
-        org_id: str,
-        timeout_seconds: float = 30,
-    ) -> Generator[dict[str, typing.Any], None, None]:
-        query = self.submit_structured(request, org_id)
-
-        wait_for(
-            self.check_query_is_complete,
-            args=[query.query_id],
-            timeout=timeout_seconds,
-            interval=2,
+        return self.submit_roboql_and_await_results(
+            request=SubmitRoboqlQueryRequest(query=query, target=target),
+            timeout_seconds=timeout_seconds,
         )
 
-        for result in self.get_query_results(query.query_id).items:
-            yield result
+    def submit_roboql(self, request: SubmitRoboqlQueryRequest) -> QueryRecord:
+        response = self.__roboto_client.post(
+            "v1/query/submit/roboql",
+            data=request,
+            owner_org_id=self.__owner_org_id,
+        )
+        return response.to_record(QueryRecord)
 
     def submit_roboql_and_await_results(
         self,
         request: SubmitRoboqlQueryRequest,
-        org_id: str,
-        timeout_seconds: float = 30,
-    ) -> Generator[dict[str, typing.Any], None, None]:
-        query = self.submit_roboql(request, org_id)
+        timeout_seconds: float,
+    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        query = self.submit_roboql(request)
 
         wait_for(
-            self.check_query_is_complete,
+            self.is_query_completed,
             args=[query.query_id],
             timeout=timeout_seconds,
             interval=2,
         )
 
-        for result in self.get_query_results(query.query_id).items:
-            yield result
+        yield from self.get_query_results(query.query_id)
+
+    def submit_structured(self, request: SubmitStructuredQueryRequest) -> QueryRecord:
+        response = self.__roboto_client.post(
+            "v1/query/submit/structured",
+            data=request,
+            owner_org_id=self.__owner_org_id,
+        )
+        return response.to_record(QueryRecord)
+
+    def submit_structured_and_await_results(
+        self,
+        request: SubmitStructuredQueryRequest,
+        timeout_seconds: float,
+    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        query = self.submit_structured(request)
+
+        wait_for(
+            self.is_query_completed,
+            args=[query.query_id],
+            timeout=timeout_seconds,
+            interval=2,
+        )
+
+        yield from self.get_query_results(query.query_id)
