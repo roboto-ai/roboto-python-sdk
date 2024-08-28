@@ -78,6 +78,12 @@ class CanonicalDataType(enum.Enum):
     String = "string"
     Unknown = "unknown"  # This is a fallback and should be used sparingly.
 
+    # Special purpose types for data that represents geographic points
+    LatDegFloat = "latdegfloat"  # e.g. 47.6749387 (used in ULog ver_data_format >= 2)
+    LonDegFloat = "londegfloat"  # e.g. 9.1445274 (used in ULog ver_data_format >= 2)
+    LatDegInt = "latdegint"  # e.g. 317534036 (used in ULog ver_data_format < 2)
+    LonDegInt = "londegint"  # e.g. 1199146398 (used in ULog ver_data_format < 2)
+
 
 class MessagePathStatistic(enum.Enum):
     """Statistics computed by Roboto in our standard ingestion actions."""

@@ -472,6 +472,7 @@ class Dataset:
         include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
         delete_after_upload: bool = False,
+        max_batch_size: int = MAX_FILES_PER_MANIFEST,
     ) -> None:
         """
         Uploads all files and directories recursively from the specified directory path. You can use
@@ -510,7 +511,7 @@ class Dataset:
             path: os.path.relpath(path, directory_path) for path in all_files
         }
 
-        self.upload_files(all_files, file_destination_paths)
+        self.upload_files(all_files, file_destination_paths, max_batch_size)
 
         if delete_after_upload:
             for file in all_files:
@@ -543,6 +544,7 @@ class Dataset:
         self,
         files: collections.abc.Iterable[pathlib.Path],
         file_destination_paths: collections.abc.Mapping[pathlib.Path, str] = {},
+        max_batch_size: int = MAX_FILES_PER_MANIFEST,
     ):
         """
         Upload multiple files to the dataset.
@@ -566,7 +568,7 @@ class Dataset:
         for file in files:
             working_set.append(file)
 
-            if len(working_set) >= MAX_FILES_PER_MANIFEST:
+            if len(working_set) >= max_batch_size:
                 self.__upload_files_batch(working_set, file_destination_paths)
                 working_set = []
 

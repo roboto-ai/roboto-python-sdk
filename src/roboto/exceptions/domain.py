@@ -376,6 +376,17 @@ class RobotoServiceUnavailableException(RobotoDomainException):
         return 503
 
 
+class RobotoServiceTimeoutException(RobotoDomainException):
+    """
+    Thrown when the service times out while processing a request. This is exepcted to be transient and ought to be
+    retried.
+    """
+
+    @property
+    def http_status_code(self) -> int:
+        return 504
+
+
 class RobotoHttpExceptionParse(object):
     def __enter__(self):
         return self

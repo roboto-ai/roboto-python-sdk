@@ -9,6 +9,13 @@ import typing
 
 import pathspec
 
+from .query import (
+    Comparator,
+    Condition,
+    ConditionGroup,
+    ConditionOperator,
+)
+
 
 def path_to_pattern(path: str) -> str:
     """
@@ -43,8 +50,8 @@ def pathspec_from_patterns(
 
 def path_matches(
     path: str,
-    include_patterns: typing.Optional[collections.abc.Iterable[str]],
-    exclude_patterns: typing.Optional[collections.abc.Iterable[str]],
+    include_patterns: typing.Optional[collections.abc.Iterable[str]] = None,
+    exclude_patterns: typing.Optional[collections.abc.Iterable[str]] = None,
 ) -> bool:
     """
     Does the given path match the given include pattern(s) and not match the given exclude pattern(s)?
@@ -60,3 +67,29 @@ def path_matches(
             return False
 
     return True
+
+
+def pattern_to_like_value(pattern: str) -> str:
+    return pattern.replace("**/*", "%").replace("**", "%").replace("*", "%")
+
+
+def patterns_to_condition_group(
+    patterns: collections.abc.Iterable[str],
+    path_field_name: str,
+    comparator: Comparator,
+    operator: ConditionOperator,
+) -> ConditionGroup:
+    """
+    Transform a list of Git wildmatch patterns into a ConditionGroup.
+    """
+    return ConditionGroup(
+        conditions=[
+            Condition(
+                field=path_field_name,
+                comparator=comparator,
+                value=pattern_to_like_value(pattern),
+            )
+            for pattern in patterns
+        ],
+        operator=operator,
+    )

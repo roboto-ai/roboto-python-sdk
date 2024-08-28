@@ -11,6 +11,8 @@ import typing
 from ...exceptions import RobotoConflictException
 from ...http import RobotoClient
 from ...query import (
+    Comparator,
+    Condition,
     ConditionType,
     QuerySpecification,
 )
@@ -32,6 +34,7 @@ from .trigger_operations import (
     UpdateTriggerRequest,
 )
 from .trigger_record import (
+    TriggerEvaluationRecord,
     TriggerForEachPrimitive,
     TriggerRecord,
 )
@@ -40,6 +43,31 @@ from .trigger_record import (
 class Trigger:
     __record: TriggerRecord
     __roboto_client: RobotoClient
+
+    @staticmethod
+    def get_evaluations_for_dataset(
+        dataset_id: str,
+        owner_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> collections.abc.Generator[TriggerEvaluationRecord, None, None]:
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        page_token: typing.Optional[str] = None
+        while True:
+            query_params: dict[str, typing.Any] = {}
+            if page_token is not None:
+                query_params["page_token"] = page_token
+
+            paginated_results = roboto_client.get(
+                f"v1/triggers/evaluations/dataset/{dataset_id}",
+                query=query_params,
+                owner_org_id=owner_org_id,
+            ).to_paginated_list(TriggerEvaluationRecord)
+            for record in paginated_results.items:
+                yield record
+            if paginated_results.next_token:
+                page_token = paginated_results.next_token
+            else:
+                break
 
     @classmethod
     def create(
@@ -184,11 +212,21 @@ class Trigger:
     def service_user_id(self) -> typing.Optional[str]:
         return self.__record.service_user_id
 
+    @property
+    def trigger_id(self) -> str:
+        return self.__record.trigger_id
+
     def delete(self):
         self.__roboto_client.delete(
             f"v1/triggers/{self.name}",
             owner_org_id=self.org_id,
         )
+
+    def disable(self):
+        self.update(enabled=False)
+
+    def enable(self):
+        self.update(enabled=True)
 
     def get_action(self) -> Action:
         return Action.from_name(
@@ -197,6 +235,49 @@ class Trigger:
             owner_org_id=self.__record.action.owner,
             roboto_client=self.__roboto_client,
         )
+
+    def get_evaluations(
+        self,
+        limit: typing.Optional[int] = None,
+        page_token: typing.Optional[str] = None,
+    ) -> collections.abc.Generator[TriggerEvaluationRecord, None, None]:
+        query_params: dict[str, typing.Union[int, str]] = {}
+        if limit is not None:
+            query_params["limit"] = limit
+
+        while True:
+            if page_token is not None:
+                query_params["page_token"] = page_token
+            response = self.__roboto_client.get(
+                f"v1/triggers/{self.name}/evaluations",
+                query=query_params,
+                owner_org_id=self.org_id,
+            )
+            paginated_results = response.to_paginated_list(TriggerEvaluationRecord)
+            for record in paginated_results.items:
+                yield record
+            if paginated_results.next_token:
+                page_token = paginated_results.next_token
+            else:
+                break
+
+    def get_invocations(self) -> collections.abc.Generator[Invocation, None, None]:
+        query_spec = QuerySpecification(
+            condition=Condition(
+                field="provenance.source.source_id",
+                comparator=Comparator.Equals,
+                value=self.trigger_id,
+            )
+        )
+        yield from Invocation.query(
+            query_spec,
+            owner_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
+
+    def latest_evaluation(self) -> typing.Optional[TriggerEvaluationRecord]:
+        evaluations = list(self.get_evaluations(limit=1))
+        return evaluations[0] if evaluations else None
 
     def invoke(
         self,

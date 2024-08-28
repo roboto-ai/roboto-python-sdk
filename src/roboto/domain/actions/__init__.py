@@ -49,6 +49,11 @@ from .trigger_operations import (
     UpdateTriggerRequest,
 )
 from .trigger_record import (
+    TriggerEvaluationCause,
+    TriggerEvaluationOutcome,
+    TriggerEvaluationOutcomeReason,
+    TriggerEvaluationRecord,
+    TriggerEvaluationStatus,
     TriggerForEachPrimitive,
     TriggerRecord,
 )
@@ -85,6 +90,11 @@ __all__ = (
     "SetLogsLocationRequest",
     "SourceProvenance",
     "Trigger",
+    "TriggerEvaluationCause",
+    "TriggerEvaluationOutcome",
+    "TriggerEvaluationOutcomeReason",
+    "TriggerEvaluationRecord",
+    "TriggerEvaluationStatus",
     "TriggerForEachPrimitive",
     "TriggerRecord",
     "UpdateActionRequest",

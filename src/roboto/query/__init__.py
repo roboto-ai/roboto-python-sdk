@@ -24,9 +24,6 @@ from .conditions import (
     ConditionOperator,
     ConditionType,
 )
-from .precanned import (
-    git_paths_to_condition_group,
-)
 from .specification import (
     QuerySpecification,
     SortDirection,
@@ -54,5 +51,4 @@ __all__ = (
     "SubmitStructuredQueryRequest",
     "SubmitRoboqlQueryRequest",
     "SubmitTermQueryRequest",
-    "git_paths_to_condition_group",
 )

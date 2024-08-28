@@ -10,7 +10,22 @@ dependencies = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["boto3.*", "botocore.*", "docker.*", "tqdm.*", "dateutil.*", "pluggy", "nanoid", "markdown", "cookiecutter.*", "jose.*", "antlr4.*", "cryptography.*"]
+module = [
+    "antlr4.*",
+    "aws_xray_sdk.*",
+    "boto3.*",
+    "botocore.*",
+    "cookiecutter.*",
+    "cryptography.*",
+    "dateutil.*",
+    "docker.*",
+    "jose.*",
+    "markdown",
+    "nanoid",
+    "pluggy",
+    "tqdm.*",
+    "wrapt"
+]
 ignore_missing_imports = true
 
 [tool.isort]

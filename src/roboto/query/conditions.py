@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import datetime
 import decimal
 import enum
 import json
@@ -87,7 +88,9 @@ class Condition(pydantic.BaseModel):
 
     field: str
     comparator: Comparator
-    value: typing.Optional[typing.Union[str, bool, int, float, decimal.Decimal]] = None
+    value: typing.Optional[
+        typing.Union[str, bool, int, float, decimal.Decimal, datetime.datetime]
+    ] = None
 
     def matches(self, target: dict) -> bool:
         value = get_by_path(target, self.field.split("."))
@@ -111,6 +114,8 @@ class Condition(pydantic.BaseModel):
                 value = value.lower() == "true"
             elif isinstance(self.value, decimal.Decimal):
                 value = decimal.Decimal.from_float(float(value))
+            elif isinstance(self.value, datetime.datetime):
+                value = datetime.datetime.fromisoformat(value)
 
         if self.comparator is Comparator.Equals:
             return value == self.value
@@ -146,11 +151,13 @@ class Condition(pydantic.BaseModel):
 
     def __str__(self):
         base_condition = f"{self.field} {self.comparator.to_compact_string()}"
-        return (
-            base_condition
-            if self.value is None
-            else f"{base_condition} {json.dumps(self.value)}"
-        )
+        if self.value is None:
+            return base_condition
+
+        if isinstance(self.value, datetime.datetime):
+            return f"{base_condition} {self.value.isoformat()}"
+
+        return f"{base_condition} {json.dumps(self.value)}"
 
     def __repr__(self):
         return self.model_dump_json()
