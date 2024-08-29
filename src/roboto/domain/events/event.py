@@ -62,6 +62,54 @@ class Event:
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
+    def for_dataset(
+        cls,
+        dataset_id: str,
+        roboto_client: typing.Optional[RobotoClient] = None,
+        transitive: bool = False,
+    ) -> collections.abc.Generator["Event", None, None]:
+        roboto_client = RobotoClient.defaulted(roboto_client)
+
+        # This will return only events that explicitly have an association with this dataset
+        if transitive is False:
+            for event in Event.for_association(
+                Association.dataset(dataset_id), roboto_client
+            ):
+                yield event
+            return
+
+        # This will return all events that have an association with this dataset or any of its files or topics
+        next_token: typing.Optional[str] = None
+        while True:
+            results = roboto_client.get(
+                "v1/datasets/{dataset_id}/events",
+                query={"page_token": next_token} if next_token is not None else None,
+            ).to_paginated_list(EventRecord)
+
+            for item in results.items:
+                yield cls(record=item, roboto_client=roboto_client)
+
+            next_token = results.next_token
+            if not next_token:
+                break
+
+    @classmethod
+    def for_file(
+        cls, file_id: str, roboto_client: typing.Optional[RobotoClient] = None
+    ) -> collections.abc.Generator["Event", None, None]:
+        """Returns all events with a direct association to the provided file."""
+        return Event.for_association(Association.file(file_id), roboto_client)
+
+    @classmethod
+    def for_topic(
+        cls,
+        topic_id: typing.Union[str, int],
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> collections.abc.Generator["Event", None, None]:
+        """Returns all events with a direct association to the provided topic."""
+        return Event.for_association(Association.topic(topic_id), roboto_client)
+
+    @classmethod
     def for_association(
         cls,
         association: Association,
@@ -121,12 +169,50 @@ class Event:
         return self.__record.model_dump_json()
 
     @property
+    def dataset_ids(self) -> list[str]:
+        return [
+            association.association_id
+            for association in self.__record.associations
+            if association.is_dataset
+        ]
+
+    @property
+    def end_time(self) -> int:
+        """Epoch nanoseconds"""
+        return self.__record.end_time
+
+    @property
     def event_id(self) -> str:
         return self.__record.event_id
 
     @property
+    def file_ids(self) -> list[str]:
+        return [
+            association.association_id
+            for association in self.__record.associations
+            if association.is_file
+        ]
+
+    @property
+    def name(self) -> str:
+        return self.__record.name
+
+    @property
     def record(self) -> EventRecord:
         return self.__record
+
+    @property
+    def start_time(self) -> int:
+        """Epoch nanoseconds"""
+        return self.__record.start_time
+
+    @property
+    def topic_ids(self) -> list[str]:
+        return [
+            association.association_id
+            for association in self.__record.associations
+            if association.is_topic
+        ]
 
     def delete(self) -> None:
         self.__roboto_client.delete(f"v1/events/id/{self.event_id}")

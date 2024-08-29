@@ -32,6 +32,7 @@ from ...updates import (
     StrSequence,
     UpdateCondition,
 )
+from ..events import Event
 from ..files import (
     DirectoryRecord,
     File,
@@ -41,7 +42,7 @@ from ..files.file_service import FileService
 from ..files.progress import (
     TqdmProgressMonitorFactory,
 )
-from ..topics import Topic
+from ..topics import Topic, TopicRecord
 from .operations import (
     BeginManifestTransactionRequest,
     BeginManifestTransactionResponse,
@@ -265,6 +266,15 @@ class Dataset:
             max_concurrency=8,
         )
 
+    def get_events(
+        self, transitive: bool = False
+    ) -> collections.abc.Generator[Event, None, None]:
+        return Event.for_dataset(
+            dataset_id=self.dataset_id,
+            transitive=transitive,
+            roboto_client=self.__roboto_client,
+        )
+
     def get_file_by_path(
         self,
         relative_path: typing.Union[str, pathlib.Path],
@@ -357,6 +367,23 @@ class Dataset:
             )
             for record in paginated_results.items:
                 yield File(record, self.__roboto_client)
+            if paginated_results.next_token:
+                page_token = paginated_results.next_token
+            else:
+                break
+
+    def list_topics(self) -> collections.abc.Generator[Topic, None, None]:
+        """
+        List all topics associated with files in this dataset. If multiple files have topics with the same name (i.e.
+        if a dataset has chunked files with the same schema), they'll be returned as separate topic objects.
+        """
+        page_token: typing.Optional[str] = None
+        while True:
+            paginated_results = self.__list_topics_page(
+                page_token=page_token,
+            )
+            for record in paginated_results.items:
+                yield Topic(record, self.__roboto_client)
             if paginated_results.next_token:
                 page_token = paginated_results.next_token
             else:
@@ -685,6 +712,19 @@ class Dataset:
             query=query_params,
             idempotent=True,
         ).to_paginated_list(FileRecord)
+
+    def __list_topics_page(
+        self,
+        page_token: typing.Optional[str] = None,
+    ) -> PaginatedList[TopicRecord]:
+        query_params: dict[str, typing.Any] = {}
+        if page_token:
+            query_params["page_token"] = str(page_token)
+
+        return self.__roboto_client.get(
+            f"v1/datasets/{self.dataset_id}/topics",
+            query=query_params,
+        ).to_paginated_list(TopicRecord)
 
     def __on_manifest_item_complete(
         self,

@@ -23,6 +23,7 @@ from ...updates import (
     MetadataChangeset,
     TaglessMetadataChangeset,
 )
+from ..events import Event
 from .message_path import MessagePath
 from .operations import (
     AddMessagePathRepresentationRequest,
@@ -87,6 +88,20 @@ class Topic:
         return cls(record, roboto_client)
 
     @classmethod
+    def from_id(
+        cls,
+        topic_id: typing.Union[str, int],
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> "Topic":
+        roboto_client = RobotoClient.defaulted(roboto_client)
+
+        response = roboto_client.get(
+            f"v1/topics/id/{topic_id}",
+        )
+        record = response.to_record(TopicRecord)
+        return cls(record, roboto_client)
+
+    @classmethod
     def from_name_and_association(
         cls,
         topic_name: str,
@@ -104,6 +119,21 @@ class Topic:
         )
         record = response.to_record(TopicRecord)
         return cls(record, roboto_client)
+
+    @classmethod
+    def from_name_and_file(
+        cls,
+        topic_name: str,
+        file_id: str,
+        owner_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> "Topic":
+        return Topic.from_name_and_association(
+            topic_name,
+            Association.file(file_id),
+            owner_org_id=owner_org_id,
+            roboto_client=roboto_client,
+        )
 
     @classmethod
     def get_by_association(
@@ -150,8 +180,28 @@ class Topic:
         return self.__record.association
 
     @property
+    def dataset_id(self) -> typing.Optional[str]:
+        if self.association.is_dataset:
+            return self.association.association_id
+
+        if self.association.is_file:
+            # This is equivalent to File.from_id(file_id), but without introducing a circular dependency
+            return self.__roboto_client.get(
+                f"v1/files/record/{self.association.association_id}"
+            ).to_dict(json_path=["data", "association_id"])
+
+        return None
+
+    @property
     def default_representation(self) -> typing.Optional[RepresentationRecord]:
         return self.__record.default_representation
+
+    @property
+    def file_id(self) -> typing.Optional[str]:
+        if self.association.is_file:
+            return self.association.association_id
+
+        return None
 
     @property
     def message_paths(self) -> collections.abc.Sequence[MessagePathRecord]:
@@ -333,6 +383,9 @@ class Topic:
             end_time=end_time,
             cache_dir_override=cache_dir,
         )
+
+    def get_events(self) -> collections.abc.Generator[Event, None, None]:
+        return Event.for_topic(self.record.topic_id, self.__roboto_client)
 
     def get_message_path(self, message_path: str) -> MessagePath:
         for message_path_record in self.__record.message_paths:

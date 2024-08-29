@@ -77,6 +77,18 @@ class Association(pydantic.BaseModel):
     association_type: AssociationType
     """association_type is the Roboto domain entity type of the association."""
 
+    @property
+    def is_dataset(self) -> bool:
+        return self.association_type == AssociationType.Dataset
+
+    @property
+    def is_file(self) -> bool:
+        return self.association_type == AssociationType.File
+
+    @property
+    def is_topic(self) -> bool:
+        return self.association_type == AssociationType.Topic
+
     def url_encode(self) -> str:
         """Association encoded in a URL path segment ready format."""
         return urllib.parse.quote_plus(

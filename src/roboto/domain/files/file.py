@@ -26,6 +26,7 @@ from ...sentinels import (
     remove_not_set,
 )
 from ...updates import MetadataChangeset
+from ..events import Event
 from ..topics import Topic
 from .operations import UpdateFileRecordRequest
 from .progress import (
@@ -135,6 +136,10 @@ class File:
         return self.__record.model_dump_json()
 
     @property
+    def dataset_id(self) -> str:
+        return self.__record.association_id
+
+    @property
     def description(self) -> Optional[str]:
         return self.__record.description
 
@@ -196,6 +201,9 @@ class File:
         finally:
             progress_monitor.close()
 
+    def get_events(self) -> collections.abc.Generator[Event, None, None]:
+        return Event.for_file(self.file_id)
+
     def get_signed_url(
         self,
         override_content_type: typing.Optional[str] = None,
@@ -215,6 +223,14 @@ class File:
             owner_org_id=self.org_id,
         )
         return res.to_dict(json_path=["data", "url"])
+
+    def get_topic(self, topic_name: str) -> Topic:
+        return Topic.from_name_and_file(
+            topic_name=topic_name,
+            file_id=self.file_id,
+            owner_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
 
     def get_topics(
         self,

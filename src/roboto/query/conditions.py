@@ -15,6 +15,10 @@ import pydantic
 
 from ..collection_utils import get_by_path
 
+ConditionValue = typing.Optional[
+    typing.Union[str, bool, int, float, decimal.Decimal, datetime.datetime]
+]
+
 
 class Comparator(str, enum.Enum):
     """The comparator to use when comparing a field to a value."""
@@ -88,9 +92,7 @@ class Condition(pydantic.BaseModel):
 
     field: str
     comparator: Comparator
-    value: typing.Optional[
-        typing.Union[str, bool, int, float, decimal.Decimal, datetime.datetime]
-    ] = None
+    value: ConditionValue = None
 
     def matches(self, target: dict) -> bool:
         value = get_by_path(target, self.field.split("."))
@@ -161,6 +163,10 @@ class Condition(pydantic.BaseModel):
 
     def __repr__(self):
         return self.model_dump_json()
+
+    @classmethod
+    def equals_cond(cls, field: str, value: ConditionValue) -> "Condition":
+        return cls(field=field, comparator=Comparator.Equals, value=value)
 
 
 class ConditionOperator(str, enum.Enum):
