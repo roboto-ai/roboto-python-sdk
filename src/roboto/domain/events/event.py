@@ -82,7 +82,7 @@ class Event:
         next_token: typing.Optional[str] = None
         while True:
             results = roboto_client.get(
-                "v1/datasets/{dataset_id}/events",
+                f"v1/datasets/{dataset_id}/events",
                 query={"page_token": next_token} if next_token is not None else None,
             ).to_paginated_list(EventRecord)
 
