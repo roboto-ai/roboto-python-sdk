@@ -18,10 +18,6 @@ from .json_decoder_factory import (
 )
 from .record import MessagePathRecord
 
-json_decoder = JsonDecoderFactory()
-ros1_decoder = mcap_ros1.decoder.DecoderFactory()
-ros2_decoder = mcap_ros2.decoder.DecoderFactory()
-
 
 class McapReader:
     __message_iterator: typing.Iterator[mcap.reader.DecodedMessageTuple]
@@ -35,6 +31,9 @@ class McapReader:
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
     ):
+        json_decoder = JsonDecoderFactory()
+        ros1_decoder = mcap_ros1.decoder.DecoderFactory()
+        ros2_decoder = mcap_ros2.decoder.DecoderFactory()
         reader = mcap.reader.make_reader(
             stream, decoder_factories=[json_decoder, ros1_decoder, ros2_decoder]
         )
