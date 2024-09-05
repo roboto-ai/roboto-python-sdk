@@ -14,10 +14,7 @@ import botocore.config
 import botocore.credentials
 import botocore.session
 
-from ...association import (
-    Association,
-    AssociationType,
-)
+from ...association import Association
 from ...http import RobotoClient
 from ...query import QuerySpecification
 from ...sentinels import (
@@ -202,7 +199,7 @@ class File:
             progress_monitor.close()
 
     def get_events(self) -> collections.abc.Generator[Event, None, None]:
-        return Event.for_file(self.file_id)
+        return Event.get_by_file(self.file_id)
 
     def get_signed_url(
         self,
@@ -237,13 +234,7 @@ class File:
         include: typing.Optional[collections.abc.Sequence[str]] = None,
         exclude: typing.Optional[collections.abc.Sequence[str]] = None,
     ) -> collections.abc.Generator["Topic", None, None]:
-        for topic in Topic.get_by_association(
-            owner_org_id=self.org_id,
-            association=Association(
-                association_type=AssociationType.File,
-                association_id=self.file_id,
-            ),
-        ):
+        for topic in Topic.get_by_file(owner_org_id=self.org_id, file_id=self.file_id):
             if include is not None and topic.name not in include:
                 continue
 

@@ -36,9 +36,14 @@ class Event:
     @classmethod
     def create(
         cls,
-        associations: collections.abc.Sequence[Association],
         start_time: typing.Union[int, datetime.datetime],
         name: str = "Custom Event",
+        associations: typing.Optional[collections.abc.Collection[Association]] = None,
+        file_ids: typing.Optional[collections.abc.Collection[str]] = None,
+        topic_ids: typing.Optional[
+            collections.abc.Collection[typing.Union[str, int]]
+        ] = None,
+        dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
         end_time: typing.Optional[typing.Union[int, datetime.datetime]] = None,
         description: typing.Optional[str] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
@@ -47,8 +52,17 @@ class Event:
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Event":
         roboto_client = RobotoClient.defaulted(roboto_client)
+
+        coalesced_associations = Association.coalesce(
+            associations=associations,
+            dataset_ids=dataset_ids,
+            file_ids=file_ids,
+            topic_ids=topic_ids,
+            throw_on_empty=True,
+        )
+
         request = CreateEventRequest(
-            associations=list(associations),
+            associations=coalesced_associations,
             start_time=to_epoch_nanoseconds(start_time),
             end_time=to_epoch_nanoseconds(end_time or start_time),
             description=description,
@@ -62,7 +76,7 @@ class Event:
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
-    def for_dataset(
+    def get_by_dataset(
         cls,
         dataset_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
@@ -72,8 +86,8 @@ class Event:
 
         # This will return only events that explicitly have an association with this dataset
         if transitive is False:
-            for event in Event.for_association(
-                Association.dataset(dataset_id), roboto_client
+            for event in Event.get_by_associations(
+                [Association.dataset(dataset_id)], roboto_client
             ):
                 yield event
             return
@@ -94,35 +108,23 @@ class Event:
                 break
 
     @classmethod
-    def for_file(
+    def get_by_file(
         cls, file_id: str, roboto_client: typing.Optional[RobotoClient] = None
     ) -> collections.abc.Generator["Event", None, None]:
         """Returns all events with a direct association to the provided file."""
-        return Event.for_association(Association.file(file_id), roboto_client)
+        return Event.get_by_associations([Association.file(file_id)], roboto_client)
 
     @classmethod
-    def for_topic(
+    def get_by_topic(
         cls,
         topic_id: typing.Union[str, int],
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Event", None, None]:
         """Returns all events with a direct association to the provided topic."""
-        return Event.for_association(Association.topic(topic_id), roboto_client)
+        return Event.get_by_associations([Association.topic(topic_id)], roboto_client)
 
     @classmethod
-    def for_association(
-        cls,
-        association: Association,
-        roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> collections.abc.Generator["Event", None, None]:
-        """
-        Returns all events associated with the provided association. Any events which you don't have access to will be
-        filtered out of the response rather than throwing an exception.
-        """
-        return Event.for_associations([association], roboto_client=roboto_client)
-
-    @classmethod
-    def for_associations(
+    def get_by_associations(
         cls,
         associations: collections.abc.Collection[Association],
         roboto_client: typing.Optional[RobotoClient] = None,

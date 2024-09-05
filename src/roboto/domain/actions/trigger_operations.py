@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import collections.abc
+import datetime
 import typing
 
 import pydantic
@@ -50,9 +52,18 @@ class CreateTriggerRequest(pydantic.BaseModel):
         return None if value is None else validate_nonzero_gitpath_specs(value)
 
 
+class EvaluateTriggersRequest(pydantic.BaseModel):
+    trigger_evaluation_ids: collections.abc.Iterable[int]
+
+
 class QueryTriggersRequest(pydantic.BaseModel):
     filters: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     model_config = ConfigDict(extra="forbid")
+
+
+class TriggerEvaluationsSummaryResponse(pydantic.BaseModel):
+    count_pending: int
+    last_evaluation_start: typing.Optional[datetime.datetime]
 
 
 class UpdateTriggerRequest(pydantic.BaseModel):
@@ -78,7 +89,3 @@ class UpdateTriggerRequest(pydantic.BaseModel):
     model_config = ConfigDict(
         extra="forbid", json_schema_extra=NotSetType.openapi_schema_modifier
     )
-
-
-class EvaluateTriggersRequest(pydantic.BaseModel):
-    dataset_id: str

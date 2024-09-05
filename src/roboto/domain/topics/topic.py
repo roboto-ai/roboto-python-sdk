@@ -53,7 +53,7 @@ class Topic:
     @classmethod
     def create(
         cls,
-        association: Association,
+        file_id: str,
         topic_name: str,
         end_time: typing.Optional[int] = None,
         message_count: typing.Optional[int] = None,
@@ -69,7 +69,7 @@ class Topic:
     ) -> "Topic":
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = CreateTopicRequest(
-            association=association,
+            association=Association.file(file_id),
             end_time=end_time,
             message_count=message_count,
             message_paths=message_paths,
@@ -102,16 +102,16 @@ class Topic:
         return cls(record, roboto_client)
 
     @classmethod
-    def from_name_and_association(
+    def from_name_and_file(
         cls,
         topic_name: str,
-        association: Association,
+        file_id: str,
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Topic":
         roboto_client = RobotoClient.defaulted(roboto_client)
         quoted_topic_name = urllib.parse.quote_plus(topic_name)
-        encoded_association = association.url_encode()
+        encoded_association = Association.file(file_id).url_encode()
 
         response = roboto_client.get(
             f"v1/topics/association/{encoded_association}/name/{quoted_topic_name}",
@@ -121,29 +121,42 @@ class Topic:
         return cls(record, roboto_client)
 
     @classmethod
-    def from_name_and_file(
-        cls,
-        topic_name: str,
-        file_id: str,
-        owner_org_id: typing.Optional[str] = None,
-        roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> "Topic":
-        return Topic.from_name_and_association(
-            topic_name,
-            Association.file(file_id),
-            owner_org_id=owner_org_id,
-            roboto_client=roboto_client,
-        )
+    def get_by_dataset(
+        cls, dataset_id: str, roboto_client: typing.Optional[RobotoClient] = None
+    ):
+        """
+        List all topics associated with files of a dataset. If multiple files have topics with the same name (i.e.
+        if a dataset has chunked files with the same schema), they'll be returned as separate topic objects.
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        page_token: typing.Optional[str] = None
+
+        while True:
+            query_params: dict[str, typing.Any] = {}
+            if page_token:
+                query_params["page_token"] = str(page_token)
+
+            paginated_results = roboto_client.get(
+                f"v1/datasets/{dataset_id}/topics",
+                query=query_params,
+            ).to_paginated_list(TopicRecord)
+
+            for record in paginated_results.items:
+                yield cls(record=record, roboto_client=roboto_client)
+            if paginated_results.next_token:
+                page_token = paginated_results.next_token
+            else:
+                break
 
     @classmethod
-    def get_by_association(
+    def get_by_file(
         cls,
-        association: Association,
+        file_id: str,
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Topic", None, None]:
         roboto_client = RobotoClient.defaulted(roboto_client)
-        encoded_association = association.url_encode()
+        encoded_association = Association.file(file_id).url_encode()
 
         page_token: typing.Optional[str] = None
         while True:
@@ -245,7 +258,7 @@ class Topic:
             owner_org_id=self.org_id,
         )
         message_path_record = response.to_record(MessagePathRecord)
-        self.__refresh()
+        self.refresh()
         return message_path_record
 
     def add_message_path_representation(
@@ -270,7 +283,7 @@ class Topic:
             owner_org_id=self.org_id,
         )
         representation_record = response.to_record(RepresentationRecord)
-        self.__refresh()
+        self.refresh()
         return representation_record
 
     def delete(self) -> None:
@@ -326,13 +339,13 @@ class Topic:
         Examples:
             Print all data to stdout.
 
-            >>> topic = Topic.from_name_and_association(...)
+            >>> topic = Topic.from_name_and_file(...)
             >>> for record in topic.get_data():
             >>>      print(record)
 
             Only include the `"angular_velocity"` sub-object, but filter out its `"y"` property.
 
-            >>> topic = Topic.from_name_and_association(...)
+            >>> topic = Topic.from_name_and_file(...)
             >>> for record in topic.get_data(
             >>>   message_paths_include=["angular_velocity"],
             >>>   message_paths_exclude=["angular_velocity.y"],
@@ -341,7 +354,7 @@ class Topic:
 
             Only include data between two timestamps:
 
-            >>> topic = Topic.from_name_and_association(...)
+            >>> topic = Topic.from_name_and_file(...)
             >>> for record in topic.get_data(
             >>>   start_time=1722870127699468923,
             >>>   end_time=1722870127699468924,
@@ -351,7 +364,7 @@ class Topic:
             Collect all topic data into a dataframe. Requires installing ``pandas`` into the same Python environment.
 
             >>> import pandas as pd
-            >>> topic = Topic.from_name_and_association(...)
+            >>> topic = Topic.from_name_and_file(...)
             >>> df = pd.json_normalize(data=list(topic.get_data()))
 
         """
@@ -385,7 +398,7 @@ class Topic:
         )
 
     def get_events(self) -> collections.abc.Generator[Event, None, None]:
-        return Event.for_topic(self.record.topic_id, self.__roboto_client)
+        return Event.get_by_topic(self.record.topic_id, self.__roboto_client)
 
     def get_message_path(self, message_path: str) -> MessagePath:
         for message_path_record in self.__record.message_paths:
@@ -399,6 +412,10 @@ class Topic:
         raise ValueError(
             f"Topic '{self.name}' does not have a message path matching '{message_path}'"
         )
+
+    def refresh(self) -> None:
+        topic = Topic.from_id(self.record.topic_id, self.__roboto_client)
+        self.__record = topic.record
 
     def set_default_representation(
         self,
@@ -418,7 +435,7 @@ class Topic:
             owner_org_id=self.org_id,
         )
         representation_record = response.to_record(RepresentationRecord)
-        self.__refresh()
+        self.refresh()
         return representation_record
 
     def to_association(self) -> Association:
@@ -471,14 +488,5 @@ class Topic:
             owner_org_id=self.org_id,
         )
         message_path_record = response.to_record(MessagePathRecord)
-        self.__refresh()
+        self.refresh()
         return message_path_record
-
-    def __refresh(self) -> None:
-        topic = Topic.from_name_and_association(
-            topic_name=self.name,
-            association=self.association,
-            owner_org_id=self.org_id,
-            roboto_client=self.__roboto_client,
-        )
-        self.__record = topic.record

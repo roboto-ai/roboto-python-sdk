@@ -60,6 +60,38 @@ class Association(pydantic.BaseModel):
             ) from None
 
     @classmethod
+    def coalesce(
+        cls,
+        associations: typing.Optional[collections.abc.Collection["Association"]] = None,
+        dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
+        file_ids: typing.Optional[collections.abc.Collection[str]] = None,
+        topic_ids: typing.Optional[
+            collections.abc.Collection[typing.Union[str, int]]
+        ] = None,
+        throw_on_empty: bool = False,
+    ) -> list["Association"]:
+        coalesced: list[Association] = []
+
+        if associations:
+            coalesced.extend(associations)
+
+        if dataset_ids:
+            coalesced.extend(cls.dataset(dataset_id) for dataset_id in dataset_ids)
+
+        if file_ids:
+            coalesced.extend(cls.file(file_id) for file_id in file_ids)
+
+        if topic_ids:
+            coalesced.extend(cls.topic(topic_id) for topic_id in topic_ids)
+
+        if len(coalesced) == 0 and throw_on_empty:
+            raise RobotoIllegalArgumentException(
+                "At least one association must be provided"
+            )
+
+        return coalesced
+
+    @classmethod
     def dataset(cls, dataset_id: str):
         return cls(association_id=dataset_id, association_type=AssociationType.Dataset)
 

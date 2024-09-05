@@ -46,6 +46,7 @@ from .trigger_operations import (
     CreateTriggerRequest,
     EvaluateTriggersRequest,
     QueryTriggersRequest,
+    TriggerEvaluationsSummaryResponse,
     UpdateTriggerRequest,
 )
 from .trigger_record import (
@@ -95,6 +96,7 @@ __all__ = (
     "TriggerEvaluationOutcomeReason",
     "TriggerEvaluationRecord",
     "TriggerEvaluationStatus",
+    "TriggerEvaluationsSummaryResponse",
     "TriggerForEachPrimitive",
     "TriggerRecord",
     "UpdateActionRequest",

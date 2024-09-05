@@ -10,6 +10,7 @@ import typing
 
 from ...http import RobotoClient, StreamedList
 from ...query import QuerySpecification
+from ...waiters import Interval, wait_for
 from .action_record import (
     ComputeRequirements,
     ContainerParameters,
@@ -308,3 +309,29 @@ class Invocation:
         record = response.to_record(InvocationRecord)
         self.__record = record
         return self
+
+    def wait_for_terminal_status(
+        self,
+        timeout: float = 60 * 5,
+        poll_interval: Interval = 5,
+    ) -> None:
+        """
+        Wait for the invocation to reach a terminal status.
+
+        Throws a :py:exc:`~roboto.waiters.TimeoutError` if the timeout is reached.
+
+        Args:
+            timeout: The maximum amount of time, in seconds, to wait for the invocation to reach a terminal status.
+            poll_interval: The amount of time, in seconds, to wait between polling iterations.
+        """
+
+        def _condition() -> bool:
+            self.refresh()
+            return self.reached_terminal_status
+
+        return wait_for(
+            _condition,
+            timeout=timeout,
+            interval=poll_interval,
+            timeout_msg=f"Timed out waiting for invocation '{self.id}' to reach terminal status",
+        )

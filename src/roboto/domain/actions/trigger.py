@@ -21,6 +21,7 @@ from ...sentinels import (
     NotSetType,
     remove_not_set,
 )
+from ...waiters import Interval, wait_for
 from .action import Action
 from .invocation import Invocation
 from .invocation_record import (
@@ -35,6 +36,7 @@ from .trigger_operations import (
 )
 from .trigger_record import (
     TriggerEvaluationRecord,
+    TriggerEvaluationStatus,
     TriggerForEachPrimitive,
     TriggerRecord,
 )
@@ -58,7 +60,7 @@ class Trigger:
                 query_params["page_token"] = page_token
 
             paginated_results = roboto_client.get(
-                f"v1/triggers/evaluations/dataset/{dataset_id}",
+                f"v1/triggers/dataset/id/{dataset_id}/evaluations",
                 query=query_params,
                 owner_org_id=owner_org_id,
             ).to_paginated_list(TriggerEvaluationRecord)
@@ -354,3 +356,29 @@ class Trigger:
         record = response.to_record(TriggerRecord)
         self.__record = record
         return self
+
+    def wait_for_evaluations_to_complete(
+        self,
+        timeout: float = 60 * 5,  # 5 minutes in seconds
+        poll_interval: Interval = 5,
+    ) -> None:
+        """
+        Wait for all evaluations for this trigger to complete.
+
+        Throws a :py:exc:`~roboto.waiters.TimeoutError` if the timeout is reached.
+
+        Args:
+            timeout: The maximum amount of time, in seconds, to wait for the evaluations to complete.
+            poll_interval: The amount of time, in seconds, to wait between polling iterations.
+        """
+        wait_for(
+            lambda: all(
+                [
+                    evaluation.status != TriggerEvaluationStatus.Pending
+                    for evaluation in self.get_evaluations()
+                ]
+            ),
+            timeout=timeout,
+            interval=poll_interval,
+            timeout_msg=f"Timed out waiting for evaluations for trigger '{self.name}' to complete",
+        )
