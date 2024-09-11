@@ -7,6 +7,7 @@
 import json
 from typing import Any, Optional, Type
 
+import pydantic
 import pydantic_core
 
 from ..collection_utils import get_by_path
@@ -43,7 +44,7 @@ class RobotoDomainException(Exception):
 
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, source: Type[Any]
+        cls, source: Type[Any], handler: pydantic.GetCoreSchemaHandler
     ) -> pydantic_core.core_schema.CoreSchema:
         assert source is RobotoDomainException
         return pydantic_core.core_schema.no_info_after_validator_function(

@@ -34,6 +34,7 @@ class CreateTriggerRequest(pydantic.BaseModel):
     compute_requirement_overrides: typing.Optional[ComputeRequirements] = None
     condition: typing.Optional[ConditionType] = None
     container_parameter_overrides: typing.Optional[ContainerParameters] = None
+    enabled: bool = True
     for_each: TriggerForEachPrimitive
     name: str = pydantic.Field(pattern=r"[\w\-]+", max_length=256)
     parameter_values: typing.Optional[dict[str, typing.Any]] = None
