@@ -90,7 +90,7 @@ class Topic:
     @classmethod
     def from_id(
         cls,
-        topic_id: typing.Union[str, int],
+        topic_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Topic":
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -263,18 +263,18 @@ class Topic:
 
     def add_message_path_representation(
         self,
+        message_path_id: str,
         association: Association,
         storage_format: RepresentationStorageFormat,
         version: int,
-        topic_message_path_id: int,
     ) -> RepresentationRecord:
         encoded_association = self.association.url_encode()
 
         request = AddMessagePathRepresentationRequest(
             association=association,
+            message_path_id=message_path_id,
             storage_format=storage_format,
             version=version,
-            topic_message_path_id=topic_message_path_id,
         )
 
         response = self.__roboto_client.post(

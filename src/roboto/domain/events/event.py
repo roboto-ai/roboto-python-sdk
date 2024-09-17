@@ -40,9 +40,7 @@ class Event:
         name: str = "Custom Event",
         associations: typing.Optional[collections.abc.Collection[Association]] = None,
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
-        topic_ids: typing.Optional[
-            collections.abc.Collection[typing.Union[str, int]]
-        ] = None,
+        topic_ids: typing.Optional[collections.abc.Collection[str]] = None,
         dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
         end_time: typing.Optional[typing.Union[int, datetime.datetime]] = None,
         description: typing.Optional[str] = None,
@@ -117,7 +115,7 @@ class Event:
     @classmethod
     def get_by_topic(
         cls,
-        topic_id: typing.Union[str, int],
+        topic_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Event", None, None]:
         """Returns all events with a direct association to the provided topic."""

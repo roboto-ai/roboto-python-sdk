@@ -65,9 +65,7 @@ class Association(pydantic.BaseModel):
         associations: typing.Optional[collections.abc.Collection["Association"]] = None,
         dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
-        topic_ids: typing.Optional[
-            collections.abc.Collection[typing.Union[str, int]]
-        ] = None,
+        topic_ids: typing.Optional[collections.abc.Collection[str]] = None,
         throw_on_empty: bool = False,
     ) -> list["Association"]:
         coalesced: list[Association] = []
@@ -100,8 +98,8 @@ class Association(pydantic.BaseModel):
         return cls(association_id=file_id, association_type=AssociationType.File)
 
     @classmethod
-    def topic(cls, topic_id: typing.Union[str, int]):
-        return cls(association_id=str(topic_id), association_type=AssociationType.Topic)
+    def topic(cls, topic_id: str):
+        return cls(association_id=topic_id, association_type=AssociationType.Topic)
 
     association_id: str
     """Roboto identifier"""

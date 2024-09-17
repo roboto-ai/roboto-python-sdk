@@ -29,7 +29,7 @@ from .record import (
 
 logger = default_logger()
 
-OUTFILE_NAME_PATTERN = "repr_{repr_id}_{file_id}.mcap"
+OUTFILE_NAME_PATTERN = "{repr_id}_{file_id}.mcap"
 
 
 class TopicDataService:
@@ -76,7 +76,7 @@ class TopicDataService:
 
     def get_data(
         self,
-        topic_id: int,
+        topic_id: str,
         message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
         message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
         start_time: typing.Optional[Time] = None,
@@ -117,7 +117,7 @@ class TopicDataService:
             if message_path_repr_map.message_paths
         ]
 
-        repr_id_to_outfile_map: dict[int, pathlib.Path] = {}
+        repr_id_to_outfile_map: dict[str, pathlib.Path] = {}
         download_list: list[MessagePathRepresentationMapping] = []
         for message_path_repr_map in message_path_repr_mappings:
             representation = message_path_repr_map.representation
@@ -186,7 +186,7 @@ class TopicDataService:
         message_path_repr_mappings: collections.abc.Sequence[
             MessagePathRepresentationMapping
         ],
-        repr_id_to_outfile_map: collections.abc.Mapping[int, pathlib.Path],
+        repr_id_to_outfile_map: collections.abc.Mapping[str, pathlib.Path],
         cache_dir: pathlib.Path,
     ) -> None:
         with concurrent.futures.ThreadPoolExecutor() as executor:

@@ -40,7 +40,7 @@ class SetDefaultRepresentationRequest(BaseAddRepresentationRequest):
 class AddMessagePathRepresentationRequest(BaseAddRepresentationRequest):
     """Associate a MessagePath with a Representation."""
 
-    topic_message_path_id: int
+    message_path_id: str
 
     # 'ignore' used to avoid backwards incompatible change to remove `org_id` from BaseAddRepresentationRequest
     # Should be changed back to 'forbid' for SDK v1.0

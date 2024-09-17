@@ -34,11 +34,9 @@ class RepresentationRecord(pydantic.BaseModel):
     Identifier and entity type with which this Representation is associated. E.g., a file, a database.
     """
 
-    representation_id: int
-    """Internal identifier for this Representation."""
-
+    representation_id: str
     storage_format: RepresentationStorageFormat
-    topic_id: int
+    topic_id: str
     version: int
 
 
@@ -135,11 +133,8 @@ class MessagePathRecord(pydantic.BaseModel):
     Zero to many Representations of this MessagePath.
     """
 
-    topic_id: int
-    """Internal identifier for Topic with which this MessagePath is associated."""
-
-    topic_message_path_id: int
-    """Internal identifier for this MessagePath, joined to a particular Topic."""
+    topic_id: str
+    message_path_id: str
 
 
 class TopicRecord(pydantic.BaseModel):
@@ -221,5 +216,5 @@ class TopicRecord(pydantic.BaseModel):
     Timestamp of earliest message in topic, in nanoseconds since epoch (assumed Unix epoch).
     """
 
-    topic_id: int
+    topic_id: str
     topic_name: str
