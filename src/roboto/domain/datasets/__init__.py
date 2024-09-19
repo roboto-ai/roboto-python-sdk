@@ -15,7 +15,6 @@ from .operations import (
     QueryDatasetFilesRequest,
     QueryDatasetsRequest,
     RenameDirectoryRequest,
-    RenameFileRequest,
     ReportTransactionProgressRequest,
     UpdateDatasetRequest,
 )
@@ -25,10 +24,6 @@ from .record import (
     DatasetRecord,
     DatasetS3StorageCtx,
     DatasetStorageLocation,
-    TransactionRecord,
-    TransactionRecordV1,
-    TransactionStatus,
-    TransactionType,
 )
 
 __all__ = (
@@ -46,12 +41,7 @@ __all__ = (
     "QueryDatasetFilesRequest",
     "QueryDatasetsRequest",
     "ReportTransactionProgressRequest",
-    "TransactionRecord",
-    "TransactionType",
-    "TransactionStatus",
-    "TransactionRecordV1",
     "UpdateDatasetRequest",
     "DeleteDirectoriesRequest",
-    "RenameFileRequest",
     "RenameDirectoryRequest",
 )

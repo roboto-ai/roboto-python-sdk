@@ -25,7 +25,10 @@ from ...sentinels import (
 from ...updates import MetadataChangeset
 from ..events import Event
 from ..topics import Topic
-from .operations import UpdateFileRecordRequest
+from .operations import (
+    RenameFileRequest,
+    UpdateFileRecordRequest,
+)
 from .progress import (
     NoopProgressMonitorFactory,
     ProgressMonitorFactory,
@@ -168,6 +171,10 @@ class File:
     def uri(self) -> str:
         return self.__record.uri
 
+    @property
+    def version(self) -> int:
+        return self.__record.version
+
     def delete(self) -> None:
         self.__roboto_client.delete(f"/v1/files/{self.file_id}")
 
@@ -249,8 +256,20 @@ class File:
     def put_tags(self, tags: list[str]) -> "File":
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
+    def rename_file(self, file_id: str, new_path: str) -> FileRecord:
+
+        response = self.__roboto_client.put(
+            f"v1/files/{self.file_id}/rename",
+            data=RenameFileRequest(
+                association_id=self.dataset_id,
+                new_path=new_path,
+            ),
+        )
+
+        return response.to_record(FileRecord)
+
     def to_association(self) -> Association:
-        return Association.file(self.file_id)
+        return Association.file(self.file_id, self.version)
 
     def to_dict(self) -> dict[str, Any]:
         return self.__record.model_dump(mode="json")

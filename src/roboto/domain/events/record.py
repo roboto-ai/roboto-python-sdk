@@ -83,3 +83,30 @@ class EventRecord(pydantic.BaseModel):
     """
     Tags to associate with this event for discovery and search.
     """
+
+    def __eq__(self, other: typing.Any) -> bool:
+        if not isinstance(other, EventRecord):
+            return NotImplemented
+
+        return (
+            sorted(
+                self.associations,
+                key=lambda a: (a.association_type.value, a.association_id),
+            )
+            == sorted(
+                other.associations,
+                key=lambda a: (a.association_type.value, a.association_id),
+            )
+            and self.created == other.created
+            and self.created_by == other.created_by
+            and self.description == other.description
+            and self.end_time == other.end_time
+            and self.event_id == other.event_id
+            and self.metadata == other.metadata
+            and self.modified == other.modified
+            and self.modified_by == other.modified_by
+            and self.name == other.name
+            and self.org_id == other.org_id
+            and self.start_time == other.start_time
+            and set(self.tags) == set(other.tags)
+        )

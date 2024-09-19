@@ -10,6 +10,7 @@ from .operations import (
     DirectoryContentsPage,
     FileRecordRequest,
     QueryFilesRequest,
+    RenameFileRequest,
     SignedUrlResponse,
     UpdateFileRecordRequest,
 )
@@ -39,6 +40,7 @@ __all__ = (
     "ProgressMonitor",
     "ProgressMonitorFactory",
     "QueryFilesRequest",
+    "RenameFileRequest",
     "S3Credentials",
     "SignedUrlResponse",
     "UpdateFileRecordRequest",

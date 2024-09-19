@@ -94,8 +94,12 @@ class Association(pydantic.BaseModel):
         return cls(association_id=dataset_id, association_type=AssociationType.Dataset)
 
     @classmethod
-    def file(cls, file_id: str):
-        return cls(association_id=file_id, association_type=AssociationType.File)
+    def file(cls, file_id: str, version: int = 1):
+        return cls(
+            association_id=file_id,
+            association_type=AssociationType.File,
+            association_version=version,
+        )
 
     @classmethod
     def topic(cls, topic_id: str):
@@ -106,6 +110,9 @@ class Association(pydantic.BaseModel):
 
     association_type: AssociationType
     """association_type is the Roboto domain entity type of the association."""
+
+    association_version: int | None = None
+    """association_version is the Roboto domain entity version of the association, if it exists."""
 
     @property
     def is_dataset(self) -> bool:

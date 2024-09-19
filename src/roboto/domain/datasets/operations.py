@@ -16,10 +16,6 @@ from ...updates import (
     MetadataChangeset,
     UpdateCondition,
 )
-from .record import (
-    TransactionRecord,
-    TransactionType,
-)
 
 
 class BeginSingleFileUploadRequest(pydantic.BaseModel):
@@ -45,7 +41,7 @@ class BeginManifestTransactionRequest(pydantic.BaseModel):
 
 
 class BeginManifestTransactionResponse(pydantic.BaseModel):
-    record: TransactionRecord
+    transaction_id: str
     upload_mappings: dict[str, str]
 
 
@@ -91,7 +87,6 @@ class UpdateDatasetRequest(pydantic.BaseModel):
 
 
 class BeginTransactionRequest(pydantic.BaseModel):
-    transaction_type: TransactionType
     origination: str
     expected_resource_count: typing.Optional[int] = None
 
@@ -102,11 +97,6 @@ class TransactionCompletionResponse(pydantic.BaseModel):
 
 class DeleteDirectoriesRequest(pydantic.BaseModel):
     directory_paths: list[str]
-
-
-class RenameFileRequest(pydantic.BaseModel):
-    old_path: str
-    new_path: str
 
 
 class RenameDirectoryRequest(pydantic.BaseModel):

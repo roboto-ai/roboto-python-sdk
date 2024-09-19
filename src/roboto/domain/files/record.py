@@ -55,6 +55,7 @@ class FileRecord(pydantic.BaseModel):
     tags: list[str] = pydantic.Field(default_factory=list)
     upload_id: str = "NO_ID"  # Defaulted for backwards compatability
     uri: str
+    version: int
 
     @property
     def bucket(self) -> str:

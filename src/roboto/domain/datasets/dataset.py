@@ -49,7 +49,6 @@ from .operations import (
     CreateDatasetRequest,
     QueryDatasetFilesRequest,
     RenameDirectoryRequest,
-    RenameFileRequest,
     ReportTransactionProgressRequest,
     UpdateDatasetRequest,
 )
@@ -58,7 +57,6 @@ from .record import (
     DatasetCredentials,
     DatasetRecord,
     DatasetStorageLocation,
-    TransactionRecord,
 )
 
 logger = default_logger()
@@ -460,18 +458,6 @@ class Dataset:
         ).to_record(DatasetRecord)
         return self
 
-    def rename_file(self, old_path: str, new_path: str) -> FileRecord:
-
-        response = self.__roboto_client.put(
-            f"v1/datasets/{self.dataset_id}/files/rename",
-            data=RenameFileRequest(
-                old_path=old_path,
-                new_path=new_path,
-            ),
-        )
-
-        return response.to_record(FileRecord)
-
     def rename_directory(self, old_path: str, new_path: str) -> DirectoryRecord:
         response = self.__roboto_client.put(
             f"v1/datasets/{self.dataset_id}/directory/rename",
@@ -609,7 +595,7 @@ class Dataset:
         self,
         origination: str,
         resource_manifest: dict[str, int],
-    ) -> tuple[TransactionRecord, dict[str, str]]:
+    ) -> tuple[str, dict[str, str]]:
         """
         This should be considered private.
 
@@ -626,7 +612,7 @@ class Dataset:
             caller_org_id=self.org_id,
         ).to_record(BeginManifestTransactionResponse)
 
-        return result.record, dict(result.upload_mappings)
+        return result.transaction_id, dict(result.upload_mappings)
 
     def __credential_provider(self, transaction_id: str):
         return self.get_temporary_credentials(
@@ -759,7 +745,7 @@ class Dataset:
         total_file_count = len(file_manifest)
         total_file_size = sum(file_manifest.values())
 
-        transaction, create_upload_mappings = self._create_manifest_transaction(
+        transaction_id, create_upload_mappings = self._create_manifest_transaction(
             origination=origination,
             resource_manifest=file_manifest,
         )
@@ -787,16 +773,16 @@ class Dataset:
             self.__file_service().upload_many_files(
                 file_generator=upload_mappings.items(),
                 credential_provider=functools.partial(
-                    self.__credential_provider, transaction.transaction_id
+                    self.__credential_provider, transaction_id
                 ),
                 on_file_complete=functools.partial(
                     self.__on_manifest_item_complete,
-                    transaction.transaction_id,
+                    transaction_id,
                 ),
                 progress_monitor=progress_monitor,
                 max_concurrency=8,
             )
 
         self._complete_manifest_transaction(
-            transaction.transaction_id,
+            transaction_id,
         )

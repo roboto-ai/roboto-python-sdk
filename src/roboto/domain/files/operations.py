@@ -33,6 +33,11 @@ class QueryFilesRequest(pydantic.BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class RenameFileRequest(pydantic.BaseModel):
+    association_id: str
+    new_path: str
+
+
 class SignedUrlResponse(pydantic.BaseModel):
     url: str
 

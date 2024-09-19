@@ -159,6 +159,12 @@ class Event:
         record = roboto_client.get(f"v1/events/id/{event_id}").to_record(EventRecord)
         return cls(record, roboto_client)
 
+    def __eq__(self, other: typing.Any) -> bool:
+        if not isinstance(other, Event):
+            return NotImplemented
+
+        return self.__record == other.__record
+
     def __init__(
         self, record: EventRecord, roboto_client: typing.Optional[RobotoClient] = None
     ) -> None:
