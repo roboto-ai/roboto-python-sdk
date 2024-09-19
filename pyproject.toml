@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 61.0"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -21,7 +21,23 @@ dependencies = [
     "tqdm~=4.65",
     "typing-extensions ~= 4.8 ; python_version<'3.10'",
 ]
+description = "Official Python toolkit for roboto.ai"
 dynamic = ["version"]
+license = { file = "LICENSE" }
+maintainers = [
+  { name = "Roboto AI", email = "info@roboto.ai" },
+]
+readme = "README.md"
+requires-python = ">=3.9,<4"
+
+[project.scripts]
+roboto = "roboto.cli:entry"
+
+[project.urls]
+Documentation = "https://docs.roboto.ai"
+Homepage = "https://www.roboto.ai"
+Issues = "https://github.com/roboto-ai/roboto-python-sdk/issues"
+Repository = "https://github.com/roboto-ai/roboto-python-sdk.git"
 
 [tool.setuptools.dynamic]
 version = {attr = "roboto.version.__version__"}
