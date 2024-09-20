@@ -1,51 +1,51 @@
 python_requirements(
-  name="3rdparty",
-  source="pyproject.toml",
-  module_mapping={
-      "mcap-ros1-support": ("mcap_ros1",),
-      "mcap-ros2-support": ("mcap_ros2",)
-  },
+    name="3rdparty",
+    source="pyproject.toml",
+    module_mapping={
+        "mcap-ros1-support": ("mcap_ros1",),
+        "mcap-ros2-support": ("mcap_ros2",)
+    },
 )
 
 pex_binary(
     name="roboto-cli",
     dependencies=[
-        "src/roboto:roboto-src",
-        "src/roboto:py_typed",
+        "//src/roboto:roboto-src",
+        "//src/roboto:py_typed",
     ],
     entry_point="roboto.cli.entry:entry",
     execution_mode="venv",
     complete_platforms=[
-      "build-support/pex_platforms:linux_py310_aarch64",
-      "build-support/pex_platforms:linux_py310_x86_64",
-      "build-support/pex_platforms:macos_py310_aarch64",
-      "build-support/pex_platforms:macos_py310_x86_64",
+        "//build-support/pex_platforms:linux_py310_aarch64",
+        "//build-support/pex_platforms:linux_py310_x86_64",
+        "//build-support/pex_platforms:macos_py310_aarch64",
+        "//build-support/pex_platforms:macos_py310_x86_64",
     ],
 )
 
 pex_binary(
     name="upload-agent",
     dependencies=[
-        "src/roboto:roboto-src",
+        "//src/roboto:roboto-src",
     ],
     entry_point="roboto.upload_agent.__main__:main",
     execution_mode="venv",
     complete_platforms=[
-      "build-support/pex_platforms:linux_py310_aarch64",
-      "build-support/pex_platforms:linux_py310_x86_64",
-      "build-support/pex_platforms:macos_py310_aarch64",
-      "build-support/pex_platforms:macos_py310_x86_64",
+        "//build-support/pex_platforms:linux_py310_aarch64",
+        "//build-support/pex_platforms:linux_py310_x86_64",
+        "//build-support/pex_platforms:macos_py310_aarch64",
+        "//build-support/pex_platforms:macos_py310_x86_64",
     ],
 )
 
 scie_binary(
     name="roboto",
-    dependencies=[":roboto-cli"],
+    dependencies=["//:roboto-cli"],
     platforms=[
-      "linux-aarch64",
-      "linux-x86_64",
-      "macos-aarch64",
-      "macos-x86_64",
+        "linux-aarch64",
+        "linux-x86_64",
+        "macos-aarch64",
+        "macos-x86_64",
     ]
 )
 
@@ -53,9 +53,9 @@ scie_binary(
     name="roboto-agent",
     dependencies=[":upload-agent"],
     platforms=[
-      "linux-aarch64",
-      "linux-x86_64",
-      "macos-aarch64",
-      "macos-x86_64",
+        "linux-aarch64",
+        "linux-x86_64",
+        "macos-aarch64",
+        "macos-x86_64",
     ]
 )

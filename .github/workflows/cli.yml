@@ -1,8 +1,14 @@
-name: Build and release
+name: Build and release CLI
 on:
   push:
     tags:
-      - "v*"
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      # Ignore pre-release tags 
+      # https://packaging.python.org/en/latest/specifications/version-specifiers/#public-version-identifiers
+      - "!v[0-9]+.[0-9]+.[0-9]+a*"
+      - "!v[0-9]+.[0-9]+.[0-9]+b*"
+      - "!v[0-9]+.[0-9]+.[0-9]+rc*"
+      
 jobs:
   determine-pex-platforms:
     strategy:
@@ -23,18 +29,20 @@ jobs:
     name: Determine pex platforms (${{ matrix.os }}/${{ matrix.arch }})
     runs-on: ${{ matrix.image }}
     steps:
+
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
+
       - name: Determine complete_platforms for pex
         run: |
           pip install pex
           pex3 interpreter inspect --markers --tags > ${{ matrix.os }}_py310_${{ matrix.arch }}.json
+      
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ matrix.os }}_py310_${{ matrix.arch }}"
           path: "${{ matrix.os }}_py310_${{ matrix.arch }}.json"
           overwrite: true
+
   build-bin-artifacts:
     name: Build MacOS + Linux binaries
     needs: [determine-pex-platforms]
@@ -43,36 +51,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v4
         with:
           pattern: .*_py310_*
           path: build-support/pex_platforms
           merge-multiple: true
+      
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - uses: pantsbuild/actions/init-pants@v9
+        
         # This action bootstraps pants and manages 2-3 GHA caches.
         # See: github.com/pantsbuild/actions/tree/main/init-pants/
-        with:
-          # v0 makes it easy to bust the cache if needed
-          # just increase the integer to start with a fresh cache
-          gha-cache-key: v0
-          # The Python backend uses named_caches for Pip/PEX state,
-          # so it is appropriate to invalidate on lockfile changes.
-          named-caches-hash: ${{ hashFiles('build-support/lockfiles/python-default.lock') }}
-          # Note that named_caches and lmdb_store falls back to partial restore keys which
-          # may give a useful partial result that will save time over completely clean state,
-          # but will cause the cache entry to grow without bound over time.
-          # See https://www.pantsbuild.org/2.21/docs/using-pants/using-pants-in-ci for tips on how to periodically clean it up.
-          # Alternatively you change gha-cache-key to ignore old caches.
+      - uses: pantsbuild/actions/init-pants@v9
+      
       - name: Conformance
         run: |
           pants check ::
+      
       - name: Create binaries
         run: |
           pants package :roboto
           pants package :roboto-agent
+      
       - name: Package Arm64 .deb
         run: |
           VERSION="$(./dist/roboto-linux-x86_64 --version --suppress-upgrade-check)"
@@ -86,6 +88,7 @@ jobs:
           cp ./dist/roboto-linux-aarch64 roboto_arm_deb/usr/bin/roboto
           cp ./dist/roboto-agent-linux-aarch64 roboto_arm_deb/usr/bin/roboto-agent
           dpkg-deb --build roboto_arm_deb dist/roboto-linux-aarch64_${VERSION}.deb
+      
       - name: Package x86_64 .deb
         run: |
           VERSION="$(./dist/roboto-linux-x86_64 --version --suppress-upgrade-check)"
@@ -99,11 +102,13 @@ jobs:
           cp ./dist/roboto-linux-x86_64 roboto_x86_64_deb/usr/bin/roboto
           cp ./dist/roboto-agent-linux-x86_64 roboto_x86_64_deb/usr/bin/roboto-agent
           dpkg-deb --build roboto_x86_64_deb dist/roboto-linux-x86_64_${VERSION}.deb
+      
       - uses: actions/upload-artifact@v4
         with:
           name: bin-artifacts
           path: dist/
           overwrite: true
+  
   exercise-artifacts:
     needs: [build-bin-artifacts]
     strategy:
@@ -124,53 +129,68 @@ jobs:
     name: Exercise (${{ matrix.os }}/${{ matrix.arch }}) Binaries
     runs-on: ${{ matrix.image }}
     steps:
+
       - uses: actions/download-artifact@v4
         with:
           name: bin-artifacts
           path: dist
+
       - name: Exercise roboto CLI
         run: |
           chmod +x ./dist/roboto-${{ matrix.os }}-${{ matrix.arch }}
           ./dist/roboto-${{ matrix.os }}-${{ matrix.arch }} --version --suppress-upgrade-check
+
       - name: Exercise roboto-agent
         run: |
           chmod +x ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }}
           ./dist/roboto-agent-${{ matrix.os }}-${{ matrix.arch }} --help
+
   build-and-exercise-windows:
     name: Build (windows/x86_64) binaries
     runs-on: windows-latest
     steps:
+
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+
       - name: Install deps
         run: |
           pip install .
           pip install pyinstaller
+
       - name: Create binaries
         run: |
           python -m PyInstaller --name roboto-windows-x86_64 --target-architecture x86_64  --onefile --paths src --collect-data cookiecutter cli_entrypoint.py
           python -m PyInstaller --name roboto-agent-windows-x86_64 --target-architecture x86_64  --onefile --paths src agent_entrypoint.py
+      
       - name: Exercise roboto CLI
         run: ./dist/roboto-windows-x86_64 --version --suppress-upgrade-check
+      
       - name: Exercise roboto-agent
         run: ./dist/roboto-agent-windows-x86_64 --help
+      
       - uses: actions/upload-artifact@v4
         with:
           name: windows-artifacts
           path: dist/
           overwrite: true
+  
   release:
     needs: [exercise-artifacts, build-bin-artifacts, build-and-exercise-windows]
     runs-on: ubuntu-latest
     steps:
+
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
           path: dist
+
       - name: List artifacts
         run: ls -R dist
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
