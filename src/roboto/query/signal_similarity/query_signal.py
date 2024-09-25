@@ -13,7 +13,7 @@ from ...compat import import_optional_dependency
 from .match import Match
 
 if typing.TYPE_CHECKING:
-    import numpy.typing  # pants: no-infer-dep
+    import numpy.typing                       
 
 
 class QuerySignal:

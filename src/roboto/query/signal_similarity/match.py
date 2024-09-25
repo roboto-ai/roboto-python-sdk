@@ -10,7 +10,7 @@ import dataclasses
 import typing
 
 if typing.TYPE_CHECKING:
-    import numpy.typing  # pants: no-infer-dep
+    import numpy.typing                       
 
 
 @dataclasses.dataclass(frozen=True)

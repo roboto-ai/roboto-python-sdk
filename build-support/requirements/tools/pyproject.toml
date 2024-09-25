@@ -9,6 +9,12 @@ dependencies = [
     "pytest~=7.3"
 ]
 
+[project.optional-dependencies]
+types = [
+    "pandas-stubs>=2.0",
+    "types-requests===2.31.0.1",
+]
+
 [[tool.mypy.overrides]]
 module = [
     "antlr4.*",
@@ -22,7 +28,6 @@ module = [
     "jose.*",
     "markdown",
     "nanoid",
-    "pandas.*",
     "pluggy",
     "stumpy.*",
     "tqdm.*",
