@@ -19,11 +19,12 @@ jobs:
 
       - name: Install packaging deps
         run: |
-          python -m pip install build
-          python -m pip install twine
+          python -m venv .venv
+          .venv/bin/python -m pip install build
+          .venv/bin/python -m pip install twine
 
       - name: Build SDist and wheel
-        run: python -m build
+        run: .venv/bin/python -m build
 
       - uses: actions/upload-artifact@v4
         with:
@@ -31,7 +32,7 @@ jobs:
           path: dist/*
 
       - name: Check metadata
-        run: python -m twine check dist/*
+        run: .venv/bin/python -m twine check dist/*
 
   publish:
     needs: [dist]

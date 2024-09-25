@@ -34,8 +34,9 @@ jobs:
 
       - name: Determine complete_platforms for pex
         run: |
-          pip install pex
-          pex3 interpreter inspect --markers --tags > ${{ matrix.os }}_py310_${{ matrix.arch }}.json
+          python -m venv .venv
+          .venv/bin/python -m pip install pex
+          .venv/bin/pex3 interpreter inspect --markers --tags > ${{ matrix.os }}_py310_${{ matrix.arch }}.json
       
       - uses: actions/upload-artifact@v4
         with:
