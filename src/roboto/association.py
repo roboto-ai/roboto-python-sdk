@@ -22,6 +22,7 @@ class AssociationType(enum.Enum):
     Dataset = "dataset"
     File = "file"
     Topic = "topic"
+    MessagePath = "message_path"
 
 
 class Association(pydantic.BaseModel):
@@ -66,6 +67,7 @@ class Association(pydantic.BaseModel):
         dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
         topic_ids: typing.Optional[collections.abc.Collection[str]] = None,
+        message_path_ids: typing.Optional[collections.abc.Collection[str]] = None,
         throw_on_empty: bool = False,
     ) -> list["Association"]:
         coalesced: list[Association] = []
@@ -79,6 +81,9 @@ class Association(pydantic.BaseModel):
         if file_ids:
             coalesced.extend(cls.file(file_id) for file_id in file_ids)
 
+        if message_path_ids:
+            coalesced.extend(cls.msgpath(msgpath_id) for msgpath_id in message_path_ids)
+
         if topic_ids:
             coalesced.extend(cls.topic(topic_id) for topic_id in topic_ids)
 
@@ -90,7 +95,7 @@ class Association(pydantic.BaseModel):
         return coalesced
 
     @classmethod
-    def dataset(cls, dataset_id: str):
+    def dataset(cls, dataset_id: str) -> "Association":
         return cls(association_id=dataset_id, association_type=AssociationType.Dataset)
 
     @classmethod
@@ -104,6 +109,12 @@ class Association(pydantic.BaseModel):
     @classmethod
     def topic(cls, topic_id: str):
         return cls(association_id=topic_id, association_type=AssociationType.Topic)
+
+    @classmethod
+    def msgpath(cls, msgpath_id: str) -> "Association":
+        return cls(
+            association_id=msgpath_id, association_type=AssociationType.MessagePath
+        )
 
     association_id: str
     """Roboto identifier"""
@@ -121,6 +132,10 @@ class Association(pydantic.BaseModel):
     @property
     def is_file(self) -> bool:
         return self.association_type == AssociationType.File
+
+    @property
+    def is_msgpath(self) -> bool:
+        return self.association_type == AssociationType.MessagePath
 
     @property
     def is_topic(self) -> bool:

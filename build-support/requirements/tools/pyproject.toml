@@ -22,7 +22,9 @@ module = [
     "jose.*",
     "markdown",
     "nanoid",
+    "pandas.*",
     "pluggy",
+    "stumpy.*",
     "tqdm.*",
     "wrapt"
 ]

@@ -4,10 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
 import pathlib
 import typing
 
+from ...compat import import_optional_dependency
 from ...http import RobotoClient
 from ...time import Time
 from .record import (
@@ -15,6 +18,9 @@ from .record import (
     MessagePathStatistic,
 )
 from .topic_data_service import TopicDataService
+
+if typing.TYPE_CHECKING:
+    import pandas  # pants: no-infer-dep
 
 PreComputedStat: typing.TypeAlias = typing.Optional[typing.Union[int, float]]
 
@@ -146,13 +152,13 @@ class MessagePath:
             >>> for record in angular_velocity_x.get_data():
             >>>      print(record)
 
-            Collect data into a dataframe. Requires installing ``pandas`` into the same Python environment.
+            Collect data into a dataframe. Requires installing the ``roboto[analytics]`` extra.
 
             >>> import math
             >>> import pandas as pd
             >>> topic = Topic.from_name_and_association(...)
             >>> angular_velocity_x = topic.get_message_path("angular_velocity.x")
-            >>> df = pd.json_normalize(data=list(angular_velocity_x.get_data()))
+            >>> df = angular_velocity_x.get_data_as_df()
             >>> assert math.isclose(angular_velocity_x.mean, df[angular_velocity_x.path].mean())
         """
 
@@ -162,6 +168,30 @@ class MessagePath:
             start_time=start_time,
             end_time=end_time,
             cache_dir_override=cache_dir,
+        )
+
+    def get_data_as_df(
+        self,
+        start_time: typing.Optional[Time] = None,
+        end_time: typing.Optional[Time] = None,
+        cache_dir: typing.Union[str, pathlib.Path, None] = None,
+    ) -> pandas.DataFrame:
+        """
+        Return this message path's underlying data as a pandas DataFrame.
+
+        Requires installing this package using the ``roboto[analytics]`` extra.
+
+        See :py:meth:`~roboto.domain.topics.message_path.MessagePath.get_data` for more information on the parameters.
+        """
+        pandas = import_optional_dependency("pandas", "analytics")
+        return pandas.json_normalize(
+            data=list(
+                self.get_data(
+                    start_time=start_time,
+                    end_time=end_time,
+                    cache_dir=cache_dir,
+                )
+            )
         )
 
     def __get_statistic(self, stat: MessagePathStatistic) -> PreComputedStat:

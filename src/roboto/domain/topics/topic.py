@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
 import pathlib
 import typing
@@ -11,6 +13,7 @@ import urllib.parse
 import urllib.request
 
 from ...association import Association
+from ...compat import import_optional_dependency
 from ...http import RobotoClient
 from ...logging import default_logger
 from ...sentinels import (
@@ -41,6 +44,9 @@ from .record import (
     TopicRecord,
 )
 from .topic_data_service import TopicDataService
+
+if typing.TYPE_CHECKING:
+    import pandas  # pants: no-infer-dep
 
 logger = default_logger()
 
@@ -361,11 +367,10 @@ class Topic:
             >>> ):
             >>>      print(record)
 
-            Collect all topic data into a dataframe. Requires installing ``pandas`` into the same Python environment.
+            Collect all topic data into a dataframe. Requires installing the ``roboto[analytics]`` extra.
 
-            >>> import pandas as pd
             >>> topic = Topic.from_name_and_file(...)
-            >>> df = pd.json_normalize(data=list(topic.get_data()))
+            >>> df = topic.get_data_as_df()
 
         """
         message_paths = set(
@@ -395,6 +400,35 @@ class Topic:
             start_time=start_time,
             end_time=end_time,
             cache_dir_override=cache_dir,
+        )
+
+    def get_data_as_df(
+        self,
+        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        start_time: typing.Optional[Time] = None,
+        end_time: typing.Optional[Time] = None,
+        cache_dir: typing.Union[str, pathlib.Path, None] = None,
+    ) -> pandas.DataFrame:
+        """
+        Return this topic's underlying data as a pandas DataFrame.
+
+        Requires installing this package using the ``roboto[analytics]`` extra.
+
+        See :py:meth:`~roboto.domain.topics.topic.Topic.get_data` for more information on the parameters.
+        """
+        pandas = import_optional_dependency("pandas", "analytics")
+
+        return pandas.json_normalize(
+            data=list(
+                self.get_data(
+                    message_paths_include=message_paths_include,
+                    message_paths_exclude=message_paths_exclude,
+                    start_time=start_time,
+                    end_time=end_time,
+                    cache_dir=cache_dir,
+                )
+            )
         )
 
     def get_events(self) -> collections.abc.Generator[Event, None, None]:
