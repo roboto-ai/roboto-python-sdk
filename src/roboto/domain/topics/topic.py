@@ -46,7 +46,7 @@ from .record import (
 from .topic_data_service import TopicDataService
 
 if typing.TYPE_CHECKING:
-    import pandas                       
+    import pandas  # pants: no-infer-dep
 
 logger = default_logger()
 

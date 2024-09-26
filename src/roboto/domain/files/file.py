@@ -256,6 +256,12 @@ class File:
     def put_tags(self, tags: list[str]) -> "File":
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
+    def refresh(self) -> "File":
+        self.__record = self.__roboto_client.get(
+            f"v1/files/record/{self.file_id}"
+        ).to_record(FileRecord)
+        return self
+
     def rename_file(self, file_id: str, new_path: str) -> FileRecord:
 
         response = self.__roboto_client.put(

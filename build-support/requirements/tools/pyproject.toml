@@ -28,6 +28,8 @@ module = [
     "jose.*",
     "markdown",
     "nanoid",
+    "numpy.*",
+    "pandas.*",
     "pluggy",
     "stumpy.*",
     "tqdm.*",

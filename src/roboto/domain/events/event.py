@@ -229,6 +229,12 @@ class Event:
     def put_tags(self, tags: list[str]) -> "Event":
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
+    def refresh(self) -> "Event":
+        self.__record = self.__roboto_client.get(
+            f"v1/events/id/{self.event_id}"
+        ).to_record(EventRecord)
+        return self
+
     def remove_metadata(
         self,
         metadata: StrSequence,
