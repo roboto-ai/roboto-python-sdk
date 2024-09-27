@@ -49,11 +49,17 @@ class Association(pydantic.BaseModel):
     def from_url_encoded_value(cls, encoded: str) -> "Association":
         """Reverse of Association::url_encode."""
         unquoted = urllib.parse.unquote_plus(encoded)
-        association_type, association_id = unquoted.split(cls.URL_ENCODING_SEP)
+
+        association_type, association_id, *rest = unquoted.split(cls.URL_ENCODING_SEP)
+        association_version: int | None = None
+        if rest:
+            association_version = int(rest[0])
+
         try:
             return cls(
                 association_id=association_id,
                 association_type=AssociationType(association_type),
+                association_version=association_version,
             )
         except ValueError:
             raise RobotoIllegalArgumentException(
@@ -143,6 +149,13 @@ class Association(pydantic.BaseModel):
 
     def url_encode(self) -> str:
         """Association encoded in a URL path segment ready format."""
-        return urllib.parse.quote_plus(
-            f"{self.association_type.value}{Association.URL_ENCODING_SEP}{self.association_id}"
-        )
+
+        parts = [
+            self.association_type.value,
+            self.association_id,
+        ]
+
+        if self.association_version is not None:
+            parts.append(str(self.association_version))
+
+        return urllib.parse.quote_plus(Association.URL_ENCODING_SEP.join(parts))

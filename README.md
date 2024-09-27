@@ -73,7 +73,7 @@ With the Python SDK, or standalone CLI installed, you can use `roboto` on the co
 The example below shows how to create a new dataset and upload a file to it.
 
 ```bash
-> roboto datasets create -t sunny boston
+> roboto datasets create --tag sunny boston
 {
   "administrator": "Roboto",
   "created": "2024-09-25T22:22:48.271387Z",

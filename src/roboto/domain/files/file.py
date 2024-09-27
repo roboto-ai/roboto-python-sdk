@@ -241,7 +241,11 @@ class File:
         include: typing.Optional[collections.abc.Sequence[str]] = None,
         exclude: typing.Optional[collections.abc.Sequence[str]] = None,
     ) -> collections.abc.Generator["Topic", None, None]:
-        for topic in Topic.get_by_file(owner_org_id=self.org_id, file_id=self.file_id):
+        for topic in Topic.get_by_file(
+            owner_org_id=self.org_id,
+            file_id=self.file_id,
+            roboto_client=self.__roboto_client,
+        ):
             if include is not None and topic.name not in include:
                 continue
 
