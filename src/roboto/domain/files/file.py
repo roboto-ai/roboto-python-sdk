@@ -7,7 +7,7 @@
 import collections.abc
 import pathlib
 import typing
-from typing import Any, Optional
+import urllib.parse
 
 import boto3
 import botocore.config
@@ -46,7 +46,7 @@ class File:
 
     @staticmethod
     def construct_s3_obj_uri(
-        bucket: str, key: str, version: Optional[str] = None
+        bucket: str, key: str, version: typing.Optional[str] = None
     ) -> str:
         base_uri = f"s3://{bucket}/{key}"
         if version:
@@ -78,10 +78,30 @@ class File:
     def from_id(
         cls,
         file_id: str,
+        version_id: typing.Optional[int] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "File":
         roboto_client = RobotoClient.defaulted(roboto_client)
-        record = roboto_client.get(f"v1/files/record/{file_id}").to_record(FileRecord)
+        record = roboto_client.get(
+            f"v1/files/record/{file_id}",
+            query={"version_id": version_id} if version_id is not None else None,
+        ).to_record(FileRecord)
+        return cls(record, roboto_client)
+
+    @classmethod
+    def from_path_and_dataset_id(
+        cls,
+        file_path: typing.Union[str, pathlib.Path],
+        dataset_id: str,
+        version_id: typing.Optional[int] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> "File":
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        url_quoted_file_path = urllib.parse.quote_plus(str(file_path))
+        record = roboto_client.get(
+            f"v1/files/record/path/{url_quoted_file_path}/association/{dataset_id}",
+            query={"version_id": version_id} if version_id is not None else None,
+        ).to_record(FileRecord)
         return cls(record, roboto_client)
 
     @classmethod
@@ -89,7 +109,7 @@ class File:
         cls,
         spec: typing.Optional[QuerySpecification] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
-        owner_org_id: Optional[str] = None,
+        owner_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Generator["File", None, None]:
         roboto_client = RobotoClient.defaulted(roboto_client)
         spec = spec or QuerySpecification()
@@ -140,7 +160,7 @@ class File:
         return self.__record.association_id
 
     @property
-    def description(self) -> Optional[str]:
+    def description(self) -> typing.Optional[str]:
         return self.__record.description
 
     @property
@@ -281,7 +301,7 @@ class File:
     def to_association(self) -> Association:
         return Association.file(self.file_id, self.version)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, typing.Any]:
         return self.__record.model_dump(mode="json")
 
     def update(

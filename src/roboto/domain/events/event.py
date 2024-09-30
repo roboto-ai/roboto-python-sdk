@@ -42,6 +42,7 @@ class Event:
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
         topic_ids: typing.Optional[collections.abc.Collection[str]] = None,
         dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
+        message_path_ids: typing.Optional[collections.abc.Collection[str]] = None,
         end_time: typing.Optional[typing.Union[int, datetime.datetime]] = None,
         description: typing.Optional[str] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
@@ -56,6 +57,7 @@ class Event:
             dataset_ids=dataset_ids,
             file_ids=file_ids,
             topic_ids=topic_ids,
+            message_path_ids=message_path_ids,
             throw_on_empty=True,
         )
 
@@ -111,6 +113,17 @@ class Event:
     ) -> collections.abc.Generator["Event", None, None]:
         """Returns all events with a direct association to the provided file."""
         return Event.get_by_associations([Association.file(file_id)], roboto_client)
+
+    @classmethod
+    def get_by_message_path(
+        cls,
+        message_path_id: str,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> collections.abc.Generator["Event", None, None]:
+        """Returns all events with a direct association to the provided message path."""
+        return Event.get_by_associations(
+            [Association.msgpath(message_path_id)], roboto_client
+        )
 
     @classmethod
     def get_by_topic(
@@ -197,6 +210,14 @@ class Event:
             association.association_id
             for association in self.__record.associations
             if association.is_file
+        ]
+
+    @property
+    def message_path_ids(self) -> list[str]:
+        return [
+            association.association_id
+            for association in self.__record.associations
+            if association.is_msgpath
         ]
 
     @property

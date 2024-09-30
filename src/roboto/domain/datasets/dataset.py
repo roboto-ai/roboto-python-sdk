@@ -16,16 +16,10 @@ import pathspec
 from ...association import Association
 from ...auth import Permissions
 from ...env import RobotoEnv
-from ...exceptions import (
-    RobotoInvalidRequestException,
-    RobotoNotFoundException,
-)
+from ...exceptions import RobotoNotFoundException
 from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger
-from ...paths import (
-    excludespec_from_patterns,
-    path_to_pattern,
-)
+from ...paths import excludespec_from_patterns
 from ...query import QuerySpecification
 from ...updates import (
     MetadataChangeset,
@@ -276,6 +270,7 @@ class Dataset:
     def get_file_by_path(
         self,
         relative_path: typing.Union[str, pathlib.Path],
+        version_id: typing.Optional[int] = None,
     ) -> File:
         """
         Get a File object for the given relative path.
@@ -287,20 +282,12 @@ class Dataset:
             >>> print(file.file_id)
             file-abc123
         """
-        escaped_path = path_to_pattern(str(relative_path))
-
-        matching = list(self.list_files(include_patterns=[escaped_path]))
-        if not matching:
-            raise RobotoNotFoundException(
-                f"File '{escaped_path}' not found in dataset '{self.dataset_id}'"
-            )
-
-        if len(matching) > 1:
-            raise RobotoInvalidRequestException(
-                f"Multiple files found for '{relative_path}' in dataset '{self.dataset_id}'"
-            )
-
-        return matching[0]
+        return File.from_path_and_dataset_id(
+            file_path=relative_path,
+            dataset_id=self.dataset_id,
+            version_id=version_id,
+            roboto_client=self.__roboto_client,
+        )
 
     def get_temporary_credentials(
         self,

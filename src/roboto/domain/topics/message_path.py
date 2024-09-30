@@ -10,7 +10,9 @@ import collections.abc
 import pathlib
 import typing
 
+from ...association import Association
 from ...compat import import_optional_dependency
+from ...domain.events import Event
 from ...http import RobotoClient
 from ...time import Time
 from .record import (
@@ -65,6 +67,25 @@ class MessagePath:
         """
         return path.split(MessagePath.DELIMITER)
 
+    @classmethod
+    def from_id(
+        cls,
+        message_path_id: str,
+        roboto_client: typing.Optional[RobotoClient] = None,
+        topic_data_service: typing.Optional[TopicDataService] = None,
+    ) -> "MessagePath":
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        record = roboto_client.get(
+            f"v1/topics/message-path/id/{message_path_id}"
+        ).to_record(MessagePathRecord)
+        return cls(record, roboto_client, topic_data_service)
+
+    def __eq__(self, other: typing.Any) -> bool:
+        if not isinstance(other, MessagePath):
+            return NotImplemented
+
+        return self.__record == other.__record
+
     def __init__(
         self,
         record: MessagePathRecord,
@@ -92,6 +113,10 @@ class MessagePath:
     @property
     def median(self) -> PreComputedStat:
         return self.__get_statistic(MessagePathStatistic.Median)
+
+    @property
+    def message_path_id(self) -> str:
+        return self.__record.message_path_id
 
     @property
     def min(self) -> PreComputedStat:
@@ -193,6 +218,15 @@ class MessagePath:
                 )
             )
         )
+
+    def get_events(self) -> collections.abc.Generator[Event, None, None]:
+        return Event.get_by_message_path(
+            message_path_id=self.message_path_id,
+            roboto_client=self.__roboto_client,
+        )
+
+    def to_association(self) -> Association:
+        return Association.msgpath(self.message_path_id)
 
     def __get_statistic(self, stat: MessagePathStatistic) -> PreComputedStat:
         return self.__record.metadata.get(stat.value)
