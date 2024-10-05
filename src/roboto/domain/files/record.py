@@ -32,6 +32,18 @@ class IngestionStatus(str, enum.Enum):
     Ingested = "ingested"
 
 
+class FileStorageType(str, enum.Enum):
+    S3Imported = "imported"
+    """
+    This file was imported from a read-only customer bucket.
+    """
+
+    S3Uploaded = "uploaded"
+    """
+    This file was explicitly uploaded to either a Roboto managed bucket or a read/write customer bring-your-own bucket.
+    """
+
+
 class FileRecord(pydantic.BaseModel):
     association_id: (
         str  # e.g. dataset_id, collection_id, etc.; GSI PK of "association_id" index.
@@ -52,6 +64,7 @@ class FileRecord(pydantic.BaseModel):
     )
     size: int  # bytes
     status: FileStatus = FileStatus.Available
+    storage_type: FileStorageType = FileStorageType.S3Uploaded
     tags: list[str] = pydantic.Field(default_factory=list)
     upload_id: str = "NO_ID"  # Defaulted for backwards compatability
     uri: str

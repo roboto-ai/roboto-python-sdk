@@ -19,11 +19,8 @@ from .operations import (
     UpdateDatasetRequest,
 )
 from .record import (
-    DatasetBucketAdministrator,
     DatasetCredentials,
     DatasetRecord,
-    DatasetS3StorageCtx,
-    DatasetStorageLocation,
 )
 
 __all__ = (
@@ -33,11 +30,8 @@ __all__ = (
     "BeginSingleFileUploadResponse",
     "CreateDatasetRequest",
     "Dataset",
-    "DatasetBucketAdministrator",
     "DatasetCredentials",
     "DatasetRecord",
-    "DatasetS3StorageCtx",
-    "DatasetStorageLocation",
     "QueryDatasetFilesRequest",
     "QueryDatasetsRequest",
     "ReportTransactionProgressRequest",

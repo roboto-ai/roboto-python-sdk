@@ -16,7 +16,10 @@ import pathspec
 from ...association import Association
 from ...auth import Permissions
 from ...env import RobotoEnv
-from ...exceptions import RobotoNotFoundException
+from ...exceptions import (
+    RobotoInternalException,
+    RobotoNotFoundException,
+)
 from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger
 from ...paths import excludespec_from_patterns
@@ -47,10 +50,8 @@ from .operations import (
     UpdateDatasetRequest,
 )
 from .record import (
-    DatasetBucketAdministrator,
     DatasetCredentials,
     DatasetRecord,
-    DatasetStorageLocation,
 )
 
 logger = default_logger()
@@ -217,46 +218,39 @@ class Dataset:
             ...     exclude_patterns=["**/test/**"]
             ... )
         """
-        if (
-            self.__record.storage_location != DatasetStorageLocation.S3
-            or self.__record.administrator != DatasetBucketAdministrator.Roboto
-        ):
-            raise NotImplementedError(
-                "Only S3-backed storage administered by Roboto is supported at this time."
-            )
-
         if not out_path.is_dir():
             out_path.mkdir(parents=True)
-
-        def _credential_provider():
-            return self.get_temporary_credentials(
-                Permissions.ReadOnly
-            ).to_s3_credentials()
 
         def _file_to_download_tuple(f: File) -> tuple[FileRecord, pathlib.Path]:
             return f.record, out_path / f.relative_path
 
         all_files = list(self.list_files(include_patterns, exclude_patterns))
 
-        def _file_generator():
-            for x in map(
-                _file_to_download_tuple,
-                all_files,
-            ):
-                yield x
+        files_by_bucket = collections.defaultdict(list)
+        for file in all_files:
+            files_by_bucket[file.record.bucket].append(file)
 
-        self.__file_service().download_files(
-            file_generator=_file_generator(),
-            credential_provider=_credential_provider,
-            progress_monitor_factory=TqdmProgressMonitorFactory(
-                concurrency=1,
-                ctx={
-                    "base_path": self.dataset_id,
-                    "total_file_count": len(all_files),
-                },
-            ),
-            max_concurrency=8,
-        )
+        for bucket_name, bucket_files in files_by_bucket.items():
+
+            def _file_generator():
+                for x in map(
+                    _file_to_download_tuple,
+                    bucket_files,
+                ):
+                    yield x
+
+            self.__file_service().download_files(
+                file_generator=_file_generator(),
+                credential_provider=self.__download_creds_provider(bucket_name),
+                progress_monitor_factory=TqdmProgressMonitorFactory(
+                    concurrency=1,
+                    ctx={
+                        "base_path": self.dataset_id,
+                        "total_file_count": len(all_files),
+                    },
+                ),
+                max_concurrency=8,
+            )
 
     def get_events(
         self, transitive: bool = False
@@ -288,33 +282,6 @@ class Dataset:
             version_id=version_id,
             roboto_client=self.__roboto_client,
         )
-
-    def get_temporary_credentials(
-        self,
-        permissions: Permissions = Permissions.ReadOnly,
-        force_refresh: bool = False,
-        transaction_id: typing.Optional[str] = None,
-    ) -> DatasetCredentials:
-        """
-        Effectively protected, this is exposed for specific Roboto internal scenarios, but should generally be avoided
-        unless you have a very compelling use case.
-        """
-        if (
-            force_refresh
-            or permissions == Permissions.ReadWrite
-            or self.__temp_credentials is None
-            or self.__temp_credentials.is_expired()
-        ):
-            query_params = {"mode": permissions.value}
-
-            if transaction_id:
-                query_params["transaction_id"] = transaction_id
-
-            return self.__roboto_client.get(
-                f"v1/datasets/{self.dataset_id}/credentials", query=query_params
-            ).to_record(DatasetCredentials)
-
-        return self.__temp_credentials
 
     def get_topics(self) -> collections.abc.Generator[Topic, None, None]:
         """
@@ -601,15 +568,52 @@ class Dataset:
 
         return result.transaction_id, dict(result.upload_mappings)
 
-    def __credential_provider(self, transaction_id: str):
-        return self.get_temporary_credentials(
-            Permissions.ReadWrite,
-            force_refresh=True,
-            transaction_id=transaction_id,
-        ).to_s3_credentials()
+    def __download_creds_provider(self, bucket_name: str):
+        def _wrapped():
+            all_creds = self.__get_temporary_credentials(Permissions.ReadOnly)
+            filtered = [cred for cred in all_creds if cred.bucket == bucket_name]
+
+            if len(filtered) == 0:
+                raise RobotoInternalException(
+                    f"Dataset {self.dataset_id} has no read creds for bucket {bucket_name}."
+                )
+
+            return filtered[0].to_s3_credentials()
+
+        return _wrapped
+
+    def __upload_creds_provider(self, transaction_id: str):
+        def _wrapped():
+            all_creds = self.__get_temporary_credentials(
+                Permissions.ReadWrite,
+                transaction_id=transaction_id,
+            )
+
+            if len(all_creds) == 0:
+                raise RobotoInternalException(
+                    f"Dataset {self.dataset_id} has no write creds."
+                )
+
+            return all_creds[0].to_s3_credentials()
+
+        return _wrapped
 
     def __file_service(self) -> FileService:
         return FileService(self.__roboto_client)
+
+    def __get_temporary_credentials(
+        self,
+        permissions: Permissions,
+        transaction_id: typing.Optional[str] = None,
+    ) -> collections.abc.Sequence[DatasetCredentials]:
+        query_params = {"mode": permissions.value}
+
+        if transaction_id:
+            query_params["transaction_id"] = transaction_id
+
+        return self.__roboto_client.get(
+            f"v1/datasets/id/{self.dataset_id}/credentials", query=query_params
+        ).to_record_list(DatasetCredentials)
 
     def _flush_manifest_item_completions(
         self,
@@ -759,9 +763,7 @@ class Dataset:
         ) as progress_monitor:
             self.__file_service().upload_many_files(
                 file_generator=upload_mappings.items(),
-                credential_provider=functools.partial(
-                    self.__credential_provider, transaction_id
-                ),
+                credential_provider=self.__upload_creds_provider(transaction_id),
                 on_file_complete=functools.partial(
                     self.__on_manifest_item_complete,
                     transaction_id,

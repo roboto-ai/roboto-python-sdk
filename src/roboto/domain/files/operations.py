@@ -28,6 +28,14 @@ class FileRecordRequest(pydantic.BaseModel):
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
 
 
+class ImportFileRequest(pydantic.BaseModel):
+    dataset_id: str
+    description: typing.Optional[str] = None
+    relative_path: str
+    size: int
+    uri: str
+
+
 class QueryFilesRequest(pydantic.BaseModel):
     filters: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     model_config = ConfigDict(extra="forbid")

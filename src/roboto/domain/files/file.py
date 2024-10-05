@@ -15,7 +15,7 @@ import botocore.credentials
 import botocore.session
 
 from ...association import Association
-from ...http import RobotoClient
+from ...http import BatchRequest, RobotoClient
 from ...query import QuerySpecification
 from ...sentinels import (
     NotSet,
@@ -26,6 +26,7 @@ from ...updates import MetadataChangeset
 from ..events import Event
 from ..topics import Topic
 from .operations import (
+    ImportFileRequest,
     RenameFileRequest,
     UpdateFileRecordRequest,
 )
@@ -103,6 +104,23 @@ class File:
             query={"version_id": version_id} if version_id is not None else None,
         ).to_record(FileRecord)
         return cls(record, roboto_client)
+
+    @classmethod
+    def import_batch(
+        cls,
+        requests: collections.abc.Sequence[ImportFileRequest],
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> collections.abc.Sequence["File"]:
+        roboto_client = RobotoClient.defaulted(roboto_client)
+
+        # Requests explicitly need to be cast to list because of Pydantic serialization not working appropriately
+        # with collections.abc
+        request: BatchRequest[ImportFileRequest] = BatchRequest(requests=list(requests))
+
+        records = roboto_client.post(
+            "v1/files/import/batch", data=request, idempotent=True
+        ).to_record_list(FileRecord)
+        return [cls(record, roboto_client) for record in records]
 
     @classmethod
     def query(

@@ -5,7 +5,6 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-import enum
 import typing
 from typing import Any, Optional
 
@@ -13,11 +12,6 @@ import pydantic
 
 from ...time import utcnow
 from ..files import S3Credentials
-
-
-class DatasetBucketAdministrator(str, enum.Enum):
-    # Other supported type would be "Customer"
-    Roboto = "Roboto"
 
 
 class DatasetCredentials(pydantic.BaseModel):
@@ -45,23 +39,19 @@ class DatasetCredentials(pydantic.BaseModel):
         }
 
 
-class DatasetStorageLocation(str, enum.Enum):
-    # Other supported locations might be "GCP" or "Azure"
-    S3 = "S3"
-
-
-class DatasetS3StorageCtx(pydantic.BaseModel):
-    bucket_name: str
-    iam_role_arn: str
-    key_prefix: str
-
-
-# https://www.google.com/search?q=pydantic.Field+default_factory+not+evaluated+in+parse_obj&rlz=1C5CHFA_enUS1054US1054&oq=pydantic.Field+default_factory+not+evaluated+in+parse_obj&aqs=chrome..69i57j33i160.6235j0j7&sourceid=chrome&ie=UTF-8
-StorageCtxType = typing.Optional[DatasetS3StorageCtx]
+def make_backwards_compatible_placeholder_storage_ctx() -> dict[str, typing.Any]:
+    """
+    Because of some overly aggressive pydantic model validation, we need to return a storage_context with our
+    original S3 description in order to stop SDK clients prior to 0.10.0 from throwing errors.
+    """
+    return {
+        "bucket_name": "NOT_SET",
+        "iam_role_arn": "NOT_SET",
+        "key_prefix": "NOT_SET",
+    }
 
 
 class DatasetRecord(pydantic.BaseModel):
-    administrator: DatasetBucketAdministrator
     created: datetime.datetime
     created_by: str
     dataset_id: str  # sort key
@@ -72,18 +62,15 @@ class DatasetRecord(pydantic.BaseModel):
     modified_by: str
     org_id: str  # partition key
     roboto_record_version: int = 0  # A protected field, incremented on every update
-    storage_ctx: StorageCtxType = None
-    storage_location: DatasetStorageLocation
     tags: list[str] = pydantic.Field(default_factory=list)
 
-    @staticmethod
-    def storage_ctx_from_dict(ctx_dict: dict[str, typing.Any]) -> StorageCtxType:
-        """
-        Used to cast a dict representation of StorageCtxType into an appropriate pydantic model. Will return None
-        if the empty dict (default representation) is provided, and will throw an exception if some fields are set,
-        but they don't match a known storage ctx pydantic model.
-        """
-        if ctx_dict == {}:
-            return None
-
-        return DatasetS3StorageCtx.model_validate(ctx_dict)
+    # Because datasets may have files in many buckets, both customer provided and Roboto managed, having a single
+    # storage location or a single administrator no longer makes sense.
+    #
+    # These fields are deprecated, and have defaulting strategies to maintain backwards compatibility with old
+    # versions of the Roboto SDK, since this record defines the shape of the service's return payload.
+    administrator: str = "Roboto"
+    storage_ctx: dict[str, Any] = pydantic.Field(
+        default_factory=make_backwards_compatible_placeholder_storage_ctx
+    )
+    storage_location: str = "S3"

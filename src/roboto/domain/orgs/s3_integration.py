@@ -26,6 +26,7 @@ class RegisterS3IntegrationRequest(pydantic.BaseModel):
     bucket_name: str
     org_id: str
     transfer_accelerated: bool = False
+    readonly: bool = False
 
 
 class RegisterS3IntegrationResponse(pydantic.BaseModel):
@@ -59,6 +60,7 @@ class S3IntegrationService:
         account_id: str,
         bucket_name: str,
         transfer_accelerated: bool = False,
+        readonly: bool = False,
     ):
         logger.info("Checking that you have access to the specified account and bucket")
 
@@ -93,6 +95,7 @@ class S3IntegrationService:
                 org_id=org_id,
                 aws_region=aws_region,
                 transfer_accelerated=transfer_accelerated,
+                readonly=readonly,
             ),
         ).to_record(RegisterS3IntegrationResponse)
 

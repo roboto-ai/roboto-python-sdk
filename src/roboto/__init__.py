@@ -80,11 +80,8 @@ from .domain.datasets import (
     BeginSingleFileUploadRequest,
     CreateDatasetRequest,
     Dataset,
-    DatasetBucketAdministrator,
     DatasetCredentials,
     DatasetRecord,
-    DatasetS3StorageCtx,
-    DatasetStorageLocation,
     QueryDatasetFilesRequest,
     QueryDatasetsRequest,
     ReportTransactionProgressRequest,
@@ -104,6 +101,7 @@ from .domain.files import (
     FileRecordRequest,
     FileStatus,
     FileTag,
+    ImportFileRequest,
     IngestionStatus,
     QueryFilesRequest,
     S3Credentials,
@@ -116,6 +114,7 @@ from .domain.topics import (
     CreateTopicRequest,
     MessagePath,
     MessagePathRecord,
+    MessagePathStatistic,
     RepresentationRecord,
     RepresentationStorageFormat,
     SetDefaultRepresentationRequest,
@@ -131,7 +130,7 @@ from .domain.users import (
     UserRecord,
 )
 from .env import RobotoEnv
-from .http import RobotoClient
+from .http import BatchRequest, RobotoClient
 from .query.roboto_search import RobotoSearch
 from .warnings import (
     roboto_default_warning_behavior,
@@ -150,6 +149,7 @@ __all__ = [
     "AddMessagePathRequest",
     "Association",
     "AssociationType",
+    "BatchRequest",
     "BeginManifestTransactionRequest",
     "BeginSingleFileUploadRequest",
     "CanonicalDataType",
@@ -176,11 +176,8 @@ __all__ = [
     "CreateUserRequest",
     "CredentialProvider",
     "Dataset",
-    "DatasetBucketAdministrator",
     "DatasetCredentials",
     "DatasetRecord",
-    "DatasetS3StorageCtx",
-    "DatasetStorageLocation",
     "DeleteFileRequest",
     "Device",
     "DeviceRecord",
@@ -195,6 +192,7 @@ __all__ = [
     "FileRecordRequest",
     "FileStatus",
     "FileTag",
+    "ImportFileRequest",
     "IngestionStatus",
     "Invocation",
     "InvocationDataSource",
