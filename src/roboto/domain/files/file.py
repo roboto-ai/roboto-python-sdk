@@ -23,7 +23,6 @@ from ...sentinels import (
     remove_not_set,
 )
 from ...updates import MetadataChangeset
-from ..events import Event
 from ..topics import Topic
 from .operations import (
     ImportFileRequest,
@@ -242,9 +241,6 @@ class File:
             )
         finally:
             progress_monitor.close()
-
-    def get_events(self) -> collections.abc.Generator[Event, None, None]:
-        return Event.get_by_file(self.file_id)
 
     def get_signed_url(
         self,

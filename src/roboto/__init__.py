@@ -131,7 +131,7 @@ from .domain.users import (
 )
 from .env import RobotoEnv
 from .http import BatchRequest, RobotoClient
-from .query.roboto_search import RobotoSearch
+from .roboto_search import RobotoSearch
 from .warnings import (
     roboto_default_warning_behavior,
 )

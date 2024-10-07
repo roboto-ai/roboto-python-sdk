@@ -4,17 +4,31 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
 import datetime
+import pathlib
 import typing
 
 from ...association import Association
+from ...compat import import_optional_dependency
+from ...exceptions import (
+    RobotoInvalidRequestException,
+)
 from ...http import RobotoClient
+from ...logging import default_logger
 from ...sentinels import NotSet, NotSetType
 from ...time import to_epoch_nanoseconds
 from ...updates import (
     MetadataChangeset,
     StrSequence,
+)
+from ..files import File
+from ..topics import (
+    MessagePath,
+    Topic,
+    TopicDataService,
 )
 from .operations import (
     CreateEventRequest,
@@ -22,6 +36,11 @@ from .operations import (
     UpdateEventRequest,
 )
 from .record import EventRecord
+
+if typing.TYPE_CHECKING:
+    import pandas  # pants: no-infer-dep
+
+logger = default_logger()
 
 
 class Event:
@@ -243,6 +262,189 @@ class Event:
 
     def delete(self) -> None:
         self.__roboto_client.delete(f"v1/events/id/{self.event_id}")
+
+    def get_data(
+        self,
+        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        topic_name: typing.Optional[str] = None,
+        topic_data_service: typing.Optional[TopicDataService] = None,
+        cache_dir: typing.Union[str, pathlib.Path, None] = None,
+    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        """
+        Iteratively yield records of the underlying topic data this event annotates.
+
+        An event can be associated with data at multiple resolutions:
+            - as an event on its containing dataset, file, and/or topic,
+            - but also directly with the message path ("signal data")
+        A single event can also span signals that share a timeline,
+        so it may annotate multiple topics in a file, or even multiple files in a dataset.
+
+        For now, getting the underlying signal data associated with an event only works
+        for events that can be sourced to a single topic (extracted from one file, uploaded to one dataset).
+        This means that the event must have been made on either a single file, a single topic,
+        or one or many message paths within that topic.
+
+        If the event was made on a file, `topic_name` must be provided,
+        and either or both of `message_paths_include` or `message_paths_exclude` may be provided,
+        but are optional.
+
+        If the event was made on a topic, either or both of `message_paths_include` or `message_paths_exclude`
+        may be provided, but are optional.
+        `topic_name`, if provided in this instance, is ignored.
+
+        If the event was made on one or many message paths,
+        each of those message paths must be found in the same topic.
+        `topic_name`, `message_paths_include`, and `message_paths_exclude`, if provided in this instance,
+        are ignored.
+
+        If the event is associated with data at multiple resolutions (e.g., two message paths, one topic, one file),
+        this method will consider the lowest resolution associations first (message path), then topic, then file.
+
+        If ``message_paths_include`` or ``message_paths_exclude`` are defined,
+        they should be dot notation paths that match attributes of individual data records.
+        If a partial path is provided, it is treated as a wildcard, matching all subpaths.
+
+        For example, given topic data with the following interface:
+
+        ::
+
+            {
+                "velocity": {
+                    "x": <uint32>,
+                    "y": <uint32>,
+                    "z": <uint32>
+                }
+            }
+
+        Calling ``get_data`` on an Event associated with that topic like:
+
+            >>> event.get_data(message_paths_include=["velocity.x", "velocity.y"])
+
+        is expected to give the same output as:
+
+            >>> event.get_data(message_paths_include=["velocity"], message_paths_exclude=["velocity.z"])
+        """
+        # Event associated with message path(s)
+        if len(self.message_path_ids) > 0:
+            message_paths = [
+                MessagePath.from_id(
+                    message_path_id=message_path_id,
+                    roboto_client=self.__roboto_client,
+                    topic_data_service=topic_data_service,
+                )
+                for message_path_id in self.message_path_ids
+            ]
+            unique_topics = set(
+                [message_path.topic_id for message_path in message_paths]
+            )
+            if len(unique_topics) > 1:
+                raise RobotoInvalidRequestException(
+                    "Unable to load event data for events associated with more than one topic"
+                )
+
+            # Request data using the message paths' containing topic,
+            # which will better dedupe and make concurrent fetches for underlying data
+            # across many message paths.
+            topic_id = message_paths[0].topic_id
+            topic = Topic.from_id(topic_id=topic_id, roboto_client=self.__roboto_client)
+            yield from topic.get_data(
+                message_paths_include=[
+                    message_path.path for message_path in message_paths
+                ],
+                start_time=self.start_time,
+                end_time=self.end_time,
+                cache_dir=cache_dir,
+            )
+            return
+
+        # Event associated with topic
+        if len(self.topic_ids) > 0:
+            unique_topics = set(self.topic_ids)
+            if len(unique_topics) > 1:
+                raise RobotoInvalidRequestException(
+                    "Unable to load event data for events associated with more than one topic"
+                )
+
+            topic_id = self.topic_ids[0]
+            topic = Topic.from_id(topic_id=topic_id, roboto_client=self.__roboto_client)
+            yield from topic.get_data(
+                message_paths_include=message_paths_include,
+                message_paths_exclude=message_paths_exclude,
+                start_time=self.start_time,
+                end_time=self.end_time,
+                cache_dir=cache_dir,
+            )
+            return
+
+        # Event associated with a file
+        if len(self.file_ids) != 0:
+            if len(self.file_ids) > 1:
+                raise RobotoInvalidRequestException(
+                    "Unable to load event data for events associated with more than one file"
+                )
+
+            if topic_name is None:
+                raise RobotoInvalidRequestException(
+                    "Must provide 'topic_name' when attempting to load data for an event associated with a file"
+                )
+
+            file = File.from_id(
+                file_id=self.file_ids[0], roboto_client=self.__roboto_client
+            )
+            topic = file.get_topic(topic_name)
+            yield from topic.get_data(
+                message_paths_include=message_paths_include,
+                message_paths_exclude=message_paths_exclude,
+                start_time=self.start_time,
+                end_time=self.end_time,
+                cache_dir=cache_dir,
+            )
+            return
+
+        raise RobotoInvalidRequestException(
+            "Can only load event data for events ultimately sourced from a single topic. "
+            "That means it must be associated with either a single file, "
+            "a single topic extracted from a file, or one or many specific message paths within a single topic."
+        )
+
+    def get_data_as_df(
+        self,
+        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        topic_name: typing.Optional[str] = None,
+        topic_data_service: typing.Optional[TopicDataService] = None,
+        cache_dir: typing.Union[str, pathlib.Path, None] = None,
+    ) -> pandas.DataFrame:
+        """
+        Return the underlying topic data this event annotates as a pandas DataFrame.
+
+        Requires installing this package using the ``roboto[analytics]`` extra.
+
+        See :py:meth:`~roboto.domain.events.event.Event.get_data` for more information on the parameters.
+        """
+        pandas = import_optional_dependency("pandas", "analytics")
+
+        df = pandas.json_normalize(
+            data=list(
+                self.get_data(
+                    message_paths_include=message_paths_include,
+                    message_paths_exclude=message_paths_exclude,
+                    topic_name=topic_name,
+                    topic_data_service=topic_data_service,
+                    cache_dir=cache_dir,
+                )
+            )
+        )
+
+        if TopicDataService.LOG_TIME_ATTR_NAME not in df.columns:
+            # Expected only in edge case:
+            #   if this event's time bounds are outside the range of
+            #   log times actually found in the underlying topic data.
+            # In this case, the dataframe is expected to be entirely empty.
+            return df
+
+        return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Event":
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))

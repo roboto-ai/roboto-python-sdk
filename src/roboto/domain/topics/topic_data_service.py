@@ -29,6 +29,7 @@ from .record import (
 
 logger = default_logger()
 
+
 OUTFILE_NAME_PATTERN = "{repr_id}_{file_id}.mcap"
 
 
@@ -42,6 +43,7 @@ class TopicDataService:
     DEFAULT_CACHE_DIR: typing.ClassVar[pathlib.Path] = (
         pathlib.Path.home() / ".cache" / "roboto" / "topic-data"
     )
+    LOG_TIME_ATTR_NAME: typing.ClassVar[str] = "log_time"
 
     __cache_dir: pathlib.Path
     __roboto_client: RobotoClient
@@ -171,7 +173,9 @@ class TopicDataService:
                 next_earliest_timestamp = min(
                     reader.next_timestamp for reader in readers
                 )
-                full_record["log_time"] = next_earliest_timestamp
+                full_record[TopicDataService.LOG_TIME_ATTR_NAME] = (
+                    next_earliest_timestamp
+                )
                 for reader in readers:
                     if reader.next_message_is_time_aligned(next_earliest_timestamp):
                         decoded_message = reader.next()

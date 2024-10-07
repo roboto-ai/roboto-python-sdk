@@ -26,7 +26,6 @@ from ...updates import (
     MetadataChangeset,
     TaglessMetadataChangeset,
 )
-from ..events import Event
 from .message_path import MessagePath
 from .operations import (
     AddMessagePathRepresentationRequest,
@@ -191,6 +190,12 @@ class Topic:
             self.__roboto_client
         )
 
+    def __eq__(self, other: typing.Any):
+        if not isinstance(other, Topic):
+            return NotImplemented
+
+        return self.__record == other.__record
+
     def __repr__(self) -> str:
         return self.__record.model_dump_json()
 
@@ -237,6 +242,10 @@ class Topic:
     @property
     def record(self) -> TopicRecord:
         return self.__record
+
+    @property
+    def topic_id(self) -> str:
+        return self.__record.topic_id
 
     @property
     def url_quoted_name(self) -> str:
@@ -373,26 +382,6 @@ class Topic:
             >>> df = topic.get_data_as_df()
 
         """
-        message_paths = set(
-            message_path_record.message_path
-            for message_path_record in self.__record.message_paths
-        )
-        if message_paths_include and message_paths.isdisjoint(
-            set(message_paths_include)
-        ):
-            difference = set(message_paths_include) - message_paths
-            raise ValueError(
-                f"Unknown message_paths passed as 'message_paths_include': {difference}"
-            )
-
-        if message_paths_exclude and message_paths.isdisjoint(
-            set(message_paths_exclude)
-        ):
-            difference = set(message_paths_exclude) - message_paths
-            raise ValueError(
-                f"Unknown message_paths passed as 'message_paths_exclude': {difference}"
-            )
-
         yield from self.__topic_data_service.get_data(
             topic_id=self.__record.topic_id,
             message_paths_include=message_paths_include,
@@ -419,7 +408,7 @@ class Topic:
         """
         pandas = import_optional_dependency("pandas", "analytics")
 
-        return pandas.json_normalize(
+        df = pandas.json_normalize(
             data=list(
                 self.get_data(
                     message_paths_include=message_paths_include,
@@ -430,9 +419,7 @@ class Topic:
                 )
             )
         )
-
-    def get_events(self) -> collections.abc.Generator[Event, None, None]:
-        return Event.get_by_topic(self.record.topic_id, self.__roboto_client)
+        return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
 
     def get_message_path(self, message_path: str) -> MessagePath:
         for message_path_record in self.__record.message_paths:

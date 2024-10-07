@@ -16,7 +16,7 @@ from .api import (
     SubmitStructuredQueryRequest,
     SubmitTermQueryRequest,
 )
-from .client import QueryClient
+from .client import Query, QueryClient
 from .conditions import (
     Comparator,
     Condition,
@@ -38,6 +38,7 @@ __all__ = (
     "ConditionOperator",
     "ConditionType",
     "ConditionVisitor",
+    "Query",
     "QueryClient",
     "QueryContext",
     "QueryRecord",

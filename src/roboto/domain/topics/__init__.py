@@ -23,6 +23,7 @@ from .record import (
     TopicRecord,
 )
 from .topic import Topic
+from .topic_data_service import TopicDataService
 
 __all__ = (
     "AddMessagePathRequest",
@@ -37,6 +38,7 @@ __all__ = (
     "RepresentationStorageFormat",
     "SetDefaultRepresentationRequest",
     "Topic",
+    "TopicDataService",
     "TopicRecord",
     "UpdateMessagePathRequest",
     "UpdateTopicRequest",

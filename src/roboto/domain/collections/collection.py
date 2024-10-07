@@ -28,6 +28,7 @@ from .record import (
     CollectionContentMode,
     CollectionRecord,
     CollectionResourceRef,
+    CollectionResourceType,
 )
 
 
@@ -62,16 +63,40 @@ class Collection:
         description: Optional[str] = None,
         name: Optional[str] = None,
         resources: Optional[list[CollectionResourceRef]] = None,
+        dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
+        file_ids: typing.Optional[collections.abc.Collection[str]] = None,
         tags: Optional[list[str]] = None,
         roboto_client: typing.Optional["RobotoClient"] = None,
         caller_org_id: Optional[str] = None,
     ) -> "Collection":
         roboto_client = RobotoClient.defaulted(roboto_client)
 
+        normalized_resources = resources or []
+        if dataset_ids:
+            normalized_resources.extend(
+                [
+                    CollectionResourceRef(
+                        resource_type=CollectionResourceType.Dataset,
+                        resource_id=dataset_id,
+                    )
+                    for dataset_id in dataset_ids
+                ]
+            )
+
+        if file_ids:
+            normalized_resources.extend(
+                [
+                    CollectionResourceRef(
+                        resource_type=CollectionResourceType.File, resource_id=file_id
+                    )
+                    for file_id in file_ids
+                ]
+            )
+
         request = CreateCollectionRequest(
             name=name,
             description=description,
-            resources=resources,
+            resources=normalized_resources,
             tags=tags,
         )
 
@@ -125,8 +150,42 @@ class Collection:
         return self.__record.collection_id
 
     @property
+    def datasets(self) -> list[str]:
+        return [
+            resource.get("resource_id", resource.get("dataset_id"))
+            for resource in self.__record.resources.get(
+                CollectionResourceType.Dataset, []
+            )
+        ]
+
+    @property
+    def files(self) -> list[str]:
+        return [
+            resource.get("resource_id", resource.get("file_id"))
+            for resource in self.__record.resources.get(CollectionResourceType.File, [])
+        ]
+
+    @property
     def record(self) -> CollectionRecord:
         return self.__record
+
+    def add_dataset(self, dataset_id: str) -> "Collection":
+        return self.update(
+            add_resources=[
+                CollectionResourceRef(
+                    resource_id=dataset_id, resource_type=CollectionResourceType.Dataset
+                )
+            ]
+        )
+
+    def add_file(self, file_id: str) -> "Collection":
+        return self.update(
+            add_resources=[
+                CollectionResourceRef(
+                    resource_id=file_id, resource_type=CollectionResourceType.File
+                )
+            ]
+        )
 
     def changes(
         self, from_version: Optional[int] = None, to_version: Optional[int] = None
@@ -159,6 +218,24 @@ class Collection:
         return self.__roboto_client.put(
             f"v1/collections/{self.collection_id}/access", data=edit
         ).to_record(GetAccessResponse)
+
+    def remove_dataset(self, dataset_id: str) -> "Collection":
+        return self.update(
+            remove_resources=[
+                CollectionResourceRef(
+                    resource_id=dataset_id, resource_type=CollectionResourceType.Dataset
+                )
+            ]
+        )
+
+    def remove_file(self, file_id: str) -> "Collection":
+        return self.update(
+            remove_resources=[
+                CollectionResourceRef(
+                    resource_id=file_id, resource_type=CollectionResourceType.File
+                )
+            ]
+        )
 
     def update(
         self,

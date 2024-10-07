@@ -29,7 +29,6 @@ from ...updates import (
     StrSequence,
     UpdateCondition,
 )
-from ..events import Event
 from ..files import (
     DirectoryRecord,
     File,
@@ -251,15 +250,6 @@ class Dataset:
                 ),
                 max_concurrency=8,
             )
-
-    def get_events(
-        self, transitive: bool = False
-    ) -> collections.abc.Generator[Event, None, None]:
-        return Event.get_by_dataset(
-            dataset_id=self.dataset_id,
-            transitive=transitive,
-            roboto_client=self.__roboto_client,
-        )
 
     def get_file_by_path(
         self,

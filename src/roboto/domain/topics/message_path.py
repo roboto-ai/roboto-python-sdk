@@ -12,7 +12,6 @@ import typing
 
 from ...association import Association
 from ...compat import import_optional_dependency
-from ...domain.events import Event
 from ...http import RobotoClient
 from ...time import Time
 from .record import (
@@ -80,12 +79,6 @@ class MessagePath:
         ).to_record(MessagePathRecord)
         return cls(record, roboto_client, topic_data_service)
 
-    def __eq__(self, other: typing.Any) -> bool:
-        if not isinstance(other, MessagePath):
-            return NotImplemented
-
-        return self.__record == other.__record
-
     def __init__(
         self,
         record: MessagePathRecord,
@@ -97,6 +90,12 @@ class MessagePath:
         self.__topic_data_service = topic_data_service or TopicDataService(
             self.__roboto_client
         )
+
+    def __eq__(self, other: typing.Any) -> bool:
+        if not isinstance(other, MessagePath):
+            return NotImplemented
+
+        return self.__record == other.__record
 
     @property
     def count(self) -> PreComputedStat:
@@ -129,6 +128,10 @@ class MessagePath:
     @property
     def record(self) -> MessagePathRecord:
         return self.__record
+
+    @property
+    def topic_id(self) -> str:
+        return self.__record.topic_id
 
     def get_data(
         self,
@@ -209,7 +212,8 @@ class MessagePath:
         See :py:meth:`~roboto.domain.topics.message_path.MessagePath.get_data` for more information on the parameters.
         """
         pandas = import_optional_dependency("pandas", "analytics")
-        return pandas.json_normalize(
+
+        df = pandas.json_normalize(
             data=list(
                 self.get_data(
                     start_time=start_time,
@@ -218,12 +222,7 @@ class MessagePath:
                 )
             )
         )
-
-    def get_events(self) -> collections.abc.Generator[Event, None, None]:
-        return Event.get_by_message_path(
-            message_path_id=self.message_path_id,
-            roboto_client=self.__roboto_client,
-        )
+        return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
 
     def to_association(self) -> Association:
         return Association.msgpath(self.message_path_id)
