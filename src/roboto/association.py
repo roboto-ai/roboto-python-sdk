@@ -105,7 +105,7 @@ class Association(pydantic.BaseModel):
         return cls(association_id=dataset_id, association_type=AssociationType.Dataset)
 
     @classmethod
-    def file(cls, file_id: str, version: int = 1):
+    def file(cls, file_id: str, version: typing.Optional[int] = None):
         return cls(
             association_id=file_id,
             association_type=AssociationType.File,
