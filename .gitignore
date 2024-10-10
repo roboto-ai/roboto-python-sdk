@@ -26,4 +26,5 @@ cdk/cdk.context.json
 **/.pytest_cache
 **/dist/
 **/venv/
+**/.ipynb_checkpoints
 

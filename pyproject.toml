@@ -38,6 +38,13 @@ analytics = [
     "stumpy>=1.13",
 ]
 
+examples = [
+    "ipython~=8.28",
+    "jupyter~=1.1",
+    "matplotlib~=3.9",
+    "pillow~=10.4",
+]
+
 [project.scripts]
 roboto = "roboto.cli:entry"
 

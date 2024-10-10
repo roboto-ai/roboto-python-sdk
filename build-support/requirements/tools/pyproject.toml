@@ -10,6 +10,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+sdk_examples = [
+    "ipython~=8.28",
+    "jupyter~=1.1",
+    "matplotlib~=3.9",
+    "pillow~=10.4",
+]
+
 types = [
     "pandas-stubs>=2.0",
     "types-requests===2.31.0.1",

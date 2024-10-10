@@ -149,7 +149,7 @@ def find_similar_signals(
     haystack: collections.abc.Iterable[Topic],
     *,
     max_distance: typing.Optional[float] = None,
-    max_matches_per_target: typing.Optional[int] = None,
+    max_matches_per_topic: typing.Optional[int] = None,
     normalize: bool = False,
 ) -> collections.abc.Sequence[Match]:
     """
@@ -161,7 +161,7 @@ def find_similar_signals(
 
     Even if there is no true similarity between the query signal and a topic's data,
     this will always return at least one :py:class:`~roboto.analytics.signal_similarity.Match`.
-    Matches are expected to improve in quality as the target is more relevant to the query.
+    Matches are expected to improve in quality as the topic data is more relevant to the query.
     Matches are returned sorted in ascending order by their distance, with the best matches (lowest distance) first.
 
     If ``max_distance`` is provided, only matches with a distance less than ``max_distance`` will be returned.
@@ -169,7 +169,7 @@ def find_similar_signals(
         1. the minimum distance
         2. the mean distance minus two standard deviations
 
-    Use ``max_matches_per_target`` to limit the number of match results contributed by a single target.
+    Use ``max_matches_per_topic`` to limit the number of match results contributed by a single topic.
 
     If ``normalize`` is True, values will be projected to the unit scale before matching.
     This is useful if you want to match windows of the target signal regardless of scale.
@@ -180,11 +180,13 @@ def find_similar_signals(
     matches: list[Match] = []
     _, cols = needle.shape
 
+    targets = list(haystack)
+
     if cols == 1:
         # Single dimensional similarity search
         msg_path = needle.columns[0]
         query_sequence = needle[msg_path].to_numpy()
-        for topic in tqdm.auto.tqdm(iterable=haystack):
+        for topic in tqdm.auto.tqdm(targets):
             match_context = MatchContext(
                 dataset_id=topic.dataset_id,
                 file_id=topic.file_id,
@@ -194,15 +196,19 @@ def find_similar_signals(
             )
 
             if logger.isEnabledFor(logging.DEBUG):
-                tqdm.auto.tqdm.write(f"Searching for matches in {match_context!r}")
+                tqdm.auto.tqdm.write(f"Loading data from {match_context!r}")
 
             topic_data = topic.get_data_as_df(message_paths_include=[msg_path])
+
+            if logger.isEnabledFor(logging.DEBUG):
+                tqdm.auto.tqdm.write(f"Searching for matches in {match_context!r}")
+
             target_signal = topic_data[msg_path].to_numpy()
             for match_result in _find_matches(
                 query_sequence,
                 target_signal,
                 max_distance=max_distance,
-                max_matches=max_matches_per_target,
+                max_matches=max_matches_per_topic,
                 normalize=normalize,
             ):
                 matches.append(
@@ -222,7 +228,7 @@ def find_similar_signals(
         # Multi-dimensional match
         message_paths = needle.columns.tolist()
 
-        for topic in tqdm.auto.tqdm(iterable=haystack):
+        for topic in tqdm.auto.tqdm(targets):
             match_context = MatchContext(
                 dataset_id=topic.dataset_id,
                 file_id=topic.file_id,
@@ -232,14 +238,18 @@ def find_similar_signals(
             )
 
             if logger.isEnabledFor(logging.DEBUG):
-                tqdm.auto.tqdm.write(f"Searching for matches in {match_context!r}")
+                tqdm.auto.tqdm.write(f"Loading data from {match_context!r}")
 
             target_signal = topic.get_data_as_df(message_paths_include=message_paths)
+
+            if logger.isEnabledFor(logging.DEBUG):
+                tqdm.auto.tqdm.write(f"Searching for matches in {match_context!r}")
+
             for match_result in _find_matches_multidimensional(
                 needle,
                 target_signal,
                 max_distance=max_distance,
-                max_matches=max_matches_per_target,
+                max_matches=max_matches_per_topic,
                 normalize=normalize,
             ):
                 matches.append(
