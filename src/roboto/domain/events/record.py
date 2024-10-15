@@ -19,7 +19,7 @@ class EventRecord(pydantic.BaseModel):
 
     associations: list[Association] = pydantic.Field(default_factory=list)
     """
-    Datasets, files, and topics which this event pertains to.
+    Datasets, files, topics and message paths which this event pertains to.
     """
 
     created: datetime.datetime

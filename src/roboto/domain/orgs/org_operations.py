@@ -8,12 +8,14 @@ import typing
 
 import pydantic
 
+from ...regionalization import RobotoRegion
 from .org_records import OrgRoleName, OrgStatus
 
 
 class CreateOrgRequest(pydantic.BaseModel):
     name: str
     bind_email_domain: bool = False
+    data_region: RobotoRegion = RobotoRegion.US_WEST
 
 
 class OrgRecordUpdates(pydantic.BaseModel):

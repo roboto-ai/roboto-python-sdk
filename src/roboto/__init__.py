@@ -131,6 +131,7 @@ from .domain.users import (
 )
 from .env import RobotoEnv
 from .http import BatchRequest, RobotoClient
+from .regionalization import RobotoRegion
 from .roboto_search import RobotoSearch
 from .warnings import (
     roboto_default_warning_behavior,
@@ -217,6 +218,7 @@ __all__ = [
     "RobotoClient",
     "RobotoConfig",
     "RobotoEnv",
+    "RobotoRegion",
     "RobotoSearch",
     "S3Credentials",
     "SetActionAccessibilityRequest",

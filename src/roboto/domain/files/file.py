@@ -97,7 +97,7 @@ class File:
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "File":
         roboto_client = RobotoClient.defaulted(roboto_client)
-        url_quoted_file_path = urllib.parse.quote_plus(str(file_path))
+        url_quoted_file_path = urllib.parse.quote(str(file_path), safe="")
         record = roboto_client.get(
             f"v1/files/record/path/{url_quoted_file_path}/association/{dataset_id}",
             query={"version_id": version_id} if version_id is not None else None,

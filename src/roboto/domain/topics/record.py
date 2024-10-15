@@ -107,7 +107,7 @@ class MessagePathRecord(pydantic.BaseModel):
     data_type: str
     """
     'Native'/framework-specific data type of the attribute at this path.
-    E.g. "float32", "unint8[]", "geometry_msgs/Pose", "string".
+    E.g. "float32", "uint8[]", "geometry_msgs/Pose", "string".
     """
 
     message_path: str

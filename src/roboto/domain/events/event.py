@@ -45,8 +45,8 @@ logger = default_logger()
 
 class Event:
     """
-    An event is a "time anchor" which allows you to relate first class Roboto entities (datasets, files, and topics),
-    as well as a timespan in which they occurred.
+    An event is a "time anchor" which allows you to relate first class Roboto entities
+    (datasets, files, topics and message paths), as well as a timespan in which they occurred.
     """
 
     __roboto_client: RobotoClient

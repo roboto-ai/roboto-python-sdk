@@ -7,8 +7,10 @@
 import collections.abc
 import functools
 import importlib.metadata
+import math
 import os
 import pathlib
+import threading
 import typing
 
 import pathspec
@@ -16,10 +18,7 @@ import pathspec
 from ...association import Association
 from ...auth import Permissions
 from ...env import RobotoEnv
-from ...exceptions import (
-    RobotoInternalException,
-    RobotoNotFoundException,
-)
+from ...exceptions import RobotoInternalException
 from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger
 from ...paths import excludespec_from_patterns
@@ -60,13 +59,19 @@ MAX_FILES_PER_MANIFEST = 500
 
 
 class Dataset:
+    UPLOAD_REPORTING_BATCH_COUNT: typing.ClassVar[int] = 10
+    """
+    Number of batches to break a large upload into for the purpose of reporting progress.
+    """
+    UPLOAD_REPORTING_MIN_BATCH_SIZE: typing.ClassVar[int] = 10
+    """
+    Minimum number of files that must be uploaded before reporting progress.
+    """
+
     __roboto_client: RobotoClient
     __record: DatasetRecord
-    __temp_credentials: typing.Optional[DatasetCredentials] = None
-    __transaction_manifests: dict[str, set[str]]
     __transaction_completed_unreported_items: dict[str, set[str]]
-    __manifest_reporting_increments: int = 10
-    __manifest_reporting_min_batch_size: int = 10
+    __transaction_completed_mutex: threading.Lock
 
     @classmethod
     def create(
@@ -144,8 +149,8 @@ class Dataset:
     ) -> None:
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__record = record
-        self.__transaction_manifests = {}
         self.__transaction_completed_unreported_items = {}
+        self.__transaction_completed_mutex = threading.Lock()
 
     def __repr__(self) -> str:
         return self.__record.model_dump_json()
@@ -673,38 +678,54 @@ class Dataset:
     def __on_manifest_item_complete(
         self,
         transaction_id: str,
+        total_file_count: int,
         manifest_item_identifier: str,
     ) -> None:
-        if transaction_id not in self.__transaction_manifests:
-            raise RobotoNotFoundException(
-                f"Transaction {transaction_id} does not have a manifest"
+        """
+        This method is used as a callback (a "subscriber") for S3 TransferManager,
+        which is used to upload files to S3.
+
+        TransferManager uses thread-based concurrency under the hood,
+        so any instance state accessed or modified here must be synchronized.
+        """
+        with self.__transaction_completed_mutex:
+            if transaction_id not in self.__transaction_completed_unreported_items:
+                self.__transaction_completed_unreported_items[transaction_id] = set()
+
+            self.__transaction_completed_unreported_items[transaction_id].add(
+                manifest_item_identifier
             )
 
-        if transaction_id not in self.__transaction_completed_unreported_items:
-            self.__transaction_completed_unreported_items[transaction_id] = set()
-
-        self.__transaction_completed_unreported_items[transaction_id].add(
-            manifest_item_identifier
-        )
-
-        if self.__unreported_manifest_items_batch_ready_to_report(transaction_id):
-            self._flush_manifest_item_completions(
-                transaction_id=transaction_id,
-                manifest_items=list(
-                    self.__transaction_completed_unreported_items[transaction_id]
-                ),
+            completion_count = len(
+                self.__transaction_completed_unreported_items[transaction_id]
             )
-            self.__transaction_completed_unreported_items[transaction_id] = set()
+            if self.__sufficient_uploads_completed_to_report_progress(
+                completion_count, total_file_count
+            ):
+                self._flush_manifest_item_completions(
+                    transaction_id=transaction_id,
+                    manifest_items=list(
+                        self.__transaction_completed_unreported_items[transaction_id]
+                    ),
+                )
+                self.__transaction_completed_unreported_items[transaction_id] = set()
 
-    def __unreported_manifest_items_batch_ready_to_report(self, transaction_id):
+    def __sufficient_uploads_completed_to_report_progress(
+        self, completion_count: int, total_file_count: int
+    ):
+        """
+        Determine if there are a sufficient number of files that have already been uploaded
+        to S3 to report progress to the Roboto Platform.
+
+        If the total count of files to upload is below the reporting threshold,
+        or if for whatever other reason a batch is not large enough to report progress,
+        file records will still be finalized as part of the upload finalization routine.
+        See, e.g., :py:meth:`~roboto.domain.datasets.dataset.Dataset._complete_manifest_transaction`
+        """
+        batch_size = math.ceil(total_file_count / Dataset.UPLOAD_REPORTING_BATCH_COUNT)
         return (
-            len(self.__transaction_completed_unreported_items[transaction_id])
-            >= (
-                len(self.__transaction_manifests[transaction_id])
-                / self.__manifest_reporting_increments
-            )
-            and len(self.__transaction_completed_unreported_items[transaction_id])
-            >= self.__manifest_reporting_min_batch_size
+            completion_count >= batch_size
+            and completion_count >= Dataset.UPLOAD_REPORTING_MIN_BATCH_SIZE
         )
 
     def __upload_files_batch(
@@ -757,6 +778,7 @@ class Dataset:
                 on_file_complete=functools.partial(
                     self.__on_manifest_item_complete,
                     transaction_id,
+                    total_file_count,
                 ),
                 progress_monitor=progress_monitor,
                 max_concurrency=8,

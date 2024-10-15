@@ -7,6 +7,8 @@ It consists of the `roboto` Python module, as well as a `roboto` command line ut
 
 If this is your first time using Roboto, we recommend reading the [docs](https://docs.roboto.ai/) and learning the [core concepts](https://docs.roboto.ai/learn/concepts.html).
 
+See below for getting started [examples](#getting-started).
+
 ## Sign up
 
 In order to use the Roboto SDK and CLI you'll need to create an account and get an access token.
@@ -104,8 +106,8 @@ bag = ds.get_file_by_path("scene57.bag")
 steering_topic = bag.get_topic("/vehicle_monitor/steering")
 
 steering_data = steering_topic.get_data(
-    start_time=1714513576,
-    end_time=1714513590,
+    start_time="1714513576", # "<sec>.<nsec>" since epoch
+    end_time="1714513590",
 )
 ```
 
@@ -115,8 +117,8 @@ You can also create events:
 from roboto import Event
 
 Event.create(
-  start_time=1714513580, # seconds since epoch
-  end_time=1714513590,  # seconds since epoch
+  start_time="1714513580", # "<sec>.<nsec>" since epoch
+  end_time="1714513590", 
   name="Fast Turn",
   associations = [
     steering_topic.to_association()
@@ -138,13 +140,14 @@ topics[0].msgpaths[/vehicle_monitor/vehicle_speed.data].max > 20
 results = roboto_search.find_files(query)
 ```
 
-Coming soon: example notebooks!
+See the [notebooks](https://github.com/roboto-ai/roboto-python-sdk/tree/main/examples) directory for complete examples!
 
 ## Learn more
 
 For more information, check out:
 * [General Docs](https://docs.roboto.ai/)
 * [User Guides](https://docs.roboto.ai/user-guides/index.html)
+* [Example Notebooks](https://github.com/roboto-ai/roboto-python-sdk/tree/main/examples)
 * [SDK Reference](https://docs.roboto.ai/reference/python-sdk/roboto/index.html)
 * [CLI Reference](https://docs.roboto.ai/reference/cli.html)
 * [About Roboto](https://www.roboto.ai/about)

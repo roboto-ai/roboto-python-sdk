@@ -9,6 +9,7 @@ import typing
 import urllib.parse
 
 from ...http import RobotoClient
+from ...regionalization import RobotoRegion
 from .org_invite import OrgInvite
 from .org_operations import (
     CreateOrgRequest,
@@ -33,10 +34,13 @@ class Org:
         cls,
         name: str,
         bind_email_domain: bool = False,
+        data_region: RobotoRegion = RobotoRegion.US_WEST,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Org":
         roboto_client = RobotoClient.defaulted(roboto_client)
-        request = CreateOrgRequest(name=name, bind_email_domain=bind_email_domain)
+        request = CreateOrgRequest(
+            name=name, bind_email_domain=bind_email_domain, data_region=data_region
+        )
         record = roboto_client.post("v1/orgs", data=request).to_record(OrgRecord)
         return cls(record=record, roboto_client=roboto_client)
 

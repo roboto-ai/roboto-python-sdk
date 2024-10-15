@@ -1,5 +1,12 @@
 python_sources(
   name="notebook-utils",
+  dependencies=[
+    # build-support[sdk_examples] extras
+    "//build-support:3rdparty-dev-tools#ipython",
+    "//build-support:3rdparty-dev-tools#jupyter",
+    "//build-support:3rdparty-dev-tools#matplotlib",
+    "//build-support:3rdparty-dev-tools#pillow",
+  ],
 )
 
 resources(

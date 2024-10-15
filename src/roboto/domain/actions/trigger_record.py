@@ -136,6 +136,9 @@ class TriggerEvaluationRecord(pydantic.BaseModel):
     evaluation_start: datetime.datetime
     evaluation_end: typing.Optional[datetime.datetime] = None
     status: TriggerEvaluationStatus
+    status_detail: typing.Optional[str] = (
+        None  # E.g., exception that caused the evaluation to fail
+    )
     outcome: typing.Optional[TriggerEvaluationOutcome] = None
     outcome_reason: typing.Optional[TriggerEvaluationOutcomeReason] = None
     cause: typing.Optional[TriggerEvaluationCause] = None

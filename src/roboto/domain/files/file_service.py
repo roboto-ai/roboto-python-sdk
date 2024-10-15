@@ -35,13 +35,13 @@ logger = default_logger()
 
 
 class DynamicCallbackSubscriber(s3_transfer.BaseSubscriber):
-    __on_done_cb: Optional[Callable[[Any], None]]
+    __on_done_cb: Optional[Callable[[], None]]
     __on_progress_cb: Optional[Callable[[Any], None]]
     __on_queued_cb: Optional[Callable[[Any], None]]
 
     def __init__(
         self,
-        on_done_cb: Optional[Callable[[Any], None]] = None,
+        on_done_cb: Optional[Callable[[], None]] = None,
         on_progress_cb: Optional[Callable[[Any], None]] = None,
         on_queued_cb: Optional[Callable[[Any], None]] = None,
     ):
@@ -59,7 +59,7 @@ class DynamicCallbackSubscriber(s3_transfer.BaseSubscriber):
 
     def on_done(self, future, **kwargs):
         if self.__on_done_cb is not None:
-            self.__on_done_cb(future)
+            self.__on_done_cb()
 
 
 class FileService:
@@ -244,7 +244,7 @@ class FileService:
             kwargs={"unit": "file"},
         )
 
-        def on_done_cb(future):
+        def on_done_cb():
             progress_monitor.update(1)
 
         subscriber = DynamicCallbackSubscriber(on_done_cb=on_done_cb)
