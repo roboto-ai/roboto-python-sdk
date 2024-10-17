@@ -12,6 +12,8 @@ from ..exceptions import RobotoConditionException
 
 
 class NotificationType(str, Enum):
+    """Notification type enum"""
+
     CommentMention = "comment_mention"
     # CommentOnThread = "comment_on_thread"
     # CommentOnAuthoredAction = "comment_on_authored_action"
@@ -19,6 +21,8 @@ class NotificationType(str, Enum):
 
 
 class NotificationChannel(str, Enum):
+    """Notification channel enum"""
+
     Email = "email"
     WebUi = "web_ui"
     # Slack = "slack"
@@ -29,12 +33,16 @@ class NotificationChannel(str, Enum):
 
 
 class ReadStatus(str, Enum):
+    """Notification read status enum"""
+
     Unread = "unread"
     Read = "read"
 
 
 # https://docs.aws.amazon.com/ses/latest/dg/event-publishing-retrieving-sns-examples.html#event-publishing-retrieving-sns-subscription
 class EmailLifecycleStatus(str, Enum):
+    """Notification email lifecycle status enum"""
+
     Initiated = "Initiated"  # for Roboto use only, this is not an SES status
     Send = "Send"
     Failed = "Failed"  # for Roboto use only, this is not an SES status
@@ -50,6 +58,8 @@ class EmailLifecycleStatus(str, Enum):
 
 
 class WebUiLifecycleStatus(str, Enum):
+    """Notification web ui status enum"""
+
     Acknowledged = "Acknowledged"
 
 

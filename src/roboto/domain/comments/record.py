@@ -11,6 +11,10 @@ import pydantic
 
 
 class CommentEntityType(str, Enum):
+    """
+    Roboto entities that are comment-able.
+    """
+
     Action = "action"
     Collection = "collection"
     Dataset = "dataset"
@@ -20,6 +24,10 @@ class CommentEntityType(str, Enum):
 
 
 class CommentRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a comment.
+    """
+
     # Primary key, defined in CDK
     org_id: str  # partition key
     comment_id: str

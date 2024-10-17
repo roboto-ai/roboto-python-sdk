@@ -22,17 +22,36 @@ except ImportError:
 
 
 class FileStatus(str, enum.Enum):
+    """
+    At the initiation of an upload, a file's status is marked as ``Reserved``.
+    Once the upload completes successfully, it is set to ``Available``,
+    and is made visible when listing files in a dataset or searching files.
+    A file's status may be temporarily set to ``Deleted`` if its deletion is in progress.
+    """
+
     Available = "available"
     Deleted = "deleted"
     Reserved = "reserved"
 
 
 class IngestionStatus(str, enum.Enum):
+    """
+    A file is considered ``Ingested`` if it has any associated topic records.
+    File ingestion happens as a post-upload processing step, and Roboto supports
+    a number of common robotics log formats (such as ROS bags, MCAP files, and ULOG files) out-of-the-box.
+
+    An ingested file generally has first-class visualization support.
+    """
+
     NotIngested = "not_ingested"
     Ingested = "ingested"
 
 
 class FileStorageType(str, enum.Enum):
+    """
+    File storage type enum
+    """
+
     S3Imported = "imported"
     """
     This file was imported from a read-only customer bucket.
@@ -45,6 +64,10 @@ class FileStorageType(str, enum.Enum):
 
 
 class FileRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a file.
+    """
+
     association_id: (
         str  # e.g. dataset_id, collection_id, etc.; GSI PK of "association_id" index.
     )
@@ -82,6 +105,10 @@ class FileRecord(pydantic.BaseModel):
 
 
 class FileTag(enum.Enum):
+    """
+    FileTag enum
+    """
+
     DatasetId = "dataset_id"
     OrgId = "org_id"
     # Path to file relative to common prefix
@@ -105,4 +132,8 @@ CredentialProvider: TypeAlias = typing.Callable[[], S3Credentials]
 
 
 class DirectoryRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a dataset directory.
+    """
+
     name: str

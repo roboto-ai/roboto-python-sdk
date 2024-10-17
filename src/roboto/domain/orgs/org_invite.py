@@ -12,6 +12,10 @@ from .org_records import OrgInviteRecord
 
 
 class OrgInvite:
+    """
+    An invitation to join an organization from one user to another
+    """
+
     __record: OrgInviteRecord
     __roboto_client: RobotoClient
 

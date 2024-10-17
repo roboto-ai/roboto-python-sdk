@@ -26,6 +26,10 @@ from .action_record import (
 
 
 class CreateActionRequest(pydantic.BaseModel):
+    """
+    Request payload to create a new action
+    """
+
     # Required
     name: str
 
@@ -43,6 +47,10 @@ class CreateActionRequest(pydantic.BaseModel):
 
 
 class SetActionAccessibilityRequest(pydantic.BaseModel):
+    """
+    Request payload to set action accessibility
+    """
+
     accessibility: Accessibility
     digest: Optional[str] = None
     """Specify specific version of Action. If not specified, the latest version's accessibility will be updated."""
@@ -50,6 +58,10 @@ class SetActionAccessibilityRequest(pydantic.BaseModel):
 
 
 class UpdateActionRequest(pydantic.BaseModel):
+    """
+    Request payload to update an action
+    """
+
     compute_requirements: Optional[Union[ComputeRequirements, NotSetType]] = NotSet
     container_parameters: Optional[Union[ContainerParameters, NotSetType]] = NotSet
     description: Optional[Union[str, NotSetType]] = NotSet

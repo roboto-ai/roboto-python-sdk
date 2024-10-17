@@ -8,6 +8,8 @@ import pydantic
 
 
 class ContainerUploadCredentials(pydantic.BaseModel):
+    """Container upload credentials"""
+
     username: str
     password: str
     registry_url: str
@@ -15,20 +17,28 @@ class ContainerUploadCredentials(pydantic.BaseModel):
 
 
 class CreateImageRepositoryRequest(pydantic.BaseModel):
+    """Request payload to create an image repository"""
+
     repository_name: str
     immutable_image_tags: bool
 
 
 class CreateImageRepositoryResponse(pydantic.BaseModel):
+    """Response payload to create an image repository"""
+
     repository_name: str
     repository_uri: str
 
 
 class DeleteImageRequest(pydantic.BaseModel):
+    """Request payload to delete an image"""
+
     image_uri: str
 
 
 class DeleteImageRepositoryRequest(pydantic.BaseModel):
+    """Request payload to delete an image repository"""
+
     repository_name: str
     """The name of the repository to delete."""
 
@@ -37,9 +47,13 @@ class DeleteImageRepositoryRequest(pydantic.BaseModel):
 
 
 class RepositoryContainsImageResponse(pydantic.BaseModel):
+    """Response payload to repository contains image"""
+
     contains_image: bool
 
 
 class SetImageRepositoryImmutableTagsRequest(pydantic.BaseModel):
+    """Request payload to set image repository tags"""
+
     repository_name: str
     immutable_image_tags: bool

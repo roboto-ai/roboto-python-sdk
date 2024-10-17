@@ -15,6 +15,8 @@ from .conditions import (
 
 
 class ConditionVisitor(abc.ABC):
+    """Query condition visitor"""
+
     def visit(self, cond: ConditionType) -> typing.Optional[ConditionType]:
         if isinstance(cond, Condition):
             return self.visit_condition(cond)
@@ -35,6 +37,8 @@ class ConditionVisitor(abc.ABC):
 
 
 class BaseVisitor(ConditionVisitor):
+    """Query base visitor"""
+
     def visit_condition(self, condition: Condition) -> typing.Optional[ConditionType]:
         return condition
 

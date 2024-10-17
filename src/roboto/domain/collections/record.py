@@ -12,23 +12,31 @@ import pydantic
 
 
 class CollectionResourceType(str, enum.Enum):
+    """Type of resource added to a collection"""
+
     Dataset = "dataset"
     File = "file"
 
 
 class CollectionContentMode(str, enum.Enum):
+    """Desired content mode for representing a collection"""
+
     SummaryOnly = "summary_only"
     References = "references"
     Full = "full"
 
 
 class CollectionResourceRef(pydantic.BaseModel):
+    """Reference to a collection resource"""
+
     resource_type: CollectionResourceType
     resource_id: str
     resource_version: typing.Optional[str] = None
 
 
 class CollectionRecord(pydantic.BaseModel):
+    """A wire-transmissible representation of a collection"""
+
     collection_id: str
     name: typing.Optional[str] = None
     description: typing.Optional[str] = None
@@ -48,6 +56,8 @@ class CollectionRecord(pydantic.BaseModel):
 
 
 class CollectionChangeSet(pydantic.BaseModel):
+    """Changeset for updating a collection"""
+
     added_resources: list[CollectionResourceRef] = pydantic.Field(default_factory=list)
     added_tags: list[str] = pydantic.Field(default_factory=list)
     removed_resources: list[CollectionResourceRef] = pydantic.Field(
@@ -58,6 +68,8 @@ class CollectionChangeSet(pydantic.BaseModel):
 
 
 class CollectionChangeRecord(pydantic.BaseModel):
+    """A wire-transmissible representation of a collection change record"""
+
     collection_id: str
     from_version: int
     to_version: int

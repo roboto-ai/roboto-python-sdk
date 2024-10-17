@@ -6,7 +6,7 @@
 
 import collections.abc
 import typing
-from typing import Optional
+import urllib.parse
 
 from ...http import RobotoClient
 from .operations import (
@@ -20,6 +20,11 @@ from .record import (
 
 
 class Comment:
+    """
+    Comments can be made on a number of Roboto resources, like datasets, files, action invocations, and more.
+    They support ``@<user_id>`` mention syntax that you can use to notify others of the comment.
+    """
+
     __record: CommentRecord
     __roboto_client: RobotoClient
 
@@ -30,7 +35,7 @@ class Comment:
         entity_id: str,
         entity_type: CommentEntityType,
         roboto_client: typing.Optional[RobotoClient] = None,
-        caller_org_id: Optional[str] = None,
+        caller_org_id: typing.Optional[str] = None,
     ) -> "Comment":
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -50,7 +55,7 @@ class Comment:
     def from_id(
         cls,
         comment_id: str,
-        owner_org_id: Optional[str] = None,
+        owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Comment":
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -64,8 +69,8 @@ class Comment:
         cls,
         entity_type: CommentEntityType,
         entity_id: str,
-        owner_org_id: Optional[str] = None,
-        page_token: Optional[str] = None,
+        owner_org_id: typing.Optional[str] = None,
+        page_token: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> tuple[collections.abc.Sequence["Comment"], typing.Optional[str]]:
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -88,8 +93,8 @@ class Comment:
     def for_entity_type(
         cls,
         entity_type: CommentEntityType,
-        owner_org_id: Optional[str] = None,
-        page_token: Optional[str] = None,
+        owner_org_id: typing.Optional[str] = None,
+        page_token: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> tuple[collections.abc.Sequence["Comment"], typing.Optional[str]]:
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -112,8 +117,8 @@ class Comment:
     def for_user(
         cls,
         user_id: str,
-        owner_org_id: Optional[str] = None,
-        page_token: Optional[str] = None,
+        owner_org_id: typing.Optional[str] = None,
+        page_token: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> tuple[collections.abc.Sequence["Comment"], typing.Optional[str]]:
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -122,8 +127,11 @@ class Comment:
         if page_token:
             query_params["page_token"] = page_token
 
+        quoted_user_id = urllib.parse.quote(user_id, safe="")
         response_page = roboto_client.get(
-            f"v1/comments/user/{user_id}", query=query_params, owner_org_id=owner_org_id
+            f"v1/comments/user/{quoted_user_id}",
+            query=query_params,
+            owner_org_id=owner_org_id,
         ).to_paginated_list(CommentRecord)
 
         return [
@@ -133,8 +141,8 @@ class Comment:
     @classmethod
     def recent_for_org(
         cls,
-        owner_org_id: Optional[str] = None,
-        page_token: Optional[str] = None,
+        owner_org_id: typing.Optional[str] = None,
+        page_token: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> tuple[collections.abc.Sequence["Comment"], typing.Optional[str]]:
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -163,6 +171,10 @@ class Comment:
     @property
     def comment_id(self) -> str:
         return self.__record.comment_id
+
+    @property
+    def created_by(self) -> str:
+        return self.__record.created_by
 
     @property
     def record(self) -> CommentRecord:

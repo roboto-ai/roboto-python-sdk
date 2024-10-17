@@ -17,6 +17,8 @@ from .record import DirectoryRecord, FileRecord
 
 
 class DeleteFileRequest(pydantic.BaseModel):
+    """Request payload to delete a file"""
+
     uri: str
 
 
@@ -29,6 +31,8 @@ class FileRecordRequest(pydantic.BaseModel):
 
 
 class ImportFileRequest(pydantic.BaseModel):
+    """Request payload to import a file"""
+
     dataset_id: str
     description: typing.Optional[str] = None
     relative_path: str
@@ -37,20 +41,28 @@ class ImportFileRequest(pydantic.BaseModel):
 
 
 class QueryFilesRequest(pydantic.BaseModel):
+    """Request payload to query files"""
+
     filters: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     model_config = ConfigDict(extra="forbid")
 
 
 class RenameFileRequest(pydantic.BaseModel):
+    """Request payload to rename a file"""
+
     association_id: str
     new_path: str
 
 
 class SignedUrlResponse(pydantic.BaseModel):
+    """Response to a signed url request"""
+
     url: str
 
 
 class UpdateFileRecordRequest(pydantic.BaseModel):
+    """Request payload to update a file record"""
+
     description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
     metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
 
@@ -60,6 +72,8 @@ class UpdateFileRecordRequest(pydantic.BaseModel):
 
 
 class DirectoryContentsPage(pydantic.BaseModel):
+    """Contents of a dataset directory page"""
+
     files: collections.abc.Sequence[FileRecord]
     directories: collections.abc.Sequence[DirectoryRecord]
     next_token: typing.Optional[str] = None

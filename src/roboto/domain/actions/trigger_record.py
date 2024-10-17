@@ -25,11 +25,19 @@ from .invocation_record import (
 
 
 class TriggerForEachPrimitive(str, enum.Enum):
+    """
+    Trigger for each enum.
+    """
+
     Dataset = "dataset"
     DatasetFile = "dataset_file"
 
 
 class TriggerRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of an trigger.
+    """
+
     trigger_id: str
     name: str
     org_id: str

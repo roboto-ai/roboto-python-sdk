@@ -37,6 +37,11 @@ from .record import CredentialProvider, FileRecord
 
 
 class File:
+    """
+    Files can be uploaded to datasets. Once uploaded, they can be tagged,
+    post-processed by actions, added to collections, visualized, and searched.
+    """
+
     __record: FileRecord
     __roboto_client: RobotoClient
 

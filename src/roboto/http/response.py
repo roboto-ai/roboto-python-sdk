@@ -93,11 +93,15 @@ class StreamedList(pydantic.BaseModel, typing.Generic[Model]):
 
 
 class PaginationTokenEncoding(enum.Enum):
+    """Pagination token encoding enum"""
+
     Json = "json"
     Raw = "raw"
 
 
 class PaginationTokenScheme(enum.Enum):
+    """Pagination token scheme enum"""
+
     V1 = "v1"
 
 

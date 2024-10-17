@@ -26,6 +26,8 @@ from .record import (
 
 
 class ContainerCredentials(pydantic.BaseModel):
+    """Credentials used by a container"""
+
     username: str
     password: str
     registry_url: str
@@ -39,16 +41,22 @@ class ContainerCredentials(pydantic.BaseModel):
 
 
 class RepositoryPurpose(enum.Enum):
+    """Repository purpose enum"""
+
     Executor = "executor"
 
 
 class RepositoryTag(enum.Enum):
+    """Repository tag enum"""
+
     CreatedBy = "created_by"
     OrgId = "org_id"
     Purpose = "purpose"  # RepositoryPurpose
 
 
 class ImageRepository(typing.TypedDict):
+    """Image repository details"""
+
     repository_name: str
     repository_uri: str
 

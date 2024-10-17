@@ -10,6 +10,8 @@ import pydantic
 
 
 class CreateTokenRequest(pydantic.BaseModel):
+    """Request payload to create a new token"""
+
     expiry_days: int = pydantic.Field(
         description="Number of days until the token expires"
     )

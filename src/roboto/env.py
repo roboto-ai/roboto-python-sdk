@@ -41,6 +41,8 @@ def resolve_env_variables(value: str):
 
 
 class RobotoEnvKey(str, enum.Enum):
+    """Environment variable keys available within an action invocation runtime"""
+
     ActionParametersFile = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_PARAMETERS_FILE"
     ActionTimeout = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_TIMEOUT"
     ApiKey = f"{ROBOTO_ENV_VAR_PREFIX}API_KEY"
@@ -75,6 +77,8 @@ _roboto_env_instance: typing.Optional["RobotoEnv"] = None
 # necessary for type checking, because the value of alias needs to be a string literal and not a de-referenced variable.
 # Even using f-strings will break the type checking.
 class RobotoEnv(pydantic_settings.BaseSettings):
+    """Enivronment within an action invocation runtime"""
+
     @classmethod
     def default(cls) -> "RobotoEnv":
         # We need to keep this module level vs. as a class variable, because otherwise pydantic will cast it to a

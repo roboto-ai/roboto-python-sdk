@@ -11,6 +11,8 @@ import tqdm
 
 
 class ProgressMonitor(abc.ABC):
+    """Progress Monitor for file upload"""
+
     @abc.abstractmethod
     def update(self, delta: int):
         raise NotImplementedError("update")
@@ -31,6 +33,8 @@ class ProgressMonitor(abc.ABC):
 
 
 class ProgressMonitorFactory(abc.ABC):
+    """Progress Monitor Factory for file upload"""
+
     __ctx: dict[str, Any]
 
     def __init__(self, ctx: Optional[dict[str, Any]] = None):
@@ -53,6 +57,8 @@ class ProgressMonitorFactory(abc.ABC):
 
 
 class NoopProgressMonitor(ProgressMonitor):
+    """A Noop Progress Monitor"""
+
     def update(self, uploaded_bytes: int):
         pass
 
@@ -64,6 +70,8 @@ class NoopProgressMonitor(ProgressMonitor):
 
 
 class NoopProgressMonitorFactory(ProgressMonitorFactory):
+    """A Noop Progress Monitor Factory"""
+
     def upload_monitor(
         self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None
     ) -> ProgressMonitor:
@@ -76,6 +84,8 @@ class NoopProgressMonitorFactory(ProgressMonitorFactory):
 
 
 class TqdmProgressMonitor(ProgressMonitor):
+    """A Tqdm Progress Monitor"""
+
     __tqdm: tqdm.tqdm
     __is_closed: bool
     __total: int
@@ -119,6 +129,8 @@ class TqdmProgressMonitor(ProgressMonitor):
 
 
 class TqdmProgressMonitorFactory(ProgressMonitorFactory):
+    """A Tqdm Progress Monitor Factory"""
+
     __monitors: list[Optional[ProgressMonitor]]
 
     def __init__(

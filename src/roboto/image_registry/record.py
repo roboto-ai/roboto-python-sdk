@@ -8,6 +8,10 @@ import pydantic
 
 
 class ContainerImageRepositoryRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a container image repository.
+    """
+
     org_id: str
     repository_name: str
     repository_uri: str
@@ -15,6 +19,10 @@ class ContainerImageRepositoryRecord(pydantic.BaseModel):
 
 
 class ContainerImageRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a container image.
+    """
+
     org_id: str
     repository_name: str
     image_tag: str

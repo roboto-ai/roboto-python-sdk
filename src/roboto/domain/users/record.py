@@ -15,6 +15,10 @@ from ...notifications import (
 
 
 class UserRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a user.
+    """
+
     user_id: str
     is_service_user: bool = False
     """

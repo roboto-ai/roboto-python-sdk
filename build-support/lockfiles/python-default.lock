@@ -22,7 +22,6 @@
 //     "docker~=7.1",
 //     "filelock~=3.15",
 //     "flake8~=6.0",
-//     "furo===2023.7.26",
 //     "ipython~=8.28",
 //     "isort~=5.12",
 //     "jinja2~=3.1.2",
@@ -46,6 +45,7 @@
 //     "pydantic-core~=2.14",
 //     "pydantic-settings~=2.1",
 //     "pydantic~=2.5",
+//     "pydata-sphinx-theme~=0.15.4",
 //     "pyjwt~=2.7",
 //     "pytest~=7.3",
 //     "python-dotenv~=1.0",
@@ -75,6 +75,34 @@
   "locked_resolves": [
     {
       "locked_requirements": [
+        {
+          "artifacts": [
+            {
+              "algorithm": "sha256",
+              "hash": "88ae3211e68a1d0b011504b2ffc1691feafce124b845bd072ab6f9f66f34d4b7",
+              "url": "https://files.pythonhosted.org/packages/8d/3f/95338030883d8c8b91223b4e21744b04d11b161a3ef117295d8241f50ab4/accessible_pygments-0.0.5-py3-none-any.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "40918d3e6a2b619ad424cb91e556bd3bd8865443d9f22f1dcdf79e33c8046872",
+              "url": "https://files.pythonhosted.org/packages/bc/c1/bbac6a50d02774f91572938964c582fff4270eee73ab822a4aeea4d8b11b/accessible_pygments-0.0.5.tar.gz"
+            }
+          ],
+          "project_name": "accessible-pygments",
+          "requires_dists": [
+            "hypothesis; extra == \"tests\"",
+            "pillow; extra == \"dev\"",
+            "pkginfo>=1.10; extra == \"dev\"",
+            "playwright; extra == \"dev\"",
+            "pre-commit; extra == \"dev\"",
+            "pygments>=1.5",
+            "pytest; extra == \"tests\"",
+            "setuptools; extra == \"dev\"",
+            "twine>=5.0; extra == \"dev\""
+          ],
+          "requires_python": ">=3.9",
+          "version": "0.0.5"
+        },
         {
           "artifacts": [
             {
@@ -645,36 +673,36 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "9352f6d61f15c789231a5d608613f03425059072ed862c32e1ed102b17206abf",
-              "url": "https://files.pythonhosted.org/packages/bd/4b/292d8ab4770d059634fda8141f4898e4d86637bf873ea650d7eb3ce4312b/boto3-1.35.40-py3-none-any.whl"
+              "hash": "e1f36f8be453505cebcc3da178ea081b2a06c0e5e1cdee774f1067599b8d9c3e",
+              "url": "https://files.pythonhosted.org/packages/ff/7c/88d9031a7a409393da450bcfca2f3597e0afccac4cae2d97fc4e7190f012/boto3-1.35.42-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "33c6a7aeab316f7e0b3ad8552afe95a4a10bfd58519d00741c4d4f3047da8382",
-              "url": "https://files.pythonhosted.org/packages/9a/52/2c5b5f419cd6c7797177bc83fadc4e0d373e71bea565b733f4728b0894ba/boto3-1.35.40.tar.gz"
+              "hash": "a5b00f8b82dce62870759f04861747944da834d64a64355970120c475efdafc0",
+              "url": "https://files.pythonhosted.org/packages/04/e4/a60d99f727766d9801f4e14dca7e2df0245831844411562d81e0df2cc179/boto3-1.35.42.tar.gz"
             }
           ],
           "project_name": "boto3",
           "requires_dists": [
-            "botocore<1.36.0,>=1.35.40",
+            "botocore<1.36.0,>=1.35.42",
             "botocore[crt]<2.0a0,>=1.21.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
             "s3transfer<0.11.0,>=0.10.0"
           ],
           "requires_python": ">=3.8",
-          "version": "1.35.40"
+          "version": "1.35.42"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "072cc47f29cb1de4fa77ce6632e4f0480af29b70816973ff415fbaa3f50bd1db",
-              "url": "https://files.pythonhosted.org/packages/0c/1f/48869905da0090c061b127caf13e722e95d95772d54bba3bc0aedee3ff33/botocore-1.35.40-py3-none-any.whl"
+              "hash": "05af0bb8b9cea7ce7bc589c332348d338a21b784e9d088a588fd10ec145007ff",
+              "url": "https://files.pythonhosted.org/packages/2e/f5/0e67c7e6a7f5f8c068cf444dc25d03097a22428380587542978d7ad9d86a/botocore-1.35.42-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "547e0a983856c7d7aeaa30fca2a283873c57c07366cd806d2d639856341b3c31",
-              "url": "https://files.pythonhosted.org/packages/46/96/50aa3079a75dea9fa3e2179121476e4be46f05e9683f8b68db104b8e57cd/botocore-1.35.40.tar.gz"
+              "hash": "af348636f73dc24b7e2dc760a34d08c8f2f94366e9b4c78d877307b128abecef",
+              "url": "https://files.pythonhosted.org/packages/d3/0c/2bcd566397ab06661b222b9b5156ba0c40d5a97d3727c88ccaefea275cb4/botocore-1.35.42.tar.gz"
             }
           ],
           "project_name": "botocore",
@@ -686,7 +714,7 @@
             "urllib3<1.27,>=1.25.4; python_version < \"3.10\""
           ],
           "requires_python": ">=3.8",
-          "version": "1.35.40"
+          "version": "1.35.42"
         },
         {
           "artifacts": [
@@ -1526,29 +1554,6 @@
           ],
           "requires_python": "!=3.0,!=3.1,!=3.2,!=3.3,!=3.4,<4,>=2.7",
           "version": "1.5.1"
-        },
-        {
-          "artifacts": [
-            {
-              "algorithm": "sha256",
-              "hash": "1c7936929ec57c5ddecc7c85f07fa8b2ce536b5c89137764cca508be90e11efd",
-              "url": "https://files.pythonhosted.org/packages/57/4f/91a4506efbeb67672732139b02bacb7bc1fb0293c3e2d6245f9bcb874cad/furo-2023.7.26-py3-none-any.whl"
-            },
-            {
-              "algorithm": "sha256",
-              "hash": "257f63bab97aa85213a1fa24303837a3c3f30be92901ec732fea74290800f59e",
-              "url": "https://files.pythonhosted.org/packages/75/c0/28f283c613d1162111fd96f9ecf7bf472eb7e661f83064e4202dab388f07/furo-2023.7.26.tar.gz"
-            }
-          ],
-          "project_name": "furo",
-          "requires_dists": [
-            "beautifulsoup4",
-            "pygments>=2.7",
-            "sphinx-basic-ng",
-            "sphinx<8.0,>=6.0"
-          ],
-          "requires_python": ">=3.7",
-          "version": "2023.7.26"
         },
         {
           "artifacts": [
@@ -4255,6 +4260,72 @@
           "artifacts": [
             {
               "algorithm": "sha256",
+              "hash": "2136ad0e9500d0949f96167e63f3e298620040aea8f9c74621959eda5d4cf8e6",
+              "url": "https://files.pythonhosted.org/packages/e7/d3/c622950d87a2ffd1654208733b5bd1c5645930014abed8f4c0d74863988b/pydata_sphinx_theme-0.15.4-py3-none-any.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "7762ec0ac59df3acecf49fd2f889e1b4565dbce8b88b2e29ee06fdd90645a06d",
+              "url": "https://files.pythonhosted.org/packages/67/ea/3ab478cccacc2e8ef69892c42c44ae547bae089f356c4b47caf61730958d/pydata_sphinx_theme-0.15.4.tar.gz"
+            }
+          ],
+          "project_name": "pydata-sphinx-theme",
+          "requires_dists": [
+            "Babel",
+            "Babel; extra == \"i18n\"",
+            "ablog>=0.11.8; extra == \"doc\"",
+            "accessible-pygments",
+            "beautifulsoup4",
+            "colorama; extra == \"doc\"",
+            "docutils!=0.17.0",
+            "graphviz; extra == \"doc\"",
+            "ipykernel; extra == \"doc\"",
+            "ipyleaflet; extra == \"doc\"",
+            "ipywidgets; extra == \"doc\"",
+            "jinja2; extra == \"i18n\"",
+            "jupyter_sphinx; extra == \"doc\"",
+            "jupyterlite-sphinx; extra == \"doc\"",
+            "linkify-it-py; extra == \"doc\"",
+            "matplotlib; extra == \"doc\"",
+            "myst-parser; extra == \"doc\"",
+            "nbsphinx; extra == \"doc\"",
+            "numpy; extra == \"doc\"",
+            "numpydoc; extra == \"doc\"",
+            "packaging",
+            "pandas; extra == \"doc\"",
+            "pandoc; extra == \"dev\"",
+            "plotly; extra == \"doc\"",
+            "pre-commit; extra == \"dev\"",
+            "pydata-sphinx-theme[doc,test]; extra == \"dev\"",
+            "pygments>=2.7",
+            "pytest-cov; extra == \"test\"",
+            "pytest-playwright; extra == \"a11y\"",
+            "pytest-regressions; extra == \"test\"",
+            "pytest; extra == \"test\"",
+            "pyyaml; extra == \"dev\"",
+            "rich; extra == \"doc\"",
+            "sphinx-autoapi>=3.0.0; extra == \"doc\"",
+            "sphinx-copybutton; extra == \"doc\"",
+            "sphinx-design; extra == \"doc\"",
+            "sphinx-favicon>=1.0.1; extra == \"doc\"",
+            "sphinx-sitemap; extra == \"doc\"",
+            "sphinx-theme-builder[cli]; extra == \"dev\"",
+            "sphinx-togglebutton; extra == \"doc\"",
+            "sphinx>=5",
+            "sphinx[test]; extra == \"test\"",
+            "sphinxcontrib-youtube>=1.4.1; extra == \"doc\"",
+            "sphinxext-rediraffe; extra == \"doc\"",
+            "tox; extra == \"dev\"",
+            "typing-extensions",
+            "xarray; extra == \"doc\""
+          ],
+          "requires_python": ">=3.9",
+          "version": "0.15.4"
+        },
+        {
+          "artifacts": [
+            {
+              "algorithm": "sha256",
               "hash": "4132f6d49cb4dae6819e5379898f2b8cce3c5f23994194c24b77d5da2e36f774",
               "url": "https://files.pythonhosted.org/packages/00/e9/1e1fd7fae559bfd07704991e9a59dd1349b72423c904256c073ce88a9940/pyflakes-3.1.0-py2.py3-none-any.whl"
             },
@@ -4964,13 +5035,13 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "35ab7fd3bcd95e6b7fd704e4a1539513edad446c097797f2985e0e4b960772f2",
-              "url": "https://files.pythonhosted.org/packages/ff/ae/f19306b5a221f6a436d8f2238d5b80925004093fa3edea59835b514d9057/setuptools-75.1.0-py3-none-any.whl"
+              "hash": "a7fcb66f68b4d9e8e66b42f9876150a3371558f98fa32222ffaa5bced76406f8",
+              "url": "https://files.pythonhosted.org/packages/31/2d/90165d51ecd38f9a02c6832198c13a4e48652485e2ccf863ebb942c531b6/setuptools-75.2.0-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "d59a21b17a275fb872a9c3dae73963160ae079f1049ed956880cd7c09b120538",
-              "url": "https://files.pythonhosted.org/packages/27/b8/f21073fde99492b33ca357876430822e4800cdf522011f18041351dfa74b/setuptools-75.1.0.tar.gz"
+              "hash": "753bb6ebf1f465a1912e19ed1d41f403a79173a9acf66a42e7e6aec45c3c16ec",
+              "url": "https://files.pythonhosted.org/packages/07/37/b31be7e4b9f13b59cde9dcaeff112d401d49e0dc5b37ed4a9fc8fb12f409/setuptools-75.2.0.tar.gz"
             }
           ],
           "project_name": "setuptools",
@@ -5031,7 +5102,7 @@
             "wheel>=0.44.0; extra == \"test\""
           ],
           "requires_python": ">=3.8",
-          "version": "75.1.0"
+          "version": "75.2.0"
         },
         {
           "artifacts": [
@@ -5184,31 +5255,6 @@
           ],
           "requires_python": ">=3.8",
           "version": "3.3.2"
-        },
-        {
-          "artifacts": [
-            {
-              "algorithm": "sha256",
-              "hash": "eb09aedbabfb650607e9b4b68c9d240b90b1e1be221d6ad71d61c52e29f7932b",
-              "url": "https://files.pythonhosted.org/packages/3c/dd/018ce05c532a22007ac58d4f45232514cd9d6dd0ee1dc374e309db830983/sphinx_basic_ng-1.0.0b2-py3-none-any.whl"
-            },
-            {
-              "algorithm": "sha256",
-              "hash": "9ec55a47c90c8c002b5960c57492ec3021f5193cb26cebc2dc4ea226848651c9",
-              "url": "https://files.pythonhosted.org/packages/98/0b/a866924ded68efec7a1759587a4e478aec7559d8165fac8b2ad1c0e774d6/sphinx_basic_ng-1.0.0b2.tar.gz"
-            }
-          ],
-          "project_name": "sphinx-basic-ng",
-          "requires_dists": [
-            "furo; extra == \"docs\"",
-            "ipython; extra == \"docs\"",
-            "myst-parser; extra == \"docs\"",
-            "sphinx-copybutton; extra == \"docs\"",
-            "sphinx-inline-tabs; extra == \"docs\"",
-            "sphinx>=4.0"
-          ],
-          "requires_python": ">=3.7",
-          "version": "1.0.0b2"
         },
         {
           "artifacts": [
@@ -6149,7 +6195,6 @@
     "docker~=7.1",
     "filelock~=3.15",
     "flake8~=6.0",
-    "furo===2023.7.26",
     "ipython~=8.28",
     "isort~=5.12",
     "jinja2~=3.1.2",
@@ -6173,6 +6218,7 @@
     "pydantic-core~=2.14",
     "pydantic-settings~=2.1",
     "pydantic~=2.5",
+    "pydata-sphinx-theme~=0.15.4",
     "pyjwt~=2.7",
     "pytest~=7.3",
     "python-dotenv~=1.0",

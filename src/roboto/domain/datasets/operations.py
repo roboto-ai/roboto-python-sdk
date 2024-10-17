@@ -19,6 +19,10 @@ from ...updates import (
 
 
 class BeginSingleFileUploadRequest(pydantic.BaseModel):
+    """
+    Request payload to begin a single file upload
+    """
+
     origination: typing.Optional[str] = pydantic.Field(
         description="Additional information about what uploaded the file, e.g. `roboto client v1.0.0`.",
         default=None,
@@ -31,21 +35,37 @@ class BeginSingleFileUploadRequest(pydantic.BaseModel):
 
 
 class BeginSingleFileUploadResponse(pydantic.BaseModel):
+    """
+    Response to a single file upload
+    """
+
     upload_id: str
     upload_url: str
 
 
 class BeginManifestTransactionRequest(pydantic.BaseModel):
+    """
+    Request payload to begin a manifest-based transaction
+    """
+
     origination: str
     resource_manifest: dict[str, int]
 
 
 class BeginManifestTransactionResponse(pydantic.BaseModel):
+    """
+    Response to a manifest-based transaction request
+    """
+
     transaction_id: str
     upload_mappings: dict[str, str]
 
 
 class CreateDatasetRequest(pydantic.BaseModel):
+    """
+    Request payload to create a dataset
+    """
+
     description: typing.Optional[str] = pydantic.Field(
         default=None,
         description="An optional human-readable description for this dataset.",
@@ -66,39 +86,71 @@ class CreateDatasetRequest(pydantic.BaseModel):
 
 
 class QueryDatasetFilesRequest(pydantic.BaseModel):
+    """
+    Request payload to query files in a dataset
+    """
+
     page_token: typing.Optional[str] = None
     include_patterns: typing.Optional[list[str]] = None
     exclude_patterns: typing.Optional[list[str]] = None
 
 
 class QueryDatasetsRequest(pydantic.BaseModel):
+    """
+    Request payload to query datasets
+    """
+
     filters: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     model_config = ConfigDict(extra="forbid")
 
 
 class ReportTransactionProgressRequest(pydantic.BaseModel):
+    """
+    Request payload to report transaction progress
+    """
+
     manifest_items: list[str]
 
 
 class UpdateDatasetRequest(pydantic.BaseModel):
+    """
+    Request payload to update a dataset
+    """
+
     metadata_changeset: typing.Optional[MetadataChangeset] = None
     description: typing.Optional[str] = None
     conditions: typing.Optional[list[UpdateCondition]] = None
 
 
 class BeginTransactionRequest(pydantic.BaseModel):
+    """
+    Request payload to begin a transaction
+    """
+
     origination: str
     expected_resource_count: typing.Optional[int] = None
 
 
 class TransactionCompletionResponse(pydantic.BaseModel):
+    """
+    Response to transaction completion
+    """
+
     is_complete: bool
 
 
 class DeleteDirectoriesRequest(pydantic.BaseModel):
+    """
+    Request payload to delete directories in a dataset
+    """
+
     directory_paths: list[str]
 
 
 class RenameDirectoryRequest(pydantic.BaseModel):
+    """
+    Request payload to rename a directory in a dataset
+    """
+
     new_path: str
     old_path: str

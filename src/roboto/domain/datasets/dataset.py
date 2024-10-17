@@ -59,6 +59,15 @@ MAX_FILES_PER_MANIFEST = 500
 
 
 class Dataset:
+    """
+    Contains files in a directory structure.
+
+    Typically, a dataset stores the files from a single robot activity, such as a drone flight
+    or an autonomous vehicle mission, however, it is versatile enough to be a
+    general-purpose assembly of files.
+
+    """
+
     UPLOAD_REPORTING_BATCH_COUNT: typing.ClassVar[int] = 10
     """
     Number of batches to break a large upload into for the purpose of reporting progress.

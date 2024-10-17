@@ -94,4 +94,6 @@ HttpRequestDecorator = typing.Callable[[HttpRequest], HttpRequest]
 
 
 class BatchRequest(pydantic.BaseModel, typing.Generic[Model]):
+    """Batched HTTP requests"""
+
     requests: list[Model]

@@ -24,7 +24,7 @@ If you want to interact with Roboto in a Python environment, such as a Jupyter n
 pip install roboto
 ```
 
-This will also install the CLI mentioned below. You can see the complete [SDK](https://docs.roboto.ai/reference/python-sdk/roboto/index.html) and [CLI](https://docs.roboto.ai/reference/cli.html) documentation.
+This will also install the CLI mentioned below. You can see the complete [SDK](https://docs.roboto.ai/reference/python-sdk.html) and [CLI](https://docs.roboto.ai/reference/cli.html) documentation.
 
 ## Install CLI
 
@@ -63,6 +63,17 @@ If you used Homebrew, you can also upgrade via `brew upgrade roboto`
 - Go to the [latest release](https://github.com/roboto-ai/roboto-python-sdk/releases/latest) page for this package
 - Download the `roboto-windows-x86_64.exe` file
 - Move the downloaded `.exe` to a folder that is on your `PATH`, like `C:\Program Files\`
+
+## Upgrade CLI
+
+The CLI will automatically check for updates and notify you when a new version is available.
+
+If you installed the CLI with the SDK via `pip`, you can simply upgrade with `pip install --upgrade roboto`.
+
+If you installed the CLI from a `.deb` or by adding an executable like `roboto-linux-x86_64` to your `PATH`, you can
+upgrade by downloading the latest version and replacing the old executable.
+
+For OS X Homebrew users, you can upgrade by running `brew upgrade roboto`.
 
 ## Getting Started
 
@@ -148,7 +159,7 @@ For more information, check out:
 * [General Docs](https://docs.roboto.ai/)
 * [User Guides](https://docs.roboto.ai/user-guides/index.html)
 * [Example Notebooks](https://github.com/roboto-ai/roboto-python-sdk/tree/main/examples)
-* [SDK Reference](https://docs.roboto.ai/reference/python-sdk/roboto/index.html)
+* [SDK Reference](https://docs.roboto.ai/reference/python-sdk.html)
 * [CLI Reference](https://docs.roboto.ai/reference/cli.html)
 * [About Roboto](https://www.roboto.ai/about)
 

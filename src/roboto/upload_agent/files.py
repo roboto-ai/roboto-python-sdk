@@ -22,16 +22,22 @@ UPLOAD_IN_PROGRESS_FILENAME = ".roboto_upload_in_progress.json"
 
 
 class UploadConfigFileDatasetSection(CreateDatasetRequest):
+    """Upload agent config file dataset section"""
+
     org_id: typing.Optional[str] = None
 
 
 class UploadConfigFileUploadSection(pydantic.BaseModel):
+    """Upload agent config file upload section"""
+
     delete_uploaded_files: typing.Optional[bool] = None
     exclude_patterns: typing.Optional[typing.List[str]] = None
     include_patterns: typing.Optional[typing.List[str]] = None
 
 
 class UploadConfigFile(pydantic.BaseModel):
+    """Upload agent config file"""
+
     version: typing.Literal["v1"] = "v1"
 
     dataset: UploadConfigFileDatasetSection = pydantic.Field(
@@ -43,6 +49,8 @@ class UploadConfigFile(pydantic.BaseModel):
 
 
 class UploadAgentConfig(pydantic.BaseModel):
+    """Upload agent configuration"""
+
     version: typing.Literal["v1"] = "v1"
 
     default_org_id: typing.Optional[str] = None
@@ -73,12 +81,16 @@ class UploadAgentConfig(pydantic.BaseModel):
 
 
 class UploadInProgressFile(pydantic.BaseModel):
+    """Upload agent in progress file"""
+
     version: typing.Literal["v1"] = "v1"
     dataset_id: str
     started: datetime.datetime
 
 
 class UploadCompleteFile(pydantic.BaseModel):
+    """Upload agent complete file"""
+
     version: typing.Literal["v1"] = "v1"
     dataset_id: str
     completed: datetime.datetime

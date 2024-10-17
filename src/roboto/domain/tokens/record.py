@@ -11,6 +11,8 @@ import pydantic
 
 
 class TokenContext(pydantic.BaseModel):
+    """Context for token usage"""
+
     token_id: str
     name: str
     description: Optional[str] = None
@@ -20,6 +22,8 @@ class TokenContext(pydantic.BaseModel):
 
 
 class TokenRecord(pydantic.BaseModel):
+    """A wire-transmissible representation of a token."""
+
     secret: Optional[str] = None
     user_id: Optional[str] = None
     context: Optional[TokenContext] = None

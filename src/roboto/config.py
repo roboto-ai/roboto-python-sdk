@@ -31,6 +31,11 @@ _CONFIG_ERROR_SUFFIX = (
 
 
 class RobotoConfig(pydantic.BaseModel):
+    """
+    RobotoConfig captures an `api_key` and `endpoint` required to programmatically
+    interact with Roboto. Multiple profiles can be configured if desired.
+    """
+
     api_key: str
     endpoint: str = ROBOTO_API_ENDPOINT
 
@@ -114,6 +119,8 @@ class RobotoConfig(pydantic.BaseModel):
 
 
 class RobotoConfigFileProfileV0(pydantic.BaseModel):
+    """V0 Roboto configuration file"""
+
     token: str
     default_endpoint: str = ROBOTO_API_ENDPOINT
 
@@ -122,6 +129,8 @@ class RobotoConfigFileProfileV0(pydantic.BaseModel):
 
 
 class RobotoConfigFileV1(pydantic.BaseModel):
+    """V1 Roboto configuration file"""
+
     version: typing.Literal["v1"]
     profiles: dict[str, RobotoConfig]
     default_profile: typing.Optional[str] = DEFAULT_ROBOTO_PROFILE_NAME

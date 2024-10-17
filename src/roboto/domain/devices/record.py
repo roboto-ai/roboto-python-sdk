@@ -10,6 +10,10 @@ import pydantic
 
 
 class DeviceRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a device.
+    """
+
     created: datetime.datetime = pydantic.Field(
         description="Date/time when this device was registered."
     )

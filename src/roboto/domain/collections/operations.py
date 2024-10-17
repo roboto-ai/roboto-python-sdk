@@ -15,6 +15,8 @@ from .record import CollectionResourceRef
 
 
 class CreateCollectionRequest(pydantic.BaseModel):
+    """Request payload to create a collection"""
+
     description: Optional[str] = None
     name: Optional[str] = None
     resources: Optional[list[CollectionResourceRef]] = None
@@ -22,6 +24,8 @@ class CreateCollectionRequest(pydantic.BaseModel):
 
 
 class UpdateCollectionRequest(pydantic.BaseModel):
+    """Request payload to update a collection"""
+
     add_resources: Union[list[CollectionResourceRef], NotSetType] = NotSet
     add_tags: Union[list[str], NotSetType] = NotSet
     description: Optional[Union[NotSetType, str]] = NotSet

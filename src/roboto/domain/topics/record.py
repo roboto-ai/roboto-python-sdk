@@ -15,6 +15,10 @@ from ...association import Association
 
 
 class RepresentationStorageFormat(enum.Enum):
+    """
+    Supported representation format types
+    """
+
     MCAP = "mcap"
 
 
@@ -46,24 +50,23 @@ class CanonicalDataType(enum.Enum):
     Primarily used for UI purposes to determine if a Panel can render a particular MessagePath.
 
     References:
-        - ROS1 field types: http://wiki.ros.org/msg
-        - ROS2 field types: https://docs.ros.org/en/iron/Concepts/Basic/About-Interfaces.html#field-types
-        - uORB: there is no canonical list of primitive field types, but they appear to be the same as ROS.
-            The documentation states:
-            > Have a look at the existing msg files for supported types.
-            > A message can also be used nested in other messages.
-            From https://docs.px4.io/main/en/middleware/uorb.html#adding-a-new-topic
+
+        - ROS 1 field types: http://wiki.ros.org/msg
+        - ROS 2 field types: https://docs.ros.org/en/iron/Concepts/Basic/About-Interfaces.html#field-types
+        - uORB: there is no list of primitive field types, but they appear
+          to be the same as ROS: https://docs.px4.io/main/en/middleware/uorb.html#adding-a-new-topic
 
     Example mappings:
-    - "float32" -> DataType.Number
-    - "uint8[]" -> DataType.Array
-    - "uint8[]" -> DataType.Image
-    - "geometry_msgs/Pose" -> DataType.Object
-    - "std_msgs/Header" -> DataType.Object
-    - "string" -> DataType.String
-    - "char" -> DataType.String
-    - "bool" -> DataType.Boolean
-    - "byte" -> DataType.Byte
+
+        - ``float32`` -> ``DataType.Number``
+        - ``uint8[]`` -> ``DataType.Array``
+        - ``uint8[]`` -> ``DataType.Image``
+        - ``geometry_msgs/Pose`` -> ``DataType.Object``
+        - ``std_msgs/Header`` -> ``DataType.Object``
+        - ``string`` -> ``DataType.String``
+        - ``char`` -> ``DataType.String``
+        - ``bool`` -> ``DataType.Boolean``
+        - ``byte`` -> ``DataType.Byte``
 
     """
 

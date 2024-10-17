@@ -13,21 +13,37 @@ from .org_records import OrgRoleName, OrgStatus
 
 
 class CreateOrgRequest(pydantic.BaseModel):
+    """
+    Request payload to create an organization
+    """
+
     name: str
     bind_email_domain: bool = False
     data_region: RobotoRegion = RobotoRegion.US_WEST
 
 
 class OrgRecordUpdates(pydantic.BaseModel):
+    """
+    Payload to update an organization
+    """
+
     name: typing.Optional[str] = None
     status: typing.Optional[OrgStatus] = None
 
 
 class UpdateOrgRequest(pydantic.BaseModel):
+    """
+    Request payload to update an organization
+    """
+
     updates: OrgRecordUpdates
 
 
 class UpdateOrgUserRequest(pydantic.BaseModel):
+    """
+    Request payload to update an organization user
+    """
+
     add_roles: typing.Optional[list[OrgRoleName]] = None
     remove_roles: typing.Optional[list[OrgRoleName]] = None
 
@@ -42,18 +58,34 @@ class UpdateOrgUserRequest(pydantic.BaseModel):
 
 
 class RemoveUserFromOrgRequest(pydantic.BaseModel):
+    """
+    Request payload to remove a user from an organization
+    """
+
     user_id: str
 
 
 # Deprecated
 class ModifyRoleForUserRequest(pydantic.BaseModel):
+    """
+    Request payload to modify the role for a user in an organization
+    """
+
     user_id: str
     role_name: OrgRoleName
 
 
 class BindEmailDomainRequest(pydantic.BaseModel):
+    """
+    Request payload to bind an email domain to an organization
+    """
+
     email_domain: str
 
 
 class InviteUserRequest(pydantic.BaseModel):
+    """
+    Request payload to invite a user to an organization
+    """
+
     invited_user_id: str

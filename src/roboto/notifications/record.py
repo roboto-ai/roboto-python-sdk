@@ -17,6 +17,10 @@ from .validator import (
 
 
 class NotificationRecord(pydantic.BaseModel, LifecycleStatusValidator):
+    """
+    A wire-transmissible representation of a notification.
+    """
+
     notification_id: str
     org_id: str
     user_id: str

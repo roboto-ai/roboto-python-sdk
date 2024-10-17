@@ -48,6 +48,10 @@ class QueryScheme(str, enum.Enum):
 
 
 class QueryContext(pydantic.BaseModel):
+    """
+    Context for a query
+    """
+
     query_scheme: QueryScheme
     query: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
 
@@ -65,11 +69,19 @@ class QueryStorageScheme(str, enum.Enum):
 
 
 class QueryStorageContext(pydantic.BaseModel):
+    """
+    Context for query storage
+    """
+
     storage_scheme: QueryStorageScheme
     storage_ctx: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
 
 
 class QueryRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a query.
+    """
+
     modified: datetime.datetime = pydantic.Field(
         description="The last time the database record for a query was modified."
     )
@@ -99,6 +111,10 @@ class QueryRecord(pydantic.BaseModel):
 
 
 class SubmitStructuredQueryRequest(pydantic.BaseModel):
+    """
+    Request payload to submit a structured query
+    """
+
     query: QuerySpecification = pydantic.Field(
         description="The conditions, sorting behavior, and limit of this query."
     )
@@ -108,6 +124,10 @@ class SubmitStructuredQueryRequest(pydantic.BaseModel):
 
 
 class SubmitRoboqlQueryRequest(pydantic.BaseModel):
+    """
+    Request payload to submit a RoboQL query
+    """
+
     query: typing.Optional[str] = pydantic.Field(
         description="The conditions, sorting behavior, and limit of this query."
     )
@@ -117,6 +137,10 @@ class SubmitRoboqlQueryRequest(pydantic.BaseModel):
 
 
 class SubmitTermQueryRequest(pydantic.BaseModel):
+    """
+    Request payload to submit a simple term query
+    """
+
     term: str = pydantic.Field(
         default="",
         description="A string search term which this query will attempt to match across any appropriate fields.",

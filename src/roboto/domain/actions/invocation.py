@@ -34,6 +34,10 @@ from .invocation_record import (
 
 
 class Invocation:
+    """
+    An instance of an execution of an action, initiated manually by a user or automatically by a trigger
+    """
+
     __record: InvocationRecord
     __roboto_client: RobotoClient
 

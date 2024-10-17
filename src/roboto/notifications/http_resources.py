@@ -16,6 +16,8 @@ from .validator import LifecycleStatusValidator
 
 
 class UpdateNotificationRequest(pydantic.BaseModel, LifecycleStatusValidator):
+    """Request payload to update a notification"""
+
     notification_id: str
     read_status: Optional[ReadStatus] = None
     lifecycle_status: Optional[dict[NotificationChannel, str]] = None

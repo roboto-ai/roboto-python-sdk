@@ -26,6 +26,11 @@ from .org_records import (
 
 
 class Org:
+    """
+    A shared account between many Roboto users. Orgs may have different limits
+    and functionality depending on tier.
+    """
+
     __record: OrgRecord
     __roboto_client: RobotoClient
 

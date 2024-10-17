@@ -51,6 +51,12 @@ logger = default_logger()
 
 
 class Topic:
+    """
+    A sequence of structured time-series data linked to a source file.
+    Each topic follows a defined schema, where the message paths represent the
+    individual fields or signals within that schema.
+    """
+
     __record: TopicRecord
     __roboto_client: RobotoClient
     __topic_data_service: TopicDataService

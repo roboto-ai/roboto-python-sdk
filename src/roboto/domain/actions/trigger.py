@@ -43,6 +43,10 @@ from .trigger_record import (
 
 
 class Trigger:
+    """
+    A rule that automatically invokes an action when specific events or conditions occur
+    """
+
     __record: TriggerRecord
     __roboto_client: RobotoClient
 

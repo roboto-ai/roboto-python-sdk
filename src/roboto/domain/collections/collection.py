@@ -33,6 +33,11 @@ from .record import (
 
 
 class Collection:
+    """
+    A higher-level container for grouping datasets together. Collections can also be used
+    to group files from several distinct datasets together.
+    """
+
     __record: CollectionRecord
     __roboto_client: RobotoClient
 

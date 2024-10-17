@@ -10,6 +10,10 @@ import pydantic
 
 
 class CreateDeviceRequest(pydantic.BaseModel):
+    """
+    Request payload to create a new device
+    """
+
     device_id: str = pydantic.Field(
         description="A user-provided identifier for a device, which is unique within that device's org."
     )

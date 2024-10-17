@@ -68,6 +68,7 @@ def check_last_update():
             print(
                 f"\n{notice} A new release of roboto is available: "
                 + f"{AnsiColor.RED + __version__ + AnsiColor.END} -> {AnsiColor.GREEN + latest + AnsiColor.END}\n"
-                + f"{notice} To update, run: {AnsiColor.GREEN}pip install --upgrade roboto{AnsiColor.END}",
+                + f"{notice} To update, follow Upgrade CLI instructions at "
+                + "https://github.com/roboto-ai/roboto-python-sdk/blob/main/README.md",
                 file=sys.stderr,
             )

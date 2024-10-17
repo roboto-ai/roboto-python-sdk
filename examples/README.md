@@ -34,6 +34,6 @@ _If you're running the `jupyter lab` command from the `examples` directory itsel
 For more information, check out:
 * [General Docs](https://docs.roboto.ai/)
 * [User Guides](https://docs.roboto.ai/user-guides/index.html)
-* [SDK Reference](https://docs.roboto.ai/reference/python-sdk/roboto/index.html)
+* [SDK Reference](https://docs.roboto.ai/reference/python-sdk.html)
 * [CLI Reference](https://docs.roboto.ai/reference/cli.html)
 * [About Roboto](https://www.roboto.ai/about)

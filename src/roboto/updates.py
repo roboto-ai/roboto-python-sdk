@@ -14,6 +14,8 @@ StrSequence = typing.Union[list[str], tuple[str, ...], set[str]]
 
 
 class TaglessMetadataChangeset(pydantic.BaseModel):
+    """Changeset for tagless metadata"""
+
     # Add each field in this dict if it doesn't exist, else overwrite the existing value
     # Expands dot notation to nested objects
     put_fields: typing.Optional[dict[str, typing.Any]] = None
@@ -152,6 +154,8 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
 
 # TODO https://roboto.atlassian.net/browse/ROBO-903, change this to a mixin model to handle tags and/or metadata
 class MetadataChangeset(pydantic.BaseModel):
+    """Changeset for metadata"""
+
     # Add each tag in this sequence if it doesn't exist
     put_tags: typing.Optional[StrSequence] = None
     # Remove each tag in this sequence if it exists

@@ -15,6 +15,10 @@ from ..files import S3Credentials
 
 
 class DatasetCredentials(pydantic.BaseModel):
+    """
+    Handle credentials for dataset file access
+    """
+
     access_key_id: str
     bucket: str
     expiration: datetime.datetime
@@ -52,6 +56,10 @@ def make_backwards_compatible_placeholder_storage_ctx() -> dict[str, typing.Any]
 
 
 class DatasetRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a dataset.
+    """
+
     created: datetime.datetime
     created_by: str
     dataset_id: str  # sort key

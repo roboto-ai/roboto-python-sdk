@@ -24,13 +24,15 @@ from .record import (
 
 
 class BaseAddRepresentationRequest(pydantic.BaseModel):
+    """Request payload to add a representation to a topic"""
+
     association: Association
     storage_format: RepresentationStorageFormat
     version: int
 
 
 class SetDefaultRepresentationRequest(BaseAddRepresentationRequest):
-    """Memorialize a representation of topic data contained within a source recording file."""
+    """Memorialize a representation of topic data contained within a source recording file"""
 
     # 'ignore' used to avoid backwards incompatible change to remove `org_id` from BaseAddRepresentationRequest.
     # Should be changed back to 'forbid' for SDK v1.0
@@ -38,7 +40,7 @@ class SetDefaultRepresentationRequest(BaseAddRepresentationRequest):
 
 
 class AddMessagePathRepresentationRequest(BaseAddRepresentationRequest):
-    """Associate a MessagePath with a Representation."""
+    """Associate a MessagePath with a Representation"""
 
     message_path_id: str
 
@@ -79,7 +81,7 @@ class UpdateMessagePathRequest(pydantic.BaseModel):
 
 
 class CreateTopicRequest(pydantic.BaseModel):
-    """Memorialize a Topic contained within a source recording file."""
+    """Memorialize a Topic contained within a source recording file"""
 
     # Required
     association: Association
@@ -102,7 +104,7 @@ class CreateTopicRequest(pydantic.BaseModel):
 
 
 class UpdateTopicRequest(pydantic.BaseModel):
-    """Update a Topic."""
+    """Request payload to update a Topic"""
 
     end_time: typing.Union[typing.Optional[int], NotSetType] = NotSet
     message_count: typing.Union[int, NotSetType] = NotSet

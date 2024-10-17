@@ -19,12 +19,14 @@ from .action_record import (
 
 
 class InvocationDataSourceType(enum.Enum):
-    """Source of data for an Action's InputBinding"""
+    """Source of data for an action's input binding"""
 
     Dataset = "Dataset"
 
 
 class InvocationDataSource(pydantic.BaseModel):
+    """Abstracted data source that can be provided to an invocation"""
+
     data_source_type: InvocationDataSourceType
     # The "type" determines the meaning of "id":
     #   - if type is "Dataset," id is a dataset_id
@@ -32,6 +34,8 @@ class InvocationDataSource(pydantic.BaseModel):
 
 
 class ActionProvenance(pydantic.BaseModel):
+    """Provenance information for an action"""
+
     name: str
     org_id: str
     # 2023-09-11 (GM): Optional for backwards compatibility; new invocations will always have a digest
@@ -39,17 +43,23 @@ class ActionProvenance(pydantic.BaseModel):
 
 
 class ExecutableProvenance(pydantic.BaseModel):
+    """Provenance information for an action executable"""
+
     # Optional for backwards compatibility
     container_image_uri: typing.Optional[str] = None
     container_image_digest: typing.Optional[str] = None
 
 
 class InvocationSource(enum.Enum):
+    """Method by which an invocation was run"""
+
     Trigger = "Trigger"
     Manual = "Manual"
 
 
 class SourceProvenance(pydantic.BaseModel):
+    """Provenance information for an invocation source"""
+
     source_type: InvocationSource
     # The “type” determines the meaning of “id:”
     #   - if type is “Trigger,” id is a TriggerId;
@@ -58,6 +68,8 @@ class SourceProvenance(pydantic.BaseModel):
 
 
 class InvocationProvenance(pydantic.BaseModel):
+    """Provenance information for an invocation"""
+
     action: ActionProvenance
     """The Action that was invoked."""
 
@@ -69,6 +81,8 @@ class InvocationProvenance(pydantic.BaseModel):
 
 
 class InvocationStatus(int, enum.Enum):
+    """Invocation status enum"""
+
     Queued = 0
     Scheduled = 1
     Downloading = 2
@@ -137,6 +151,10 @@ class InvocationStatus(int, enum.Enum):
 
 
 class InvocationStatusRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of an invocation status.
+    """
+
     status: InvocationStatus
     detail: typing.Optional[str] = None
     timestamp: datetime.datetime  # Persisted as ISO 8601 string in UTC
@@ -150,11 +168,19 @@ class InvocationStatusRecord(pydantic.BaseModel):
 
 
 class LogsLocation(pydantic.BaseModel):
+    """
+    Invocation log storage location
+    """
+
     bucket: str
     prefix: str
 
 
 class InvocationRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of an invocation.
+    """
+
     # When adding or removing fields, make sure to update __str__
     created: datetime.datetime  # Persisted as ISO 8601 string in UTC
     data_source: InvocationDataSource
@@ -202,6 +228,10 @@ class InvocationRecord(pydantic.BaseModel):
 
 
 class LogRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of a log record.
+    """
+
     # If a log record is a partial log, this is a correlation ID for its parts
     # See documentation in the InvocationAwsDelegate in the method responsible for serving logs.
     partial_id: typing.Optional[str] = None

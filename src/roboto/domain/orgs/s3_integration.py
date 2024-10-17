@@ -21,6 +21,10 @@ logger = default_logger()
 
 
 class RegisterS3IntegrationRequest(pydantic.BaseModel):
+    """
+    Request payload to integrate an S3 bucket
+    """
+
     account_id: str
     aws_region: str
     bucket_name: str
@@ -30,6 +34,10 @@ class RegisterS3IntegrationRequest(pydantic.BaseModel):
 
 
 class RegisterS3IntegrationResponse(pydantic.BaseModel):
+    """
+    Response payload to integrate an S3 bucket
+    """
+
     iam_role_name: str
     iam_role_policy: dict[str, typing.Any]
     iam_role_trust_relationship: dict[str, typing.Any]

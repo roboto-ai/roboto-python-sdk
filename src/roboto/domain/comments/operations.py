@@ -10,10 +10,18 @@ from .record import CommentEntityType
 
 
 class CreateCommentRequest(pydantic.BaseModel):
+    """
+    Request payload to create a comment
+    """
+
     entity_type: CommentEntityType
     entity_id: str
     comment_text: str
 
 
 class UpdateCommentRequest(pydantic.BaseModel):
+    """
+    Request payload to update a comment
+    """
+
     comment_text: str

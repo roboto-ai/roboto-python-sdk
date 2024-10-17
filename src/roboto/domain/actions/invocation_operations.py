@@ -20,6 +20,10 @@ from .invocation_record import (
 
 
 class CreateInvocationRequest(pydantic.BaseModel):
+    """
+    Request payload to create a new invocation
+    """
+
     compute_requirement_overrides: Optional[ComputeRequirements] = None
     container_parameter_overrides: Optional[ContainerParameters] = None
     data_source_id: str
@@ -54,5 +58,9 @@ class SetLogsLocationRequest(pydantic.BaseModel):
 
 
 class UpdateInvocationStatus(pydantic.BaseModel):
+    """
+    Request payload to update invocation status
+    """
+
     status: InvocationStatus
     detail: str

@@ -48,6 +48,10 @@ SHORT_DESCRIPTION_LENGTH = 140
 
 
 class Action:
+    """
+    A reusable function to process, transform or analyze data in Roboto.
+    """
+
     __record: ActionRecord
     __roboto_client: RobotoClient
 

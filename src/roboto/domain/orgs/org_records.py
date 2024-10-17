@@ -14,17 +14,29 @@ from ..users import UserRecord
 
 
 class OrgStatus(str, enum.Enum):
+    """
+    Org status enum
+    """
+
     Provisioning = "provisioning"
     Active = "active"
     Deprovisioning = "de-provisioning"
 
 
 class OrgTier(str, enum.Enum):
+    """
+    See our pricing page for details on different organization tiers.
+    """
+
     free = "free"
     premium = "premium"
 
 
 class OrgRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of an organization.
+    """
+
     org_id: str
     name: str
     tier: OrgTier
@@ -34,18 +46,30 @@ class OrgRecord(pydantic.BaseModel):
 
 
 class OrgRoleName(str, enum.Enum):
+    """
+    Org role enum
+    """
+
     user = "user"
     admin = "admin"
     owner = "owner"
 
 
 class OrgUserRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of an organization user.
+    """
+
     user: UserRecord
     org: OrgRecord
     roles: list[OrgRoleName]
 
 
 class OrgInviteRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of an organization invite.
+    """
+
     invite_id: str
     user_id: str
     invited_by: UserRecord

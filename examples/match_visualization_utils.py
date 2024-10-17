@@ -25,18 +25,27 @@ import roboto.analytics
 NANO_SEC_PER_SEC = 1e9
 
 
-def images_frames_to_encoded_gif(image_frames, fps=10, loops=math.inf) -> str:
+def images_frames_to_encoded_gif(
+    image_frames, fps=10, loops=math.inf, resize_factor=0.5
+) -> str:
     images = [PIL.Image.open(io.BytesIO(frame)) for frame in image_frames]
-    buffer = io.BytesIO()
+    resized_images = [
+        img.resize(
+            (int(img.width * resize_factor), int(img.height * resize_factor)),
+            PIL.Image.Resampling.LANCZOS,
+        )
+        for img in images
+    ]
 
+    buffer = io.BytesIO()
     frame_duration_ms = (1 / fps) * 1000
 
-    # https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#gif-saving
-    images[0].save(
+    # Save the images as a GIF
+    resized_images[0].save(
         buffer,
         format="GIF",
         save_all=True,
-        append_images=images[1:],
+        append_images=resized_images[1:],
         duration=frame_duration_ms,
         loop=0 if loops == math.inf else loops,  # 0 means loop forever
     )
@@ -103,19 +112,19 @@ def format_match(
 
     return f"""\
     <div style="display: flex; align-items: center; margin-bottom: 20px; width: 100%;">
-      <div style="style="flex: 0 0 10%; margin-right: 10px; text-align: center;">
-        {match.distance}
+      <div style="flex: 0 0 10%; margin-right: 10px; text-align: center;">
+        {round(match.distance, 3)}
       </div>
       <div style="flex: 1; margin-right: 10px; text-align: center;">
         <img
           src="data:image/png;base64,{plot_image}"
-          style="height: auto; max-width: 100%"
+          style="height: auto; max-width: 100%; display: inline-block; vertical-align: middle;"
         />
       </div>
       <div style="flex: 1; margin-right: 10px; text-align: center;">
         <img
           src="data:image/gif;base64,{gif}"
-          style="height: auto; max-width: 100%;"
+          style="height: auto; max-width: 100%; display: inline-block; vertical-align: middle;"
         />
       </div>
       <div style="flex: 0 0 10%; margin-right: 10px; text-align: center;">

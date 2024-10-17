@@ -34,6 +34,10 @@ class Accessibility(str, enum.Enum):
 
 
 class ActionParameter(pydantic.BaseModel):
+    """
+    A parameter that can be provided to an Action at invocation time.
+    """
+
     name: str
     required: bool = False
     description: typing.Optional[str] = None
@@ -66,6 +70,10 @@ class ActionParameter(pydantic.BaseModel):
 
 
 class ActionParameterChangeset(pydantic.BaseModel):
+    """
+    A changeset used to modify Action parameters.
+    """
+
     put_parameters: list[ActionParameter] = pydantic.Field(default_factory=list)
     remove_parameters: list[str] = pydantic.Field(default_factory=list)
 
@@ -126,6 +134,10 @@ class ActionReference(pydantic.BaseModel):
 
 
 class ExecutorContainer(enum.Enum):
+    """
+    Type of container running as part of an action invocation
+    """
+
     LogRouter = "firelens_log_router"
     Monitor = "monitor"
     Setup = "setup"
@@ -201,6 +213,10 @@ class ComputeRequirements(pydantic.BaseModel):
 
 
 class ContainerParameters(pydantic.BaseModel):
+    """
+    Container parameters for an action invocation.
+    """
+
     command: typing.Optional[list[str]] = None
     entry_point: typing.Optional[list[str]] = None
     env_vars: typing.Optional[dict[str, str]] = None
@@ -221,6 +237,10 @@ class ContainerParameters(pydantic.BaseModel):
 
 
 class ActionRecord(pydantic.BaseModel):
+    """
+    A wire-transmissible representation of an action.
+    """
+
     # Required fields without defaults
     created: datetime.datetime  # Persisted as ISO 8601 string in UTC
     created_by: str

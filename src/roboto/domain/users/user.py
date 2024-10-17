@@ -22,6 +22,10 @@ from .record import UserRecord
 
 
 class User:
+    """
+    Represents an individual who has access to the Roboto platform.
+    """
+
     __record: UserRecord
     __roboto_client: RobotoClient
 

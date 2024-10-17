@@ -15,6 +15,10 @@ from roboto.notifications import (
 
 
 class CreateUserRequest(pydantic.BaseModel):
+    """
+    Request payload to create a new user
+    """
+
     user_id: str
     name: Optional[str] = None
     is_service_user: bool = False
@@ -29,6 +33,10 @@ class CreateUserRequest(pydantic.BaseModel):
 
 
 class UpdateUserRequest(pydantic.BaseModel):
+    """
+    Request payload to update a user
+    """
+
     name: Optional[str] = None
     picture_url: Optional[str] = None
     notification_channels_enabled: Optional[dict[NotificationChannel, bool]] = None

@@ -16,6 +16,8 @@ from ..version import (
 
 
 class RobotoTool(str, enum.Enum):
+    """Tool used to access Roboto"""
+
     Cli = "cli"
     Sdk = "sdk"
     UploadAgent = "upload-agent"

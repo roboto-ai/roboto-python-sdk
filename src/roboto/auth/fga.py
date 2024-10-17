@@ -18,10 +18,18 @@ class AuthZTupleRecord(pydantic.BaseModel):
 
 
 class EditAccessRequest(pydantic.BaseModel):
+    """
+    Request payload to add or remove fine-grained access to a Roboto resource
+    """
+
     add: list[AuthZTupleRecord] = pydantic.Field(default_factory=list)
     remove: list[AuthZTupleRecord] = pydantic.Field(default_factory=list)
 
 
 class GetAccessResponse(pydantic.BaseModel):
+    """
+    Response payload for a request to describe fine-grained access to a Roboto resource
+    """
+
     relations: list[AuthZTupleRecord]
     group_permissions: dict[str, list[str]] = pydantic.Field(default_factory=dict)
