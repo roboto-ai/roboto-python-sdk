@@ -117,4 +117,15 @@ def remove_not_set(value: PydanticModel) -> PydanticModel:
     return value.model_validate(set_args)
 
 
+def is_any_set(value: PydanticModel) -> bool:
+    """
+    Checks whether a Pydantic model has at least one field that is explicitly set.
+    """
+    for _, v in dict(value).items():
+        if is_set(v):
+            return True
+
+    return False
+
+
 NotSet = NotSetType()

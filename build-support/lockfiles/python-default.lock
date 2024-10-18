@@ -673,36 +673,36 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "e1f36f8be453505cebcc3da178ea081b2a06c0e5e1cdee774f1067599b8d9c3e",
-              "url": "https://files.pythonhosted.org/packages/ff/7c/88d9031a7a409393da450bcfca2f3597e0afccac4cae2d97fc4e7190f012/boto3-1.35.42-py3-none-any.whl"
+              "hash": "e6a50a0599f75b21de0de1a551a0564793d25b304fa623e4052e527b268de734",
+              "url": "https://files.pythonhosted.org/packages/41/ed/894e8dd80cafe006f725b92f32105cc2e8476a8a190da65ddd94534643e3/boto3-1.35.43-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "a5b00f8b82dce62870759f04861747944da834d64a64355970120c475efdafc0",
-              "url": "https://files.pythonhosted.org/packages/04/e4/a60d99f727766d9801f4e14dca7e2df0245831844411562d81e0df2cc179/boto3-1.35.42.tar.gz"
+              "hash": "0197f460632804577aa78b2f6daf7b823bffa9d4d67a5cebb179efff0fe9631b",
+              "url": "https://files.pythonhosted.org/packages/d2/70/71e0ab52835e63b63a93775b2c8734e4188454b9165e5dee7e55b722bc69/boto3-1.35.43.tar.gz"
             }
           ],
           "project_name": "boto3",
           "requires_dists": [
-            "botocore<1.36.0,>=1.35.42",
+            "botocore<1.36.0,>=1.35.43",
             "botocore[crt]<2.0a0,>=1.21.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
             "s3transfer<0.11.0,>=0.10.0"
           ],
           "requires_python": ">=3.8",
-          "version": "1.35.42"
+          "version": "1.35.43"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "05af0bb8b9cea7ce7bc589c332348d338a21b784e9d088a588fd10ec145007ff",
-              "url": "https://files.pythonhosted.org/packages/2e/f5/0e67c7e6a7f5f8c068cf444dc25d03097a22428380587542978d7ad9d86a/botocore-1.35.42-py3-none-any.whl"
+              "hash": "7cfdee9117617da97daaf259dd8484bcdc259c59eb7d1ce7db9ecf8506b7d36c",
+              "url": "https://files.pythonhosted.org/packages/ab/69/59ddb9add72e21a3efaf10dc10bcdc82a8508bc0a106d75fd954188b54f3/botocore-1.35.43-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "af348636f73dc24b7e2dc760a34d08c8f2f94366e9b4c78d877307b128abecef",
-              "url": "https://files.pythonhosted.org/packages/d3/0c/2bcd566397ab06661b222b9b5156ba0c40d5a97d3727c88ccaefea275cb4/botocore-1.35.42.tar.gz"
+              "hash": "04539b85ade060601a3023cacb538fc17aad8c059a5a2e18fe4bc5d0d91fbd72",
+              "url": "https://files.pythonhosted.org/packages/1f/e2/a65953af6effec4248f8e29b0b5567cfabae686691b8301650b8ac28bfc6/botocore-1.35.43.tar.gz"
             }
           ],
           "project_name": "botocore",
@@ -714,7 +714,7 @@
             "urllib3<1.27,>=1.25.4; python_version < \"3.10\""
           ],
           "requires_python": ">=3.8",
-          "version": "1.35.42"
+          "version": "1.35.43"
         },
         {
           "artifacts": [
@@ -3873,45 +3873,60 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "ffe7fc9b6b36beadc8c322f84e1caff51e8703b88eee1da46d1e3a6ae11b4fd0",
-              "url": "https://files.pythonhosted.org/packages/7c/06/63872a64c312a24fb9b4af123ee7007a306617da63ff13bcc1432386ead7/psutil-6.0.0-cp38-abi3-macosx_11_0_arm64.whl"
+              "hash": "d905186d647b16755a800e7263d43df08b790d709d575105d419f8b6ef65423a",
+              "url": "https://files.pythonhosted.org/packages/27/c2/d034856ac47e3b3cdfa9720d0e113902e615f4190d5d1bdb8df4b2015fb2/psutil-6.1.0-cp36-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "c588a7e9b1173b6e866756dde596fd4cad94f9399daf99ad8c3258b3cb2b47a0",
-              "url": "https://files.pythonhosted.org/packages/0b/37/f8da2fbd29690b3557cca414c1949f92162981920699cd62095a984983bf/psutil-6.0.0-cp36-abi3-macosx_10_9_x86_64.whl"
+              "hash": "6e2dcd475ce8b80522e51d923d10c7871e45f20918e027ab682f94f1c6351688",
+              "url": "https://files.pythonhosted.org/packages/01/9e/8be43078a171381953cfee33c07c0d628594b5dbfc5157847b85022c2c1b/psutil-6.1.0-cp36-abi3-macosx_10_9_x86_64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "8faae4f310b6d969fa26ca0545338b21f73c6b15db7c4a8d934a5482faa818f2",
-              "url": "https://files.pythonhosted.org/packages/18/c7/8c6872f7372eb6a6b2e4708b88419fb46b857f7a2e1892966b851cc79fc9/psutil-6.0.0.tar.gz"
+              "hash": "0895b8414afafc526712c498bd9de2b063deaac4021a3b3c34566283464aff8e",
+              "url": "https://files.pythonhosted.org/packages/1d/cb/313e80644ea407f04f6602a9e23096540d9dc1878755f3952ea8d3d104be/psutil-6.1.0-cp36-abi3-macosx_11_0_arm64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "5fd9a97c8e94059b0ef54a7d4baf13b405011176c3b6ff257c247cae0d560ecd",
-              "url": "https://files.pythonhosted.org/packages/19/74/f59e7e0d392bc1070e9a70e2f9190d652487ac115bb16e2eff6b22ad1d24/psutil-6.0.0-cp36-abi3-manylinux_2_12_x86_64.manylinux2010_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+              "hash": "353815f59a7f64cdaca1c0307ee13558a0512f6db064e92fe833784f08539c7a",
+              "url": "https://files.pythonhosted.org/packages/26/10/2a30b13c61e7cf937f4adf90710776b7918ed0a9c434e2c38224732af310/psutil-6.1.0.tar.gz"
             },
             {
               "algorithm": "sha256",
-              "hash": "6ed2440ada7ef7d0d608f20ad89a04ec47d2d3ab7190896cd62ca5fc4fe08bf0",
-              "url": "https://files.pythonhosted.org/packages/35/56/72f86175e81c656a01c4401cd3b1c923f891b31fbcebe98985894176d7c9/psutil-6.0.0-cp36-abi3-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl"
+              "hash": "498c6979f9c6637ebc3a73b3f87f9eb1ec24e1ce53a7c5173b8508981614a90b",
+              "url": "https://files.pythonhosted.org/packages/58/4d/8245e6f76a93c98aab285a43ea71ff1b171bcd90c9d238bf81f7021fb233/psutil-6.1.0-cp36-abi3-manylinux_2_12_x86_64.manylinux2010_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "e2e8d0054fc88153ca0544f5c4d554d42e33df2e009c4ff42284ac9ebdef4132",
-              "url": "https://files.pythonhosted.org/packages/cd/5f/60038e277ff0a9cc8f0c9ea3d0c5eb6ee1d2470ea3f9389d776432888e47/psutil-6.0.0-cp36-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
+              "hash": "9dcbfce5d89f1d1f2546a2090f4fcf87c7f669d1d90aacb7d7582addece9fb38",
+              "url": "https://files.pythonhosted.org/packages/65/8e/bcbe2025c587b5d703369b6a75b65d41d1367553da6e3f788aff91eaf5bd/psutil-6.1.0-cp36-abi3-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl"
             }
           ],
           "project_name": "psutil",
           "requires_dists": [
-            "enum34; python_version <= \"3.4\" and extra == \"test\"",
-            "ipaddress; python_version < \"3.0\" and extra == \"test\"",
-            "mock; python_version < \"3.0\" and extra == \"test\"",
-            "pywin32; sys_platform == \"win32\" and extra == \"test\"",
-            "wmi; sys_platform == \"win32\" and extra == \"test\""
+            "black; extra == \"dev\"",
+            "check-manifest; extra == \"dev\"",
+            "coverage; extra == \"dev\"",
+            "packaging; extra == \"dev\"",
+            "pylint; extra == \"dev\"",
+            "pyperf; extra == \"dev\"",
+            "pypinfo; extra == \"dev\"",
+            "pytest-cov; extra == \"dev\"",
+            "pytest-xdist; extra == \"test\"",
+            "pytest; extra == \"test\"",
+            "requests; extra == \"dev\"",
+            "rstcheck; extra == \"dev\"",
+            "ruff; extra == \"dev\"",
+            "setuptools; extra == \"test\"",
+            "sphinx-rtd-theme; extra == \"dev\"",
+            "sphinx; extra == \"dev\"",
+            "toml-sort; extra == \"dev\"",
+            "twine; extra == \"dev\"",
+            "virtualenv; extra == \"dev\"",
+            "wheel; extra == \"dev\""
           ],
           "requires_python": "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,>=2.7",
-          "version": "6.0.0"
+          "version": "6.1.0"
         },
         {
           "artifacts": [
@@ -4235,13 +4250,13 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "2c912e55fd5794a59bf8c832b9de832dcfdf4778d79ff79b708744eed499a907",
-              "url": "https://files.pythonhosted.org/packages/29/8d/29e82e333f32d9e2051c10764b906c2a6cd140992910b5f49762790911ba/pydantic_settings-2.5.2-py3-none-any.whl"
+              "hash": "4a819166f119b74d7f8c765196b165f95cc7487ce58ea27dec8a5a26be0970e0",
+              "url": "https://files.pythonhosted.org/packages/34/19/26bb6bdb9fdad5f0dfce538780814084fb667b4bc37fcb28459c14b8d3b5/pydantic_settings-2.6.0-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "f90b139682bee4d2065273d5185d71d37ea46cfe57e1b5ae184fc6a0b2484ca0",
-              "url": "https://files.pythonhosted.org/packages/68/27/0bed9dd26b93328b60a1402febc780e7be72b42847fa8b5c94b7d0aeb6d1/pydantic_settings-2.5.2.tar.gz"
+              "hash": "44a1804abffac9e6a30372bb45f6cafab945ef5af25e66b1c634c01dd39e0188",
+              "url": "https://files.pythonhosted.org/packages/6c/66/5f1a9da10675bfb3b9da52f5b689c77e0a5612263fcce510cfac3e99a168/pydantic_settings-2.6.0.tar.gz"
             }
           ],
           "project_name": "pydantic-settings",
@@ -4254,7 +4269,7 @@
             "tomli>=2.0.1; extra == \"toml\""
           ],
           "requires_python": ">=3.8",
-          "version": "2.5.2"
+          "version": "2.6.0"
         },
         {
           "artifacts": [

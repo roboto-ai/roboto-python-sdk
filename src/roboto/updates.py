@@ -167,6 +167,10 @@ class MetadataChangeset(pydantic.BaseModel):
     # Expands dot notation to nested objects
     remove_fields: typing.Optional[StrSequence] = None
 
+    # Controls whether the changeset will act as a wholesale replacement of existing metadata or tags.
+    # Intended for use with dedicated class factories only.
+    replace_all: bool = False
+
     class Builder:
         __put_tags: list[str]
         __remove_tags: list[str]
@@ -204,9 +208,19 @@ class MetadataChangeset(pydantic.BaseModel):
             }
             return MetadataChangeset(**{k: v for k, v in changeset.items() if v})
 
+    @classmethod
+    def from_metadata(
+        cls, metadata: typing.Mapping[str, typing.Any]
+    ) -> "MetadataChangeset":
+        """Creates a changeset that will replace any existing metadata with what's provided."""
+        return cls(put_fields=dict(metadata), replace_all=True)
+
     def apply_field_updates(
         self, existing_metadata: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
+        if self.replace_all:
+            return self.put_fields or {}  # should we deep-copy?
+
         updated_metadata = copy.deepcopy(existing_metadata)
         if self.put_fields:
             for key, value in self.put_fields.items():
@@ -217,6 +231,9 @@ class MetadataChangeset(pydantic.BaseModel):
         return updated_metadata
 
     def apply_tag_updates(self, existing_tags: list[str]) -> StrSequence:
+        if self.replace_all:
+            return self.put_tags or []  # should we copy?
+
         updated_tags = existing_tags.copy()
         if self.put_tags:
             for tag in self.put_tags:
@@ -224,6 +241,7 @@ class MetadataChangeset(pydantic.BaseModel):
                     updated_tags.append(tag)
         if self.remove_tags:
             updated_tags = [tag for tag in updated_tags if tag not in self.remove_tags]
+
         return updated_tags
 
     @staticmethod

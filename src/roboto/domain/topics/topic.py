@@ -234,8 +234,16 @@ class Topic:
         return None
 
     @property
+    def message_count(self) -> typing.Optional[int]:
+        return self.__record.message_count
+
+    @property
     def message_paths(self) -> collections.abc.Sequence[MessagePathRecord]:
         return self.__record.message_paths
+
+    @property
+    def metadata(self) -> dict[str, typing.Any]:
+        return dict(self.__record.metadata)
 
     @property
     def name(self) -> str:
@@ -248,6 +256,14 @@ class Topic:
     @property
     def record(self) -> TopicRecord:
         return self.__record
+
+    @property
+    def schema_checksum(self) -> typing.Optional[str]:
+        return self.__record.schema_checksum
+
+    @property
+    def schema_name(self) -> typing.Optional[str]:
+        return self.__record.schema_name
 
     @property
     def topic_id(self) -> str:
@@ -477,8 +493,6 @@ class Topic:
         start_time: typing.Union[typing.Optional[int], NotSetType] = NotSet,
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
     ) -> "Topic":
-        encoded_association = self.association.url_encode()
-
         request = remove_not_set(
             UpdateTopicRequest(
                 end_time=end_time,
@@ -491,10 +505,11 @@ class Topic:
         )
 
         response = self.__roboto_client.put(
-            f"v1/topics/association/{encoded_association}/name/{self.url_quoted_name}",
+            f"v1/topics/id/{self.topic_id}",
             data=request,
             owner_org_id=self.org_id,
         )
+
         record = response.to_record(TopicRecord)
         self.__record = record
         return self
