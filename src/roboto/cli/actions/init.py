@@ -20,10 +20,11 @@ def init(
     args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
 ) -> None:
     path: pathlib.Path = args.path
-    print(f"Creating Roboto action repository at path: {path}")
+    path = path.resolve()
+    print(f"Creating Roboto action package under: {path}")
 
     if not path.is_dir():
-        parser.error("Must pass in a directory")
+        parser.error(f"{path} does not exist, or is not a directory.")
 
     cookiecutter(COOKIECUTTER_REPO, output_dir=path)
 
@@ -33,7 +34,7 @@ def init_parser(parser: argparse.ArgumentParser):
         "path",
         nargs="?",
         type=pathlib.Path,
-        help="The destination for this operation.",
+        help="Existing directory under which an action package will be created.",
         default=os.getcwd(),
     )
 
