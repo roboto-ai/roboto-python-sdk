@@ -99,7 +99,7 @@ class RobotoSearch:
             >>> for topic in robosearch.find_topics("msgpaths[cpuload.load].max > 0.9"):
             ...     topic_data = list(topic.get_data())
             ...     df = pd.json_normalize(topic_data)
-            ... plt.plot(df["log_time"], df["load"], label=f"{topic.record.topic_id}")
+            ... plt.plot(df["log_time"], df["load"], label=f"{topic.topic_id}")
             ...
             >>> plt.legend()
             >>> plt.show()

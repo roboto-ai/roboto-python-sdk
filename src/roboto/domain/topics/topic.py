@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import collections.abc
+from datetime import datetime
 import pathlib
 import typing
 import urllib.parse
@@ -19,6 +20,7 @@ from ...logging import default_logger
 from ...sentinels import (
     NotSet,
     NotSetType,
+    is_set,
     remove_not_set,
 )
 from ...time import Time
@@ -31,6 +33,7 @@ from .operations import (
     AddMessagePathRepresentationRequest,
     AddMessagePathRequest,
     CreateTopicRequest,
+    MessagePathChangeset,
     SetDefaultRepresentationRequest,
     UpdateMessagePathRequest,
     UpdateTopicRequest,
@@ -210,6 +213,14 @@ class Topic:
         return self.__record.association
 
     @property
+    def created(self) -> datetime:
+        return self.__record.created
+
+    @property
+    def created_by(self) -> str:
+        return self.__record.created_by
+
+    @property
     def dataset_id(self) -> typing.Optional[str]:
         if self.association.is_dataset:
             return self.association.association_id
@@ -225,6 +236,10 @@ class Topic:
     @property
     def default_representation(self) -> typing.Optional[RepresentationRecord]:
         return self.__record.default_representation
+
+    @property
+    def end_time(self) -> typing.Optional[int]:
+        return self.__record.end_time
 
     @property
     def file_id(self) -> typing.Optional[str]:
@@ -246,6 +261,14 @@ class Topic:
         return dict(self.__record.metadata)
 
     @property
+    def modified(self) -> datetime:
+        return self.__record.modified
+
+    @property
+    def modified_by(self) -> str:
+        return self.__record.modified_by
+
+    @property
     def name(self) -> str:
         return self.__record.topic_name
 
@@ -255,6 +278,12 @@ class Topic:
 
     @property
     def record(self) -> TopicRecord:
+        """Topic representation in the Roboto database.
+
+        This property is on the path to deprecation. All ``TopicRecord`` attributes
+        are accessible directly using a ``Topic`` instance.
+        """
+
         return self.__record
 
     @property
@@ -266,13 +295,26 @@ class Topic:
         return self.__record.schema_name
 
     @property
+    def schema_version(self) -> int:
+        return self.__record.schema_version
+
+    @property
+    def start_time(self) -> typing.Optional[int]:
+        return self.__record.start_time
+
+    @property
     def topic_id(self) -> str:
         return self.__record.topic_id
+
+    @property
+    def topic_name(self) -> str:
+        return self.__record.topic_name
 
     @property
     def url_quoted_name(self) -> str:
         return urllib.parse.quote_plus(self.name)
 
+    # TODO: should this method return MessagePath instead?
     def add_message_path(
         self,
         message_path: str,
@@ -457,8 +499,8 @@ class Topic:
         )
 
     def refresh(self) -> None:
-        topic = Topic.from_id(self.record.topic_id, self.__roboto_client)
-        self.__record = topic.record
+        topic = Topic.from_id(self.topic_id, self.__roboto_client)
+        self.__record = topic.__record
 
     def set_default_representation(
         self,
@@ -482,7 +524,7 @@ class Topic:
         return representation_record
 
     def to_association(self) -> Association:
-        return Association.topic(self.record.topic_id)
+        return Association.topic(self.topic_id)
 
     def update(
         self,
@@ -492,7 +534,43 @@ class Topic:
         schema_name: typing.Union[typing.Optional[str], NotSetType] = NotSet,
         start_time: typing.Union[typing.Optional[int], NotSetType] = NotSet,
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
+        message_path_changeset: typing.Union[MessagePathChangeset, NotSetType] = NotSet,
     ) -> "Topic":
+        """Updates a topic's attributes and (optionally) its message paths.
+
+        Args:
+            schema_name:
+              topic schema name. Setting to ``None`` clears the attribute.
+            schema_checksum:
+              topic schema checksum. Setting to ``None`` clears the attribute.
+            start_time:
+              topic data start time, in epoch nanoseconds.
+              Must be non-negative. Setting to ``None`` clears the attribute.
+            end_time:
+              topic data end time, in epoch nanoseconds. Must be non-negative, and greater than `start_time`.
+              Setting to `None` clears the attribute.
+            message_count:
+              number of messages recorded for this topic. Must be non-negative.
+            metadata_changeset:
+              a set of changes to apply to the topic's metadata
+            message_path_changeset:
+              a set of additions, deletions or updates to this topic's message paths.
+              Updating or deleting non-existent message paths has no effect.
+              Attempting to (re-)add existing message paths raises ``RobotoConflictException``,
+              unless the changeset's ``replace_all`` flag is set to ``True``
+
+        Returns:
+            this ``Topic`` object with any updates applied
+
+        Raises:
+            RobotoInvalidRequestException:
+              if any method argument has an invalid value, e.g. a negative ``message_count``
+            RobotoConflictException:
+              if, as part of the update, an attempt is made to add an already extant
+              message path, and to this topic, and ``replace_all`` is not toggled
+              on the ``message_path_changeset``
+        """
+
         request = remove_not_set(
             UpdateTopicRequest(
                 end_time=end_time,
@@ -501,6 +579,7 @@ class Topic:
                 schema_name=schema_name,
                 start_time=start_time,
                 metadata_changeset=metadata_changeset,
+                message_path_changeset=message_path_changeset,
             )
         )
 
@@ -512,23 +591,59 @@ class Topic:
 
         record = response.to_record(TopicRecord)
         self.__record = record
+
+        if is_set(message_path_changeset) and message_path_changeset.has_changes():
+            self.refresh()
+
         return self
 
     def update_message_path(
         self,
         message_path: str,
-        metadata_changeset: typing.Union[TaglessMetadataChangeset],
-    ) -> MessagePathRecord:
-        encoded_association = self.association.url_encode()
-        request = UpdateMessagePathRequest(
-            message_path=message_path,
-            metadata_changeset=metadata_changeset,
+        metadata_changeset: typing.Union[TaglessMetadataChangeset, NotSetType] = NotSet,
+        data_type: typing.Union[str, NotSetType] = NotSet,
+        canonical_data_type: typing.Union[CanonicalDataType, NotSetType] = NotSet,
+    ) -> MessagePath:
+        """Updates the metadata and (optionally) other attributes of a message path.
+
+        Args:
+            message_path:
+              name of the message path to update
+            metadata_changeset:
+              metadata changeset to apply to any existing metadata
+            data_type:
+              native (i.e. application-specific) message path data type.
+            canonical_data_type:
+              canonical Roboto data type corresponding to the native data type.
+
+        Returns:
+            A ``MessagePath`` representing the updated message path
+
+        Raises:
+            RobotoNotFoundException: if no such message path exists for this topic
+        """
+
+        request = remove_not_set(
+            UpdateMessagePathRequest(
+                message_path=message_path,
+                metadata_changeset=metadata_changeset,
+                data_type=data_type,
+                canonical_data_type=canonical_data_type,
+            )
         )
+
+        encoded_association = self.association.url_encode()
         response = self.__roboto_client.put(
             f"v1/topics/association/{encoded_association}/name/{self.url_quoted_name}/message-path",
             data=request,
             owner_org_id=self.org_id,
         )
+
         message_path_record = response.to_record(MessagePathRecord)
         self.refresh()
-        return message_path_record
+
+        return MessagePath(
+            record=message_path_record,
+            roboto_client=self.__roboto_client,
+            topic_data_service=self.__topic_data_service,
+        )

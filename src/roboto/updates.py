@@ -13,15 +13,21 @@ import pydantic
 StrSequence = typing.Union[list[str], tuple[str, ...], set[str]]
 
 
+# TODO: consider retiring this type in favor of MetadataChangeset.
 class TaglessMetadataChangeset(pydantic.BaseModel):
     """Changeset for tagless metadata"""
 
     # Add each field in this dict if it doesn't exist, else overwrite the existing value
     # Expands dot notation to nested objects
     put_fields: typing.Optional[dict[str, typing.Any]] = None
+
     # Remove each field in this sequence if it exists
     # Expands dot notation to nested objects
     remove_fields: typing.Optional[StrSequence] = None
+
+    # Replace all existing metadata with the fields provided in 'put_fields'.
+    # Set by appropriate class methods.
+    replace_all: bool = False
 
     class Builder:
         __put_fields: dict[str, typing.Any]
@@ -48,9 +54,20 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
             }
             return TaglessMetadataChangeset(**{k: v for k, v in changeset.items() if v})
 
+    @classmethod
+    def from_replacement_metadata(
+        cls, metadata: dict[str, typing.Any]
+    ) -> "TaglessMetadataChangeset":
+        """Creates a changeset to replace any existing metadata with the metadata provided."""
+
+        return cls(put_fields=metadata, replace_all=True)
+
     def apply_field_updates(
         self, existing_metadata: dict[str, typing.Any]
     ) -> dict[str, typing.Any]:
+        if self.replace_all:
+            return self.put_fields or {}
+
         updated_metadata = copy.deepcopy(existing_metadata)
         if self.put_fields:
             for key, value in self.put_fields.items():
@@ -59,6 +76,13 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
             for key in self.remove_fields:
                 self.__del_nested(updated_metadata, key)
         return updated_metadata
+
+    def has_changes(self) -> bool:
+        """Checks whether applying this changeset would result in any metadata changes."""
+
+        return self.replace_all or any(
+            [len(self.put_fields or {}), len(self.remove_fields or [])]
+        )
 
     def __set_nested(
         self, obj: dict[str, typing.Any], key: str, value: typing.Any

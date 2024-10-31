@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import collections.abc
+from datetime import datetime
 import pathlib
 import typing
 
@@ -15,6 +16,7 @@ from ...compat import import_optional_dependency
 from ...http import RobotoClient
 from ...time import Time
 from .record import (
+    CanonicalDataType,
     MessagePathRecord,
     MessagePathStatistic,
 )
@@ -98,8 +100,28 @@ class MessagePath:
         return self.__record == other.__record
 
     @property
+    def canonical_data_type(self) -> CanonicalDataType:
+        """Canonical Roboto data type corresponding to the native data type."""
+
+        return self.__record.canonical_data_type
+
+    @property
     def count(self) -> PreComputedStat:
         return self.__get_statistic(MessagePathStatistic.Count)
+
+    @property
+    def created(self) -> datetime:
+        return self.__record.created
+
+    @property
+    def created_by(self) -> str:
+        return self.__record.created_by
+
+    @property
+    def data_type(self) -> str:
+        """Native data type for this message path, e.g. 'float32'"""
+
+        return self.__record.data_type
 
     @property
     def max(self) -> PreComputedStat:
@@ -118,8 +140,20 @@ class MessagePath:
         return self.__record.message_path_id
 
     @property
+    def metadata(self) -> dict[str, typing.Any]:
+        return dict(self.__record.metadata)
+
+    @property
     def min(self) -> PreComputedStat:
         return self.__get_statistic(MessagePathStatistic.Min)
+
+    @property
+    def modified(self) -> datetime:
+        return self.__record.modified
+
+    @property
+    def modified_by(self) -> str:
+        return self.__record.modified_by
 
     @property
     def path(self) -> str:
