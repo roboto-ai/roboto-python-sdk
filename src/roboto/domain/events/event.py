@@ -18,7 +18,11 @@ from ...exceptions import (
 )
 from ...http import RobotoClient
 from ...logging import default_logger
-from ...sentinels import NotSet, NotSetType
+from ...sentinels import (
+    NotSet,
+    NotSetType,
+    remove_not_set,
+)
 from ...time import to_epoch_nanoseconds
 from ...updates import (
     MetadataChangeset,
@@ -207,12 +211,24 @@ class Event:
         return self.__record.model_dump_json()
 
     @property
+    def created(self) -> datetime.datetime:
+        return self.__record.created
+
+    @property
+    def created_by(self) -> str:
+        return self.__record.created_by
+
+    @property
     def dataset_ids(self) -> list[str]:
         return [
             association.association_id
             for association in self.__record.associations
             if association.is_dataset
         ]
+
+    @property
+    def description(self) -> typing.Optional[str]:
+        return self.__record.description
 
     @property
     def end_time(self) -> int:
@@ -240,6 +256,18 @@ class Event:
         ]
 
     @property
+    def metadata(self) -> dict[str, typing.Any]:
+        return self.__record.metadata
+
+    @property
+    def modified(self) -> datetime.datetime:
+        return self.__record.modified
+
+    @property
+    def modified_by(self) -> str:
+        return self.__record.modified_by
+
+    @property
     def name(self) -> str:
         return self.__record.name
 
@@ -251,6 +279,10 @@ class Event:
     def start_time(self) -> int:
         """Epoch nanoseconds"""
         return self.__record.start_time
+
+    @property
+    def tags(self) -> list[str]:
+        return self.__record.tags
 
     @property
     def topic_ids(self) -> list[str]:
@@ -481,12 +513,20 @@ class Event:
 
     def update(
         self,
-        description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
-        metadata_changeset: typing.Optional[MetadataChangeset] = None,
-        name: typing.Optional[str] = None,
+        description: typing.Union[str, None, NotSetType] = NotSet,
+        metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
+        name: typing.Union[str, NotSetType] = NotSet,
+        start_time: typing.Union[int, NotSetType] = NotSet,
+        end_time: typing.Union[int, NotSetType] = NotSet,
     ) -> "Event":
-        request = UpdateEventRequest(
-            description=description, metadata_changeset=metadata_changeset, name=name
+        request = remove_not_set(
+            UpdateEventRequest(
+                description=description,
+                metadata_changeset=metadata_changeset,
+                name=name,
+                start_time=start_time,
+                end_time=end_time,
+            )
         )
 
         self.__record = self.__roboto_client.put(

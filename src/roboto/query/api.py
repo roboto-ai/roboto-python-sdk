@@ -23,6 +23,7 @@ class QueryTarget(str, enum.Enum):
     Files = "files"
     Topics = "topics"
     TopicMessagePaths = "topic_message_paths"
+    Events = "events"
 
 
 class QueryStatus(enum.Enum):

@@ -233,6 +233,9 @@ class HttpResponse:
             for item in self.to_dict(json_path=["data"])
         ]
 
+    def to_string_list(self) -> list[str]:
+        return [str(item) for item in self.to_dict(json_path=["data"])]
+
     def to_dict(self, json_path: typing.Optional[list[str]] = None) -> typing.Any:
         with self.__response:
             unmarsalled = json.loads(self.__response.read().decode("utf-8"))

@@ -46,8 +46,8 @@ class File:
     __roboto_client: RobotoClient
 
     @staticmethod
-    def construct_s3_obj_arn(bucket: str, key: str) -> str:
-        return f"arn:aws:s3:::{bucket}/{key}"
+    def construct_s3_obj_arn(bucket: str, key: str, partition: str = "aws") -> str:
+        return f"arn:{partition}:s3:::{bucket}/{key}"
 
     @staticmethod
     def construct_s3_obj_uri(

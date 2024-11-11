@@ -11,7 +11,12 @@ import typing
 from .domain import (
     collections as roboto_collections,
 )
-from .domain import datasets, files, topics
+from .domain import (
+    datasets,
+    events,
+    files,
+    topics,
+)
 from .query import Query, QueryClient, QueryTarget
 
 
@@ -109,5 +114,16 @@ class RobotoSearch:
         ):
             yield topics.Topic(
                 topics.TopicRecord.model_validate(result),
+                self.__query_client.roboto_client,
+            )
+
+    def find_events(
+        self, query: typing.Optional[Query] = None, timeout_seconds: float = math.inf
+    ) -> collections.abc.Generator[events.Event]:
+        for result in self.__query_client.submit_query(
+            query, QueryTarget.Events, timeout_seconds
+        ):
+            yield events.Event(
+                events.EventRecord.model_validate(result),
                 self.__query_client.roboto_client,
             )

@@ -298,7 +298,7 @@ class MetadataChangeset(pydantic.BaseModel):
         )
 
     def is_empty(self) -> bool:
-        return not any(
+        return not self.replace_all and not any(
             [
                 self.put_tags,
                 self.remove_tags,

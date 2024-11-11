@@ -9,6 +9,8 @@ If this is your first time using Roboto, we recommend reading the [docs](https:/
 
 See below for getting started [examples](#getting-started).
 
+<img src="https://github.com/user-attachments/assets/5f9a87e5-9012-4ec4-9a67-abf5ef733f5b" width="700"/>
+
 ## Sign up
 
 In order to use the Roboto SDK and CLI you'll need to create an account and get an access token.

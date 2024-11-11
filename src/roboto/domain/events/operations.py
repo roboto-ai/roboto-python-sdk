@@ -76,20 +76,31 @@ class UpdateEventRequest(pydantic.BaseModel):
     Request payload for the Update Event operation. Allows any of the mutable fields of an event to be changed.
     """
 
-    description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
+    description: typing.Union[str, None, NotSetType] = NotSet
     """
     An optional human-readable description of the event.
     """
 
-    metadata_changeset: typing.Optional[MetadataChangeset] = None
+    metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
     """
     Metadata and tag changes to make for this event
     """
 
-    name: typing.Optional[str] = None
+    name: typing.Union[str, NotSetType] = NotSet
     """
     A brief human-readable name for the event. Many events can have the same name. "Takeoff", "Crash", "CPU Spike",
     "Bad Image Quality", and "Unexpected Left" are a few potential examples.
+    """
+
+    start_time: typing.Union[int, NotSetType] = NotSet
+    """
+    The start time of the event, in nanoseconds since epoch (assumed Unix epoch).
+    """
+
+    end_time: typing.Union[int, NotSetType] = NotSet
+    """
+    The end time of the event, in nanoseconds since epoch (assumed Unix epoch). This can be equal to start_time if
+    the event is discrete, but can never be less than start_time.
     """
 
     # This is required to get NotSet/NotSetType to serialize appropriately.

@@ -14,5 +14,6 @@ class RobotoRegion(str, enum.Enum):
     """
 
     US_WEST = "us-west"
+    US_GOV_WEST = "us-gov-west"
     US_EAST = "us-east"
     EU_CENTRAL = "eu-central"
