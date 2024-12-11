@@ -64,7 +64,7 @@ class CollectionChangeSet(pydantic.BaseModel):
         default_factory=list
     )
     removed_tags: list[str] = pydantic.Field(default_factory=list)
-    field_changes: dict[str, typing.Any] = pydantic.Field(default_factory=list)
+    field_changes: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
 
 
 class CollectionChangeRecord(pydantic.BaseModel):

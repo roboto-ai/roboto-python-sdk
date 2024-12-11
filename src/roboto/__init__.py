@@ -92,7 +92,12 @@ from .domain.devices import (
     Device,
     DeviceRecord,
 )
-from .domain.events import Event, EventRecord
+from .domain.events import (
+    Event,
+    EventDisplayOptions,
+    EventDisplayOptionsChangeset,
+    EventRecord,
+)
 from .domain.files import (
     CredentialProvider,
     DeleteFileRequest,
@@ -189,6 +194,8 @@ __all__ = [
     "ExecutableProvenance",
     "ExecutorContainer",
     "Event",
+    "EventDisplayOptions",
+    "EventDisplayOptionsChangeset",
     "EventRecord",
     "File",
     "FilesChangesetFileManager",

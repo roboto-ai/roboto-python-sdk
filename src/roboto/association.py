@@ -13,6 +13,7 @@ import pydantic
 
 from .exceptions import (
     RobotoIllegalArgumentException,
+    RobotoInvalidRequestException,
 )
 
 
@@ -94,7 +95,7 @@ class Association(pydantic.BaseModel):
             coalesced.extend(cls.topic(topic_id) for topic_id in topic_ids)
 
         if len(coalesced) == 0 and throw_on_empty:
-            raise RobotoIllegalArgumentException(
+            raise RobotoInvalidRequestException(
                 "At least one association must be provided"
             )
 

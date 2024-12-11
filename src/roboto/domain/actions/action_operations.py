@@ -38,10 +38,10 @@ class CreateActionRequest(pydantic.BaseModel):
     container_parameters: Optional[ContainerParameters] = None
     description: Optional[str] = None
     inherits: Optional[ActionReference] = None
-    metadata: Optional[dict[str, Any]] = pydantic.Field(default_factory=dict)
-    parameters: Optional[list[ActionParameter]] = pydantic.Field(default_factory=list)
+    metadata: dict[str, Any] = pydantic.Field(default_factory=dict)
+    parameters: list[ActionParameter] = pydantic.Field(default_factory=list)
     short_description: Optional[str] = None
-    tags: Optional[list[str]] = pydantic.Field(default_factory=list)
+    tags: list[str] = pydantic.Field(default_factory=list)
     timeout: Optional[int] = None
     uri: Optional[str] = None
 

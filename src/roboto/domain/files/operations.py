@@ -77,3 +77,9 @@ class DirectoryContentsPage(pydantic.BaseModel):
     files: collections.abc.Sequence[FileRecord]
     directories: collections.abc.Sequence[DirectoryRecord]
     next_token: typing.Optional[str] = None
+
+
+class AbortTransactionsRequest(pydantic.BaseModel):
+    """Request payload to abort transactions"""
+
+    transaction_ids: list[str]

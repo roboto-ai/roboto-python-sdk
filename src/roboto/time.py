@@ -42,8 +42,8 @@ def to_epoch_nanoseconds(value: Time):
         return int(decimal.Decimal(value) * NSEC_PER_SEC)
 
     elif isinstance(value, datetime.datetime):
-        epoch = datetime.datetime(1970, 1, 1)
-        return int((value - epoch).total_seconds() * 1e9)
+        timezone_aware = _ensure_timezone_aware(value)
+        return int(timezone_aware.timestamp() * NSEC_PER_SEC)
 
     else:
         raise TypeError(
@@ -54,3 +54,17 @@ def to_epoch_nanoseconds(value: Time):
 def utcnow() -> datetime.datetime:
     """Return timezone aware datetime.datetime object, now in UTC."""
     return datetime.datetime.now(tz=datetime.timezone.utc)
+
+
+def _ensure_timezone_aware(dt: datetime.datetime) -> datetime.datetime:
+    """Defaults a non-timezone-aware datetime to UTC"""
+
+    if _is_timezone_aware(dt):
+        return dt
+
+    return dt.replace(tzinfo=datetime.timezone.utc)
+
+
+# https://docs.python.org/3.10/library/datetime.html#determining-if-an-object-is-aware-or-naive
+def _is_timezone_aware(dt: datetime.datetime) -> bool:
+    return dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None

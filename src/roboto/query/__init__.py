@@ -23,6 +23,7 @@ from .conditions import (
     ConditionGroup,
     ConditionOperator,
     ConditionType,
+    ConditionValue,
 )
 from .specification import (
     QuerySpecification,
@@ -37,6 +38,7 @@ __all__ = (
     "ConditionGroup",
     "ConditionOperator",
     "ConditionType",
+    "ConditionValue",
     "ConditionVisitor",
     "Query",
     "QueryClient",

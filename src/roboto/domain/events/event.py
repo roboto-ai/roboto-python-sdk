@@ -21,9 +21,10 @@ from ...logging import default_logger
 from ...sentinels import (
     NotSet,
     NotSetType,
+    is_set,
     remove_not_set,
 )
-from ...time import to_epoch_nanoseconds
+from ...time import Time, to_epoch_nanoseconds
 from ...updates import (
     MetadataChangeset,
     StrSequence,
@@ -36,6 +37,8 @@ from ..topics import (
 )
 from .operations import (
     CreateEventRequest,
+    EventDisplayOptions,
+    EventDisplayOptionsChangeset,
     QueryEventsForAssociationsRequest,
     UpdateEventRequest,
 )
@@ -59,20 +62,62 @@ class Event:
     @classmethod
     def create(
         cls,
-        start_time: typing.Union[int, datetime.datetime],
+        start_time: Time,
         name: str = "Custom Event",
+        end_time: typing.Optional[Time] = None,
         associations: typing.Optional[collections.abc.Collection[Association]] = None,
+        dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
         topic_ids: typing.Optional[collections.abc.Collection[str]] = None,
-        dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
         message_path_ids: typing.Optional[collections.abc.Collection[str]] = None,
-        end_time: typing.Optional[typing.Union[int, datetime.datetime]] = None,
         description: typing.Optional[str] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
         tags: typing.Optional[list[str]] = None,
+        display_options: typing.Optional[EventDisplayOptions] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Event":
+        """
+        Creates a new event associated with at least one dataset, file, topic, or message path.
+
+        For instantaneous events (a point in time), only ``start_time`` is required. Otherwise,
+        both ``start_time`` and ``end_time`` should be provided. These fields accept nanoseconds
+        since the UNIX epoch, or any other compatible representations supported by
+        :py:func:`~roboto.time.to_epoch_nanoseconds`.
+
+        Events can be associated to one or more message paths, topics, etc. While ``associations``,
+        ``file_ids``, ``topic_ids``, ``dataset_ids`` and ``message_path_ids`` are all optional, at
+        least one of them has to contain a valid association for the event.
+
+        Args:
+            start_time: Start timestamp of the event.
+            name: Event name. Defaults to ``Custom Event`` if not provided.
+            end_time: End timestamp of the event.
+            description: Human-readable description of the event.
+            associations: One or more associations for the event.
+            dataset_ids: Datasets to associate the event with.
+            file_ids: Files to associate the event with.
+            topic_ids: Topics to associate the event with.
+            message_path_ids: Message paths to associate the event with.
+            metadata: Key-value metadata for this event.
+            tags: Tags used to categorize the event.
+            display_options: Display options for the event.
+            caller_org_id: Organization ID of the SDK caller.
+            roboto_client: ``RobotoClient`` instance for making network requests.
+
+        Returns:
+            An ``Event`` instance with the provided attributes and associations.
+
+        Raises:
+            RobotoInvalidRequestException:
+              Raised when request parameters violate natural constraints (e.g. ``start_time``
+              should precede ``end_time``), or when associations point to resources that
+              don't exist, or aren't owned by the user's org.
+            RobotoUnauthorizedException:
+              If the SDK user is not a member of the org which owns the associated topics,
+              files, etc.
+        """
+
         roboto_client = RobotoClient.defaulted(roboto_client)
 
         coalesced_associations = Association.coalesce(
@@ -92,6 +137,7 @@ class Event:
             metadata=metadata or {},
             tags=tags or [],
             name=name,
+            display_options=display_options,
         )
         record = roboto_client.post(
             "v1/events/create", caller_org_id=caller_org_id, data=request
@@ -211,6 +257,10 @@ class Event:
         return self.__record.model_dump_json()
 
     @property
+    def color(self) -> typing.Optional[str]:
+        return self.display_options.color if self.display_options else None
+
+    @property
     def created(self) -> datetime.datetime:
         return self.__record.created
 
@@ -229,6 +279,10 @@ class Event:
     @property
     def description(self) -> typing.Optional[str]:
         return self.__record.description
+
+    @property
+    def display_options(self) -> typing.Optional[EventDisplayOptions]:
+        return self.__record.display_options
 
     @property
     def end_time(self) -> int:
@@ -502,6 +556,11 @@ class Event:
     ) -> "Event":
         return self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
+    def set_color(self, color: typing.Optional[str]) -> "Event":
+        return self.update(
+            display_options_changeset=EventDisplayOptionsChangeset(color=color)
+        )
+
     def set_description(self, description: typing.Optional[str]) -> "Event":
         return self.update(description=description)
 
@@ -513,19 +572,61 @@ class Event:
 
     def update(
         self,
+        name: typing.Union[str, NotSetType] = NotSet,
+        start_time: typing.Union[Time, NotSetType] = NotSet,
+        end_time: typing.Union[Time, NotSetType] = NotSet,
         description: typing.Union[str, None, NotSetType] = NotSet,
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
-        name: typing.Union[str, NotSetType] = NotSet,
-        start_time: typing.Union[int, NotSetType] = NotSet,
-        end_time: typing.Union[int, NotSetType] = NotSet,
+        display_options_changeset: typing.Union[
+            EventDisplayOptionsChangeset, NotSetType
+        ] = NotSet,
     ) -> "Event":
+        """
+        Updates an event's attributes.
+
+        When provided, ``start_time`` and ``end_time`` should be integers representing nanoseconds
+        since the UNIX epoch, or convertible to such integers by :py:func:`~roboto.time.to_epoch_nanoseconds`.
+
+        Args:
+            name: The event's human-readable name.
+            start_time: Timestamp of the beginning of the event.
+            end_time: Timestamp of the end of the event.
+            description: An optional description of the event. Set to ``None`` to clear any existing description.
+            metadata_changeset: A set of changes to the event's metadata or tags.
+            display_options_changeset: A set of changes to the event's display options.
+
+        Returns:
+            This ``Event`` with attributes updated accordingly.
+
+        Raises:
+            ValueError: If ``start_time`` or ``end_time`` are negative.
+            RobotoIllegalArgumentException:
+              If ``start_time`` is, or would end up being, greater than ``end_time``.
+            RobotoUnauthorizedException:
+              If the user is not authorized to view/edit this event.
+        """
+
+        # Normally would've used is_set(), but MyPy has issues with our TypeAlias 'Time'
+        def maybe_get_epoch_nanos(
+            time: typing.Union[Time, NotSetType]
+        ) -> typing.Union[int, NotSetType]:
+            if isinstance(time, NotSetType):
+                return NotSet
+            else:
+                return to_epoch_nanoseconds(time)
+
         request = remove_not_set(
             UpdateEventRequest(
                 description=description,
                 metadata_changeset=metadata_changeset,
                 name=name,
-                start_time=start_time,
-                end_time=end_time,
+                start_time=maybe_get_epoch_nanos(start_time),
+                end_time=maybe_get_epoch_nanos(end_time),
+                display_options_changeset=(
+                    remove_not_set(display_options_changeset)
+                    if is_set(display_options_changeset)
+                    else NotSet
+                ),
             )
         )
 

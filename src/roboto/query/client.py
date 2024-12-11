@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import math
 import typing
 
 from ..config import RobotoConfig
@@ -16,6 +17,7 @@ from .api import (
     QueryTarget,
     SubmitRoboqlQueryRequest,
     SubmitStructuredQueryRequest,
+    SubmitTermQueryRequest,
 )
 from .specification import QuerySpecification
 
@@ -156,6 +158,34 @@ class QueryClient:
         owner_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         query = self.submit_structured(request, owner_org_id)
+
+        wait_for(
+            self.is_query_completed,
+            args=[query.query_id],
+            timeout=timeout_seconds,
+            interval=2,
+        )
+
+        yield from self.get_query_results(query.query_id)
+
+    def submit_term(
+        self, request: SubmitTermQueryRequest, owner_org_id: typing.Optional[str] = None
+    ) -> QueryRecord:
+        response = self.__roboto_client.post(
+            "v1/query/submit/term",
+            data=request,
+            owner_org_id=owner_org_id or self.__owner_org_id,
+        )
+
+        return response.to_record(QueryRecord)
+
+    def submit_term_and_await_results(
+        self,
+        request: SubmitTermQueryRequest,
+        timeout_seconds: float = math.inf,
+        owner_org_id: typing.Optional[str] = None,
+    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        query = self.submit_term(request, owner_org_id)
 
         wait_for(
             self.is_query_completed,

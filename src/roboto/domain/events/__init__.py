@@ -7,6 +7,8 @@
 from .event import Event
 from .operations import (
     CreateEventRequest,
+    EventDisplayOptions,
+    EventDisplayOptionsChangeset,
     QueryEventsForAssociationsRequest,
     UpdateEventRequest,
 )
@@ -15,6 +17,8 @@ from .record import EventRecord
 __all__ = [
     "CreateEventRequest",
     "Event",
+    "EventDisplayOptions",
+    "EventDisplayOptionsChangeset",
     "EventRecord",
     "QueryEventsForAssociationsRequest",
     "UpdateEventRequest",

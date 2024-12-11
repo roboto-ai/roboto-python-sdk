@@ -10,6 +10,7 @@ import typing
 import pydantic
 
 from ...association import Association
+from .operations import EventDisplayOptions
 
 
 class EventRecord(pydantic.BaseModel):
@@ -84,6 +85,11 @@ class EventRecord(pydantic.BaseModel):
     Tags to associate with this event for discovery and search.
     """
 
+    display_options: typing.Optional[EventDisplayOptions] = None
+    """
+    Display options for the event, such as color.
+    """
+
     def __eq__(self, other: typing.Any) -> bool:
         if not isinstance(other, EventRecord):
             return NotImplemented
@@ -109,4 +115,5 @@ class EventRecord(pydantic.BaseModel):
             and self.org_id == other.org_id
             and self.start_time == other.start_time
             and set(self.tags) == set(other.tags)
+            and self.display_options == other.display_options
         )

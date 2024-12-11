@@ -6,6 +6,7 @@
 
 from .file import File
 from .operations import (
+    AbortTransactionsRequest,
     DeleteFileRequest,
     DirectoryContentsPage,
     FileRecordRequest,
@@ -27,6 +28,7 @@ from .record import (
 )
 
 __all__ = (
+    "AbortTransactionsRequest",
     "CredentialProvider",
     "DeleteFileRequest",
     "File",
