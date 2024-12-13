@@ -68,6 +68,12 @@ class DatasetRecord(pydantic.BaseModel):
     metadata: dict[str, Any] = pydantic.Field(default_factory=dict)
     modified: datetime.datetime
     modified_by: str
+    name: Optional[str] = pydantic.Field(
+        default=None,
+        max_length=120,
+    )
+    """A short name for this dataset. This may be an org-specific unique ID that's more meaningful than the dataset_id,
+    or a short summary of the dataset's contents. If provided, must be under 255 characters."""
     org_id: str  # partition key
     roboto_record_version: int = 0  # A protected field, incremented on every update
     tags: list[str] = pydantic.Field(default_factory=list)

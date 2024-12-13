@@ -87,13 +87,14 @@ class Dataset:
         cls,
         description: typing.Optional[str] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
+        name: typing.Optional[str] = None,
         tags: typing.Optional[list[str]] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Dataset":
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = CreateDatasetRequest(
-            description=description, metadata=metadata or {}, tags=tags or []
+            description=description, metadata=metadata or {}, name=name, tags=tags or []
         )
         record = roboto_client.post(
             "v1/datasets", data=request, caller_org_id=caller_org_id
@@ -169,8 +170,16 @@ class Dataset:
         return self.__record.dataset_id
 
     @property
+    def description(self) -> typing.Optional[str]:
+        return self.__record.description
+
+    @property
     def metadata(self) -> dict[str, typing.Any]:
         return self.__record.metadata.copy()
+
+    @property
+    def name(self) -> typing.Optional[str]:
+        return self.__record.name
 
     @property
     def org_id(self) -> str:
@@ -403,10 +412,12 @@ class Dataset:
         conditions: typing.Optional[list[UpdateCondition]] = None,
         description: typing.Optional[str] = None,
         metadata_changeset: typing.Optional[MetadataChangeset] = None,
+        name: typing.Optional[str] = None,
     ) -> "Dataset":
         request = UpdateDatasetRequest(
             conditions=conditions,
             description=description,
+            name=name,
             metadata_changeset=metadata_changeset,
         )
 

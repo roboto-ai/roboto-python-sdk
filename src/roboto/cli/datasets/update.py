@@ -26,11 +26,15 @@ def update(
         put_fields=args.put_metadata,
         remove_fields=args.remove_metadata,
     )
-    if metadata_changeset.is_empty() and not args.description:
+    if metadata_changeset.is_empty() and not args.description and not args.name:
         parser.error("No dataset changes specified.")
 
     dataset = Dataset.from_id(args.dataset_id, context.roboto_client)
-    dataset.update(metadata_changeset=metadata_changeset, description=args.description)
+    dataset.update(
+        metadata_changeset=metadata_changeset,
+        description=args.description,
+        name=args.name,
+    )
 
     print(f"Successfully updated dataset '{dataset.dataset_id}'. Record: ")
     print(json.dumps(dataset.to_dict(), indent=2))
@@ -43,6 +47,11 @@ def update_parser(parser: argparse.ArgumentParser):
 
     parser.add_argument(
         "--description", help="A new description to add to this dataset"
+    )
+
+    parser.add_argument(
+        "--name",
+        help="A new name for this dataset",
     )
 
     parser.add_argument(

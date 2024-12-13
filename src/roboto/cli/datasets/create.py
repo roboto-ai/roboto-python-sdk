@@ -20,6 +20,7 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
     dataset = datasets.Dataset.create(
         description=args.description,
         metadata=args.metadata,
+        name=args.name,
         tags=args.tag,
         roboto_client=context.roboto_client,
         caller_org_id=args.org,
@@ -51,6 +52,12 @@ def create_setup_parser(parser):
         "--description",
         type=str,
         help="A human readable description of this dataset.",
+    )
+    parser.add_argument(
+        "-n",
+        "--name",
+        type=str,
+        help="A human readable name for this dataset.",
     )
     add_org_arg(parser=parser)
 

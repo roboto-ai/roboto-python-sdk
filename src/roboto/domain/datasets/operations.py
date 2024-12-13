@@ -70,6 +70,11 @@ class CreateDatasetRequest(pydantic.BaseModel):
         default=None,
         description="An optional human-readable description for this dataset.",
     )
+    name: typing.Optional[str] = pydantic.Field(
+        default=None,
+        description="A short name for this dataset. Must be under 120 characters or less.",
+        max_length=120,
+    )
     metadata: dict[str, typing.Any] = pydantic.Field(
         default_factory=dict,
         description="Initial key-value pairs to associate with this dataset for discovery and search, e.g. "
@@ -119,6 +124,7 @@ class UpdateDatasetRequest(pydantic.BaseModel):
 
     metadata_changeset: typing.Optional[MetadataChangeset] = None
     description: typing.Optional[str] = None
+    name: typing.Optional[str] = pydantic.Field(default=None, max_length=120)
     conditions: typing.Optional[list[UpdateCondition]] = None
 
 
