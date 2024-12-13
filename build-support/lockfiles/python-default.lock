@@ -671,36 +671,36 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "5ef7166fe5060637b92af8dc152cd7acecf96b3fc9c5456706a886cadb534391",
-              "url": "https://files.pythonhosted.org/packages/1c/ce/d957fa3c6e765bd671ff6c605d04c7d0abfb4aa0243ac95cd7781d8ddbff/boto3-1.35.78-py3-none-any.whl"
+              "hash": "21a3b18c3a7fd20e463708fe3fa035983105dc7f3a1c274e1903e1583ab91159",
+              "url": "https://files.pythonhosted.org/packages/0a/72/f6724a19acaac7a7cdfc088ac95d2d0ea3626c00d5a5197a99e49bde474d/boto3-1.35.80-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "fc8001519c8842e766ad3793bde3fbd0bb39e821a582fc12cf67876b8f3cf7f1",
-              "url": "https://files.pythonhosted.org/packages/23/f0/20021a077f56ed1673459aba954bdc308ea76a9b86a2f0a205a8ccff94c4/boto3-1.35.78.tar.gz"
+              "hash": "50dae461ab5fbedfb81b690895d48a918fed0d5fdff37be1c4232770c0dc9712",
+              "url": "https://files.pythonhosted.org/packages/81/cd/58de9a4e792176bca4f2e4b4248a9db4a47ae217bc20ac6adb3052b029d3/boto3-1.35.80.tar.gz"
             }
           ],
           "project_name": "boto3",
           "requires_dists": [
-            "botocore<1.36.0,>=1.35.78",
+            "botocore<1.36.0,>=1.35.80",
             "botocore[crt]<2.0a0,>=1.21.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
             "s3transfer<0.11.0,>=0.10.0"
           ],
           "requires_python": ">=3.8",
-          "version": "1.35.78"
+          "version": "1.35.80"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "41c37bd7c0326f25122f33ec84fb80fc0a14d7fcc9961431b0e57568e88c9cb5",
-              "url": "https://files.pythonhosted.org/packages/1c/25/8fb6515813a7773c92305e762fe15ad011a6bf52a60febcd442be80480c4/botocore-1.35.78-py3-none-any.whl"
+              "hash": "36e589dccb62380abd628b08fecfa2f7c89b99f41ec9fc42c467c94008c0be4a",
+              "url": "https://files.pythonhosted.org/packages/f6/cc/7ecef0f0e883f4bd8e23a04e86d98f8c7d6aa6a821efcec67b3547388d2e/botocore-1.35.80-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "6905036c25449ae8dba5e950e4b908e4b8a6fe6b516bf61e007ecb62fa21f323",
-              "url": "https://files.pythonhosted.org/packages/54/55/1a48301e947c552734888e5cce368a3961b538eb26d534ef9e8f0b0a78a1/botocore-1.35.78.tar.gz"
+              "hash": "b8dfceca58891cb2711bd6455ec4f7159051f3796e0f64adef9bb334f19d8a92",
+              "url": "https://files.pythonhosted.org/packages/81/e3/b10f8c2c58fd144d99de10e5f964bd1b0e609d27cb05513bebfdfa47e3eb/botocore-1.35.80.tar.gz"
             }
           ],
           "project_name": "botocore",
@@ -712,7 +712,7 @@
             "urllib3<1.27,>=1.25.4; python_version < \"3.10\""
           ],
           "requires_python": ">=3.8",
-          "version": "1.35.78"
+          "version": "1.35.80"
         },
         {
           "artifacts": [
@@ -1218,19 +1218,29 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "97aa00af95983887806e06f37e144909d35215d66db74f8b0e9799b4eef40cfd",
-              "url": "https://files.pythonhosted.org/packages/8d/cc/5f34d94234900a0165e0b86bc503ca97c2fdfb4a208e082fe6a1c491d6ea/debugpy-1.8.10-cp310-cp310-macosx_14_0_x86_64.whl"
+              "hash": "cc37a6c9987ad743d9c3a14fa1b1a14b7e4e6041f9dd0c8abf8895fe7a97b899",
+              "url": "https://files.pythonhosted.org/packages/2d/23/3f5804202da11c950dc0caae4a62d0c9aadabdb2daeb5f7aa09838647b5d/debugpy-1.8.9-py2.py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "ee4ed903cbeb14ee1839549f953af519ffa512598ec987b2051f9c868e2249a8",
-              "url": "https://files.pythonhosted.org/packages/2e/3c/ef563dec9f7ea4c29bd26ed3c5eba5038f8d9d46ac41aacfc99dc77f0885/debugpy-1.8.10.tar.gz"
+              "hash": "ada7fb65102a4d2c9ab62e8908e9e9f12aed9d76ef44880367bc9308ebe49a0f",
+              "url": "https://files.pythonhosted.org/packages/87/c0/d13cdbae394c7ae65ef93d7ccde2ff364445248e367bda93fc0650c08849/debugpy-1.8.9-cp310-cp310-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "1339e14c7d980407248f09824d1b25ff5c5616651689f1e0f0e51bdead3ea13e",
+              "url": "https://files.pythonhosted.org/packages/88/92/15b454c516c4c53cc8c03967e4be12b65a1ea36db3bb4513a7453f75c8d8/debugpy-1.8.9.zip"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "cfe1e6c6ad7178265f74981edf1154ffce97b69005212fbc90ca22ddfe3d017e",
+              "url": "https://files.pythonhosted.org/packages/d0/2e/92fda96b1b773e454daae3e2962726dd9f7aedb1f26d7f2ca353d91a930b/debugpy-1.8.9-cp310-cp310-macosx_14_0_x86_64.whl"
             }
           ],
           "project_name": "debugpy",
           "requires_dists": [],
           "requires_python": ">=3.8",
-          "version": "1.8.10"
+          "version": "1.8.9"
         },
         {
           "artifacts": [
@@ -4522,19 +4532,41 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "f380b826a991ebbe3de4d897aeec42760035ac760345e57b812938dc8b35e2bd",
-              "url": "https://files.pythonhosted.org/packages/35/a6/145655273568ee78a581e734cf35beb9e33a370b29c5d3c8fee3744de29f/python_json_logger-2.0.7-py3-none-any.whl"
+              "hash": "d73522ddcfc6d0461394120feaddea9025dc64bf804d96357dd42fa878cc5fe8",
+              "url": "https://files.pythonhosted.org/packages/c3/be/a84e771466c68a33eda7efb5a274e4045dfb6ae3dc846ac153b62e14e7bd/python_json_logger-3.2.0-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "23e7ec02d34237c5aa1e29a070193a4ea87583bb4e7f8fd06d3de8264c4b2e1c",
-              "url": "https://files.pythonhosted.org/packages/4f/da/95963cebfc578dabd323d7263958dfb68898617912bb09327dd30e9c8d13/python-json-logger-2.0.7.tar.gz"
+              "hash": "2c11056458d3f56614480b24e9cb28f7aba69cbfbebddbb77c92f0ec0d4947ab",
+              "url": "https://files.pythonhosted.org/packages/b6/df/8a6015e77e26250c7cd016ed9487c2e5360e315da149d9663dc71b826237/python_json_logger-3.2.0.tar.gz"
             }
           ],
           "project_name": "python-json-logger",
-          "requires_dists": [],
-          "requires_python": ">=3.6",
-          "version": "2.0.7"
+          "requires_dists": [
+            "backports.zoneinfo; python_version < \"3.9\" and extra == \"dev\"",
+            "black; extra == \"dev\"",
+            "build; extra == \"dev\"",
+            "freezegun; extra == \"dev\"",
+            "mdx_truly_sane_lists; extra == \"dev\"",
+            "mike; extra == \"dev\"",
+            "mkdocs-awesome-pages-plugin; extra == \"dev\"",
+            "mkdocs-gen-files; extra == \"dev\"",
+            "mkdocs-literate-nav; extra == \"dev\"",
+            "mkdocs-material>=8.5; extra == \"dev\"",
+            "mkdocs; extra == \"dev\"",
+            "mkdocstrings[python]; extra == \"dev\"",
+            "msgspec-python313-pre; (implementation_name != \"pypy\" and python_version == \"3.13\") and extra == \"dev\"",
+            "msgspec; (implementation_name != \"pypy\" and python_version < \"3.13\") and extra == \"dev\"",
+            "mypy; extra == \"dev\"",
+            "orjson; implementation_name != \"pypy\" and extra == \"dev\"",
+            "pylint; extra == \"dev\"",
+            "pytest; extra == \"dev\"",
+            "typing_extensions; python_version < \"3.10\"",
+            "tzdata; extra == \"dev\"",
+            "validate-pyproject[all]; extra == \"dev\""
+          ],
+          "requires_python": ">=3.8",
+          "version": "3.2.0"
         },
         {
           "artifacts": [
