@@ -35,6 +35,8 @@ class ImportFileRequest(pydantic.BaseModel):
 
     dataset_id: str
     description: typing.Optional[str] = None
+    tags: typing.Optional[list[str]] = None
+    metadata: typing.Optional[dict[str, typing.Any]] = None
     relative_path: str
     size: int
     uri: str
