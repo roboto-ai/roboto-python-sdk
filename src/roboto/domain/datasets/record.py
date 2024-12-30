@@ -73,7 +73,7 @@ class DatasetRecord(pydantic.BaseModel):
         max_length=120,
     )
     """A short name for this dataset. This may be an org-specific unique ID that's more meaningful than the dataset_id,
-    or a short summary of the dataset's contents. If provided, must be under 255 characters."""
+    or a short summary of the dataset's contents. If provided, must be 120 characters or less."""
     org_id: str  # partition key
     roboto_record_version: int = 0  # A protected field, incremented on every update
     tags: list[str] = pydantic.Field(default_factory=list)

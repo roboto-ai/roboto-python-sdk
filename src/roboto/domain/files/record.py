@@ -89,7 +89,7 @@ class FileRecord(pydantic.BaseModel):
     status: FileStatus = FileStatus.Available
     storage_type: FileStorageType = FileStorageType.S3Uploaded
     tags: list[str] = pydantic.Field(default_factory=list)
-    upload_id: str = "NO_ID"  # Defaulted for backwards compatability
+    upload_id: str = "NO_ID"  # Defaulted for backwards compatibility
     uri: str
     version: int
 

@@ -21,10 +21,7 @@ from ..version import __version__
 from .actions import (
     command_set as actions_command_set,
 )
-from .argparse import (
-    DeprecationAction,
-    SortingHelpFormatter,
-)
+from .argparse import SortingHelpFormatter
 from .collections import (
     command_set as collections_command_set,
 )
@@ -79,6 +76,15 @@ PROGRAMMATIC_ACCESS_BLURB = (
     + "https://docs.roboto.ai/getting-started/programmatic-access.html."
 )
 
+ASCII_ART = """
+    ██████╗  ██████╗ ██████╗  ██████╗ ████████╗ ██████╗
+    ██╔══██╗██╔═══██╗██╔══██╗██╔═══██╗╚══██╔══╝██╔═══██╗
+    ██████╔╝██║   ██║██████╔╝██║   ██║   ██║   ██║   ██║
+    ██╔══██╗██║   ██║██╔══██╗██║   ██║   ██║   ██║   ██║
+    ██║  ██║╚██████╔╝██████╔╝╚██████╔╝   ██║   ╚██████╔╝
+    ╚═╝  ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝    ╚═════╝
+"""
+
 
 def construct_parser(
     context: typing.Optional[CLIContext] = None,
@@ -86,17 +92,19 @@ def construct_parser(
     parser = argparse.ArgumentParser(
         prog="roboto",
         description=(
-            "CLI for interacting with Roboto's Data Platform. "
-            "Each of the command groups listed below have their own set of supported subcommands and help pages."
+            "CLI for interacting with Roboto. "
+            "Each command group provides specific subcommands and dedicated help pages for detailed usage."
         ),
         formatter_class=SortingHelpFormatter,
+        add_help=False,
     )
 
     parser.add_argument(
-        "--debug",
-        help="Deprecated. Please use the --verbose flag instead.",
-        deprecation_msg="The --debug flag is deprecated. Please use the --verbose flag instead.",
-        action=DeprecationAction,
+        "--help",
+        "-h",
+        action="help",
+        default=argparse.SUPPRESS,
+        help="Show this help message and exit.",
     )
 
     parser.add_argument(
@@ -104,8 +112,8 @@ def construct_parser(
         "-v",
         help=(
             "Set increasing levels of verbosity. "
-            "By default, only ERROR logs are printed. "
-            "-v prints WARNING logs, -vv prints INFO logs, -vvv prints DEBUG logs."
+            "Only error logs are printed by default. "
+            "Use -v (warn), -vv (info), -vvv (debug)."
         ),
         action="count",
         default=0,
@@ -113,19 +121,19 @@ def construct_parser(
 
     parser.add_argument(
         "--version",
-        help="Show the version of 'roboto' currently running",
+        help="Show the version of 'roboto' currently running.",
         action="store_true",
     )
 
     parser.add_argument(
         "--profile",
-        help="Roboto profile to use; must match a section within the Roboto config.json",
+        help="Roboto profile to use; must match a section within the Roboto config.json.",
         required=False,
     )
 
     parser.add_argument(
         "--config-file",
-        help="Overrides the location of the roboto config.json file. Defaults to ~/.roboto/config.json",
+        help="Overrides the location of the Roboto config.json file. Defaults to ~/.roboto/config.json.",
         type=pathlib.Path,
         required=False,
     )
@@ -165,6 +173,7 @@ def entry():
     # This solution was based on a stack overflow post about this issue:
     # https://stackoverflow.com/questions/46962065/add-top-level-argparse-arguments-after-subparser-args
     args, unparsed = parser.parse_known_args()
+
     args = parser.parse_args(unparsed, args)
 
     log_level = max(logging.ERROR - (args.verbose * 10), logging.DEBUG)
@@ -181,6 +190,7 @@ def entry():
 
             args.func(args)
         else:
+            print(ASCII_ART)
             parser.print_help()
     finally:
         if not args.suppress_upgrade_check:

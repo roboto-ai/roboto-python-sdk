@@ -137,6 +137,12 @@ class MessagePathRecord(pydantic.BaseModel):
     """
 
     topic_id: str
+
+    org_id: str
+    """
+    This message path's organization ID, which is the organization ID of the containing topic.
+    """
+
     message_path_id: str
 
 

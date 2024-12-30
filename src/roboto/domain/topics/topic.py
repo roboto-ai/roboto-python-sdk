@@ -314,7 +314,6 @@ class Topic:
     def url_quoted_name(self) -> str:
         return urllib.parse.quote_plus(self.name)
 
-    # TODO: should this method return MessagePath instead?
     def add_message_path(
         self,
         message_path: str,

@@ -156,6 +156,10 @@ class MessagePath:
         return self.__record.modified_by
 
     @property
+    def org_id(self) -> str:
+        return self.__record.org_id
+
+    @property
     def path(self) -> str:
         return self.__record.message_path
 
