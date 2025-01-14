@@ -59,9 +59,8 @@ class RobotoCommand(object):
                 return self._logic(args, context, parser)
             except RobotoNoOrgProvidedException:
                 parser.error(
-                    "User with 0 or 2+ orgs must explicitly provide --org to org-bound operations. "
-                    + "This can also be achieved by setting a 'ROBOTO_ORG_ID' environment variable, "
-                    + "whose value will be used by default."
+                    "User in multiple orgs must provide --org, or "
+                    + "set an environment variable called 'ROBOTO_ORG_ID'."
                 )
             except RobotoDomainException as exc:
                 print_error_and_exit(f"{exc.__class__.__name__}: {exc}")

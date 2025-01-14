@@ -160,6 +160,14 @@ class PaginationToken:
             logger.error(f"Invalid pagination token {token}", exc_info=e)
             raise ValueError("Invalid pagination token format") from None
 
+    @classmethod
+    def json_token(cls, data: typing.Any) -> "PaginationToken":
+        return cls(
+            scheme=PaginationTokenScheme.V1,
+            encoding=PaginationTokenEncoding.Json,
+            data=data,
+        )
+
     def __init__(
         self,
         scheme: PaginationTokenScheme,

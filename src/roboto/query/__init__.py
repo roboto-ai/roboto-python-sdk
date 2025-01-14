@@ -26,6 +26,8 @@ from .conditions import (
     ConditionValue,
 )
 from .specification import (
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
     QuerySpecification,
     SortDirection,
 )
@@ -54,4 +56,6 @@ __all__ = (
     "SubmitStructuredQueryRequest",
     "SubmitRoboqlQueryRequest",
     "SubmitTermQueryRequest",
+    "MAX_PAGE_SIZE",
+    "DEFAULT_PAGE_SIZE",
 )

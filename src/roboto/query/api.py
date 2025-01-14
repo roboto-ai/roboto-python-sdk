@@ -31,9 +31,23 @@ class QueryStatus(enum.Enum):
     The query lifecycle state of a given query.
     """
 
-    Completed = "completed"
     Failed = "failed"
+    """
+    Indicates the query failed to execute.
+    """
+
+    ResultsAvailable = "results_available"
+    """
+    Indicates that query results are available for clients to retrieve.
+
+    Results might be available immediately, such as in paginated database search, or once a
+    (potentially expensive) calculation completes for more advanced search modalities.
+    """
+
     Scheduled = "scheduled"
+    """
+    Indicates the query is scheduled for execution.
+    """
 
 
 class QueryScheme(str, enum.Enum):

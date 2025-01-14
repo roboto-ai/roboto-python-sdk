@@ -52,12 +52,12 @@ class QueryClient:
     def roboto_client(self) -> RobotoClient:
         return self.__roboto_client
 
-    def is_query_completed(
+    def are_query_results_available(
         self, query_id: str, owner_org_id: typing.Optional[str] = None
     ) -> bool:
         return (
             self.get_query_record(query_id, owner_org_id).status
-            == QueryStatus.Completed
+            == QueryStatus.ResultsAvailable
         )
 
     def get_query_record(
@@ -83,7 +83,7 @@ class QueryClient:
                 yield record
 
             if "next_token" in response_data and response_data["next_token"]:
-                query_params["page_token"] = response_data["next_token"]
+                query_params["next_page_token"] = response_data["next_token"]
             else:
                 break
 
@@ -131,7 +131,7 @@ class QueryClient:
         query = self.submit_roboql(request, owner_org_id)
 
         wait_for(
-            self.is_query_completed,
+            self.are_query_results_available,
             args=[query.query_id],
             timeout=timeout_seconds,
             interval=2,
@@ -160,7 +160,7 @@ class QueryClient:
         query = self.submit_structured(request, owner_org_id)
 
         wait_for(
-            self.is_query_completed,
+            self.are_query_results_available,
             args=[query.query_id],
             timeout=timeout_seconds,
             interval=2,
@@ -188,7 +188,7 @@ class QueryClient:
         query = self.submit_term(request, owner_org_id)
 
         wait_for(
-            self.is_query_completed,
+            self.are_query_results_available,
             args=[query.query_id],
             timeout=timeout_seconds,
             interval=2,

@@ -12,6 +12,12 @@ from pydantic import ConfigDict
 
 from .conditions import Condition, ConditionGroup
 
+MAX_PAGE_SIZE: int = 1000
+"""Maximum allowable page size for search."""
+
+DEFAULT_PAGE_SIZE: int = 500
+"""Default page size for search."""
+
 
 class SortDirection(str, enum.Enum):
     """The direction to sort the results of a query."""
@@ -98,10 +104,30 @@ class QuerySpecification(pydantic.BaseModel):
     """
 
     condition: typing.Optional[typing.Union[Condition, ConditionGroup]] = None
-    limit: int = 1000
-    after: typing.Optional[str] = None  # An encoded PaginationToken
+    """
+    Query condition(s) to evaluate when looking up Roboto entities.
+    """
+
+    limit: int = MAX_PAGE_SIZE
+    """
+    Page size for returned results. Optional, default is ``MAX_PAGE_SIZE``.
+    """
+
+    after: typing.Optional[str] = None
+    """
+    Encoded next page token. Optional.
+    """
+
     sort_by: typing.Optional[str] = None
+    """
+    Field to sort results by. Optional, defaults to created date (``created``).
+    """
+
     sort_direction: typing.Optional[SortDirection] = None
+    """
+    Sort direction for query results. Optional, defaults to "descending".
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     def fields(self) -> set[str]:
