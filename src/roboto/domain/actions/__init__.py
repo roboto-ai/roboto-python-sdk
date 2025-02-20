@@ -22,6 +22,8 @@ from .action_record import (
 )
 from .invocation import Invocation
 from .invocation_operations import (
+    CancelActiveInvocationsRequest,
+    CancelActiveInvocationsResponse,
     CreateInvocationRequest,
     SetContainerInfoRequest,
     SetLogsLocationRequest,
@@ -67,6 +69,8 @@ __all__ = (
     "ActionProvenance",
     "ActionRecord",
     "ActionReference",
+    "CancelActiveInvocationsResponse",
+    "CancelActiveInvocationsRequest",
     "ComputeRequirements",
     "ContainerParameters",
     "CreateActionRequest",

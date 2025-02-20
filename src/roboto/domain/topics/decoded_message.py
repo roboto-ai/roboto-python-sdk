@@ -94,6 +94,19 @@ class DecodedMessage:
     __message: typing.Union[dict, typing.Type]
     __message_paths: collections.abc.Sequence[MessagePathRecord]
 
+    @staticmethod
+    def is_path_match(attrib: str, message_path: str) -> bool:
+        if attrib == message_path:
+            return True
+
+        attrib_parts = attrib.split(".")
+        path_parts = message_path.split(".")
+
+        if len(attrib_parts) >= len(path_parts):
+            return False
+
+        return attrib_parts == path_parts[: len(attrib_parts)]
+
     def __init__(
         self,
         msg: typing.Union[dict, typing.Type],
@@ -117,7 +130,7 @@ class DecodedMessage:
         #   - https://github.com/foxglove/mcap/blob/main/python/mcap-ros2-support/mcap_ros2/_dynamic.py#L258
         for attribute in getter.get_attribute_names(self.__message):
             if any(
-                record.message_path.startswith(attribute)
+                DecodedMessage.is_path_match(attribute, record.message_path)
                 for record in self.__message_paths
             ):
                 self.__unpack(
@@ -146,7 +159,7 @@ class DecodedMessage:
             for slot in getter.get_attribute_names(value):
                 next_attr_path = ".".join([attr_path, slot])
                 if any(
-                    record.message_path.startswith(next_attr_path)
+                    DecodedMessage.is_path_match(next_attr_path, record.message_path)
                     for record in self.__message_paths
                 ):
                     self.__unpack(

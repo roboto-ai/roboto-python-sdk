@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import datetime
 from typing import Any, Optional
 
 import pydantic
@@ -17,6 +18,36 @@ from .invocation_record import (
     InvocationSource,
     InvocationStatus,
 )
+
+
+class CancelActiveInvocationsRequest(pydantic.BaseModel):
+    """
+    Request payload to bulk cancel all active invocations within an org.
+
+    This will only cancel invocations which are in a non-terminal state,
+    and will limit the number of invocations it attempts to cancel.
+
+    Continue calling this operation until the count_remaining returned in the
+    py:class:`~roboto.domain.actions.CancelActiveInvocationsResponse` is 0.
+    """
+
+    created_before: Optional[datetime.datetime] = None
+    """Only cancel invocations created before this time."""
+
+
+class CancelActiveInvocationsResponse(pydantic.BaseModel):
+    """
+    Response payload to bulk cancel all active invocations within an org.
+    """
+
+    success_count: int
+    """Count of invocations successfully cancelled"""
+
+    failure_count: int
+    """Count of invocations that failed to cancel"""
+
+    count_remaining: int
+    """Number of invocations that are still active"""
 
 
 class CreateInvocationRequest(pydantic.BaseModel):

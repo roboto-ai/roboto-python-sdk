@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
 import enum
 import typing
@@ -33,9 +35,9 @@ class Association(pydantic.BaseModel):
 
     @staticmethod
     def group_by_type(
-        associations: collections.abc.Collection["Association"],
+        associations: collections.abc.Collection[Association],
     ) -> collections.abc.Mapping[
-        AssociationType, collections.abc.Sequence["Association"]
+        AssociationType, collections.abc.Sequence[Association]
     ]:
         response: dict[AssociationType, list[Association]] = {}
 
@@ -47,7 +49,7 @@ class Association(pydantic.BaseModel):
         return response
 
     @classmethod
-    def from_url_encoded_value(cls, encoded: str) -> "Association":
+    def from_url_encoded_value(cls, encoded: str) -> Association:
         """Reverse of Association::url_encode."""
         unquoted = urllib.parse.unquote_plus(encoded)
 
@@ -70,13 +72,13 @@ class Association(pydantic.BaseModel):
     @classmethod
     def coalesce(
         cls,
-        associations: typing.Optional[collections.abc.Collection["Association"]] = None,
+        associations: typing.Optional[collections.abc.Collection[Association]] = None,
         dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
         topic_ids: typing.Optional[collections.abc.Collection[str]] = None,
         message_path_ids: typing.Optional[collections.abc.Collection[str]] = None,
         throw_on_empty: bool = False,
-    ) -> list["Association"]:
+    ) -> list[Association]:
         coalesced: list[Association] = []
 
         if associations:
@@ -102,7 +104,7 @@ class Association(pydantic.BaseModel):
         return coalesced
 
     @classmethod
-    def dataset(cls, dataset_id: str) -> "Association":
+    def dataset(cls, dataset_id: str) -> Association:
         return cls(association_id=dataset_id, association_type=AssociationType.Dataset)
 
     @classmethod
@@ -118,7 +120,7 @@ class Association(pydantic.BaseModel):
         return cls(association_id=topic_id, association_type=AssociationType.Topic)
 
     @classmethod
-    def msgpath(cls, msgpath_id: str) -> "Association":
+    def msgpath(cls, msgpath_id: str) -> Association:
         return cls(
             association_id=msgpath_id, association_type=AssociationType.MessagePath
         )
@@ -131,6 +133,35 @@ class Association(pydantic.BaseModel):
 
     association_version: int | None = None
     """association_version is the Roboto domain entity version of the association, if it exists."""
+
+    parent: typing.Optional[Association] = None
+    """
+    The next level up in the hierarchy of this association. A message path's parent is its topic,
+    a topic's parent is its file, and a file's parent is its dataset.
+
+    The absense of a parent in an Association object doesn't necessarily mean that a parent doesn't exist; parents
+    are only provided when they're easily computable in the context of a given request.
+    """
+
+    @property
+    def dataset_id(self) -> typing.Optional[str]:
+        if self.is_dataset:
+            return self.association_id
+
+        if self.parent is not None:
+            return self.parent.dataset_id
+
+        return None
+
+    @property
+    def file_id(self) -> typing.Optional[str]:
+        if self.is_file:
+            return self.association_id
+
+        if self.parent is not None:
+            return self.parent.file_id
+
+        return None
 
     @property
     def is_dataset(self) -> bool:
@@ -147,6 +178,23 @@ class Association(pydantic.BaseModel):
     @property
     def is_topic(self) -> bool:
         return self.association_type == AssociationType.Topic
+
+    @property
+    def message_path_id(self) -> typing.Optional[str]:
+        if self.is_msgpath:
+            return self.association_id
+
+        return None
+
+    @property
+    def topic_id(self) -> typing.Optional[str]:
+        if self.is_topic:
+            return self.association_id
+
+        if self.parent is not None:
+            return self.parent.topic_id
+
+        return None
 
     def url_encode(self) -> str:
         """Association encoded in a URL path segment ready format."""

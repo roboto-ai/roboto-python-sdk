@@ -8,6 +8,7 @@ import atexit
 import collections.abc
 import concurrent.futures
 import contextlib
+import logging
 import pathlib
 import time
 import typing
@@ -119,6 +120,17 @@ class TopicDataService:
             if message_path_repr_map.message_paths
         ]
 
+        # WARN if no message paths are left after filtering
+        if not any(
+            len(message_path_repr_map.message_paths) > 0
+            for message_path_repr_map in message_path_repr_mappings
+        ):
+            logger.warning(
+                "The request for topic data will not yield any results. "
+                "Please check that the 'message_paths_include' and 'message_paths_exclude' parameters "
+                "are not filtering out all available message paths for this topic."
+            )
+
         repr_id_to_outfile_map: dict[str, pathlib.Path] = {}
         download_list: list[MessagePathRepresentationMapping] = []
         for message_path_repr_map in message_path_repr_mappings:
@@ -168,6 +180,14 @@ class TopicDataService:
                 )
                 for message_path_repr_map in message_path_repr_mappings
             ]
+
+            if logger.isEnabledFor(logging.DEBUG):
+                for reader in readers:
+                    logger.debug(
+                        "Reader will pick %r message_paths from data",
+                        reader.message_paths,
+                    )
+
             while any(reader.has_next for reader in readers):
                 full_record = {}
                 next_earliest_timestamp = min(

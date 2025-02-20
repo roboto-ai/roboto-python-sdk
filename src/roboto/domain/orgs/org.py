@@ -104,6 +104,7 @@ class Org:
         self.__roboto_client.put(
             f"v1/orgs/id/{self.org_id}/users/id/{urllib.parse.quote_plus(user_id)}",
             data=UpdateOrgUserRequest(add_roles=[role]),
+            caller_org_id=self.org_id,
         )
         return self
 

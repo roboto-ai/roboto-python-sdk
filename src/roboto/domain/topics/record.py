@@ -75,6 +75,7 @@ class CanonicalDataType(enum.Enum):
     Byte = "byte"
     Image = "image"  # Special purpose type for data that can be rendered as an image.
     Number = "number"
+    NumberArray = "number_array"
     Object = "object"  # A struct with attributes.
     String = "string"
     Unknown = "unknown"  # This is a fallback and should be used sparingly.
@@ -210,14 +211,6 @@ class TopicRecord(pydantic.BaseModel):
     """
     Type of messages in topic. E.g., "sensor_msgs/PointCloud2".
     May be None if topic does not have a known/named schema.
-    """
-
-    schema_version: int = 0
-    """
-    Dynamically-determined at write-time.
-    A more human-friendly way by which to compare schemas than schema_checksum.
-    Schemas with the same (name, checksum) ought to have the same version.
-    It communicates, "this is the Nth version of a topic with this name that has been uploaded to Roboto".
     """
 
     start_time: typing.Optional[int] = None

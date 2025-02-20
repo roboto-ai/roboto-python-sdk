@@ -255,3 +255,6 @@ class HttpResponse:
     def to_string(self):
         with self.__response:
             return self.__response.read().decode("utf-8")
+
+    def to_int(self) -> int:
+        return int(self.to_string())

@@ -6,12 +6,14 @@
 
 from ..command import RobotoCommandSet
 from .cancel import cancel_command
+from .cancel_all import cancel_all_command
 from .logs import get_logs_command
 from .show import show_command
 from .status import status_command
 
 commands = [
     cancel_command,
+    cancel_all_command,
     get_logs_command,
     show_command,
     status_command,

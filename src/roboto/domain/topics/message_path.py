@@ -260,7 +260,11 @@ class MessagePath:
                 )
             )
         )
-        return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
+
+        if TopicDataService.LOG_TIME_ATTR_NAME in df.columns:
+            return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
+
+        return df
 
     def to_association(self) -> Association:
         return Association.msgpath(self.message_path_id)

@@ -44,7 +44,7 @@ from .operations import (
 )
 from .record import EventRecord
 
-if typing.TYPE_CHECKING:
+if typing.TYPE_CHECKING:  # pragma: no cover
     import pandas  # pants: no-infer-dep
 
 logger = default_logger()
@@ -62,8 +62,8 @@ class Event:
     @classmethod
     def create(
         cls,
+        name: str,
         start_time: Time,
-        name: str = "Custom Event",
         end_time: typing.Optional[Time] = None,
         associations: typing.Optional[collections.abc.Collection[Association]] = None,
         dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
@@ -90,8 +90,8 @@ class Event:
         least one of them has to contain a valid association for the event.
 
         Args:
+            name: Event name. Required.
             start_time: Start timestamp of the event.
-            name: Event name. Defaults to ``Custom Event`` if not provided.
             end_time: End timestamp of the event.
             description: Human-readable description of the event.
             associations: One or more associations for the event.
@@ -149,12 +149,12 @@ class Event:
         cls,
         dataset_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
-        transitive: bool = False,
+        strict_associations: bool = False,
     ) -> collections.abc.Generator["Event", None, None]:
         roboto_client = RobotoClient.defaulted(roboto_client)
 
         # This will return only events that explicitly have an association with this dataset
-        if transitive is False:
+        if strict_associations is True:
             for event in Event.get_by_associations(
                 [Association.dataset(dataset_id)], roboto_client
             ):
@@ -269,14 +269,6 @@ class Event:
         return self.__record.created_by
 
     @property
-    def dataset_ids(self) -> list[str]:
-        return [
-            association.association_id
-            for association in self.__record.associations
-            if association.is_dataset
-        ]
-
-    @property
     def description(self) -> typing.Optional[str]:
         return self.__record.description
 
@@ -292,22 +284,6 @@ class Event:
     @property
     def event_id(self) -> str:
         return self.__record.event_id
-
-    @property
-    def file_ids(self) -> list[str]:
-        return [
-            association.association_id
-            for association in self.__record.associations
-            if association.is_file
-        ]
-
-    @property
-    def message_path_ids(self) -> list[str]:
-        return [
-            association.association_id
-            for association in self.__record.associations
-            if association.is_msgpath
-        ]
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
@@ -338,16 +314,28 @@ class Event:
     def tags(self) -> list[str]:
         return self.__record.tags
 
-    @property
-    def topic_ids(self) -> list[str]:
-        return [
-            association.association_id
-            for association in self.__record.associations
-            if association.is_topic
-        ]
+    def dataset_ids(self, strict_associations: bool = False) -> list[str]:
+        return list(
+            {
+                association.dataset_id
+                for association in self.__record.associations
+                if (strict_associations is False or association.is_dataset)
+                and association.dataset_id is not None
+            }
+        )
 
     def delete(self) -> None:
         self.__roboto_client.delete(f"v1/events/id/{self.event_id}")
+
+    def file_ids(self, strict_associations: bool = False) -> list[str]:
+        return list(
+            {
+                association.file_id
+                for association in self.__record.associations
+                if (strict_associations is False or association.is_file)
+                and association.file_id is not None
+            }
+        )
 
     def get_data(
         self,
@@ -356,6 +344,7 @@ class Event:
         topic_name: typing.Optional[str] = None,
         topic_data_service: typing.Optional[TopicDataService] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
+        strict_associations: bool = False,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         """
         Iteratively yield records of the underlying topic data this event annotates.
@@ -412,14 +401,15 @@ class Event:
             >>> event.get_data(message_paths_include=["velocity"], message_paths_exclude=["velocity.z"])
         """
         # Event associated with message path(s)
-        if len(self.message_path_ids) > 0:
+        message_path_ids = self.message_path_ids()
+        if len(message_path_ids) > 0:
             message_paths = [
                 MessagePath.from_id(
                     message_path_id=message_path_id,
                     roboto_client=self.__roboto_client,
                     topic_data_service=topic_data_service,
                 )
-                for message_path_id in self.message_path_ids
+                for message_path_id in message_path_ids
             ]
             unique_topics = set(
                 [message_path.topic_id for message_path in message_paths]
@@ -445,14 +435,15 @@ class Event:
             return
 
         # Event associated with topic
-        if len(self.topic_ids) > 0:
-            unique_topics = set(self.topic_ids)
+        topic_ids = self.topic_ids(strict_associations=strict_associations)
+        if len(topic_ids) > 0:
+            unique_topics = set(topic_ids)
             if len(unique_topics) > 1:
                 raise RobotoInvalidRequestException(
                     "Unable to load event data for events associated with more than one topic"
                 )
 
-            topic_id = self.topic_ids[0]
+            topic_id = unique_topics.pop()
             topic = Topic.from_id(topic_id=topic_id, roboto_client=self.__roboto_client)
             yield from topic.get_data(
                 message_paths_include=message_paths_include,
@@ -464,8 +455,9 @@ class Event:
             return
 
         # Event associated with a file
-        if len(self.file_ids) != 0:
-            if len(self.file_ids) > 1:
+        file_ids = list(self.file_ids(strict_associations=strict_associations))
+        if len(file_ids) != 0:
+            if len(file_ids) > 1:
                 raise RobotoInvalidRequestException(
                     "Unable to load event data for events associated with more than one file"
                 )
@@ -475,9 +467,7 @@ class Event:
                     "Must provide 'topic_name' when attempting to load data for an event associated with a file"
                 )
 
-            file = File.from_id(
-                file_id=self.file_ids[0], roboto_client=self.__roboto_client
-            )
+            file = File.from_id(file_id=file_ids[0], roboto_client=self.__roboto_client)
             topic = file.get_topic(topic_name)
             yield from topic.get_data(
                 message_paths_include=message_paths_include,
@@ -523,14 +513,19 @@ class Event:
             )
         )
 
-        if TopicDataService.LOG_TIME_ATTR_NAME not in df.columns:
-            # Expected only in edge case:
-            #   if this event's time bounds are outside the range of
-            #   log times actually found in the underlying topic data.
-            # In this case, the dataframe is expected to be entirely empty.
-            return df
+        if TopicDataService.LOG_TIME_ATTR_NAME in df.columns:
+            return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
 
-        return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
+        return df
+
+    def message_path_ids(self) -> list[str]:
+        return list(
+            {
+                association.message_path_id
+                for association in self.__record.associations
+                if association.is_msgpath and association.message_path_id is not None
+            }
+        )
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Event":
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
@@ -569,6 +564,16 @@ class Event:
 
     def to_dict(self) -> dict[str, typing.Any]:
         return self.__record.model_dump(mode="json")
+
+    def topic_ids(self, strict_associations: bool = False) -> list[str]:
+        return list(
+            {
+                association.topic_id
+                for association in self.__record.associations
+                if (strict_associations is False or association.is_topic)
+                and association.topic_id is not None
+            }
+        )
 
     def update(
         self,

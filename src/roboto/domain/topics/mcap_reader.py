@@ -48,6 +48,10 @@ class McapReader:
         return self.__next_unconsummed_decode_result is not None
 
     @property
+    def message_paths(self) -> list[str]:
+        return [mp.message_path for mp in self.__message_paths]
+
+    @property
     def next_timestamp(self) -> typing.Union[int, float]:
         if self.__next_unconsummed_decode_result is None:
             return math.inf

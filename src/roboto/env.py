@@ -153,3 +153,8 @@ class RobotoEnv(pydantic_settings.BaseSettings):
         default=None, alias="ROBOTO_SERVICE_ENDPOINT"
     )
     """A Roboto Service API endpoint to send requests to, typically https://api.roboto.ai"""
+
+    def get_env_var(
+        self, var_name: str, default_value: typing.Optional[str] = None
+    ) -> typing.Optional[str]:
+        return os.getenv(var_name, default_value)

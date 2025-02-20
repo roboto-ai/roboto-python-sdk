@@ -8,7 +8,7 @@ import pathlib
 import typing
 
 from ..domain import actions, datasets, orgs
-from ..env import RobotoEnv
+from ..env import RobotoEnv, RobotoEnvKey
 from ..http import RobotoClient
 from .exceptions import ActionRuntimeException
 from .file_changeset import (
@@ -54,6 +54,7 @@ class ActionRuntime:
     __invocation_id: str
     __invocation: typing.Optional[actions.Invocation] = None
     __roboto_client: RobotoClient
+    __roboto_env: RobotoEnv
     __org_id: str
     __org: typing.Optional[orgs.Org] = None
     __output_dir: pathlib.Path
@@ -116,6 +117,7 @@ class ActionRuntime:
             invocation_id=env.invocation_id,
             org_id=env.org_id,
             output_dir=output_dir,
+            roboto_env=env,
             roboto_client=RobotoClient.from_env(),
         )
 
@@ -126,6 +128,7 @@ class ActionRuntime:
         invocation_id: str,
         org_id: str,
         output_dir: pathlib.Path,
+        roboto_env: RobotoEnv,
         roboto_client: typing.Optional[RobotoClient] = None,
     ):
         self.__dataset = None
@@ -138,6 +141,7 @@ class ActionRuntime:
         self.__org_id = org_id
         self.__output_dir = output_dir
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
+        self.__roboto_env = roboto_env
 
     @property
     def dataset_id(self) -> str:
@@ -261,3 +265,23 @@ class ActionRuntime:
         to the dataset associated with this action invocation.
         """
         return self.__output_dir
+
+    @property
+    def roboto_client(self) -> RobotoClient:
+        """
+        The :class:`~roboto.http.RobotoClient` instance used by this action runtime.
+        """
+        return self.__roboto_client
+
+    def get_parameter(self, name: str) -> str:
+        """
+        Gets the value of the action parameter with the given name.
+        """
+        parameter_env_name = RobotoEnvKey.for_parameter(name)
+        parameter_value = self.__roboto_env.get_env_var(parameter_env_name)
+        if parameter_value is None:
+            raise ActionRuntimeException(
+                f"Couldn't find parameter '{name}' from environment. " + _BAD_ENV_BLURB
+            )
+
+        return parameter_value

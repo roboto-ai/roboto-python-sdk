@@ -295,10 +295,6 @@ class Topic:
         return self.__record.schema_name
 
     @property
-    def schema_version(self) -> int:
-        return self.__record.schema_version
-
-    @property
     def start_time(self) -> typing.Optional[int]:
         return self.__record.start_time
 
@@ -482,7 +478,11 @@ class Topic:
                 )
             )
         )
-        return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
+
+        if TopicDataService.LOG_TIME_ATTR_NAME in df.columns:
+            return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
+
+        return df
 
     def get_message_path(self, message_path: str) -> MessagePath:
         for message_path_record in self.__record.message_paths:

@@ -126,7 +126,9 @@ class Invocation:
     @property
     def current_status(self) -> InvocationStatus:
         sorted_status_records = sorted(
-            self.__record.status, key=lambda s: s.status.value
+            self.__record.status,
+            # Sort by timestamp ASC, then by status value ASC
+            key=lambda status_record: (status_record.timestamp, status_record.status),
         )
         return sorted_status_records[-1].status
 
@@ -156,9 +158,7 @@ class Invocation:
 
     @property
     def reached_terminal_status(self) -> bool:
-        return any(
-            status_record.status.is_terminal() for status_record in self.__record.status
-        )
+        return self.current_status.is_terminal()
 
     @property
     def record(self) -> InvocationRecord:
