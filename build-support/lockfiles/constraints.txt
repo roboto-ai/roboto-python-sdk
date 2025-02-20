@@ -1,0 +1,4 @@
+# https://github.com/python-lz4/python-lz4/issues/299
+# causes
+# https://github.com/roboto-ai/roboto-python-sdk/actions/runs/13442664410/job/37560994797
+lz4 < 4.4.3
