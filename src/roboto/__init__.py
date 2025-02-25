@@ -8,6 +8,7 @@ from .action_runtime import (
     ActionRuntime,
     FilesChangesetFileManager,
 )
+from .ai.summary import AISummary
 from .association import (
     Association,
     AssociationType,
@@ -155,6 +156,7 @@ __all__ = [
     "ActionRuntime",
     "AddMessagePathRepresentationRequest",
     "AddMessagePathRequest",
+    "AISummary",
     "Association",
     "AssociationType",
     "BatchRequest",

@@ -16,6 +16,7 @@ from .operations import (
     QueryDatasetsRequest,
     RenameDirectoryRequest,
     ReportTransactionProgressRequest,
+    SummarizeDatasetResponse,
     UpdateDatasetRequest,
 )
 from .record import (
@@ -32,10 +33,11 @@ __all__ = (
     "Dataset",
     "DatasetCredentials",
     "DatasetRecord",
+    "DeleteDirectoriesRequest",
     "QueryDatasetFilesRequest",
     "QueryDatasetsRequest",
-    "ReportTransactionProgressRequest",
-    "UpdateDatasetRequest",
-    "DeleteDirectoriesRequest",
     "RenameDirectoryRequest",
+    "ReportTransactionProgressRequest",
+    "SummarizeDatasetResponse",
+    "UpdateDatasetRequest",
 )

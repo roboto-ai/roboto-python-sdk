@@ -15,6 +15,7 @@ import typing
 
 import pathspec
 
+from ...ai.summary import AISummary
 from ...association import Association
 from ...auth import Permissions
 from ...env import RobotoEnv
@@ -295,6 +296,45 @@ class Dataset:
             version_id=version_id,
             roboto_client=self.__roboto_client,
         )
+
+    def generate_summary(self) -> AISummary:
+        """
+        Generate a new AI generated summary of this dataset. If a summary already exists, it will be overwritten.
+        The results of this call are persisted and can be retrieved with `get_summary()`.
+
+        Returns: An AISummary object containing the summary text and the creation timestamp.
+
+        Example:
+            >>> from roboto import Dataset
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> summary = dataset.generate_summary()
+            >>> print(summary.text)
+            This dataset contains ...
+        """
+        return self.__roboto_client.post(
+            f"v1/datasets/{self.dataset_id}/summary"
+        ).to_record(AISummary)
+
+    def get_summary(self) -> AISummary:
+        """
+        Get the latest AI generated summary of this dataset. If no summary exists, one will be generated, equivalent
+        to a call to `generate_summary()`.
+
+        After the first summary for a dataset is generated, it will be persisted and returned by this method until
+        `generate_summary()` is explicitly called again. This applies even if the dataset or its files change.
+
+        Returns: An AISummary object containing the summary text and the creation timestamp.
+
+        Example:
+            >>> from roboto import Dataset
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> summary = dataset.get_summary()
+            >>> print(summary.text)
+            This dataset contains ...
+        """
+        return self.__roboto_client.get(
+            f"v1/datasets/{self.dataset_id}/summary"
+        ).to_record(AISummary)
 
     def get_topics(self) -> collections.abc.Generator[Topic, None, None]:
         """
