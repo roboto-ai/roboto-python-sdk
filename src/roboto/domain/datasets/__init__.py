@@ -16,7 +16,6 @@ from .operations import (
     QueryDatasetsRequest,
     RenameDirectoryRequest,
     ReportTransactionProgressRequest,
-    SummarizeDatasetResponse,
     UpdateDatasetRequest,
 )
 from .record import DatasetRecord
@@ -34,6 +33,5 @@ __all__ = (
     "QueryDatasetsRequest",
     "RenameDirectoryRequest",
     "ReportTransactionProgressRequest",
-    "SummarizeDatasetResponse",
     "UpdateDatasetRequest",
 )

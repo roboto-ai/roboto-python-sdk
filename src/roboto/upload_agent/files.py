@@ -26,6 +26,9 @@ class UploadConfigFileDatasetSection(CreateDatasetRequest):
 
     org_id: typing.Optional[str] = None
 
+    add_to_collections: typing.Optional[typing.List[str]] = None
+    """An optional list of collection IDs to attempt to add this dataset to."""
+
 
 class UploadConfigFileUploadSection(pydantic.BaseModel):
     """Upload agent config file upload section"""

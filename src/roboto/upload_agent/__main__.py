@@ -10,6 +10,7 @@ import logging
 import pathlib
 import sys
 import time
+import typing
 
 import filelock
 import pydantic
@@ -107,7 +108,17 @@ def configure_subcommand(args: argparse.Namespace) -> None:
     configure()
 
 
-def run(auto_create_upload_configs: bool, merge_uploads: bool) -> None:
+def run(
+    auto_create_upload_configs: bool,
+    merge_uploads: bool,
+    default_roboto_upload_file: typing.Optional[pathlib.Path] = None,
+) -> None:
+    if default_roboto_upload_file is not None and not auto_create_upload_configs:
+        logger.error(
+            "--default-upload-config can only be used with --auto-create-upload-configs"
+        )
+        return
+
     if not agent_config_file.is_file():
         logger.error(
             f"No upload agent config file found at {agent_config_file}. Please run "
@@ -131,7 +142,11 @@ def run(auto_create_upload_configs: bool, merge_uploads: bool) -> None:
         RobotoRequester.for_tool(RobotoTool.UploadAgent)
     )
 
-    upload_agent = UploadAgent(agent_config)
+    upload_agent = UploadAgent(
+        agent_config,
+        roboto_client,
+        default_roboto_upload_file,
+    )
 
     uploaded_datasets: collections.abc.Sequence[datasets.Dataset]
 
@@ -155,7 +170,10 @@ def run(auto_create_upload_configs: bool, merge_uploads: bool) -> None:
 
 
 def run_forever(
-    scan_period_seconds: int, auto_create_upload_configs: bool, merge_uploads: bool
+    scan_period_seconds: int,
+    auto_create_upload_configs: bool,
+    merge_uploads: bool,
+    default_roboto_upload_file: typing.Optional[pathlib.Path] = None,
 ) -> None:
     print(
         "Starting roboto-agent in run forever mode, press Ctrl+C to stop.",
@@ -168,6 +186,7 @@ def run_forever(
             run(
                 auto_create_upload_configs=auto_create_upload_configs,
                 merge_uploads=merge_uploads,
+                default_roboto_upload_file=default_roboto_upload_file,
             )
             logger.info(
                 f"Run completed, sleeping for {scan_period_seconds} seconds before next attempt."
@@ -183,11 +202,13 @@ def run_subcommand(args: argparse.Namespace) -> None:
             scan_period_seconds=30,
             auto_create_upload_configs=args.auto_create_upload_configs,
             merge_uploads=args.merge_uploads,
+            default_roboto_upload_file=args.default_roboto_upload_file,
         )
     else:
         run(
             auto_create_upload_configs=args.auto_create_upload_configs,
             merge_uploads=args.merge_uploads,
+            default_roboto_upload_file=args.default_roboto_upload_file,
         )
 
 
@@ -249,6 +270,14 @@ def main():
         + "this by writing a ~/.roboto/default_roboto_upload.json file, whose contents will always be used instead. "
         + "Environment variables referenced in this file will be resolved appropriately, so you can add something "
         + 'like {"dataset":{"metadata":{"user_from_env":"$USER"}}}.',
+    )
+    run_parser.add_argument(
+        "--default-roboto-upload-file",
+        type=pathlib.Path,
+        help="Path to a custom default upload config JSON file to use when auto-creating upload configs. "
+        + "Only valid when --auto-create-upload-configs is specified. "
+        + "If not provided, ~/.roboto/default_roboto_upload.json will be used if it exists.",
+        required=False,
     )
     run_parser.set_defaults(func=run_subcommand)
 

@@ -10,6 +10,7 @@ import typing
 
 import pydantic
 
+from .. import Collection
 from ..config import DEFAULT_ROBOTO_DIR
 from ..domain import datasets
 from ..env import resolve_env_variables
@@ -36,14 +37,19 @@ DEFAULT_ROBOTO_UPLOAD_FILE = DEFAULT_ROBOTO_DIR / "default_roboto_upload.json"
 class UploadAgent:
     __roboto_client: RobotoClient
     __agent_config: UploadAgentConfig
+    __default_roboto_upload_file: pathlib.Path
 
     def __init__(
         self,
         agent_config: UploadAgentConfig,
         roboto_client: typing.Optional[RobotoClient] = None,
+        default_roboto_upload_file: typing.Optional[pathlib.Path] = None,
     ):
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__agent_config = agent_config
+        self.__default_roboto_upload_file = (
+            default_roboto_upload_file or DEFAULT_ROBOTO_UPLOAD_FILE
+        )
 
     def create_upload_configs(self):
         directories_to_consider: list[pathlib.Path] = []
@@ -57,24 +63,24 @@ class UploadAgent:
             )
 
         upload_config_file_contents = UploadConfigFile()
-        if DEFAULT_ROBOTO_UPLOAD_FILE.is_file():
+        if self.__default_roboto_upload_file.is_file():
             try:
                 upload_config_file_contents = UploadConfigFile.model_validate_json(
-                    resolve_env_variables(DEFAULT_ROBOTO_UPLOAD_FILE.read_text())
+                    resolve_env_variables(self.__default_roboto_upload_file.read_text())
                 )
                 logger.info(
                     "Successfully loaded default config file %s, using it for new uploads.",
-                    DEFAULT_ROBOTO_UPLOAD_FILE,
+                    self.__default_roboto_upload_file,
                 )
             except Exception:
                 logger.warning(
                     "Couldn't parse default config file at %s, using blank contents '{}' instead.",
-                    DEFAULT_ROBOTO_UPLOAD_FILE,
+                    self.__default_roboto_upload_file,
                 )
         else:
             logger.info(
                 "No default upload config file found at %s, using blank contents '{}' instead.",
-                DEFAULT_ROBOTO_UPLOAD_FILE,
+                self.__default_roboto_upload_file,
             )
 
         for subdir in directories_to_consider:
@@ -143,8 +149,28 @@ class UploadAgent:
             uploaded_dataset = self.__handle_upload_config_file(
                 file=upload_config_file, path=path, update_dataset=update_dataset
             )
+
             if uploaded_dataset is not None:
                 created_datasets.append(uploaded_dataset)
+
+                if upload_config_file.dataset.add_to_collections is not None:
+                    for collection_id in upload_config_file.dataset.add_to_collections:
+                        try:
+                            collection = Collection.from_id(
+                                collection_id, roboto_client=self.__roboto_client
+                            )
+                            collection.add_dataset(uploaded_dataset.dataset_id)
+                            logger.info(
+                                "Added dataset %s to collection %s",
+                                uploaded_dataset.dataset_id,
+                                collection_id,
+                            )
+                        except Exception:
+                            logger.error(
+                                "Failed to add dataset %s to collection %s",
+                                uploaded_dataset.dataset_id,
+                                collection_id,
+                            )
 
         return created_datasets
 

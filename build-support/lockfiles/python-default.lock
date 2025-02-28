@@ -682,36 +682,36 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "e58136d52d79425ce26c3c1578bf94d4b2e91ead55fed9f6950406ee9713e6af",
-              "url": "https://files.pythonhosted.org/packages/a7/5d/e4d5ed68b3b2f421754cc5ea0b9276f0c1568cd1a45dd7df3aadce028f60/boto3-1.37.2-py3-none-any.whl"
+              "hash": "2063b40af99fd02f6228ff52397b552ff3353831edaf8d25cc04801827ab9794",
+              "url": "https://files.pythonhosted.org/packages/62/8c/213511a505af2239a673de4de145d013379275c569185187922f93dbdf14/boto3-1.37.3-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "d64491bd4142c2c6dfe44479bf89c4ab7fa8d00210c2aaa7361931e61898b608",
-              "url": "https://files.pythonhosted.org/packages/b3/75/afe885605fef5b624d68869864f9af2595ff0b646377e1fdc9bba35aa49b/boto3-1.37.2.tar.gz"
+              "hash": "21f3ce0ef111297e63a6eb998a25197b8c10982970c320d4c6e8db08be2157be",
+              "url": "https://files.pythonhosted.org/packages/7e/3f/135ec0771e6d0e1af2ad7023a15df6677d96112072838d948c9b5075efe1/boto3-1.37.3.tar.gz"
             }
           ],
           "project_name": "boto3",
           "requires_dists": [
-            "botocore<1.38.0,>=1.37.2",
+            "botocore<1.38.0,>=1.37.3",
             "botocore[crt]<2.0a0,>=1.21.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
             "s3transfer<0.12.0,>=0.11.0"
           ],
           "requires_python": ">=3.8",
-          "version": "1.37.2"
+          "version": "1.37.3"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "5f59b966f3cd0c8055ef6f7c2600f7db5f8218071d992e5f95da3f9156d4370f",
-              "url": "https://files.pythonhosted.org/packages/85/27/c579234944cb1e9a34e7803b3a45efa309d44280ba5e2b1069d604b2b266/botocore-1.37.2-py3-none-any.whl"
+              "hash": "d01bd3bf4c80e61fa88d636ad9f5c9f60a551d71549b481386c6b4efe0bb2b2e",
+              "url": "https://files.pythonhosted.org/packages/88/54/772118f15b5990173aa5264946cc8c9ff70c8f02d72ee6d63167a985188c/botocore-1.37.3-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "3f460f3c32cd6d747d5897a9cbde011bf1715abc7bf0a6ea6fdb0b812df63287",
-              "url": "https://files.pythonhosted.org/packages/39/20/5f8f74ac3db553f713d640d0af4131162846123c955ac7118e727ef7441b/botocore-1.37.2.tar.gz"
+              "hash": "fe8403eb55a88faf9b0f9da6615e5bee7be056d75e17af66c3c8f0a3b0648da4",
+              "url": "https://files.pythonhosted.org/packages/74/fb/b243ab806d2e1e6b8a475b731cc59a1f1e4709eded4884b988a27bbc996b/botocore-1.37.3.tar.gz"
             }
           ],
           "project_name": "botocore",
@@ -723,7 +723,7 @@
             "urllib3<1.27,>=1.25.4; python_version < \"3.10\""
           ],
           "requires_python": ">=3.8",
-          "version": "1.37.2"
+          "version": "1.37.3"
         },
         {
           "artifacts": [
@@ -2901,48 +2901,48 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "ae80dc3a4add4665cf2faa90138384a7ffe2a4e37c58d83e115b54287c4f06ef",
-              "url": "https://files.pythonhosted.org/packages/c9/b4/680aa700d99b48e8c4393fa08e9ab8c49c0555ee6f4c9c0a5e8ea8dfde5d/matplotlib-3.10.0-pp310-pypy310_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+              "hash": "d3809916157ba871bcdd33d3493acd7fe3037db5daa917ca6e77975a94cef779",
+              "url": "https://files.pythonhosted.org/packages/fd/7d/6a8b31dd07ed856b3eae001c9129670ef75c4698fa1c2a6ac9f00a4a7054/matplotlib-3.10.1-pp310-pypy310_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "01d2b19f13aeec2e759414d3bfe19ddfb16b13a1250add08d46d5ff6f9be83c6",
-              "url": "https://files.pythonhosted.org/packages/09/5a/a113495110ae3e3395c72d82d7bc4802902e46dc797f6b041e572f195c56/matplotlib-3.10.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+              "hash": "8e875b95ac59a7908978fe307ecdbdd9a26af7fa0f33f474a27fcf8c99f64a19",
+              "url": "https://files.pythonhosted.org/packages/12/87/9472d4513ff83b7cd864311821793ab72234fa201ab77310ec1b585d27e2/matplotlib-3.10.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "2c5829a5a1dd5a71f0e31e6e8bb449bc0ee9dbfb05ad28fc0c6b55101b3a4be6",
-              "url": "https://files.pythonhosted.org/packages/09/ec/3cdff7b5239adaaacefcc4f77c316dfbbdf853c4ed2beec467e0fec31b9f/matplotlib-3.10.0-cp310-cp310-macosx_10_12_x86_64.whl"
+              "hash": "0721a3fd3d5756ed593220a8b86808a36c5031fce489adb5b31ee6dbb47dd5b2",
+              "url": "https://files.pythonhosted.org/packages/26/af/5ec3d4636106718bb62503a03297125d4514f98fe818461bd9e6b9d116e4/matplotlib-3.10.1-cp310-cp310-macosx_11_0_arm64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "5e6c6461e1fc63df30bf6f80f0b93f5b6784299f721bc28530477acd51bfc3d1",
-              "url": "https://files.pythonhosted.org/packages/12/b1/8b1655b4c9ed4600c817c419f7eaaf70082630efd7556a5b2e77a8a3cdaf/matplotlib-3.10.0-cp310-cp310-musllinux_1_2_x86_64.whl"
+              "hash": "e8d2d0e3881b129268585bf4765ad3ee73a4591d77b9a18c214ac7e3a79fb2ba",
+              "url": "https://files.pythonhosted.org/packages/2f/08/b89867ecea2e305f408fbb417139a8dd941ecf7b23a2e02157c36da546f0/matplotlib-3.10.1.tar.gz"
             },
             {
               "algorithm": "sha256",
-              "hash": "81713dd0d103b379de4516b861d964b1d789a144103277769238c732229d7f03",
-              "url": "https://files.pythonhosted.org/packages/32/5f/29def7ce4e815ab939b56280976ee35afffb3bbdb43f332caee74cb8c951/matplotlib-3.10.0-pp310-pypy310_pp73-macosx_10_15_x86_64.whl"
+              "hash": "2589659ea30726284c6c91037216f64a506a9822f8e50592d48ac16a2f29e044",
+              "url": "https://files.pythonhosted.org/packages/31/9e/fe74d237d2963adae8608faeb21f778cf246dbbf4746cef87cffbc82c4b6/matplotlib-3.10.1-cp310-cp310-musllinux_1_2_x86_64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "a2a43cbefe22d653ab34bb55d42384ed30f611bcbdea1f8d7f431011a2e1c62e",
-              "url": "https://files.pythonhosted.org/packages/41/f2/b518f2c7f29895c9b167bf79f8529c63383ae94eaf49a247a4528e9a148d/matplotlib-3.10.0-cp310-cp310-macosx_11_0_arm64.whl"
+              "hash": "02582304e352f40520727984a5a18f37e8187861f954fea9be7ef06569cf85b4",
+              "url": "https://files.pythonhosted.org/packages/3f/84/0603d917406072763e7f9bb37747d3d74d7ecd4b943a8c947cc3ae1cf7af/matplotlib-3.10.1-pp310-pypy310_pp73-macosx_11_0_arm64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "b886d02a581b96704c9d1ffe55709e49b4d2d52709ccebc4be42db856e511278",
-              "url": "https://files.pythonhosted.org/packages/68/dd/fa2e1a45fce2d09f4aea3cee169760e672c8262325aa5796c49d543dc7e6/matplotlib-3.10.0.tar.gz"
+              "hash": "d0673b4b8f131890eb3a1ad058d6e065fb3c6e71f160089b65f8515373394698",
+              "url": "https://files.pythonhosted.org/packages/a1/3d/07f9003a71b698b848c9925d05979ffa94a75cd25d1a587202f0bb58aa81/matplotlib-3.10.1-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "359f87baedb1f836ce307f0e850d12bb5f1936f70d035561f90d41d305fdacea",
-              "url": "https://files.pythonhosted.org/packages/de/6d/d570383c9f7ca799d0a54161446f9ce7b17d6c50f2994b653514bcaa108f/matplotlib-3.10.0-pp310-pypy310_pp73-macosx_11_0_arm64.whl"
+              "hash": "648406f1899f9a818cef8c0231b44dcfc4ff36f167101c3fd1c9151f24220fdc",
+              "url": "https://files.pythonhosted.org/packages/c8/f6/10adb696d8cbeed2ab4c2e26ecf1c80dd3847bbf3891f4a0c362e0e08a5a/matplotlib-3.10.1-pp310-pypy310_pp73-macosx_10_15_x86_64.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "607b16c8a73943df110f99ee2e940b8a1cbf9714b65307c040d422558397dac5",
-              "url": "https://files.pythonhosted.org/packages/ed/8d/45754b4affdb8f0d1a44e4e2bcd932cdf35b256b60d5eda9f455bb293ed0/matplotlib-3.10.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl"
+              "hash": "ff2ae14910be903f4a24afdbb6d7d3a6c44da210fc7d42790b87aeac92238a16",
+              "url": "https://files.pythonhosted.org/packages/ee/b1/f70e27cf1cd76ce2a5e1aa5579d05afe3236052c6d9b9a96325bc823a17e/matplotlib-3.10.1-cp310-cp310-macosx_10_12_x86_64.whl"
             }
           ],
           "project_name": "matplotlib",
@@ -2962,7 +2962,7 @@
             "setuptools_scm>=7; extra == \"dev\""
           ],
           "requires_python": ">=3.10",
-          "version": "3.10.0"
+          "version": "3.10.1"
         },
         {
           "artifacts": [
@@ -4382,13 +4382,13 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "c782c7dc3fb40e97b238e713c25d26f64314aece2e91abcff592fcac15f71820",
-              "url": "https://files.pythonhosted.org/packages/c1/a9/3b9642025174bbe67e900785fb99c9bfe91ea584b0b7126ff99945c24a0e/pydantic_settings-2.8.0-py3-none-any.whl"
+              "hash": "81942d5ac3d905f7f3ee1a70df5dfb62d5569c12f51a5a647defc1c3d9ee2e9c",
+              "url": "https://files.pythonhosted.org/packages/0b/53/a64f03044927dc47aafe029c42a5b7aabc38dfb813475e0e1bf71c4a59d0/pydantic_settings-2.8.1-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "88e2ca28f6e68ea102c99c3c401d6c9078e68a5df600e97b43891c34e089500a",
-              "url": "https://files.pythonhosted.org/packages/ca/a2/ad2511ede77bb424f3939e5148a56d968cdc6b1462620d24b2a1f4ab65b4/pydantic_settings-2.8.0.tar.gz"
+              "hash": "d5c663dfbe9db9d5e1c646b2e161da12f0d734d422ee56f567d0ea2cee4e8585",
+              "url": "https://files.pythonhosted.org/packages/88/82/c79424d7d8c29b994fb01d277da57b0a9b09cc03c3ff875f9bd8a86b2145/pydantic_settings-2.8.1.tar.gz"
             }
           ],
           "project_name": "pydantic-settings",
@@ -4401,7 +4401,7 @@
             "tomli>=2.0.1; extra == \"toml\""
           ],
           "requires_python": ">=3.8",
-          "version": "2.8.0"
+          "version": "2.8.1"
         },
         {
           "artifacts": [
