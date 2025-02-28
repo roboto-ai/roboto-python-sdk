@@ -17,9 +17,7 @@ import pathspec
 
 from ...ai.summary import AISummary
 from ...association import Association
-from ...auth import Permissions
 from ...env import RobotoEnv
-from ...exceptions import RobotoInternalException
 from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger
 from ...paths import excludespec_from_patterns
@@ -33,6 +31,9 @@ from ..files import (
     DirectoryRecord,
     File,
     FileRecord,
+)
+from ..files.file_creds import (
+    FileCredentialsHelper,
 )
 from ..files.file_service import FileService
 from ..files.progress import (
@@ -48,10 +49,7 @@ from .operations import (
     ReportTransactionProgressRequest,
     UpdateDatasetRequest,
 )
-from .record import (
-    DatasetCredentials,
-    DatasetRecord,
-)
+from .record import DatasetRecord
 
 logger = default_logger()
 
@@ -80,6 +78,8 @@ class Dataset:
 
     __roboto_client: RobotoClient
     __record: DatasetRecord
+    __file_service: FileService
+    __file_creds_helper: FileCredentialsHelper
     __transaction_completed_unreported_items: dict[str, set[str]]
     __transaction_completed_mutex: threading.Lock
 
@@ -159,6 +159,8 @@ class Dataset:
         self, record: DatasetRecord, roboto_client: typing.Optional[RobotoClient] = None
     ) -> None:
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
+        self.__file_service = FileService(self.__roboto_client)
+        self.__file_creds_helper = FileCredentialsHelper(self.__roboto_client)
         self.__record = record
         self.__transaction_completed_unreported_items = {}
         self.__transaction_completed_mutex = threading.Lock()
@@ -262,9 +264,11 @@ class Dataset:
                 ):
                     yield x
 
-            self.__file_service().download_files(
+            self.__file_service.download_files(
                 file_generator=_file_generator(),
-                credential_provider=self.__download_creds_provider(bucket_name),
+                credential_provider=self.__file_creds_helper.get_dataset_download_creds_provider(
+                    self.dataset_id, bucket_name
+                ),
                 progress_monitor_factory=TqdmProgressMonitorFactory(
                     concurrency=1,
                     ctx={
@@ -623,53 +627,6 @@ class Dataset:
 
         return result.transaction_id, dict(result.upload_mappings)
 
-    def __download_creds_provider(self, bucket_name: str):
-        def _wrapped():
-            all_creds = self.__get_temporary_credentials(Permissions.ReadOnly)
-            filtered = [cred for cred in all_creds if cred.bucket == bucket_name]
-
-            if len(filtered) == 0:
-                raise RobotoInternalException(
-                    f"Dataset {self.dataset_id} has no read creds for bucket {bucket_name}."
-                )
-
-            return filtered[0].to_s3_credentials()
-
-        return _wrapped
-
-    def __upload_creds_provider(self, transaction_id: str):
-        def _wrapped():
-            all_creds = self.__get_temporary_credentials(
-                Permissions.ReadWrite,
-                transaction_id=transaction_id,
-            )
-
-            if len(all_creds) == 0:
-                raise RobotoInternalException(
-                    f"Dataset {self.dataset_id} has no write creds."
-                )
-
-            return all_creds[0].to_s3_credentials()
-
-        return _wrapped
-
-    def __file_service(self) -> FileService:
-        return FileService(self.__roboto_client)
-
-    def __get_temporary_credentials(
-        self,
-        permissions: Permissions,
-        transaction_id: typing.Optional[str] = None,
-    ) -> collections.abc.Sequence[DatasetCredentials]:
-        query_params = {"mode": permissions.value}
-
-        if transaction_id:
-            query_params["transaction_id"] = transaction_id
-
-        return self.__roboto_client.get(
-            f"v1/datasets/id/{self.dataset_id}/credentials", query=query_params
-        ).to_record_list(DatasetCredentials)
-
     def _flush_manifest_item_completions(
         self,
         transaction_id: str,
@@ -832,9 +789,11 @@ class Dataset:
             source=f"{total_file_count} file" + ("s" if total_file_count != 1 else ""),
             size=total_file_size,
         ) as progress_monitor:
-            self.__file_service().upload_many_files(
+            self.__file_service.upload_many_files(
                 file_generator=upload_mappings.items(),
-                credential_provider=self.__upload_creds_provider(transaction_id),
+                credential_provider=self.__file_creds_helper.get_dataset_upload_creds_provider(
+                    self.dataset_id, transaction_id
+                ),
                 on_file_complete=functools.partial(
                     self.__on_manifest_item_complete,
                     transaction_id,

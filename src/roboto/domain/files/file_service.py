@@ -15,17 +15,14 @@ import boto3.s3.transfer as s3_transfer
 from ...http import RobotoClient
 from ...logging import default_logger
 from .file import File
+from .file_creds import CredentialProvider
 from .progress import (
     NoopProgressMonitor,
     NoopProgressMonitorFactory,
     ProgressMonitor,
     ProgressMonitorFactory,
 )
-from .record import (
-    CredentialProvider,
-    FileRecord,
-    FileTag,
-)
+from .record import FileRecord, FileTag
 
 # Used to change between showing progress bars for every file and "uploading X files"
 MANY_FILES = 100

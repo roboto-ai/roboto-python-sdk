@@ -81,7 +81,6 @@ from .domain.datasets import (
     BeginSingleFileUploadRequest,
     CreateDatasetRequest,
     Dataset,
-    DatasetCredentials,
     DatasetRecord,
     QueryDatasetFilesRequest,
     QueryDatasetsRequest,
@@ -101,6 +100,7 @@ from .domain.events import (
 )
 from .domain.files import (
     CredentialProvider,
+    DatasetCredentials,
     DeleteFileRequest,
     File,
     FileRecord,

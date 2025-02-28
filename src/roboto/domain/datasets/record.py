@@ -10,38 +10,6 @@ from typing import Any, Optional
 
 import pydantic
 
-from ...time import utcnow
-from ..files import S3Credentials
-
-
-class DatasetCredentials(pydantic.BaseModel):
-    """
-    Handle credentials for dataset file access
-    """
-
-    access_key_id: str
-    bucket: str
-    expiration: datetime.datetime
-    secret_access_key: str
-    session_token: str
-    region: str
-    required_prefix: str
-
-    def is_expired(self) -> bool:
-        return utcnow() >= self.expiration
-
-    def to_dict(self) -> dict[str, Any]:
-        return self.model_dump(mode="json")
-
-    def to_s3_credentials(self) -> S3Credentials:
-        return {
-            "access_key": self.access_key_id,
-            "secret_key": self.secret_access_key,
-            "token": self.session_token,
-            "expiry_time": self.expiration.isoformat(),
-            "region": self.region,
-        }
-
 
 def make_backwards_compatible_placeholder_storage_ctx() -> dict[str, typing.Any]:
     """

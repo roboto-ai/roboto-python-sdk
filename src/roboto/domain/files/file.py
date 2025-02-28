@@ -24,6 +24,10 @@ from ...sentinels import (
 )
 from ...updates import MetadataChangeset
 from ..topics import Topic
+from .file_creds import (
+    CredentialProvider,
+    FileCredentialsHelper,
+)
 from .operations import (
     ImportFileRequest,
     RenameFileRequest,
@@ -33,7 +37,7 @@ from .progress import (
     NoopProgressMonitorFactory,
     ProgressMonitorFactory,
 )
-from .record import CredentialProvider, FileRecord
+from .record import FileRecord
 
 
 class File:
@@ -223,11 +227,20 @@ class File:
     def download(
         self,
         local_path: pathlib.Path,
-        credential_provider: CredentialProvider,
+        credential_provider: typing.Optional[CredentialProvider] = None,
         progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory(),
     ):
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        s3_client = File.generate_s3_client(credential_provider)
+
+        defaulted_credential_provider: CredentialProvider
+        if credential_provider is None:
+            defaulted_credential_provider = FileCredentialsHelper(
+                self.__roboto_client
+            ).get_dataset_download_creds_provider(self.dataset_id, self.record.bucket)
+        else:
+            defaulted_credential_provider = credential_provider
+
+        s3_client = File.generate_s3_client(defaulted_credential_provider)
 
         res = s3_client.head_object(Bucket=self.record.bucket, Key=self.record.key)
         download_bytes = int(res.get("ContentLength", 0))

@@ -19,10 +19,7 @@ from .operations import (
     SummarizeDatasetResponse,
     UpdateDatasetRequest,
 )
-from .record import (
-    DatasetCredentials,
-    DatasetRecord,
-)
+from .record import DatasetRecord
 
 __all__ = (
     "BeginManifestTransactionRequest",
@@ -31,7 +28,6 @@ __all__ = (
     "BeginSingleFileUploadResponse",
     "CreateDatasetRequest",
     "Dataset",
-    "DatasetCredentials",
     "DatasetRecord",
     "DeleteDirectoriesRequest",
     "QueryDatasetFilesRequest",

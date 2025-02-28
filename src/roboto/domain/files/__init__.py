@@ -5,6 +5,11 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .file import File
+from .file_creds import (
+    CredentialProvider,
+    DatasetCredentials,
+    S3Credentials,
+)
 from .operations import (
     AbortTransactionsRequest,
     DeleteFileRequest,
@@ -17,19 +22,18 @@ from .operations import (
     UpdateFileRecordRequest,
 )
 from .record import (
-    CredentialProvider,
     DirectoryRecord,
     FileRecord,
     FileStatus,
     FileStorageType,
     FileTag,
     IngestionStatus,
-    S3Credentials,
 )
 
 __all__ = (
     "AbortTransactionsRequest",
     "CredentialProvider",
+    "DatasetCredentials",
     "DeleteFileRequest",
     "File",
     "DirectoryContentsPage",
@@ -41,10 +45,6 @@ __all__ = (
     "ImportFileRequest",
     "IngestionStatus",
     "DirectoryRecord",
-    "NoopProgressMonitor",
-    "NoopProgressMonitorFactory",
-    "ProgressMonitor",
-    "ProgressMonitorFactory",
     "QueryFilesRequest",
     "RenameFileRequest",
     "S3Credentials",
