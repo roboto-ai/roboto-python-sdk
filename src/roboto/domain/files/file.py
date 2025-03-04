@@ -37,7 +37,7 @@ from .progress import (
     NoopProgressMonitorFactory,
     ProgressMonitorFactory,
 )
-from .record import FileRecord
+from .record import FileRecord, IngestionStatus
 
 
 class File:
@@ -340,10 +340,13 @@ class File:
         self,
         description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
+        ingestion_status: typing.Union[IngestionStatus, NotSetType] = NotSet,
     ) -> "File":
         request = remove_not_set(
             UpdateFileRecordRequest(
-                description=description, metadata_changeset=metadata_changeset
+                description=description,
+                metadata_changeset=metadata_changeset,
+                ingestion_status=ingestion_status,
             )
         )
         self.__record = self.__roboto_client.put(

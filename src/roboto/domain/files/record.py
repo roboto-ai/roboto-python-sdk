@@ -27,14 +27,21 @@ class FileStatus(str, enum.Enum):
 
 class IngestionStatus(str, enum.Enum):
     """
-    A file is considered ``Ingested`` if it has any associated topic records.
+    A file is considered ``Ingested`` if all topics stored in that file have been read and recorded by Roboto.
+    A file is considered ``PartlyIngested`` if it has at least one associated topic record.
+
     File ingestion happens as a post-upload processing step, and Roboto supports
     a number of common robotics log formats (such as ROS bags, MCAP files, and ULOG files) out-of-the-box.
+
+    If you write your own ingestion action, be sure to update the files you ingest to mark them as
+    fully ingested. This will allow you to use the Roboto platform to trigger actions on your
+    ingested file.
 
     An ingested file generally has first-class visualization support.
     """
 
     NotIngested = "not_ingested"
+    PartlyIngested = "partly_ingested"
     Ingested = "ingested"
 
 
