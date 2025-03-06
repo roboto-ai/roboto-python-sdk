@@ -194,6 +194,10 @@ class File:
         return self.__record.file_id
 
     @property
+    def ingestion_status(self) -> IngestionStatus:
+        return self.__record.ingestion_status
+
+    @property
     def org_id(self) -> str:
         return self.__record.org_id
 
@@ -306,6 +310,14 @@ class File:
 
             yield topic
 
+    def mark_ingested(self) -> "File":
+        """
+        Marks this file as fully ingested and ready for additional post-processing or analysis.
+
+        This file will have :py:attr:`IngestionStatus.Ingested` afterwards.
+        """
+        return self.update(ingestion_complete=True)
+
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "File":
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
 
@@ -340,13 +352,13 @@ class File:
         self,
         description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
-        ingestion_status: typing.Union[IngestionStatus, NotSetType] = NotSet,
+        ingestion_complete: typing.Union[typing.Literal[True], NotSetType] = NotSet,
     ) -> "File":
         request = remove_not_set(
             UpdateFileRecordRequest(
                 description=description,
                 metadata_changeset=metadata_changeset,
-                ingestion_status=ingestion_status,
+                ingestion_complete=ingestion_complete,
             )
         )
         self.__record = self.__roboto_client.put(

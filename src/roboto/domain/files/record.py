@@ -41,8 +41,19 @@ class IngestionStatus(str, enum.Enum):
     """
 
     NotIngested = "not_ingested"
+    """
+    None of the topics on this file have been read or recorded by Roboto.
+    """
+
     PartlyIngested = "partly_ingested"
+    """
+    This file has been partly ingested and Roboto is able to visualize some of its topics.
+    """
+
     Ingested = "ingested"
+    """
+    This file has been fully ingested and Roboto is able to schedule additional post-processing of its topics.
+    """
 
 
 class FileStorageType(str, enum.Enum):

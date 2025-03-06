@@ -13,11 +13,7 @@ from pydantic import ConfigDict
 from roboto.sentinels import NotSet, NotSetType
 from roboto.updates import MetadataChangeset
 
-from .record import (
-    DirectoryRecord,
-    FileRecord,
-    IngestionStatus,
-)
+from .record import DirectoryRecord, FileRecord
 
 
 class DeleteFileRequest(pydantic.BaseModel):
@@ -71,7 +67,7 @@ class UpdateFileRecordRequest(pydantic.BaseModel):
 
     description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
     metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
-    ingestion_status: typing.Union[IngestionStatus, NotSetType] = NotSet
+    ingestion_complete: typing.Union[typing.Literal[True], NotSetType] = NotSet
 
     model_config = pydantic.ConfigDict(
         extra="forbid", json_schema_extra=NotSetType.openapi_schema_modifier
