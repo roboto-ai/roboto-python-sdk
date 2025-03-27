@@ -10,9 +10,12 @@ import typing
 
 import pydantic
 
-from ..version import (
-    __version__ as roboto_version,
-)
+try:
+    from ..version import (
+        __version__ as roboto_version,
+    )
+except ModuleNotFoundError:
+    roboto_version = "0.0.0"
 
 
 class RobotoTool(str, enum.Enum):

@@ -46,7 +46,7 @@ class QueryFilesRequest(pydantic.BaseModel):
     """Request payload to query files"""
 
     filters: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
 
 class RenameFileRequest(pydantic.BaseModel):
@@ -70,7 +70,7 @@ class UpdateFileRecordRequest(pydantic.BaseModel):
     ingestion_complete: typing.Union[typing.Literal[True], NotSetType] = NotSet
 
     model_config = pydantic.ConfigDict(
-        extra="forbid", json_schema_extra=NotSetType.openapi_schema_modifier
+        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
     )
 
 

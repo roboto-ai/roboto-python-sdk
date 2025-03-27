@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import datetime
 import typing
 from typing import Optional, Union
 
@@ -151,6 +152,14 @@ class Collection:
         return self.__record.model_dump_json()
 
     @property
+    def created(self) -> datetime.datetime:
+        return self.__record.created
+
+    @property
+    def created_by(self) -> str:
+        return self.__record.created_by
+
+    @property
     def collection_id(self) -> str:
         return self.__record.collection_id
 
@@ -173,6 +182,14 @@ class Collection:
     @property
     def record(self) -> CollectionRecord:
         return self.__record
+
+    @property
+    def updated(self) -> datetime.datetime:
+        return self.__record.updated
+
+    @property
+    def updated_by(self) -> str:
+        return self.__record.updated_by
 
     def add_dataset(self, dataset_id: str) -> "Collection":
         return self.update(

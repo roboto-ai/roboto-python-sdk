@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import datetime
 import functools
 import importlib.metadata
 import math
@@ -169,6 +170,14 @@ class Dataset:
         return self.__record.model_dump_json()
 
     @property
+    def created(self) -> datetime.datetime:
+        return self.__record.created
+
+    @property
+    def created_by(self) -> str:
+        return self.__record.created_by
+
+    @property
     def dataset_id(self) -> str:
         return self.__record.dataset_id
 
@@ -179,6 +188,14 @@ class Dataset:
     @property
     def metadata(self) -> dict[str, typing.Any]:
         return self.__record.metadata.copy()
+
+    @property
+    def modified(self) -> datetime.datetime:
+        return self.__record.modified
+
+    @property
+    def modified_by(self) -> str:
+        return self.__record.modified_by
 
     @property
     def name(self) -> typing.Optional[str]:
@@ -226,7 +243,7 @@ class Dataset:
         out_path: pathlib.Path,
         include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
-    ) -> None:
+    ) -> list[tuple[FileRecord, pathlib.Path]]:
         """
         Download files associated with this dataset to the given directory.
         If `out_path` does not exist, it will be created.
@@ -234,10 +251,14 @@ class Dataset:
         `include_patterns` and `exclude_patterns` are lists of gitignore-style patterns.
         See https://git-scm.com/docs/gitignore.
 
+        Returns list of tuples (FileRecord, pathlib.Path),
+        where the first element is the FileRecord for the downloaded file,
+        and the second element is the local path to which that file was downloaded.
+
         Example:
             >>> from roboto.domain import datasets
             >>> dataset = datasets.Dataset(...)
-            >>> dataset.download_files(
+            >>> downloaded = dataset.download_files(
             ...     pathlib.Path("/tmp/tmp.nV1gdW5WHV"),
             ...     include_patterns=["**/*.g4"],
             ...     exclude_patterns=["**/test/**"]
@@ -246,26 +267,19 @@ class Dataset:
         if not out_path.is_dir():
             out_path.mkdir(parents=True)
 
-        def _file_to_download_tuple(f: File) -> tuple[FileRecord, pathlib.Path]:
-            return f.record, out_path / f.relative_path
-
         all_files = list(self.list_files(include_patterns, exclude_patterns))
 
-        files_by_bucket = collections.defaultdict(list)
+        files_by_bucket: dict[str, list[tuple[FileRecord, pathlib.Path]]] = (
+            collections.defaultdict(list)
+        )
         for file in all_files:
-            files_by_bucket[file.record.bucket].append(file)
+            files_by_bucket[file.record.bucket].append(
+                (file.record, out_path / file.relative_path)
+            )
 
         for bucket_name, bucket_files in files_by_bucket.items():
-
-            def _file_generator():
-                for x in map(
-                    _file_to_download_tuple,
-                    bucket_files,
-                ):
-                    yield x
-
             self.__file_service.download_files(
-                file_generator=_file_generator(),
+                file_generator=(file for file in bucket_files),
                 credential_provider=self.__file_creds_helper.get_dataset_download_creds_provider(
                     self.dataset_id, bucket_name
                 ),
@@ -278,6 +292,8 @@ class Dataset:
                 ),
                 max_concurrency=8,
             )
+
+        return [item for val in files_by_bucket.values() for item in val]
 
     def get_file_by_path(
         self,

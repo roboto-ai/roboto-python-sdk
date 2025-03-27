@@ -86,8 +86,9 @@ def invoke_parser(parser: argparse.ArgumentParser) -> None:
         help="Optional unique ID which ensures that an invocation is run exactly once.",
     )
 
-    # As more InvocationDataSourceTypes are supported,
-    # additional, mutually-exclusive argument groups should be added
+    # TODO: we're migrating to a new way of specifying action inputs, where a single
+    # invocation data source no longer makes sense. For compatibility, we're temporarily
+    # going to continue supporting the current way of providing a dataset ID as the data source.
     dataset_source_group = parser.add_argument_group(
         "Dataset",
         "Use a dataset as the data source for this invocation. This is currently the only option.",

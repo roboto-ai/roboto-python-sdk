@@ -33,6 +33,16 @@ class TriggerForEachPrimitive(str, enum.Enum):
     DatasetFile = "dataset_file"
 
 
+class TriggerEvaluationCause(enum.Enum):
+    """
+    The cause of a TriggerEvaluationRecord is the reason why the trigger was selected for evaluation.
+    """
+
+    DatasetMetadataUpdate = "dataset_metadata_update"
+    FileUpload = "file_upload"
+    FileIngest = "file_ingest"
+
+
 class TriggerRecord(pydantic.BaseModel):
     """
     A wire-transmissible representation of an trigger.
@@ -52,6 +62,7 @@ class TriggerRecord(pydantic.BaseModel):
     enabled: bool = True
     parameter_values: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     additional_inputs: typing.Optional[list[str]] = None
+    causes: typing.Optional[list[TriggerEvaluationCause]] = None
     compute_requirement_overrides: typing.Optional[ComputeRequirements] = None
     container_parameter_overrides: typing.Optional[ContainerParameters] = None
     condition: typing.Optional[ConditionType] = None
@@ -69,15 +80,6 @@ class TriggerRecord(pydantic.BaseModel):
             return []
 
         return validate_nonzero_gitpath_specs(value)
-
-
-class TriggerEvaluationCause(enum.Enum):
-    """
-    The cause of a TriggerEvaluationRecord is the reason why the trigger was selected for evaluation.
-    """
-
-    DatasetMetadataUpdate = "dataset_metadata_update"
-    FileUpload = "file_upload"
 
 
 class TriggerEvaluationStatus(enum.Enum):

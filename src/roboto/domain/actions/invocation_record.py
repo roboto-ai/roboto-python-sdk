@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import datetime
 import enum
 import json
@@ -16,6 +18,8 @@ from .action_record import (
     ContainerParameters,
     ExecutorContainer,
 )
+
+_UNSPECIFIED_DATA_SOURCE: str = "__UNSPECIFIED_DATA_SOURCE__"
 
 
 class InvocationDataSourceType(enum.Enum):
@@ -31,6 +35,130 @@ class InvocationDataSource(pydantic.BaseModel):
     # The "type" determines the meaning of "id":
     #   - if type is "Dataset," id is a dataset_id
     data_source_id: str
+
+    @staticmethod
+    def unspecified() -> InvocationDataSource:
+        """Returns a special value indicating that no invocation source is specified."""
+
+        return InvocationDataSource(
+            data_source_type=InvocationDataSourceType.Dataset,
+            data_source_id=_UNSPECIFIED_DATA_SOURCE,
+        )
+
+    def is_unspecified(self) -> bool:
+        return self.data_source_id == _UNSPECIFIED_DATA_SOURCE
+
+
+class DataSelector(pydantic.BaseModel):
+    """Selector for inputs (e.g. files) to an action invocation."""
+
+    query: typing.Optional[str] = None
+    """RoboQL query representing the desired inputs."""
+
+    ids: typing.Optional[list[str]] = None
+    """Specific input IDs (e.g. a dataset ID)."""
+
+    names: typing.Optional[list[str]] = None
+    """Specific input names (e.g. topic names)."""
+
+    dataset_id: typing.Optional[str] = None
+    """Dataset ID, needed for backward compatibility purposes.
+    Prefer RoboQL: dataset_id = <the ID in double quotes>"""
+
+    @pydantic.model_validator(mode="after")
+    def ensure_not_empty(self) -> DataSelector:
+        if not any([self.query, self.ids, self.names]):
+            raise ValueError("At least one selector field must be provided!")
+
+        return self
+
+
+class FileSelector(DataSelector):
+    """Selector for file inputs to an action invocation.
+
+    This selector type exists for backward compatibility purposes. We encourage you
+    to use the `query` field to scope your input query to any dataset and/or file paths.
+    """
+
+    paths: typing.Optional[list[str]] = None
+    """File paths or patterns. Prefer RoboQL: path LIKE <path pattern in double quotes>"""
+
+    @pydantic.model_validator(mode="after")
+    def ensure_not_empty(self) -> FileSelector:
+        if not any([self.query, self.ids, self.names, self.paths]):
+            raise ValueError("At least one file selector field must be provided!")
+
+        return self
+
+
+class InvocationInput(pydantic.BaseModel):
+    """Input specification for an action invocation.
+
+    An invocation may require no inputs at all, or some combination of Roboto files, topics,
+    events, etc. Those are specified using selectors, which tell the invocation how to locate
+    inputs. Selector choices include RoboQL queries (for maximum flexibility), as well as unique
+    IDs or friendly names.
+
+    Note: support for certain input types is a work in progress, and will be offered in future Roboto
+    platform releases.
+
+    At least one data selector must be provided in order to construct a valid `InvocationInput`
+    instance.
+    """
+
+    files: typing.Optional[typing.Union[FileSelector, list[FileSelector]]] = None
+    """File selectors."""
+
+    topics: typing.Optional[typing.Union[DataSelector, list[DataSelector]]] = None
+    """Topic selectors. Support upcoming."""
+
+    @pydantic.model_validator(mode="after")
+    def ensure_not_empty(self) -> InvocationInput:
+        if not any(
+            [
+                self.files,
+                self.topics,
+            ]
+        ):
+            raise ValueError("At least one input field must be provided!")
+
+        return self
+
+    @classmethod
+    def from_dataset_file_paths(
+        cls, dataset_id: str, file_paths: list[str]
+    ) -> InvocationInput:
+        return cls(files=FileSelector(dataset_id=dataset_id, paths=file_paths))
+
+    @property
+    def safe_files(self) -> list[FileSelector]:
+        match self.files:
+            case None:
+                return []
+            case FileSelector():
+                return [self.files]
+            case _:
+                return self.files
+
+    @property
+    def file_paths(self) -> list[str]:
+        res: set[str] = set()
+
+        for selector in self.safe_files:
+            paths: list[str] = selector.paths or []
+            res.update(paths)
+
+        return list(res)
+
+    @property
+    def safe_topics(self) -> list[DataSelector]:
+        match self.topics:
+            case None:
+                return []
+            case DataSelector():
+                return [self.topics]
+            case _:
+                return self.topics
 
 
 class ActionProvenance(pydantic.BaseModel):
@@ -185,6 +313,7 @@ class InvocationRecord(pydantic.BaseModel):
     created: datetime.datetime  # Persisted as ISO 8601 string in UTC
     data_source: InvocationDataSource
     input_data: list[str]
+    rich_input_data: typing.Optional[InvocationInput] = None
     invocation_id: str  # Sort key
     idempotency_id: typing.Optional[str] = None
     compute_requirements: ComputeRequirements
@@ -204,6 +333,11 @@ class InvocationRecord(pydantic.BaseModel):
                 "created": self.created.isoformat(),
                 "data_source": self.data_source.model_dump(mode="json"),
                 "input_data": self.input_data,
+                "rich_input_data": (
+                    self.rich_input_data.model_dump(mode="json")
+                    if self.rich_input_data
+                    else None
+                ),
                 "invocation_id": self.invocation_id,
                 "idempotency_id": self.idempotency_id,
                 "compute_requirements": self.compute_requirements.model_dump(

@@ -168,5 +168,5 @@ class UpdateEventRequest(pydantic.BaseModel):
 
     # This is required to get NotSet/NotSetType to serialize appropriately.
     model_config = pydantic.ConfigDict(
-        extra="forbid", json_schema_extra=NotSetType.openapi_schema_modifier
+        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
     )

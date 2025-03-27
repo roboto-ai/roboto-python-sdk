@@ -6,6 +6,7 @@
 
 import enum
 import os
+import pathlib
 import re
 import typing
 
@@ -43,6 +44,7 @@ def resolve_env_variables(value: str):
 class RobotoEnvKey(str, enum.Enum):
     """Environment variable keys available within an action invocation runtime"""
 
+    ActionInputsManifest = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_INPUTS_MANIFEST"
     ActionParametersFile = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_PARAMETERS_FILE"
     ActionTimeout = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_TIMEOUT"
     ApiKey = f"{ROBOTO_ENV_VAR_PREFIX}API_KEY"
@@ -87,6 +89,10 @@ class RobotoEnv(pydantic_settings.BaseSettings):
         if _roboto_env_instance is None:
             _roboto_env_instance = cls()
         return _roboto_env_instance
+
+    action_inputs_manifest_file: typing.Optional[pathlib.Path] = pydantic.Field(
+        default=None, alias="ROBOTO_ACTION_INPUTS_MANIFEST"
+    )
 
     action_parameters_file: typing.Optional[str] = pydantic.Field(
         default=None, alias="ROBOTO_ACTION_PARAMETERS_FILE"

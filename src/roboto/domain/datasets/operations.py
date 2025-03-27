@@ -106,7 +106,7 @@ class QueryDatasetsRequest(pydantic.BaseModel):
     """
 
     filters: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
 
 class ReportTransactionProgressRequest(pydantic.BaseModel):

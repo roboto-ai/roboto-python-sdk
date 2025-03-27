@@ -22,6 +22,7 @@ from ...pydantic import (
 )
 from ...query import ConditionType
 from .trigger_record import (
+    TriggerEvaluationCause,
     TriggerForEachPrimitive,
 )
 
@@ -35,6 +36,7 @@ class CreateTriggerRequest(pydantic.BaseModel):
     action_name: str
     action_owner_id: typing.Optional[str] = None
     additional_inputs: typing.Optional[list[str]] = None
+    causes: typing.Optional[list[TriggerEvaluationCause]] = None
     compute_requirement_overrides: typing.Optional[ComputeRequirements] = None
     condition: typing.Optional[ConditionType] = None
     container_parameter_overrides: typing.Optional[ContainerParameters] = None
@@ -71,7 +73,7 @@ class QueryTriggersRequest(pydantic.BaseModel):
     """
 
     filters: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
 
 class TriggerEvaluationsSummaryResponse(pydantic.BaseModel):
@@ -92,6 +94,7 @@ class UpdateTriggerRequest(pydantic.BaseModel):
     action_owner_id: typing.Union[str, NotSetType] = NotSet
     action_digest: typing.Optional[typing.Union[str, NotSetType]] = NotSet
     additional_inputs: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet
+    causes: typing.Union[list[TriggerEvaluationCause], NotSetType] = NotSet
     compute_requirement_overrides: typing.Optional[
         typing.Union[ComputeRequirements, NotSetType]
     ] = NotSet
@@ -108,5 +111,5 @@ class UpdateTriggerRequest(pydantic.BaseModel):
     timeout: typing.Optional[typing.Union[int, NotSetType]] = NotSet
 
     model_config = ConfigDict(
-        extra="forbid", json_schema_extra=NotSetType.openapi_schema_modifier
+        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
     )

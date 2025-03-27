@@ -24,7 +24,6 @@ from .retry import RetryWaitFn
 
 logger = logging.getLogger(LOGGER_NAME)
 
-
 ApiRelativePath = typing.Union[str, collections.abc.Sequence[str]]
 
 
@@ -62,11 +61,17 @@ class RobotoClient:
         return client or RobotoClient.from_env()
 
     def __init__(
-        self, endpoint: str, auth_decorator: typing.Optional[HttpRequestDecorator]
+        self,
+        endpoint: str,
+        auth_decorator: typing.Optional[HttpRequestDecorator],
+        http_client_kwargs: typing.Optional[dict[str, typing.Any]] = None,
     ):
         self.__endpoint = endpoint
+        defaulted_http_client_kwargs = http_client_kwargs if http_client_kwargs else {}
         self.__http_client = HttpClient(
-            default_endpoint=endpoint, default_auth=auth_decorator
+            default_endpoint=endpoint,
+            default_auth=auth_decorator,
+            **defaulted_http_client_kwargs,
         )
 
     @property

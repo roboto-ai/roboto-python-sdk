@@ -24,6 +24,7 @@ from .invocation_record import (
     ActionProvenance,
     ExecutableProvenance,
     InvocationDataSource,
+    InvocationInput,
     InvocationRecord,
     InvocationStatus,
     InvocationStatusRecord,
@@ -145,8 +146,17 @@ class Invocation:
         return self.__record.invocation_id
 
     @property
-    def input_data(self) -> list[str]:
-        return self.__record.input_data
+    def input_data(self) -> typing.Optional[InvocationInput]:
+        if self.__record.rich_input_data:
+            return self.__record.rich_input_data
+
+        if not self.__record.data_source.is_unspecified():
+            return InvocationInput.from_dataset_file_paths(
+                dataset_id=self.__record.data_source.data_source_id,
+                file_paths=self.__record.input_data,
+            )
+
+        return None
 
     @property
     def org_id(self) -> str:

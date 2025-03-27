@@ -54,7 +54,7 @@ class SetActionAccessibilityRequest(pydantic.BaseModel):
     accessibility: Accessibility
     digest: Optional[str] = None
     """Specify specific version of Action. If not specified, the latest version's accessibility will be updated."""
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
 
 class UpdateActionRequest(pydantic.BaseModel):
@@ -83,5 +83,5 @@ class UpdateActionRequest(pydantic.BaseModel):
         return stripped
 
     model_config = ConfigDict(
-        extra="forbid", json_schema_extra=NotSetType.openapi_schema_modifier
+        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
     )

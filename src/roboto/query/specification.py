@@ -128,7 +128,7 @@ class QuerySpecification(pydantic.BaseModel):
     Sort direction for query results. Optional, defaults to "descending".
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     def fields(self) -> set[str]:
         """Return a set of all fields referenced in the query."""

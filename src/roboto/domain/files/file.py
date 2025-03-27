@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import datetime
 import pathlib
 import typing
 import urllib.parse
@@ -182,6 +183,14 @@ class File:
         return self.__record.model_dump_json()
 
     @property
+    def created(self) -> datetime.datetime:
+        return self.__record.created
+
+    @property
+    def created_by(self) -> str:
+        return self.__record.created_by
+
+    @property
     def dataset_id(self) -> str:
         return self.__record.association_id
 
@@ -212,6 +221,14 @@ class File:
     @property
     def metadata(self) -> dict[str, typing.Any]:
         return self.__record.metadata
+
+    @property
+    def modified(self) -> datetime.datetime:
+        return self.__record.modified
+
+    @property
+    def modified_by(self) -> str:
+        return self.__record.modified_by
 
     @property
     def tags(self) -> list[str]:

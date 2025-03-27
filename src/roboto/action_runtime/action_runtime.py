@@ -10,6 +10,7 @@ import typing
 from ..domain import actions, datasets, orgs
 from ..env import RobotoEnv, RobotoEnvKey
 from ..http import RobotoClient
+from .action_input import ActionInput
 from .exceptions import ActionRuntimeException
 from .file_changeset import (
     FilesChangesetFileManager,
@@ -272,6 +273,19 @@ class ActionRuntime:
         The :class:`~roboto.http.RobotoClient` instance used by this action runtime.
         """
         return self.__roboto_client
+
+    def get_input(self) -> ActionInput:
+        """
+        Instance of :class:`~roboto.action_runtime.ActionInput` containing resolved references to input data.
+        """
+        action_inputs_manifest_file = self.__roboto_env.action_inputs_manifest_file
+        if action_inputs_manifest_file is None:
+            raise ActionRuntimeException("Couldn't find action input manifest file")
+
+        if action_inputs_manifest_file.stat().st_size == 0:
+            return ActionInput()
+
+        return ActionInput.model_validate_json(action_inputs_manifest_file.read_text())
 
     def get_parameter(self, name: str) -> str:
         """

@@ -35,6 +35,7 @@ from .trigger_operations import (
     UpdateTriggerRequest,
 )
 from .trigger_record import (
+    TriggerEvaluationCause,
     TriggerEvaluationRecord,
     TriggerEvaluationStatus,
     TriggerForEachPrimitive,
@@ -86,6 +87,7 @@ class Trigger:
         action_digest: typing.Optional[str] = None,
         action_owner_id: typing.Optional[str] = None,
         additional_inputs: typing.Optional[list[str]] = None,
+        causes: typing.Optional[list[TriggerEvaluationCause]] = None,
         compute_requirement_overrides: typing.Optional[ComputeRequirements] = None,
         condition: typing.Optional[ConditionType] = None,
         container_parameter_overrides: typing.Optional[ContainerParameters] = None,
@@ -105,6 +107,7 @@ class Trigger:
             action_name=action_name,
             action_owner_id=action_owner_id,
             additional_inputs=additional_inputs,
+            causes=causes,
             compute_requirement_overrides=compute_requirement_overrides,
             condition=condition,
             container_parameter_overrides=container_parameter_overrides,
@@ -322,6 +325,7 @@ class Trigger:
         additional_inputs: typing.Optional[
             typing.Union[list[str], NotSetType]
         ] = NotSet,
+        causes: typing.Union[list[TriggerEvaluationCause], NotSetType] = NotSet,
         compute_requirement_overrides: typing.Optional[
             typing.Union[ComputeRequirements, NotSetType]
         ] = NotSet,
@@ -343,6 +347,7 @@ class Trigger:
                 action_owner_id=action_owner_id,
                 action_digest=action_digest,
                 additional_inputs=additional_inputs,
+                causes=causes,
                 compute_requirement_overrides=compute_requirement_overrides,
                 container_parameter_overrides=container_parameter_overrides,
                 condition=condition,

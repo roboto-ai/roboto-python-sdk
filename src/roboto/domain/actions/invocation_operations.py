@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
+import typing
 from typing import Any, Optional
 
 import pydantic
@@ -15,6 +16,7 @@ from .action_record import (
 )
 from .invocation_record import (
     InvocationDataSourceType,
+    InvocationInput,
     InvocationSource,
     InvocationStatus,
 )
@@ -61,6 +63,7 @@ class CreateInvocationRequest(pydantic.BaseModel):
     data_source_type: InvocationDataSourceType
     idempotency_id: Optional[str] = None
     input_data: list[str]
+    rich_input_data: typing.Optional[InvocationInput] = None
     invocation_source: InvocationSource
     invocation_source_id: Optional[str] = None
     parameter_values: Optional[dict[str, Any]] = None

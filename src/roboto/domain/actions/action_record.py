@@ -47,7 +47,7 @@ class ActionParameter(pydantic.BaseModel):
     Accepts any default value, but coerced to a string.
     """
 
-    model_config = pydantic.ConfigDict(extra="forbid")
+    model_config = pydantic.ConfigDict(extra="ignore")
 
     def __eq__(self, other: typing.Any) -> bool:
         if not isinstance(other, ActionParameter):
@@ -209,7 +209,7 @@ class ComputeRequirements(pydantic.BaseModel):
             and self.storage == other.storage
         )
 
-    model_config = pydantic.ConfigDict(extra="forbid")
+    model_config = pydantic.ConfigDict(extra="ignore")
 
 
 class ContainerParameters(pydantic.BaseModel):
@@ -233,7 +233,7 @@ class ContainerParameters(pydantic.BaseModel):
             and self.workdir == other.workdir
         )
 
-    model_config = pydantic.ConfigDict(extra="forbid")
+    model_config = pydantic.ConfigDict(extra="ignore")
 
 
 class ActionRecord(pydantic.BaseModel):

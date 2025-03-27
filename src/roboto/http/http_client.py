@@ -104,6 +104,7 @@ class HttpClient:
     __base_headers: dict[str, str]
     __default_auth: typing.Optional[HttpRequestDecorator]
     __default_endpoint: typing.Optional[str]
+    __extra_headers_provider: typing.Optional[typing.Callable[[], dict[str, str]]]
 
     def __init__(
         self,
@@ -111,8 +112,12 @@ class HttpClient:
         default_endpoint: typing.Optional[str] = None,
         default_auth: typing.Optional[HttpRequestDecorator] = None,
         requester: typing.Optional[RobotoRequester] = None,
+        extra_headers_provider: typing.Optional[
+            typing.Callable[[], dict[str, str]]
+        ] = None,
     ):
         self.__base_headers = base_headers if base_headers is not None else {}
+        self.__extra_headers_provider = extra_headers_provider
 
         if requester is not None:
             self.set_requester(requester)
@@ -225,6 +230,9 @@ class HttpClient:
         return self.__default_auth
 
     def __request_headers(self, request_ctx: HttpRequest) -> dict[str, str]:
+        if self.__extra_headers_provider is not None:
+            self.__base_headers.update(self.__extra_headers_provider())
+
         headers = self.__base_headers.copy()
 
         if request_ctx.headers:

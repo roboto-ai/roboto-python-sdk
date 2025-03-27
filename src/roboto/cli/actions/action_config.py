@@ -54,4 +54,4 @@ class ActionConfig(pydantic.BaseModel):
             )
         return values
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")

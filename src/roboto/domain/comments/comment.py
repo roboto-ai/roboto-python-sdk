@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import datetime
 import typing
 import urllib.parse
 
@@ -173,8 +174,20 @@ class Comment:
         return self.__record.comment_id
 
     @property
+    def created(self) -> datetime.datetime:
+        return self.__record.created
+
+    @property
     def created_by(self) -> str:
         return self.__record.created_by
+
+    @property
+    def modified(self) -> datetime.datetime:
+        return self.__record.modified
+
+    @property
+    def modified_by(self) -> str:
+        return self.__record.modified_by
 
     @property
     def record(self) -> CommentRecord:

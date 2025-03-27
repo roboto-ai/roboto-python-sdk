@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import datetime
 import typing
 
 from ...exceptions import RobotoDomainException
@@ -129,12 +130,28 @@ class Device:
         return self.__record.model_dump_json()
 
     @property
+    def created(self) -> datetime.datetime:
+        return self.__record.created
+
+    @property
+    def created_by(self) -> str:
+        return self.__record.created_by
+
+    @property
     def device_id(self) -> str:
         """
         This device's ID. Device ID is a user-provided identifier for a device, which is unique within the
         device's org.
         """
         return self.__record.device_id
+
+    @property
+    def modified(self) -> datetime.datetime:
+        return self.__record.modified
+
+    @property
+    def modified_by(self) -> str:
+        return self.__record.modified_by
 
     @property
     def org_id(self) -> str:

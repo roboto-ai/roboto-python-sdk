@@ -39,7 +39,9 @@ from .invocation_operations import (
     CreateInvocationRequest,
 )
 from .invocation_record import (
+    InvocationDataSource,
     InvocationDataSourceType,
+    InvocationInput,
     InvocationRecord,
     InvocationSource,
 )
@@ -257,10 +259,10 @@ class Action:
 
     def invoke(
         self,
-        data_source_id: str,
-        data_source_type: InvocationDataSourceType,
-        input_data: list[str],
         invocation_source: InvocationSource,
+        data_source_id: typing.Optional[str] = None,
+        data_source_type: typing.Optional[InvocationDataSourceType] = None,
+        input_data: typing.Optional[typing.Union[list[str], InvocationInput]] = None,
         compute_requirement_overrides: typing.Optional[ComputeRequirements] = None,
         container_parameter_overrides: typing.Optional[ContainerParameters] = None,
         idempotency_id: typing.Optional[str] = None,
@@ -269,10 +271,60 @@ class Action:
         timeout: typing.Optional[int] = None,
         caller_org_id: typing.Optional[str] = None,
     ) -> Invocation:
+        """Invokes this action using any inputs and options provided.
+
+        Args:
+            invocation_source: Manual, trigger, etc.
+            data_source_type: If set, should equal `Dataset` for backward compatibility.
+            data_source_id: If set, should be a dataset ID for backward compatibility.
+            input_data:
+                Either a list of file name patterns, or an `InvocationInput` specification.
+            compute_requirement_overrides:
+                Overrides for the action's default compute requirements (e.g. vCPU)
+            container_parameter_overrides:
+                Overrides for the action's default container parameters (e.g. entrypoint)
+            idempotency_id:
+                Unique ID to ensure an invocation is run exactly once.
+            invocation_source_id:
+                ID of the trigger or manual operator performing the invocation.
+            parameter_values: Action parameter values.
+            timeout: Action timeout in minutes.
+            caller_org_id: Org ID of the caller.
+
+        Returns:
+            An `Invocation` object that can be used to track the invocation's progress.
+
+        Raises:
+            RobotoIllegalArgumentException: Invalid method parameters or combinations.
+            RobotoInvalidRequestException: Incorrectly formed request.
+            RobotoUnauthorizedException: The caller is not authorized to invoke this action.
+        """
+
+        resolved_input_data: typing.Optional[InvocationInput] = None
+        file_paths: list[str] = []
+
+        if isinstance(input_data, InvocationInput):
+            resolved_input_data = input_data
+        elif isinstance(input_data, list):
+            if not data_source_id:
+                raise RobotoIllegalArgumentException(
+                    "'data_source_id' is required when 'input_data' is a list of file name patterns!"
+                )
+
+            file_paths = input_data
+            resolved_input_data = InvocationInput.from_dataset_file_paths(
+                dataset_id=data_source_id, file_paths=input_data
+            )
+
         request = CreateInvocationRequest(
-            data_source_id=data_source_id,
-            data_source_type=data_source_type,
-            input_data=input_data,
+            data_source_id=(
+                data_source_id or InvocationDataSource.unspecified().data_source_id
+            ),
+            data_source_type=(
+                data_source_type or InvocationDataSource.unspecified().data_source_type
+            ),
+            input_data=file_paths,
+            rich_input_data=resolved_input_data,
             invocation_source=invocation_source,
             compute_requirement_overrides=compute_requirement_overrides,
             container_parameter_overrides=container_parameter_overrides,

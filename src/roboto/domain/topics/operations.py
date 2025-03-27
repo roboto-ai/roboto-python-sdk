@@ -75,7 +75,7 @@ class AddMessagePathRequest(pydantic.BaseModel):
         + "`{ 'min': 0.71, 'max': 1.77, 'classification': 'my-custom-classification-tag' }`",
     )
 
-    model_config = pydantic.ConfigDict(extra="forbid")
+    model_config = pydantic.ConfigDict(extra="ignore")
 
 
 class UpdateMessagePathRequest(pydantic.BaseModel):
@@ -97,7 +97,7 @@ class UpdateMessagePathRequest(pydantic.BaseModel):
     ability to interpret and visualize the data.
     """
 
-    model_config = pydantic.ConfigDict(extra="forbid")
+    model_config = pydantic.ConfigDict(extra="ignore")
 
     def has_updates(self) -> bool:
         """Checks whether this request would result in any message path modifications."""
@@ -118,7 +118,7 @@ class DeleteMessagePathRequest(pydantic.BaseModel):
     message_path: str
     """Message path name."""
 
-    model_config = pydantic.ConfigDict(extra="forbid")
+    model_config = pydantic.ConfigDict(extra="ignore")
 
 
 class MessagePathChangeset(pydantic.BaseModel):
@@ -214,5 +214,5 @@ class UpdateTopicRequest(pydantic.BaseModel):
     message_path_changeset: typing.Union[MessagePathChangeset, NotSetType] = NotSet
 
     model_config = pydantic.ConfigDict(
-        extra="forbid", json_schema_extra=NotSetType.openapi_schema_modifier
+        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
     )
