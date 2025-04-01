@@ -7,10 +7,18 @@
 import pathlib
 import typing
 
-from ..domain import actions, datasets, orgs
+from ..domain import (
+    actions,
+    datasets,
+    files,
+    orgs,
+)
 from ..env import RobotoEnv, RobotoEnvKey
 from ..http import RobotoClient
-from .action_input import ActionInput
+from .action_input import (
+    ActionInput,
+    ActionInputRecord,
+)
 from .exceptions import ActionRuntimeException
 from .file_changeset import (
     FilesChangesetFileManager,
@@ -285,7 +293,15 @@ class ActionRuntime:
         if action_inputs_manifest_file.stat().st_size == 0:
             return ActionInput()
 
-        return ActionInput.model_validate_json(action_inputs_manifest_file.read_text())
+        input_record = ActionInputRecord.model_validate_json(
+            action_inputs_manifest_file.read_text()
+        )
+        return ActionInput(
+            files=[
+                (files.File(file_rec, self.__roboto_client), path)
+                for file_rec, path in input_record.files
+            ]
+        )
 
     def get_parameter(self, name: str) -> str:
         """

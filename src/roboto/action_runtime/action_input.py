@@ -5,38 +5,49 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import dataclasses
 import pathlib
 import typing
 
 import pydantic
 
-from ..domain.files import FileRecord
+from ..domain.files import File, FileRecord
 
 DEFAULT_INPUT_FILE = pathlib.Path.cwd() / "action_input.json"
 
 
-class ActionInput(pydantic.BaseModel):
+class ActionInputRecord(pydantic.BaseModel):
+    """Serializable representation of an ``ActionInput``."""
+
+    files: collections.abc.Sequence[
+        tuple[FileRecord, typing.Optional[pathlib.Path]]
+    ] = pydantic.Field(default_factory=list)
+
+
+@dataclasses.dataclass
+class ActionInput:
     """
     Resolved references to input data an Action was given to operate on.
 
     To use, access via :py:meth:`~roboto.action_runtime.ActionRuntime.get_input`.
 
     Example:
-        From within an Action, list file records passed as input and check their size:
+        From within an Action, list files passed as input and check their size:
 
         >>> action_runtime = ActionRuntime.from_env()
         >>> action_input = action_runtime.get_input()
-        >>> for record, local_path in action_input.files:
-        >>>     print(f"{record.file_id} is {local_path.stat().st_size} bytes")
+        >>> for file, local_path in action_input.files:
+        >>>     print(f"{file.file_id} is {local_path.stat().st_size} bytes")
 
     """
 
+    files: collections.abc.Sequence[tuple[File, typing.Optional[pathlib.Path]]] = (
+        dataclasses.field(default_factory=list)
+    )
     """
-    Files passed as input data to an Action.
-    A file is represented as a tuple of (FileRecord, Optional[Path]) where:
-    - FileRecord contains metadata about the file
+    Files passed as input data to an action invocation.
+
+    A file is represented as a tuple of (File, Optional[Path]) where:
+    - File exposes metadata about the file and useful file operations
     - Optional[Path] is the local file path if the file has been downloaded
     """
-    files: collections.abc.Sequence[
-        tuple[FileRecord, typing.Optional[pathlib.Path]]
-    ] = pydantic.Field(default_factory=list)
