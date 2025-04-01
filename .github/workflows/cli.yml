@@ -196,4 +196,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/roboto-*
+          body_path: RELEASE_NOTES.md
           make_latest: true
