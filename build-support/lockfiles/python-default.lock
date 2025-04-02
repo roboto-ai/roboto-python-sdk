@@ -689,36 +689,31 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "fc462b9fd738bd8a1c121d94d237c6b6a05a2c1cc709d16f5223acb752f7310b",
-              "url": "https://files.pythonhosted.org/packages/25/eb/88fe910bde6ccc94cbf099bc5e50b7bf79c97a3292bb4e0e2fbd73824906/boto3-1.37.23-py3-none-any.whl"
-            },
-            {
-              "algorithm": "sha256",
-              "hash": "82f4599a34f5eb66e916b9ac8547394f6e5899c19580e74b60237db04cf66d1e",
-              "url": "https://files.pythonhosted.org/packages/65/81/fcaf72cf86c4b3f1a4efa3500e08c97d2a98966a35760acfaed79100c6a0/boto3-1.37.23.tar.gz"
+              "hash": "00a025c621198508dc20c45224baaa7bd2a695323d999cce08b0d4deab5ada6f",
+              "url": "https://files.pythonhosted.org/packages/12/6a/05352f633876b28bc311092ba0be5286f604e36d33a1347fff7045721d99/boto3-1.37.25-py3-none-any.whl"
             }
           ],
           "project_name": "boto3",
           "requires_dists": [
-            "botocore<1.38.0,>=1.37.23",
+            "botocore<1.38.0,>=1.37.25",
             "botocore[crt]<2.0a0,>=1.21.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
             "s3transfer<0.12.0,>=0.11.0"
           ],
           "requires_python": ">=3.8",
-          "version": "1.37.23"
+          "version": "1.37.25"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "ffbe1f5958adb1c50d72d3ad1018cb265fe349248c08782d334601c0814f0e38",
-              "url": "https://files.pythonhosted.org/packages/8e/1c/9d840859acaf6df9effa9ef3e25624c27fc65334c51396909b22e235e8d1/botocore-1.37.23-py3-none-any.whl"
+              "hash": "e35f10df0c3bcf42f4680439148462073fe6445d8938679f0576eb189fb034d7",
+              "url": "https://files.pythonhosted.org/packages/e7/24/e7132b1309d056727ab260b29eea4b22659d7909cf18acb5fbf4db2514fb/botocore-1.37.25-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "3a249c950cef9ee9ed7b2278500ad83a4ad6456bc433a43abd1864d1b61b2acb",
-              "url": "https://files.pythonhosted.org/packages/0e/34/9becaddf187353e1449a3bfa08ee7b069398f51e3d600cffdb0a63789e34/botocore-1.37.23.tar.gz"
+              "hash": "6f8cefd769df170809816d66bde2e12c43f557ca6cf18c807922003319b52991",
+              "url": "https://files.pythonhosted.org/packages/0a/32/9854fb2a59f306d90cff889b1fe794b34f3681f0fafc574b2a7fa4cfc753/botocore-1.37.25.tar.gz"
             }
           ],
           "project_name": "botocore",
@@ -730,7 +725,7 @@
             "urllib3<1.27,>=1.25.4; python_version < \"3.10\""
           ],
           "requires_python": ">=3.8",
-          "version": "1.37.23"
+          "version": "1.37.25"
         },
         {
           "artifacts": [
@@ -2069,28 +2064,28 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "19b23410220a7271e8377f81ba8aacba2fdd56947fbb137ee5977cbe1f5e8dfa",
-              "url": "https://files.pythonhosted.org/packages/aa/42/797895b952b682c3dafe23b1834507ee7f02f4d6299b65aaa61425763278/json5-0.10.0-py3-none-any.whl"
+              "hash": "19b10a65c82d1aefd389f92c13aeeb3c611c79e8d4f28442dfc153dd24f6f0ff",
+              "url": "https://files.pythonhosted.org/packages/a9/bd/2278060147a9a14990ab6e70e0f24a3b3f13e899a15ad16f69697c09a180/json5-0.11.0-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "e66941c8f0a02026943c52c2eb34ebeb2a6f819a0be05920a6f5243cd30fd559",
-              "url": "https://files.pythonhosted.org/packages/85/3d/bbe62f3d0c05a689c711cff57b2e3ac3d3e526380adb7c781989f075115c/json5-0.10.0.tar.gz"
+              "hash": "dab115459d9372760f2b568d949e069edd991f8e75458cff67328b9125750f12",
+              "url": "https://files.pythonhosted.org/packages/f8/c5/1ac1e9f9f994cbfa40ff2a706872d017e89cda87d187709a2fd8a8b62ac2/json5-0.11.0.tar.gz"
             }
           ],
           "project_name": "json5",
           "requires_dists": [
             "build==1.2.2.post1; extra == \"dev\"",
-            "coverage==7.5.3; extra == \"dev\"",
-            "mypy==1.13.0; extra == \"dev\"",
-            "pip==24.3.1; extra == \"dev\"",
-            "pylint==3.2.3; extra == \"dev\"",
-            "ruff==0.7.3; extra == \"dev\"",
-            "twine==5.1.1; extra == \"dev\"",
-            "uv==0.5.1; extra == \"dev\""
+            "coverage==7.5.4; extra == \"dev\"",
+            "mypy==1.14.1; extra == \"dev\"",
+            "pip==25.0.1; extra == \"dev\"",
+            "pylint==3.2.7; extra == \"dev\"",
+            "ruff==0.11.2; extra == \"dev\"",
+            "twine==6.1.0; extra == \"dev\"",
+            "uv==0.6.11; extra == \"dev\""
           ],
           "requires_python": ">=3.8.0",
-          "version": "0.10.0"
+          "version": "0.11.0"
         },
         {
           "artifacts": [
