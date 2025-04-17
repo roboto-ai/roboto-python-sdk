@@ -70,21 +70,35 @@ class CanonicalDataType(enum.Enum):
 
     """
 
-    Array = "array"  # A sequence of values.
+    Array = "array"
+    """A sequence of values."""
     Boolean = "boolean"
     Byte = "byte"
-    Image = "image"  # Special purpose type for data that can be rendered as an image.
+    Image = "image"
+    """Special purpose type for data that can be rendered as an image."""
     Number = "number"
     NumberArray = "number_array"
-    Object = "object"  # A struct with attributes.
+    Object = "object"
+    """A struct with attributes."""
     String = "string"
-    Unknown = "unknown"  # This is a fallback and should be used sparingly.
-
-    # Special purpose types for data that represents geographic points
-    LatDegFloat = "latdegfloat"  # e.g. 47.6749387 (used in ULog ver_data_format >= 2)
-    LonDegFloat = "londegfloat"  # e.g. 9.1445274 (used in ULog ver_data_format >= 2)
-    LatDegInt = "latdegint"  # e.g. 317534036 (used in ULog ver_data_format < 2)
-    LonDegInt = "londegint"  # e.g. 1199146398 (used in ULog ver_data_format < 2)
+    Timestamp = "timestamp"
+    """
+    Time elapsed since the Unix epoch, identifying a single instant on the time-line.
+    Roboto clients will look for a ``"unit"`` metadata key on the ``MessagePath`` record,
+    and will assume "ns" if none is found.
+    If the timestamp is in a different unit, add the following metadata to the `MessagePath` record:
+    ``{ "unit": "s"|"ms"|"us"|"ns" }``
+    """
+    Unknown = "unknown"
+    """This is a fallback and should be used sparingly."""
+    LatDegFloat = "latdegfloat"
+    """Geographic point in degrees. E.g. 47.6749387 (used in ULog ver_data_format >= 2)"""
+    LonDegFloat = "londegfloat"
+    """Geographic point in degrees. E.g. 9.1445274  (used in ULog ver_data_format >= 2)"""
+    LatDegInt = "latdegint"
+    """Geographic point in degrees, expressed as an integer. E.g. 317534036 (used in ULog ver_data_format < 2)"""
+    LonDegInt = "londegint"
+    """Geographic point in degrees, expressed as an integer. E.g. 1199146398 (used in ULog ver_data_format < 2)"""
 
 
 class MessagePathStatistic(enum.Enum):

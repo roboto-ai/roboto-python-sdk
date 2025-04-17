@@ -56,6 +56,13 @@ def determine_updates(
     if action_config.timeout != existing_action.record.timeout:
         updates["timeout"] = action_config.timeout
 
+    if (
+        action_config.requires_downloaded_inputs is not None
+        and action_config.requires_downloaded_inputs
+        != existing_action.record.requires_downloaded_inputs
+    ):
+        updates["requires_downloaded_inputs"] = action_config.requires_downloaded_inputs
+
     metadata_changeset_builder = MetadataChangeset.Builder()
     existing_keys = existing_action.record.metadata.keys()
     new_keys = action_config.metadata.keys()
@@ -169,6 +176,7 @@ def create(
         "container_parameters": container_parameters,
         "metadata": metadata,
         "parameters": args.parameter,
+        "requires_downloaded_inputs": args.requires_downloaded_inputs,
         "tags": tags,
         "image_uri": args.image,
         "short_description": args.short_description,
@@ -211,6 +219,7 @@ def create(
             tags=config_with_overrides.tags,
             short_description=config_with_overrides.short_description,
             timeout=config_with_overrides.timeout,
+            requires_downloaded_inputs=config_with_overrides.requires_downloaded_inputs,
             caller_org_id=args.org,
             roboto_client=context.roboto_client,
         )
@@ -343,6 +352,17 @@ def create_parser(parser: argparse.ArgumentParser):
 
     add_compute_requirements_args(parser)
     add_container_parameters_args(parser)
+
+    parser.add_argument(
+        "--requires-downloaded-inputs",
+        required=False,
+        type=bool,
+        action="store",
+        help=(
+            "Optional flag which indicates that invocations of this action require their inputs downloaded "
+            "to the working directory before running. This is the default."
+        ),
+    )
 
     parser.add_argument(
         "--yes",

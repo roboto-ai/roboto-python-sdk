@@ -260,6 +260,7 @@ class ActionRecord(pydantic.BaseModel):
     parameters: list[ActionParameter] = pydantic.Field(default_factory=list)
     # Persisted as ISO 8601 string in UTC
     published: typing.Optional[datetime.datetime] = None
+    requires_downloaded_inputs: typing.Optional[bool] = None
     tags: list[str] = pydantic.Field(default_factory=list)
     uri: typing.Optional[str] = None
     short_description: typing.Optional[str] = None

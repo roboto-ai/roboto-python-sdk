@@ -32,6 +32,7 @@ class ActionConfig(pydantic.BaseModel):
     inherits: typing.Optional[actions.ActionReference] = None
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     parameters: list[actions.ActionParameter] = pydantic.Field(default_factory=list)
+    requires_downloaded_inputs: typing.Optional[bool] = None
     tags: list[str] = pydantic.Field(default_factory=list)
     short_description: typing.Optional[str] = None
     timeout: typing.Optional[int] = None

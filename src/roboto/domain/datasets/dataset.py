@@ -356,12 +356,27 @@ class Dataset:
             f"v1/datasets/{self.dataset_id}/summary"
         ).to_record(AISummary)
 
-    def get_topics(self) -> collections.abc.Generator[Topic, None, None]:
+    def get_topics(
+        self,
+        include: typing.Optional[collections.abc.Sequence[str]] = None,
+        exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+    ) -> collections.abc.Generator[Topic, None, None]:
         """
         List all topics associated with files in this dataset. If multiple files have topics with the same name (i.e.
         if a dataset has chunked files with the same schema), they'll be returned as separate topic objects.
+
+        You can optionally specify topics to include or exclude using their names. Topics specified on both the
+        inclusion and the exclusion list will be excluded.
         """
-        return Topic.get_by_dataset(self.dataset_id, self.__roboto_client)
+
+        for topic in Topic.get_by_dataset(self.dataset_id, self.__roboto_client):
+            if include is not None and topic.name not in include:
+                continue
+
+            if exclude is not None and topic.name in exclude:
+                continue
+
+            yield topic
 
     def get_topics_by_file(
         self, relative_path: typing.Union[str, pathlib.Path]

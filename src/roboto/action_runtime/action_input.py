@@ -12,6 +12,7 @@ import typing
 import pydantic
 
 from ..domain.files import File, FileRecord
+from ..domain.topics import Topic, TopicRecord
 
 DEFAULT_INPUT_FILE = pathlib.Path.cwd() / "action_input.json"
 
@@ -22,6 +23,8 @@ class ActionInputRecord(pydantic.BaseModel):
     files: collections.abc.Sequence[
         tuple[FileRecord, typing.Optional[pathlib.Path]]
     ] = pydantic.Field(default_factory=list)
+
+    topics: collections.abc.Sequence[TopicRecord] = pydantic.Field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -51,3 +54,24 @@ class ActionInput:
     - File exposes metadata about the file and useful file operations
     - Optional[Path] is the local file path if the file has been downloaded
     """
+
+    topics: collections.abc.Sequence[Topic] = dataclasses.field(default_factory=list)
+    """
+    Topics passed as input data to an action invocation.
+    """
+
+    def get_topics_by_name(self, topic_name: str) -> list[Topic]:
+        """
+        Returns any topics in this ``ActionInput`` that have the provided name.
+
+        Args:
+            topic_name: Topic name to look for.
+
+        Returns:
+            A list of matching ``Topic`` instances from ``self.topics``. If no topics
+            have the provided name, the list will be empty. Otherwise, there will be
+            one or more topics in the list, depending on the topic selectors provided
+            to the action invocation.
+        """
+
+        return [topic for topic in self.topics if topic.name == topic_name]

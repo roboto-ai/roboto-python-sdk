@@ -12,6 +12,7 @@ from ..domain import (
     datasets,
     files,
     orgs,
+    topics,
 )
 from ..env import RobotoEnv, RobotoEnvKey
 from ..http import RobotoClient
@@ -296,11 +297,16 @@ class ActionRuntime:
         input_record = ActionInputRecord.model_validate_json(
             action_inputs_manifest_file.read_text()
         )
+
         return ActionInput(
             files=[
                 (files.File(file_rec, self.__roboto_client), path)
                 for file_rec, path in input_record.files
-            ]
+            ],
+            topics=[
+                topics.Topic(topic_rec, self.__roboto_client)
+                for topic_rec in input_record.topics
+            ],
         )
 
     def get_parameter(self, name: str) -> str:

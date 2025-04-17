@@ -110,7 +110,7 @@ class InvocationInput(pydantic.BaseModel):
     """File selectors."""
 
     topics: typing.Optional[typing.Union[DataSelector, list[DataSelector]]] = None
-    """Topic selectors. Support upcoming."""
+    """Topic selectors."""
 
     @pydantic.model_validator(mode="after")
     def ensure_not_empty(self) -> InvocationInput:

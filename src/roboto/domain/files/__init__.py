@@ -10,6 +10,7 @@ from .file_creds import (
     DatasetCredentials,
     S3Credentials,
 )
+from .file_downloader import FileDownloader
 from .operations import (
     AbortTransactionsRequest,
     DeleteFileRequest,
@@ -37,6 +38,7 @@ __all__ = (
     "DeleteFileRequest",
     "File",
     "DirectoryContentsPage",
+    "FileDownloader",
     "FileRecord",
     "FileRecordRequest",
     "FileStatus",

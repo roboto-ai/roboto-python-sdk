@@ -67,6 +67,7 @@ class Action:
         inherits: typing.Optional[ActionReference] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
         parameters: typing.Optional[list[ActionParameter]] = None,
+        requires_downloaded_inputs: typing.Optional[bool] = None,
         short_description: typing.Optional[str] = None,
         tags: typing.Optional[list[str]] = None,
         timeout: typing.Optional[int] = None,
@@ -82,6 +83,7 @@ class Action:
             metadata=metadata or {},
             name=name,
             parameters=parameters or [],
+            requires_downloaded_inputs=requires_downloaded_inputs,
             short_description=short_description,
             tags=tags or [],
             timeout=timeout,
@@ -208,6 +210,10 @@ class Action:
         return self.__record.created_by
 
     @property
+    def description(self) -> typing.Optional[str]:
+        return self.__record.description
+
+    @property
     def digest(self) -> str:
         return (
             self.__record.digest
@@ -218,6 +224,10 @@ class Action:
     @property
     def inherits_from(self) -> typing.Optional[ActionReference]:
         return self.__record.inherits
+
+    @property
+    def metadata(self) -> dict[str, typing.Any]:
+        return self.__record.metadata
 
     @property
     def modified(self) -> datetime.datetime:
@@ -240,12 +250,29 @@ class Action:
         return [param.model_copy() for param in self.__record.parameters]
 
     @property
+    def published(self) -> typing.Optional[datetime.datetime]:
+        return self.__record.published
+
+    @property
     def record(self) -> ActionRecord:
         return self.__record
 
     @property
+    def requires_downloaded_inputs(self) -> bool:
+        # An unset value for this flag is interpreted as 'True'
+        return self.__record.requires_downloaded_inputs is not False
+
+    @property
+    def short_description(self) -> typing.Optional[str]:
+        return self.__record.short_description
+
+    @property
     def uri(self) -> typing.Optional[str]:
         return self.__record.uri
+
+    @property
+    def tags(self) -> list[str]:
+        return self.__record.tags
 
     @property
     def timeout(self) -> typing.Optional[int]:
@@ -380,6 +407,7 @@ class Action:
         short_description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         timeout: typing.Optional[typing.Union[int, NotSetType]] = NotSet,
         uri: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
+        requires_downloaded_inputs: typing.Union[bool, NotSetType] = NotSet,
     ) -> "Action":
         request = remove_not_set(
             UpdateActionRequest(
@@ -392,6 +420,7 @@ class Action:
                 uri=uri,
                 short_description=short_description,
                 timeout=timeout,
+                requires_downloaded_inputs=requires_downloaded_inputs,
             )
         )
 

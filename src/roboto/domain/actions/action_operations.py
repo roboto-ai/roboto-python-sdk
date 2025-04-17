@@ -40,6 +40,7 @@ class CreateActionRequest(pydantic.BaseModel):
     inherits: Optional[ActionReference] = None
     metadata: dict[str, Any] = pydantic.Field(default_factory=dict)
     parameters: list[ActionParameter] = pydantic.Field(default_factory=list)
+    requires_downloaded_inputs: Optional[bool] = None
     short_description: Optional[str] = None
     tags: list[str] = pydantic.Field(default_factory=list)
     timeout: Optional[int] = None
@@ -71,6 +72,7 @@ class UpdateActionRequest(pydantic.BaseModel):
     uri: Optional[Union[str, NotSetType]] = NotSet
     short_description: Optional[Union[str, NotSetType]] = NotSet
     timeout: Optional[Union[int, NotSetType]] = NotSet
+    requires_downloaded_inputs: Union[bool, NotSetType] = NotSet
 
     @pydantic.field_validator("uri")
     def validate_uri(cls, v):
