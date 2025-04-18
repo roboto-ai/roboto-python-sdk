@@ -1,6 +1,6 @@
 # Changelog
 
-# 0.20.0rc0
+# 0.20.0rc1
 ## No Breaking Changes
 
 ## Features Added
@@ -10,6 +10,7 @@
   - `Dataset::get_topics` now has optional arguments to `include` or `exclude` topics by name, similar to `File::get_topics`.
   - Added `FileDownloader` to simplify the task of downloading multiple files, for instance from search results.
   - Added `CanonicalDataType.Timestamp` to support identifying `MessagePath`s that should be interpreted as time elapsed since the Unix epoch.
+  - Added `RepresentationStorageFormat.PARQUET` in support of progress towards accepting Parquet files as a first-class ingest-able format (in addition to bag, db3/yaml, mcap, ulg, journalctrl, csv and others).
 
 ## Bugs Fixed
 

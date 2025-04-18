@@ -20,6 +20,7 @@ class RepresentationStorageFormat(enum.Enum):
     """
 
     MCAP = "mcap"
+    PARQUET = "parquet"
 
 
 class RepresentationRecord(pydantic.BaseModel):
