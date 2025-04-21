@@ -1,4 +1,4 @@
-# 0.20.0rc1
+# 0.20.0
 ## No Breaking Changes
 
 ## Features Added
