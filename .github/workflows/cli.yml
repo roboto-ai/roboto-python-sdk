@@ -192,6 +192,10 @@ jobs:
       - name: List artifacts
         run: ls -R dist
 
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
