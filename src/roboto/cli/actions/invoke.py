@@ -26,6 +26,13 @@ from ..context import CLIContext
 def invoke(
     args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
 ) -> None:
+    if (args.dataset_id is None) != (
+        args.input_data is None or len(args.input_data) == 0
+    ):
+        parser.error(
+            "--dataset-id and --input-data should either both be unset, or both be set."
+        )
+
     owner_org_id = args.action.owner if args.action.owner else args.org
     action = actions.Action.from_name(
         name=args.action.name,
@@ -57,9 +64,21 @@ def invoke(
 def invoke_parser(parser: argparse.ArgumentParser) -> None:
     add_action_reference_arg(parser)
     add_org_arg(parser)
+
+    parser.add_argument(
+        "--dataset-id",
+        required=False,
+        action="store",
+        dest="dataset_id",
+        help=(
+            "Unique identifier for dataset to use as data source for this invocation. "
+            "Required if --input-data is provided."
+        ),
+    )
+
     parser.add_argument(
         "--input-data",
-        required=True,
+        required=False,
         dest="input_data",
         type=str,
         nargs="+",
@@ -68,7 +87,8 @@ def invoke_parser(parser: argparse.ArgumentParser) -> None:
             "One or many file patterns for data to download from the data source. Examples: "
             "front camera images, ``--input-data '**/cam_front/*.jpg'``; "
             "front and rear camera images, ``--input-data '**/cam_front/*.jpg' --input-data '**/cam_rear/*.jpg'``; "
-            "all data, ``--input-data '**/*'``."
+            "all data, ``--input-data '**/*'``. "
+            "Required if --dataset-id is provided."
         ),
     )
 
@@ -84,21 +104,6 @@ def invoke_parser(parser: argparse.ArgumentParser) -> None:
         dest="idempotency_id",
         type=str,
         help="Optional unique ID which ensures that an invocation is run exactly once.",
-    )
-
-    # TODO: we're migrating to a new way of specifying action inputs, where a single
-    # invocation data source no longer makes sense. For compatibility, we're temporarily
-    # going to continue supporting the current way of providing a dataset ID as the data source.
-    dataset_source_group = parser.add_argument_group(
-        "Dataset",
-        "Use a dataset as the data source for this invocation. This is currently the only option.",
-    )
-    dataset_source_group.add_argument(
-        "--dataset-id",
-        required=True,
-        action="store",
-        dest="dataset_id",
-        help="Unique identifier for dataset to use as data source for this invocation.",
     )
 
     parser.add_argument(

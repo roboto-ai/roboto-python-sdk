@@ -1,14 +1,10 @@
-# 0.20.0
+# 0.20.1
 ## No Breaking Changes
 
 ## Features Added
-  - Support has been added for topic inputs to action invocations, via `InvocationInput.topics`. Action writers can access the topics via `ActionInput.topics`.
-  - Added the `requires_downloaded_inputs` optional flag to `Action::create` and `Action::update`. It controls whether an action invocation's inputs will be available in its working directory before business logic runs. This is true by default.
-  - Added getters to `Action` for `description`, `short_description`, `tags`, `metadata`, `published` and `requires_downloaded_inputs`.
-  - `Dataset::get_topics` now has optional arguments to `include` or `exclude` topics by name, similar to `File::get_topics`.
-  - Added `FileDownloader` to simplify the task of downloading multiple files, for instance from search results.
-  - Added `CanonicalDataType.Timestamp` to support identifying `MessagePath`s that should be interpreted as time elapsed since the Unix epoch.
-  - Added `RepresentationStorageFormat.PARQUET` in support of progress towards accepting Parquet files as a first-class ingest-able format (in addition to bag, db3/yaml, mcap, ulg, journalctrl, csv and others).
+  - [CLI] Actions that don't take inputs can now be invoked from the command-line by leaving out the arguments `--dataset-id` and `--input-data`. For actions that take inputs, both arguments must be provided as before.
+  - Add subset of audit fields to `RepresentationRecord` to enable determination of "latest" representation of topic data.
+  - Add ability to pass `caller_org_id` to `File::import_batch`, which is necessary to exercise bring-your-own-bucket file imports for users belonging to multiple orgs.
 
 ## Bugs Fixed
 

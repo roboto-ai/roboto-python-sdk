@@ -39,6 +39,8 @@ class RepresentationRecord(pydantic.BaseModel):
     Identifier and entity type with which this Representation is associated. E.g., a file, a database.
     """
 
+    created: datetime.datetime
+    modified: datetime.datetime
     representation_id: str
     storage_format: RepresentationStorageFormat
     topic_id: str

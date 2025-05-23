@@ -119,6 +119,7 @@ class File:
         cls,
         requests: collections.abc.Sequence[ImportFileRequest],
         roboto_client: typing.Optional[RobotoClient] = None,
+        caller_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Sequence["File"]:
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -127,7 +128,10 @@ class File:
         request: BatchRequest[ImportFileRequest] = BatchRequest(requests=list(requests))
 
         records = roboto_client.post(
-            "v1/files/import/batch", data=request, idempotent=True
+            "v1/files/import/batch",
+            data=request,
+            idempotent=True,
+            caller_org_id=caller_org_id,
         ).to_record_list(FileRecord)
         return [cls(record, roboto_client) for record in records]
 
