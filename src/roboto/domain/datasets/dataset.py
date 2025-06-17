@@ -16,9 +16,15 @@ import typing
 
 import pathspec
 
-from ...ai.summary import AISummary
+from ...ai.summary import (
+    AISummary,
+    AISummaryStatus,
+)
 from ...association import Association
 from ...env import RobotoEnv
+from ...exceptions import (
+    RobotoFailedToGenerateException,
+)
 from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger
 from ...paths import excludespec_from_patterns
@@ -28,6 +34,7 @@ from ...updates import (
     StrSequence,
     UpdateCondition,
 )
+from ...waiters import Interval, wait_for
 from ..files import (
     DirectoryRecord,
     File,
@@ -38,6 +45,8 @@ from ..files.file_creds import (
 )
 from ..files.file_service import FileService
 from ..files.progress import (
+    NoopProgressMonitorFactory,
+    ProgressMonitorFactory,
     TqdmProgressMonitorFactory,
 )
 from ..topics import Topic
@@ -59,13 +68,29 @@ MAX_FILES_PER_MANIFEST = 500
 
 
 class Dataset:
-    """
-    Contains files in a directory structure.
+    """Represents a dataset within the Roboto platform.
 
-    Typically, a dataset stores the files from a single robot activity, such as a drone flight
-    or an autonomous vehicle mission, however, it is versatile enough to be a
-    general-purpose assembly of files.
+    A dataset is a logical container for files organized in a directory structure.
+    Datasets are the primary organizational unit in Roboto, typically containing
+    files from a single robot activity such as a drone flight, autonomous vehicle
+    mission, or sensor data collection session. However, datasets are versatile
+    enough to serve as a general-purpose assembly of files.
 
+    Datasets provide functionality for:
+    - File upload and download operations
+    - Metadata and tag management
+    - File organization and directory operations
+    - Topic data access and analysis
+    - AI-powered content summarization
+    - Integration with automated workflows and triggers
+
+    Files within a dataset can be processed by actions, visualized in the web interface,
+    and searched using the query system. Datasets inherit access permissions from
+    their organization and can be shared with other users and systems.
+
+    The Dataset class serves as the primary interface for dataset operations in the
+    Roboto SDK, providing methods for file management, metadata operations, and
+    content analysis.
     """
 
     UPLOAD_REPORTING_BATCH_COUNT: typing.ClassVar[int] = 10
@@ -94,6 +119,41 @@ class Dataset:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Dataset":
+        """Create a new dataset in the Roboto platform.
+
+        Creates a new dataset with the specified properties and returns a Dataset
+        instance for interacting with it. The dataset will be created in the caller's
+        organization unless a different organization is specified.
+
+        Args:
+            description: Optional human-readable description of the dataset.
+            metadata: Optional key-value metadata pairs to associate with the dataset.
+            name: Optional short name for the dataset (max 120 characters).
+            tags: Optional list of tags for dataset discovery and organization.
+            caller_org_id: Organization ID to create the dataset in. Required for multi-org users.
+            roboto_client: HTTP client for API communication. If None, uses the default client.
+
+        Returns:
+            Dataset instance representing the newly created dataset.
+
+        Raises:
+            RobotoInvalidRequestException: Invalid dataset parameters.
+            RobotoUnauthorizedException: Caller lacks permission to create datasets.
+
+        Examples:
+            >>> dataset = Dataset.create(
+            ...     name="Highway Test Session",
+            ...     description="Autonomous vehicle highway driving test data",
+            ...     tags=["highway", "autonomous", "test"],
+            ...     metadata={"vehicle_id": "vehicle_001", "test_type": "highway"}
+            ... )
+            >>> print(dataset.dataset_id)
+            ds_abc123
+
+            >>> # Create minimal dataset
+            >>> dataset = Dataset.create()
+            >>> print(f"Created dataset: {dataset.dataset_id}")
+        """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = CreateDatasetRequest(
             description=description, metadata=metadata or {}, name=name, tags=tags or []
@@ -107,6 +167,29 @@ class Dataset:
     def from_id(
         cls, dataset_id: str, roboto_client: typing.Optional[RobotoClient] = None
     ) -> "Dataset":
+        """Create a Dataset instance from a dataset ID.
+
+        Retrieves dataset information from the Roboto platform using the provided
+        dataset ID and returns a Dataset instance for interacting with it.
+
+        Args:
+            dataset_id: Unique identifier for the dataset.
+            roboto_client: HTTP client for API communication. If None, uses the default client.
+
+        Returns:
+            Dataset instance representing the requested dataset.
+
+        Raises:
+            RobotoNotFoundException: Dataset with the given ID does not exist.
+            RobotoUnauthorizedException: Caller lacks permission to access the dataset.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> print(dataset.name)
+            'Highway Test Session'
+            >>> print(len(list(dataset.list_files())))
+            42
+        """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(f"v1/datasets/{dataset_id}").to_record(DatasetRecord)
         return cls(record, roboto_client)
@@ -118,6 +201,38 @@ class Dataset:
         roboto_client: typing.Optional[RobotoClient] = None,
         owner_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Generator["Dataset", None, None]:
+        """Query datasets using a specification with filters and pagination.
+
+        Searches for datasets matching the provided query specification. Results are
+        returned as a generator that automatically handles pagination, yielding Dataset
+        instances as they are retrieved from the API.
+
+        Args:
+            spec: Query specification with filters, sorting, and pagination options.
+                If None, returns all accessible datasets.
+            roboto_client: HTTP client for API communication. If None, uses the default client.
+            owner_org_id: Organization ID to scope the query. If None, uses caller's org.
+
+        Yields:
+            Dataset instances matching the query specification.
+
+        Raises:
+            ValueError: Query specification references unknown dataset attributes.
+            RobotoUnauthorizedException: Caller lacks permission to query datasets.
+
+        Examples:
+            >>> from roboto.query import Comparator, Condition, QuerySpecification
+            >>> spec = QuerySpecification(
+            ...     condition=Condition(
+            ...         field="name",
+            ...         comparator=Comparator.Contains,
+            ...         value="Roboto"
+            ...     ))
+            >>> for dataset in Dataset.query(spec):
+            ...     print(f"Found dataset: {dataset.name}")
+            Found dataset: Roboto Test
+            Found dataset: Other Roboto Test
+        """
         roboto_client = RobotoClient.defaulted(roboto_client)
         spec = spec if spec is not None else QuerySpecification()
 
@@ -171,49 +286,125 @@ class Dataset:
 
     @property
     def created(self) -> datetime.datetime:
+        """Timestamp when this dataset was created.
+
+        Returns the UTC datetime when this dataset was first created in the Roboto platform. This property is immutable.
+        """
         return self.__record.created
 
     @property
     def created_by(self) -> str:
+        """Identifier of the user who created this dataset.
+
+        Returns the identifier of the person or service which originally created this dataset in the Roboto platform.
+        """
         return self.__record.created_by
 
     @property
     def dataset_id(self) -> str:
+        """Unique identifier for this dataset.
+
+        Returns the globally unique identifier assigned to this dataset when it was
+        created. This ID is immutable and used to reference the dataset across the
+        Roboto platform. It is always prefixed with 'ds_' to distinguish it from other
+        Roboto resource IDs.
+        """
         return self.__record.dataset_id
 
     @property
     def description(self) -> typing.Optional[str]:
+        """Human-readable description of this dataset.
+
+        Returns the optional description text that provides details about the dataset's
+        contents, purpose, or context. Can be None if no description was provided.
+        """
         return self.__record.description
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
+        """Custom metadata associated with this dataset.
+
+        Returns a copy of the dataset's metadata dictionary containing arbitrary
+        key-value pairs for storing custom information. Supports nested structures
+        and dot notation for accessing nested fields.
+        """
         return self.__record.metadata.copy()
 
     @property
     def modified(self) -> datetime.datetime:
+        """Timestamp when this dataset was last modified.
+
+        Returns the UTC datetime when this dataset was most recently updated.
+        This includes changes to metadata, tags, description, or other properties.
+        """
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
+        """Identifier of the user or service which last modified this dataset.
+
+        Returns the identifier of the person or service which most recently updated
+        this dataset's metadata, tags, description, or other properties.
+        """
         return self.__record.modified_by
 
     @property
     def name(self) -> typing.Optional[str]:
+        """Human-readable name of this dataset.
+
+        Returns the optional display name for this dataset. Can be None if no name was provided during creation. For
+        users whose organizations have their own idiomatic internal dataset IDs, it's recommended to set the name to
+        the organization's internal dataset ID, since the Roboto dataset_id property is randomly generated.
+        """
         return self.__record.name
 
     @property
     def org_id(self) -> str:
+        """Organization identifier that owns this dataset.
+
+        Returns the unique identifier of the organization that owns and has
+        primary access control over this dataset.
+        """
         return self.__record.org_id
 
     @property
     def record(self) -> DatasetRecord:
+        """Underlying data record for this dataset.
+
+        Returns the raw :py:class:`~roboto.domain.datasets.DatasetRecord` that contains
+        all the dataset's data fields. This provides access to the complete dataset
+        state as stored in the platform.
+        """
         return self.__record
 
     @property
     def tags(self) -> list[str]:
+        """List of tags associated with this dataset.
+
+        Returns a copy of the list of string tags that have been applied to this
+        dataset for categorization and filtering purposes.
+        """
         return self.__record.tags.copy()
 
     def delete(self) -> None:
+        """Delete this dataset from the Roboto platform.
+
+        Permanently removes the dataset and all its associated files, metadata, and topics. This operation cannot
+        be undone.
+
+        If a dataset's files are hosted in Roboto managed S3 buckets or customer read/write bring-your-own-buckets,
+        the files in this dataset will be deleted from S3 as well. For files hosted in customer read-only buckets,
+        the files will not be deleted from S3, but the dataset record and all associated metadata will be deleted.
+
+        Raises:
+            RobotoNotFoundException: Dataset does not exist or has already been deleted.
+            RobotoUnauthorizedException: Caller lacks permission to delete the dataset.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.delete()
+            # Dataset and all its files are now permanently deleted
+        """
         self.__roboto_client.delete(f"v1/datasets/{self.dataset_id}")
 
     def delete_files(
@@ -221,19 +412,35 @@ class Dataset:
         include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
     ) -> None:
-        """
-        Delete files associated with this dataset.
+        """Delete files from this dataset based on pattern matching.
 
-        `include_patterns` and `exclude_patterns` are lists of gitignore-style patterns.
-        See https://git-scm.com/docs/gitignore.
+        Deletes files that match the specified include patterns while excluding
+        those that match exclude patterns. Uses gitignore-style pattern matching
+        for flexible file selection.
 
-        Example:
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset(...)
+        Args:
+            include_patterns: List of gitignore-style patterns for files to include.
+                If None, all files are considered for deletion.
+            exclude_patterns: List of gitignore-style patterns for files to exclude
+                from deletion. Takes precedence over include patterns.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to delete files.
+
+        Notes:
+            Pattern matching follows gitignore syntax. See https://git-scm.com/docs/gitignore
+            for detailed pattern format documentation.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> # Delete all PNG files except those in back_camera directory
             >>> dataset.delete_files(
-            ...    include_patterns=["**/*.png"],
-            ...    exclude_patterns=["**/back_camera/**"]
+            ...     include_patterns=["**/*.png"],
+            ...     exclude_patterns=["**/back_camera/**"]
             ... )
+
+            >>> # Delete all log files
+            >>> dataset.delete_files(include_patterns=["**/*.log"])
         """
         for file in self.list_files(include_patterns, exclude_patterns):
             file.delete()
@@ -244,25 +451,42 @@ class Dataset:
         include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
     ) -> list[tuple[FileRecord, pathlib.Path]]:
-        """
-        Download files associated with this dataset to the given directory.
-        If `out_path` does not exist, it will be created.
+        """Download files from this dataset to a local directory.
 
-        `include_patterns` and `exclude_patterns` are lists of gitignore-style patterns.
-        See https://git-scm.com/docs/gitignore.
+        Downloads files that match the specified patterns to the given local directory.
+        The directory structure from the dataset is preserved in the download location.
+        If the output directory doesn't exist, it will be created.
 
-        Returns list of tuples (FileRecord, pathlib.Path),
-        where the first element is the FileRecord for the downloaded file,
-        and the second element is the local path to which that file was downloaded.
+        Args:
+            out_path: Local directory path where files should be downloaded.
+            include_patterns: List of gitignore-style patterns for files to include.
+                If None, all files are downloaded.
+            exclude_patterns: List of gitignore-style patterns for files to exclude
+                from download. Takes precedence over include patterns.
 
-        Example:
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset(...)
+        Returns:
+            List of tuples containing (FileRecord, local_path) for each downloaded file.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to download files.
+
+        Notes:
+            Pattern matching follows gitignore syntax. See https://git-scm.com/docs/gitignore
+            for detailed pattern format documentation.
+
+        Examples:
+            >>> import pathlib
+            >>> dataset = Dataset.from_id("ds_abc123")
             >>> downloaded = dataset.download_files(
-            ...     pathlib.Path("/tmp/tmp.nV1gdW5WHV"),
-            ...     include_patterns=["**/*.g4"],
+            ...     pathlib.Path("/tmp/dataset_download"),
+            ...     include_patterns=["**/*.bag"],
             ...     exclude_patterns=["**/test/**"]
             ... )
+            >>> print(f"Downloaded {len(downloaded)} files")
+            Downloaded 5 files
+
+            >>> # Download all files
+            >>> all_files = dataset.download_files(pathlib.Path("/tmp/all_files"))
         """
         if not out_path.is_dir():
             out_path.mkdir(parents=True)
@@ -300,15 +524,32 @@ class Dataset:
         relative_path: typing.Union[str, pathlib.Path],
         version_id: typing.Optional[int] = None,
     ) -> File:
-        """
-        Get a File object for the given relative path.
+        """Get a File instance for a file at the specified path in this dataset.
 
-        Example:
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset(...)
-            >>> file = dataset.get_file_by_path("foo/bar.txt")
+        Retrieves a file by its relative path within the dataset. Optionally
+        retrieves a specific version of the file.
+
+        Args:
+            relative_path: Path of the file relative to the dataset root.
+            version_id: Specific version of the file to retrieve. If None, gets the latest version.
+
+        Returns:
+            File instance representing the file at the specified path.
+
+        Raises:
+            RobotoNotFoundException: File at the given path does not exist in the dataset.
+            RobotoUnauthorizedException: Caller lacks permission to access the file.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> file = dataset.get_file_by_path("logs/session1.bag")
             >>> print(file.file_id)
-            file-abc123
+            file_xyz789
+
+            >>> # Get specific version
+            >>> old_file = dataset.get_file_by_path("data/sensors.csv", version_id=1)
+            >>> print(old_file.version)
+            1
         """
         return File.from_path_and_dataset_id(
             file_path=relative_path,
@@ -318,55 +559,151 @@ class Dataset:
         )
 
     def generate_summary(self) -> AISummary:
-        """
-        Generate a new AI generated summary of this dataset. If a summary already exists, it will be overwritten.
-        The results of this call are persisted and can be retrieved with `get_summary()`.
+        """Generate a new AI-powered summary of this dataset.
 
-        Returns: An AISummary object containing the summary text and the creation timestamp.
+        Creates a new AI-generated summary that analyzes the dataset's contents,
+        including files, metadata, and topics. If a summary already exists, it will
+        be overwritten. The results are persisted and can be retrieved later with
+        get_summary().
 
-        Example:
-            >>> from roboto import Dataset
+        Returns:
+            AISummary object containing the generated summary text and creation timestamp.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to generate summaries.
+            RobotoInvalidRequestException: Dataset is not suitable for summarization.
+
+        Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> summary = dataset.generate_summary()
             >>> print(summary.text)
-            This dataset contains ...
+            This dataset contains autonomous vehicle sensor data from a highway
+            driving session, including camera images, LiDAR point clouds, and
+            GPS coordinates collected over a 30-minute period.
+            >>> print(summary.created)
+            2024-01-15 10:30:00+00:00
         """
         return self.__roboto_client.post(
             f"v1/datasets/{self.dataset_id}/summary"
         ).to_record(AISummary)
 
     def get_summary(self) -> AISummary:
-        """
-        Get the latest AI generated summary of this dataset. If no summary exists, one will be generated, equivalent
-        to a call to `generate_summary()`.
+        """Get the latest AI-generated summary of this dataset.
 
-        After the first summary for a dataset is generated, it will be persisted and returned by this method until
-        `generate_summary()` is explicitly called again. This applies even if the dataset or its files change.
+        Retrieves the most recent AI-generated summary for this dataset. If no summary
+        exists, one will be automatically generated (equivalent to calling generate_summary()).
 
-        Returns: An AISummary object containing the summary text and the creation timestamp.
+        Once a summary is generated, it persists and is returned by this method until
+        generate_summary() is explicitly called again. The summary does not automatically
+        update when the dataset or its files change.
 
-        Example:
-            >>> from roboto import Dataset
+        Returns:
+            AISummary object containing the summary text and creation timestamp.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to access summaries.
+
+        Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> summary = dataset.get_summary()
             >>> print(summary.text)
-            This dataset contains ...
+            This dataset contains autonomous vehicle sensor data from a highway
+            driving session, including camera images, LiDAR point clouds, and
+            GPS coordinates collected over a 30-minute period.
+
+            >>> # Summary is cached - subsequent calls return the same summary
+            >>> cached_summary = dataset.get_summary()
+            >>> assert summary.created == cached_summary.created
         """
         return self.__roboto_client.get(
             f"v1/datasets/{self.dataset_id}/summary"
         ).to_record(AISummary)
+
+    def get_summary_sync(
+        self,
+        timeout: float = 60,  # 1 minute in seconds
+        poll_interval: Interval = 2,
+    ) -> AISummary:
+        """
+        Poll the summary endpoint until a summary's status is COMPLETED, or raise an exception if the status is FAILED
+        or the configurable timeout is reached.
+
+        This method will call `get_summary()` repeatedly until the summary reaches a terminal status.
+        If no summary exists when this method is called, one will be generated automatically.
+
+        Args:
+            timeout: The maximum amount of time, in seconds, to wait for the summary to complete. Defaults to 1 minute.
+            poll_interval: The amount of time, in seconds, to wait between polling iterations. Defaults to 2 seconds.
+
+        Returns: An AI Summary object containing a full LLM summary of the dataset.
+
+        Raises:
+            RobotoFailedToGenerateException: If the summary status becomes FAILED.
+            TimeoutError: If the timeout is reached before the summary completes.
+
+        Example:
+            >>> from roboto import Dataset
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> summary = dataset.get_summary_sync(timeout=60)
+            >>> print(summary.text)
+            This dataset contains ...
+        """
+
+        def _check_summary_completion() -> bool:
+            summary = self.get_summary()
+
+            if summary.status == AISummaryStatus.Failed:
+                raise RobotoFailedToGenerateException(
+                    f"Summary generation failed for dataset {self.dataset_id}"
+                )
+
+            return summary.status == AISummaryStatus.Complete
+
+        wait_for(
+            _check_summary_completion,
+            timeout=timeout,
+            interval=poll_interval,
+            timeout_msg=f"Timed out waiting for summary completion for dataset '{self.dataset_id}'",
+        )
+
+        return self.get_summary()
 
     def get_topics(
         self,
         include: typing.Optional[collections.abc.Sequence[str]] = None,
         exclude: typing.Optional[collections.abc.Sequence[str]] = None,
     ) -> collections.abc.Generator[Topic, None, None]:
-        """
-        List all topics associated with files in this dataset. If multiple files have topics with the same name (i.e.
-        if a dataset has chunked files with the same schema), they'll be returned as separate topic objects.
+        """Get all topics associated with files in this dataset, with optional filtering.
 
-        You can optionally specify topics to include or exclude using their names. Topics specified on both the
-        inclusion and the exclusion list will be excluded.
+        Retrieves all topics that were extracted from files in this dataset during
+        ingestion. If multiple files have topics with the same name (e.g., chunked
+        files with the same schema), they are returned as separate topic objects.
+
+        Topics can be filtered by name using include/exclude patterns. Topics specified
+        on both the inclusion and exclusion lists will be excluded.
+
+        Args:
+            include: If provided, only topics with names in this sequence are yielded.
+            exclude: If provided, topics with names in this sequence are skipped.
+                Takes precedence over include list.
+
+        Yields:
+            Topic instances associated with files in this dataset, filtered according to the parameters.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> for topic in dataset.get_topics():
+            ...     print(f"Topic: {topic.name}")
+            Topic: /camera/image
+            Topic: /imu/data
+            Topic: /gps/fix
+
+            >>> # Only get camera topics
+            >>> camera_topics = list(dataset.get_topics(include=["/camera/image", "/camera/info"]))
+            >>> print(f"Found {len(camera_topics)} camera topics")
+
+            >>> # Exclude diagnostic topics
+            >>> data_topics = list(dataset.get_topics(exclude=["/diagnostics"]))
         """
 
         for topic in Topic.get_by_dataset(self.dataset_id, self.__roboto_client):
@@ -381,28 +718,92 @@ class Dataset:
     def get_topics_by_file(
         self, relative_path: typing.Union[str, pathlib.Path]
     ) -> collections.abc.Generator[Topic, None, None]:
+        """Get all topics associated with a specific file in this dataset.
+
+        Retrieves all topics that were extracted from the specified file during
+        ingestion. This is a convenience method that combines file lookup and
+        topic retrieval.
+
+        Args:
+            relative_path: Path of the file relative to the dataset root.
+
+        Yields:
+            Topic instances associated with the specified file.
+
+        Raises:
+            RobotoNotFoundException: File at the given path does not exist in the dataset.
+            RobotoUnauthorizedException: Caller lacks permission to access the file or its topics.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> for topic in dataset.get_topics_by_file("logs/session1.bag"):
+            ...     print(f"Topic: {topic.name}")
+            Topic: /camera/image
+            Topic: /imu/data
+            Topic: /gps/fix
+        """
         file = self.get_file_by_path(relative_path)
         return file.get_topics()
+
+    def list_directories(
+        self,
+    ) -> collections.abc.Generator[DirectoryRecord, None, None]:
+        page_token: typing.Optional[str] = None
+        while True:
+            paginated_results = self.__roboto_client.get(
+                f"v1/files/association/id/{self.dataset_id}/directories",
+                query={"page_token": page_token},
+            ).to_record(PaginatedList[DirectoryRecord])
+            for record in paginated_results.items:
+                yield record
+            if paginated_results.next_token:
+                page_token = paginated_results.next_token
+            else:
+                break
 
     def list_files(
         self,
         include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
     ) -> collections.abc.Generator[File, None, None]:
-        """
-        List files associated with this dataset.
+        """List files in this dataset with optional pattern-based filtering.
 
-        `include_patterns` and `exclude_patterns` are lists of gitignore-style patterns.
-        See https://git-scm.com/docs/gitignore.
+        Returns all files in the dataset that match the specified include patterns
+        while excluding those that match exclude patterns. Uses gitignore-style
+        pattern matching for flexible file selection.
 
-        Example:
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset(...)
+        Args:
+            include_patterns: List of gitignore-style patterns for files to include.
+                If None, all files are considered.
+            exclude_patterns: List of gitignore-style patterns for files to exclude.
+                Takes precedence over include patterns.
+
+        Yields:
+            File instances that match the specified patterns.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to list files.
+
+        Notes:
+            Pattern matching follows gitignore syntax. See https://git-scm.com/docs/gitignore
+            for detailed pattern format documentation.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> for file in dataset.list_files():
+            ...     print(file.relative_path)
+            logs/session1.bag
+            data/sensors.csv
+            images/camera_001.jpg
+
+            >>> # List only image files, excluding back camera
             >>> for file in dataset.list_files(
-            ...     include_patterns=["**/*.g4"],
-            ...     exclude_patterns=["**/test/**"]
+            ...     include_patterns=["**/*.png", "**/*.jpg"],
+            ...     exclude_patterns=["**/back_camera/**"]
             ... ):
             ...     print(file.relative_path)
+            images/front_camera_001.jpg
+            images/side_camera_001.jpg
         """
 
         page_token: typing.Optional[str] = None
@@ -423,18 +824,31 @@ class Dataset:
         self,
         metadata: dict[str, typing.Any],
     ) -> None:
-        """
-        Set each `key`: `value` in this dict as dataset metadata if it doesn't exist, else overwrite the existing value.
-        Keys must be strings. Dot notation is supported for nested keys.
+        """Add or update metadata fields for this dataset.
 
-        Example:
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset(...)
+        Sets each key-value pair in the provided dictionary as dataset metadata.
+        If a key doesn't exist, it will be created. If it exists, the value will
+        be overwritten. Keys must be strings and dot notation is supported for
+        nested keys.
+
+        Args:
+            metadata: Dictionary of metadata key-value pairs to add or update.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to update the dataset.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
             >>> dataset.put_metadata({
-            ...     "foo": "bar",
-            ...     "baz.qux": 101,
+            ...     "vehicle_id": "vehicle_001",
+            ...     "test_type": "highway_driving",
+            ...     "weather.condition": "sunny",
+            ...     "weather.temperature": 25
             ... })
-
+            >>> print(dataset.metadata["vehicle_id"])
+            'vehicle_001'
+            >>> print(dataset.metadata["weather"]["condition"])
+            'sunny'
         """
         self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
 
@@ -442,13 +856,48 @@ class Dataset:
         self,
         tags: StrSequence,
     ) -> None:
-        """Add each tag in this sequence if it doesn't exist"""
+        """Add or update tags for this dataset.
+
+        Adds each tag in the provided sequence to the dataset. If a tag already
+        exists, it will not be duplicated. This operation replaces the current
+        tag list with the provided tags.
+
+        Args:
+            tags: Sequence of tag strings to set on the dataset.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to update the dataset.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.put_tags(["highway", "autonomous", "test", "sunny"])
+            >>> print(dataset.tags)
+            ['highway', 'autonomous', 'test', 'sunny']
+        """
         self.update(
             metadata_changeset=MetadataChangeset(put_tags=tags),
         )
 
     def refresh(self) -> "Dataset":
-        """Refresh the underlying dataset record with the latest server state."""
+        """Refresh this dataset instance with the latest data from the platform.
+
+        Fetches the current state of the dataset from the Roboto platform and updates
+        this instance's data. Useful when the dataset may have been modified by other
+        processes or users.
+
+        Returns:
+            This Dataset instance with refreshed data.
+
+        Raises:
+            RobotoNotFoundException: Dataset no longer exists.
+            RobotoUnauthorizedException: Caller lacks permission to access the dataset.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> # Dataset may have been updated by another process
+            >>> refreshed_dataset = dataset.refresh()
+            >>> print(f"Current file count: {len(list(refreshed_dataset.list_files()))}")
+        """
         self.__record = self.__roboto_client.get(
             f"v1/datasets/{self.dataset_id}"
         ).to_record(DatasetRecord)
@@ -480,6 +929,22 @@ class Dataset:
         return Association.dataset(self.dataset_id)
 
     def to_dict(self) -> dict[str, typing.Any]:
+        """Convert this dataset to a dictionary representation.
+
+        Returns the dataset's data as a JSON-serializable dictionary containing
+        all dataset attributes and metadata.
+
+        Returns:
+            Dictionary representation of the dataset data.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset_dict = dataset.to_dict()
+            >>> print(dataset_dict["name"])
+            'Highway Test Session'
+            >>> print(dataset_dict["metadata"])
+            {'vehicle_id': 'vehicle_001', 'test_type': 'highway'}
+        """
         return self.__record.model_dump(mode="json")
 
     def update(
@@ -489,6 +954,39 @@ class Dataset:
         metadata_changeset: typing.Optional[MetadataChangeset] = None,
         name: typing.Optional[str] = None,
     ) -> "Dataset":
+        """Update this dataset's properties.
+
+        Updates various properties of the dataset including name, description,
+        and metadata. Only specified parameters are updated; others remain unchanged.
+        Optionally supports conditional updates based on current field values.
+
+        Args:
+            conditions: Optional list of conditions that must be met for the update to proceed.
+            description: New description for the dataset.
+            metadata_changeset: Metadata changes to apply (add, update, or remove fields/tags).
+            name: New name for the dataset.
+
+        Returns:
+            Updated Dataset instance with the new properties.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to update the dataset.
+            RobotoConditionalUpdateFailedException: Update conditions were not met.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> updated_dataset = dataset.update(
+            ...     name="Updated Highway Test Session",
+            ...     description="Updated description with more details"
+            ... )
+            >>> print(updated_dataset.name)
+            'Updated Highway Test Session'
+
+            >>> # Update with metadata changes
+            >>> from roboto.updates import MetadataChangeset
+            >>> changeset = MetadataChangeset(put_fields={"processed": True})
+            >>> updated_dataset = dataset.update(metadata_changeset=changeset)
+        """
         request = UpdateDatasetRequest(
             conditions=conditions,
             description=description,
@@ -520,6 +1018,7 @@ class Dataset:
         exclude_patterns: typing.Optional[list[str]] = None,
         delete_after_upload: bool = False,
         max_batch_size: int = MAX_FILES_PER_MANIFEST,
+        print_progress: bool = True,
     ) -> None:
         """
         Uploads all files and directories recursively from the specified directory path. You can use
@@ -558,7 +1057,9 @@ class Dataset:
             path: os.path.relpath(path, directory_path) for path in all_files
         }
 
-        self.upload_files(all_files, file_destination_paths, max_batch_size)
+        self.upload_files(
+            all_files, file_destination_paths, max_batch_size, print_progress
+        )
 
         if delete_after_upload:
             for file in all_files:
@@ -569,6 +1070,7 @@ class Dataset:
         self,
         file_path: pathlib.Path,
         file_destination_path: typing.Optional[str] = None,
+        print_progress: bool = True,
     ) -> None:
         """
         Upload a single file to the dataset.
@@ -585,13 +1087,18 @@ class Dataset:
         if not file_destination_path:
             file_destination_path = file_path.name
 
-        self.upload_files([file_path], {file_path: file_destination_path})
+        self.upload_files(
+            [file_path],
+            {file_path: file_destination_path},
+            print_progress=print_progress,
+        )
 
     def upload_files(
         self,
         files: collections.abc.Iterable[pathlib.Path],
         file_destination_paths: collections.abc.Mapping[pathlib.Path, str] = {},
         max_batch_size: int = MAX_FILES_PER_MANIFEST,
+        print_progress: bool = True,
     ):
         """
         Upload multiple files to the dataset.
@@ -616,11 +1123,15 @@ class Dataset:
             working_set.append(file)
 
             if len(working_set) >= max_batch_size:
-                self.__upload_files_batch(working_set, file_destination_paths)
+                self.__upload_files_batch(
+                    working_set, file_destination_paths, print_progress
+                )
                 working_set = []
 
         if len(working_set) > 0:
-            self.__upload_files_batch(working_set, file_destination_paths)
+            self.__upload_files_batch(
+                working_set, file_destination_paths, print_progress
+            )
 
     def _complete_manifest_transaction(self, transaction_id: str) -> None:
         """
@@ -780,6 +1291,7 @@ class Dataset:
         self,
         files: collections.abc.Iterable[pathlib.Path],
         file_destination_paths: collections.abc.Mapping[pathlib.Path, str] = {},
+        print_progress: bool = True,
     ):
         try:
             package_version = importlib.metadata.version("roboto")
@@ -808,13 +1320,15 @@ class Dataset:
             for src_path, dest_uri in create_upload_mappings.items()
         }
 
-        progress_monitor_factory = TqdmProgressMonitorFactory(
-            concurrency=1,
-            ctx={
-                "expected_file_count": total_file_count,
-                "expected_file_size": total_file_size,
-            },
-        )
+        progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory()
+        if print_progress:
+            progress_monitor_factory = TqdmProgressMonitorFactory(
+                concurrency=1,
+                ctx={
+                    "expected_file_count": total_file_count,
+                    "expected_file_size": total_file_size,
+                },
+            )
 
         with progress_monitor_factory.upload_monitor(
             source=f"{total_file_count} file" + ("s" if total_file_count != 1 else ""),

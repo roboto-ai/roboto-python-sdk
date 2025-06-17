@@ -49,6 +49,70 @@ class InvocationDataSource(pydantic.BaseModel):
         return self.data_source_id == _UNSPECIFIED_DATA_SOURCE
 
 
+class UploadDestinationType(enum.Enum):
+    """Type of upload destination for invocation outputs."""
+
+    Dataset = "Dataset"
+    """Outputs will be uploaded to a dataset. This is the default."""
+
+    Unknown = "Unknown"
+    """The output destination is unknown.
+
+    This destination type exists for compatibility between different
+    versions of the Roboto SDK and the Roboto service backend. It should
+    not be used directly in action invocation requests. If you encounter
+    it in an SDK response, consider upgrading to the latest available
+    SDK version.
+    """
+
+
+class InvocationUploadDestination(pydantic.BaseModel):
+    """Default destination to which invocation outputs - if any - should be uploaded."""
+
+    destination_type: UploadDestinationType = UploadDestinationType.Dataset
+    """Type of upload destination. By default, outputs are uploaded to a dataset."""
+
+    destination_id: typing.Optional[str] = None
+    """Optional identifier for the upload destination.
+
+    In the case of a dataset, it would be the dataset ID.
+    """
+
+    @pydantic.field_validator("destination_type", mode="before")
+    @classmethod
+    def pre_validate_destination_type(cls, value: typing.Any) -> typing.Any:
+        if isinstance(value, UploadDestinationType):
+            return value
+
+        if isinstance(value, str) and value not in UploadDestinationType.__members__:
+            return UploadDestinationType.Unknown
+
+        return value
+
+    @classmethod
+    def dataset(cls, dataset_id: str) -> InvocationUploadDestination:
+        """Create a dataset upload destination with the given ID."""
+
+        return cls(
+            destination_type=UploadDestinationType.Dataset, destination_id=dataset_id
+        )
+
+    @property
+    def is_dataset(self) -> bool:
+        """True if this is a dataset destination with a dataset ID, False otherwise."""
+
+        return (
+            self.destination_type is UploadDestinationType.Dataset
+            and self.destination_id is not None
+        )
+
+    @property
+    def is_unknown(self) -> bool:
+        """True if the upload destination is not of a supported type, False otherwise."""
+
+        return self.destination_type is UploadDestinationType.Unknown
+
+
 class DataSelector(pydantic.BaseModel):
     """Selector for inputs (e.g. files) to an action invocation."""
 
@@ -132,13 +196,10 @@ class InvocationInput(pydantic.BaseModel):
 
     @property
     def safe_files(self) -> list[FileSelector]:
-        match self.files:
-            case None:
-                return []
-            case FileSelector():
-                return [self.files]
-            case _:
-                return self.files
+        if self.files is None:
+            return []
+
+        return self.files if isinstance(self.files, list) else [self.files]
 
     @property
     def file_paths(self) -> list[str]:
@@ -152,13 +213,10 @@ class InvocationInput(pydantic.BaseModel):
 
     @property
     def safe_topics(self) -> list[DataSelector]:
-        match self.topics:
-            case None:
-                return []
-            case DataSelector():
-                return [self.topics]
-            case _:
-                return self.topics
+        if self.topics is None:
+            return []
+
+        return self.topics if isinstance(self.topics, list) else [self.topics]
 
 
 class ActionProvenance(pydantic.BaseModel):
@@ -314,6 +372,7 @@ class InvocationRecord(pydantic.BaseModel):
     data_source: InvocationDataSource
     input_data: list[str]
     rich_input_data: typing.Optional[InvocationInput] = None
+    upload_destination: typing.Optional[InvocationUploadDestination] = None
     invocation_id: str  # Sort key
     idempotency_id: typing.Optional[str] = None
     compute_requirements: ComputeRequirements
@@ -336,6 +395,11 @@ class InvocationRecord(pydantic.BaseModel):
                 "rich_input_data": (
                     self.rich_input_data.model_dump(mode="json")
                     if self.rich_input_data
+                    else None
+                ),
+                "upload_destination": (
+                    self.upload_destination.model_dump(mode="json")
+                    if self.upload_destination
                     else None
                 ),
                 "invocation_id": self.invocation_id,

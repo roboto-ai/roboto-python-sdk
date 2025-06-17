@@ -356,6 +356,16 @@ class RobotoLimitExceededException(RobotoDomainException):
         return as_dict
 
 
+class RobotoFailedToGenerateException(RobotoDomainException):
+    """
+    Thrown when Roboto fails to generate a resource due to an internal error.
+    """
+
+    @property
+    def http_status_code(self) -> int:
+        return 500
+
+
 class RobotoInternalException(RobotoDomainException):
     """
     Thrown when Roboto throws an unexpected internal error, expected to be systemic.

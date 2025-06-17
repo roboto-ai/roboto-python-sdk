@@ -44,6 +44,7 @@ from .invocation_record import (
     InvocationInput,
     InvocationRecord,
     InvocationSource,
+    InvocationUploadDestination,
 )
 
 SHORT_DESCRIPTION_LENGTH = 140
@@ -290,6 +291,7 @@ class Action:
         data_source_id: typing.Optional[str] = None,
         data_source_type: typing.Optional[InvocationDataSourceType] = None,
         input_data: typing.Optional[typing.Union[list[str], InvocationInput]] = None,
+        upload_destination: typing.Optional[InvocationUploadDestination] = None,
         compute_requirement_overrides: typing.Optional[ComputeRequirements] = None,
         container_parameter_overrides: typing.Optional[ContainerParameters] = None,
         idempotency_id: typing.Optional[str] = None,
@@ -300,12 +302,18 @@ class Action:
     ) -> Invocation:
         """Invokes this action using any inputs and options provided.
 
+        Executes this action with the specified parameters and returns an Invocation
+        object that can be used to track progress and retrieve results.
+
         Args:
             invocation_source: Manual, trigger, etc.
             data_source_type: If set, should equal `Dataset` for backward compatibility.
             data_source_id: If set, should be a dataset ID for backward compatibility.
             input_data:
                 Either a list of file name patterns, or an `InvocationInput` specification.
+            upload_destination:
+                Default upload destination (e.g. dataset) for files written to the invocation's
+                output directory.
             compute_requirement_overrides:
                 Overrides for the action's default compute requirements (e.g. vCPU)
             container_parameter_overrides:
@@ -325,6 +333,34 @@ class Action:
             RobotoIllegalArgumentException: Invalid method parameters or combinations.
             RobotoInvalidRequestException: Incorrectly formed request.
             RobotoUnauthorizedException: The caller is not authorized to invoke this action.
+
+        Examples:
+            Basic invocation with a dataset:
+
+            >>> from roboto import Action, InvocationSource
+            >>> action = Action.from_name("ros_ingestion", owner_org_id="roboto-public")
+            >>> iv = action.invoke(
+            ...     invocation_source=InvocationSource.Manual,
+            ...     data_source_id="ds_12345",
+            ...     data_source_type=InvocationDataSourceType.Dataset,
+            ...     input_data=["**/*.bag"],
+            ...     upload_destination=InvocationUploadDestination.dataset("ds_12345")
+            ... )
+            >>> iv.wait_for_terminal_status()
+
+            Invocation with compute requirement overrides:
+
+            >>> from roboto import Action, InvocationSource, ComputeRequirements
+            >>> action = Action.from_name("image_processing", owner_org_id="roboto-public")
+            >>> compute_reqs = ComputeRequirements(vCPU=4096, memory=8192)
+            >>> iv = action.invoke(
+            ...     invocation_source=InvocationSource.Manual,
+            ...     compute_requirement_overrides=compute_reqs,
+            ...     parameter_values={"threshold": 0.75}
+            ... )
+            >>> status = iv.wait_for_terminal_status()
+            >>> print(status)
+            'COMPLETED'
         """
 
         resolved_input_data: typing.Optional[InvocationInput] = None
@@ -359,6 +395,7 @@ class Action:
             invocation_source_id=invocation_source_id,
             parameter_values=parameter_values,
             timeout=timeout,
+            upload_destination=upload_destination,
         )
 
         if request.timeout is None:

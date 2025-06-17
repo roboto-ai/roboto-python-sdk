@@ -28,7 +28,10 @@ from .record import (
     FileStatus,
     FileStorageType,
     FileTag,
+    FSType,
     IngestionStatus,
+    is_directory,
+    is_file,
 )
 
 __all__ = (
@@ -44,6 +47,7 @@ __all__ = (
     "FileStatus",
     "FileStorageType",
     "FileTag",
+    "FSType",
     "ImportFileRequest",
     "IngestionStatus",
     "DirectoryRecord",
@@ -52,4 +56,6 @@ __all__ = (
     "S3Credentials",
     "SignedUrlResponse",
     "UpdateFileRecordRequest",
+    "is_directory",
+    "is_file",
 )

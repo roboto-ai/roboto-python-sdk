@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
 import dataclasses
 import pathlib
@@ -13,6 +15,7 @@ import pydantic
 
 from ..domain.files import File, FileRecord
 from ..domain.topics import Topic, TopicRecord
+from ..http import RobotoClient
 
 DEFAULT_INPUT_FILE = pathlib.Path.cwd() / "action_input.json"
 
@@ -60,9 +63,22 @@ class ActionInput:
     Topics passed as input data to an action invocation.
     """
 
+    @classmethod
+    def from_record(
+        cls, record: ActionInputRecord, roboto_client: RobotoClient
+    ) -> ActionInput:
+        """Create an ActionInput instance from its serialized representation."""
+
+        return cls(
+            files=[
+                (File(file_rec, roboto_client), path) for file_rec, path in record.files
+            ],
+            topics=[Topic(topic_rec, roboto_client) for topic_rec in record.topics],
+        )
+
     def get_topics_by_name(self, topic_name: str) -> list[Topic]:
         """
-        Returns any topics in this ``ActionInput`` that have the provided name.
+        Return any topics in this ``ActionInput`` that have the provided name.
 
         Args:
             topic_name: Topic name to look for.

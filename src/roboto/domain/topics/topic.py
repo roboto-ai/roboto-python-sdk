@@ -375,26 +375,31 @@ class Topic:
         end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
-        """
-        Return this topic's underlying data.
-        Each yielded datum is a dictionary that matches this topic's schema.
+        """Return this topic's underlying data.
 
-        If ``message_paths_include`` or ``message_paths_exclude`` are defined,
-        they should be dot notation paths that match attributes of individual data records.
+        Retrieves and yields data records from this topic, with optional filtering by
+        message paths and time range. Each yielded datum is a dictionary that matches
+        this topic's schema.
 
-        If ``start_time`` or ``end_time`` are defined,
-        they should either be integers that represent nanoseconds since UNIX epoch,
-        or convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
-        Either or both may be omitted.
-        ``start_time`` is inclusive, while ``end_time`` is exclusive.
+        Args:
+            message_paths_include: Dot notation paths that match attributes of individual
+                data records to include. If None, all paths are included.
+            message_paths_exclude: Dot notation paths that match attributes of individual
+                data records to exclude. If None, no paths are excluded.
+            start_time: Start time (inclusive) as nanoseconds since UNIX epoch or
+                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
+            end_time: End time (exclusive) as nanoseconds since UNIX epoch or
+                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
+            cache_dir: Directory where topic data will be downloaded if necessary.
+                Defaults to :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
 
-        If ``cache_dir`` is defined, topic data will be downloaded to this location if necessary.
-        If not provided, ``cache_dir`` defaults to
-        :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
+        Yields:
+            Dictionary records that match this topic's schema, filtered according to the parameters.
 
-        For each example below, assume the following is a sample datum record that can be found in this topic:
+        Notes:
+            For each example below, assume the following is a sample datum record that can be found in this topic:
 
-        ::
+            ::
 
             {
                 "angular_velocity": {
@@ -411,35 +416,34 @@ class Topic:
             }
 
         Examples:
-            Print all data to stdout.
+            Print all data to stdout:
 
             >>> topic = Topic.from_name_and_file(...)
             >>> for record in topic.get_data():
-            >>>      print(record)
+            ...     print(record)
 
-            Only include the `"angular_velocity"` sub-object, but filter out its `"y"` property.
+            Only include the "angular_velocity" sub-object, but filter out its "y" property:
 
             >>> topic = Topic.from_name_and_file(...)
             >>> for record in topic.get_data(
-            >>>   message_paths_include=["angular_velocity"],
-            >>>   message_paths_exclude=["angular_velocity.y"],
-            >>> ):
-            >>>      print(record)
+            ...     message_paths_include=["angular_velocity"],
+            ...     message_paths_exclude=["angular_velocity.y"],
+            ... ):
+            ...     print(record)
 
             Only include data between two timestamps:
 
             >>> topic = Topic.from_name_and_file(...)
             >>> for record in topic.get_data(
-            >>>   start_time=1722870127699468923,
-            >>>   end_time=1722870127699468924,
-            >>> ):
-            >>>      print(record)
+            ...     start_time=1722870127699468923,
+            ...     end_time=1722870127699468924,
+            ... ):
+            ...     print(record)
 
-            Collect all topic data into a dataframe. Requires installing the ``roboto[analytics]`` extra.
+            Collect all topic data into a dataframe (requires installing the ``roboto[analytics]`` extra):
 
             >>> topic = Topic.from_name_and_file(...)
             >>> df = topic.get_data_as_df()
-
         """
         yield from self.__topic_data_service.get_data(
             topic_id=self.__record.topic_id,

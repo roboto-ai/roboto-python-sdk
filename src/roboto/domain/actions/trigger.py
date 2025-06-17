@@ -29,6 +29,7 @@ from .invocation_record import (
     ContainerParameters,
     InvocationDataSource,
     InvocationSource,
+    InvocationUploadDestination,
 )
 from .trigger_operations import (
     CreateTriggerRequest,
@@ -295,6 +296,7 @@ class Trigger:
         data_source: InvocationDataSource,
         idempotency_id: typing.Optional[str] = None,
         input_data_override: typing.Optional[list[str]] = None,
+        upload_destination: typing.Optional[InvocationUploadDestination] = None,
     ) -> typing.Optional[Invocation]:
         try:
             return self.get_action().invoke(
@@ -303,6 +305,7 @@ class Trigger:
                 data_source_id=data_source.data_source_id,
                 data_source_type=data_source.data_source_type,
                 input_data=input_data_override or self.__record.required_inputs,
+                upload_destination=upload_destination,
                 idempotency_id=idempotency_id,
                 invocation_source=InvocationSource.Trigger,
                 invocation_source_id=self.__record.name,

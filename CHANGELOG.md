@@ -1,5 +1,20 @@
 # Changelog
 
+# 0.21.0
+## No Breaking Changes
+
+## Features Added
+  - Add `summary_id` and `status` to `AISummary`, in support of new async summary generation.
+  - Add rich documentation to many `roboto.domain.*` files
+  - Add `get_summary()` and `generate_summary()` to `File`, exposing LLM summaries of files.
+  - Add `get_summary_sync()` to `Dataset` and `File`, which allows you to await the completion of a summary.
+  - Added an optional `print_progress` flag to all `Dataset::upload_*` methods, which allows the caller to suppress TQDM progress bars printing to STDOUT.
+  - Added an optional `upload_destination` argument to `Action::invoke` and `Trigger::invoke`. If provided, it tells the Roboto platform where to upload any outputs produced by the invocation.
+  - Added an optional `--output-dataset-id` command-line argument to `roboto actions invoke` to let users set an invocation's upload destination to a Roboto dataset.
+
+## Bugs Fixed
+  - 
+
 # 0.20.1
 ## No Breaking Changes
 
@@ -7,6 +22,7 @@
   - [CLI] Actions that don't take inputs can now be invoked from the command-line by leaving out the arguments `--dataset-id` and `--input-data`. For actions that take inputs, both arguments must be provided as before.
   - Add subset of audit fields to `RepresentationRecord` to enable determination of "latest" representation of topic data.
   - Add ability to pass `caller_org_id` to `File::import_batch`, which is necessary to exercise bring-your-own-bucket file imports for users belonging to multiple orgs.
+  - Added a method to Dataset to list directories. Added metadata properties to `DirectoryRecord`. Added the `S3Directory` storage type to `FileStorageType`. Added `fs_type`, `name`, and `parent_id` to `FileRecord`. 
 
 ## Bugs Fixed
 

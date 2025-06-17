@@ -24,11 +24,12 @@ class RobotoSearch:
     """
     A high-level interface for querying the Roboto data platform.
 
-    For most customers, using this class should be as simple as:
-        >>> from roboto import RobotoSearch
-        >>> robosearch = RobotoSearch()
-        >>> for dataset in robosearch.find_datasets(...):
-        ...     ...
+    In most cases, using this class should be as simple as:
+
+    >>> from roboto import RobotoSearch
+    >>> robosearch = RobotoSearch()
+    >>> for dataset in robosearch.find_datasets(...):
+    ...     ...
     """
 
     __query_client: QueryClient

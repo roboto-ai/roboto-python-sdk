@@ -28,6 +28,7 @@ from .invocation_record import (
     InvocationRecord,
     InvocationStatus,
     InvocationStatusRecord,
+    InvocationUploadDestination,
     LogRecord,
     LogsLocation,
     SourceProvenance,
@@ -185,6 +186,10 @@ class Invocation:
     @property
     def timeout(self) -> int:
         return self.__record.timeout
+
+    @property
+    def upload_destination(self) -> typing.Optional[InvocationUploadDestination]:
+        return self.__record.upload_destination
 
     def cancel(self) -> None:
         if self.current_status.is_terminal():

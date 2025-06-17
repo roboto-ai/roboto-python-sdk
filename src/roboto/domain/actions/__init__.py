@@ -42,9 +42,11 @@ from .invocation_record import (
     InvocationSource,
     InvocationStatus,
     InvocationStatusRecord,
+    InvocationUploadDestination,
     LogRecord,
     LogsLocation,
     SourceProvenance,
+    UploadDestinationType,
 )
 from .trigger import Trigger
 from .trigger_operations import (
@@ -93,6 +95,7 @@ __all__ = (
     "InvocationSource",
     "InvocationStatus",
     "InvocationStatusRecord",
+    "InvocationUploadDestination",
     "LogsLocation",
     "LogRecord",
     "QueryTriggersRequest",
@@ -112,4 +115,5 @@ __all__ = (
     "UpdateActionRequest",
     "UpdateInvocationStatus",
     "UpdateTriggerRequest",
+    "UploadDestinationType",
 )

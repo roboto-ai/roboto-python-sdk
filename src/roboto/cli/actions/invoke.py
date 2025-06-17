@@ -44,6 +44,12 @@ def invoke(
     compute_requirements = parse_compute_requirements(args, action.compute_requirements)
     container_parameters = parse_container_overrides(args, action.container_parameters)
 
+    upload_destination: actions.InvocationUploadDestination | None = None
+    if args.output_dataset_id:
+        upload_destination = actions.InvocationUploadDestination.dataset(
+            args.output_dataset_id
+        )
+
     invocation = action.invoke(
         input_data=args.input_data,
         data_source_id=args.dataset_id,
@@ -54,6 +60,7 @@ def invoke(
         container_parameter_overrides=container_parameters,
         idempotency_id=args.idempotency_id,
         timeout=args.timeout,
+        upload_destination=upload_destination,
         caller_org_id=args.org,
     )
     print(
@@ -115,6 +122,14 @@ def invoke_parser(parser: argparse.ArgumentParser) -> None:
         help=(
             "Zero or more ``<parameter_name>=<parameter_value>`` pairs. "
             "``parameter_value`` is parsed as JSON. "
+        ),
+    )
+
+    parser.add_argument(
+        "--output-dataset-id",
+        help=(
+            "Unique identifier for a dataset to which any files written to the "
+            "invocation's output directory will be uploaded."
         ),
     )
 

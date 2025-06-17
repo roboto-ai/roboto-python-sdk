@@ -38,6 +38,7 @@ from .domain.actions import (
     InvocationSource,
     InvocationStatus,
     InvocationStatusRecord,
+    InvocationUploadDestination,
     LogRecord,
     LogsLocation,
     QueryTriggersRequest,
@@ -57,6 +58,7 @@ from .domain.actions import (
     UpdateActionRequest,
     UpdateInvocationStatus,
     UpdateTriggerRequest,
+    UploadDestinationType,
 )
 from .domain.collections import (
     Collection,
@@ -215,6 +217,7 @@ __all__ = [
     "InvocationSource",
     "InvocationStatus",
     "InvocationStatusRecord",
+    "InvocationUploadDestination",
     "LogRecord",
     "LogsLocation",
     "MessagePath",
@@ -260,6 +263,7 @@ __all__ = [
     "UpdateTopicRequest",
     "UpdateTriggerRequest",
     "UpdateUserRequest",
+    "UploadDestinationType",
     "User",
     "UserRecord",
 ]

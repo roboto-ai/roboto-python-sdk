@@ -19,6 +19,7 @@ from .invocation_record import (
     InvocationInput,
     InvocationSource,
     InvocationStatus,
+    InvocationUploadDestination,
 )
 
 
@@ -68,6 +69,7 @@ class CreateInvocationRequest(pydantic.BaseModel):
     invocation_source_id: Optional[str] = None
     parameter_values: Optional[dict[str, Any]] = None
     timeout: Optional[int] = None
+    upload_destination: Optional[InvocationUploadDestination] = None
 
 
 class SetContainerInfoRequest(pydantic.BaseModel):

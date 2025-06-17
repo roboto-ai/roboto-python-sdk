@@ -7,13 +7,7 @@
 import pathlib
 import typing
 
-from ..domain import (
-    actions,
-    datasets,
-    files,
-    orgs,
-    topics,
-)
+from ..domain import actions, datasets, orgs
 from ..env import RobotoEnv, RobotoEnvKey
 from ..http import RobotoClient
 from .action_input import (
@@ -298,16 +292,7 @@ class ActionRuntime:
             action_inputs_manifest_file.read_text()
         )
 
-        return ActionInput(
-            files=[
-                (files.File(file_rec, self.__roboto_client), path)
-                for file_rec, path in input_record.files
-            ],
-            topics=[
-                topics.Topic(topic_rec, self.__roboto_client)
-                for topic_rec in input_record.topics
-            ],
-        )
+        return ActionInput.from_record(input_record, self.__roboto_client)
 
     def get_parameter(self, name: str) -> str:
         """
