@@ -53,7 +53,9 @@ from ..topics import Topic
 from .operations import (
     BeginManifestTransactionRequest,
     BeginManifestTransactionResponse,
+    CreateDatasetIfNotExistsRequest,
     CreateDatasetRequest,
+    CreateDirectoryRequest,
     QueryDatasetFilesRequest,
     RenameDirectoryRequest,
     ReportTransactionProgressRequest,
@@ -77,6 +79,7 @@ class Dataset:
     enough to serve as a general-purpose assembly of files.
 
     Datasets provide functionality for:
+
     - File upload and download operations
     - Metadata and tag management
     - File organization and directory operations
@@ -160,6 +163,81 @@ class Dataset:
         )
         record = roboto_client.post(
             "v1/datasets", data=request, caller_org_id=caller_org_id
+        ).to_record(DatasetRecord)
+        return cls(record=record, roboto_client=roboto_client)
+
+    @classmethod
+    def create_if_not_exists(
+        cls,
+        match_roboql_query: str,
+        description: typing.Optional[str] = None,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
+        name: typing.Optional[str] = None,
+        tags: typing.Optional[list[str]] = None,
+        caller_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> "Dataset":
+        """Create a dataset if no existing dataset matches the specified query.
+
+        Searches for existing datasets using the provided RoboQL query. If a matching
+        dataset is found, returns that dataset. If no match is found, creates a new
+        dataset with the specified properties and returns it.
+
+        Args:
+            match_roboql_query: RoboQL query string to search for existing datasets.
+                If this query matches any dataset, that dataset will be returned
+                instead of creating a new one.
+            description: Optional human-readable description of the dataset.
+            metadata: Optional key-value metadata pairs to associate with the dataset.
+            name: Optional short name for the dataset (max 120 characters).
+            tags: Optional list of tags for dataset discovery and organization.
+            caller_org_id: Organization ID to create the dataset in. Required for multi-org users.
+            roboto_client: HTTP client for API communication. If None, uses the default client.
+
+        Returns:
+            Dataset instance representing either the existing matched dataset or the newly created dataset.
+
+        Raises:
+            RobotoInvalidRequestException: Invalid dataset parameters or malformed RoboQL query.
+            RobotoUnauthorizedException: Caller lacks permission to create datasets or search existing ones.
+
+        Examples:
+            Create a dataset only if no dataset with specific metadata exists:
+
+            >>> dataset = Dataset.create_if_not_exists(
+            ...     match_roboql_query="dataset.metadata.vehicle_id = 'vehicle_001'",
+            ...     name="Vehicle 001 Test Session",
+            ...     description="Test data for vehicle 001",
+            ...     metadata={"vehicle_id": "vehicle_001", "test_type": "highway"},
+            ...     tags=["vehicle_001", "highway"]
+            ... )
+            >>> print(dataset.dataset_id)
+            ds_abc123
+
+            Create a dataset only if no dataset with specific tags exists:
+
+            >>> dataset = Dataset.create_if_not_exists(
+            ...     match_roboql_query="dataset.tags CONTAINS 'unique_session_id_xyz'",
+            ...     name="Unique Test Session",
+            ...     tags=["unique_session_id_xyz", "test"]
+            ... )
+            >>> # If a dataset with tag 'unique_session_id_xyz' already exists,
+            >>> # that dataset is returned instead of creating a new one
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        request = CreateDatasetIfNotExistsRequest(
+            match_roboql_query=match_roboql_query,
+            create_request=CreateDatasetRequest(
+                description=description,
+                metadata=metadata or {},
+                name=name,
+                tags=tags or [],
+            ),
+        )
+        record = roboto_client.post(
+            "v1/datasets/create_if_not_exists",
+            data=request,
+            caller_org_id=caller_org_id,
         ).to_record(DatasetRecord)
         return cls(record=record, roboto_client=roboto_client)
 
@@ -270,6 +348,11 @@ class Dataset:
                 spec.after = paginated_results.next_token
             else:
                 break
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Dataset):
+            return False
+        return self.record == other.record
 
     def __init__(
         self, record: DatasetRecord, roboto_client: typing.Optional[RobotoClient] = None
@@ -385,6 +468,69 @@ class Dataset:
         dataset for categorization and filtering purposes.
         """
         return self.__record.tags.copy()
+
+    def create_directory(
+        self,
+        name: str,
+        error_if_exists: bool = False,
+        create_intermediate_dirs: bool = False,
+        parent_path: typing.Optional[pathlib.Path] = None,
+        origination: typing.Optional[str] = None,
+    ) -> DirectoryRecord:
+        """Create a directory within the dataset.
+
+        Args:
+            name: Name of the directory to create.
+            error_if_exists: If True, raises an exception if the directory already exists.
+            parent_path: Path of the parent directory. If None, creates the directory in the root of the dataset.
+            origination: Optional string describing the source or context of the directory creation.
+            create_intermediate_dirs: If True, creates intermediate directories in the path if they don't exist.
+                If False, requires all parent directories to already exist.
+
+        Raises:
+            RobotoConflictException: If the directory already exists and error_if_exists is True.
+            RobotoUnauthorizedException: If the caller lacks permission to create the directory.
+            RobotoInvalidRequestException: If the directory name is invalid or the parent path does not exist
+                (when create_intermediate_dirs is False).
+
+        Returns:
+            DirectoryRecord of the created directory.
+
+        Examples:
+            Create a simple directory:
+
+            >>> from roboto.domain import datasets
+            >>> dataset = datasets.Dataset.from_id(...)
+            >>> directory = dataset.create_directory("foo")
+            >>> print(directory.relative_path)
+            foo
+
+            Create a directory with intermediate directories:
+
+            >>> directory = dataset.create_directory(
+            ...     name="final",
+            ...     parent_path="path/to/deep",
+            ...     create_intermediate_dirs=True
+            ... )
+            >>> print(directory.relative_path)
+            path/to/deep/final
+
+        """
+
+        if origination is None:
+            package_version = self.__retrieve_roboto_version()
+            origination = RobotoEnv.default().roboto_env or f"roboto {package_version}"
+
+        request = CreateDirectoryRequest(
+            name=name,
+            error_if_exists=error_if_exists,
+            parent_path=str(parent_path) if parent_path is not None else None,
+            origination=origination,
+            create_intermediate_dirs=create_intermediate_dirs,
+        )
+        return self.__roboto_client.put(
+            f"v1/datasets/{self.dataset_id}/directory", data=request
+        ).to_record(DirectoryRecord)
 
     def delete(self) -> None:
         """Delete this dataset from the Roboto platform.
@@ -1269,6 +1415,12 @@ class Dataset:
                 )
                 self.__transaction_completed_unreported_items[transaction_id] = set()
 
+    def __retrieve_roboto_version(self) -> str:
+        try:
+            return importlib.metadata.version("roboto")
+        except importlib.metadata.PackageNotFoundError:
+            return "version_not_found"
+
     def __sufficient_uploads_completed_to_report_progress(
         self, completion_count: int, total_file_count: int
     ):
@@ -1293,10 +1445,7 @@ class Dataset:
         file_destination_paths: collections.abc.Mapping[pathlib.Path, str] = {},
         print_progress: bool = True,
     ):
-        try:
-            package_version = importlib.metadata.version("roboto")
-        except importlib.metadata.PackageNotFoundError:
-            package_version = "version_not_found"
+        package_version = self.__retrieve_roboto_version()
 
         origination = RobotoEnv.default().roboto_env or f"roboto {package_version}"
         file_manifest = {

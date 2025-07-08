@@ -28,7 +28,7 @@ class EventRecord(pydantic.BaseModel):
     Date/time when this event was created.
     """
 
-    created_by: str = pydantic.Field(description="The user who registered this device.")
+    created_by: str
     """
     The user who created this event.
     """
@@ -56,12 +56,12 @@ class EventRecord(pydantic.BaseModel):
 
     modified: datetime.datetime
     """
-    Date/time when this device record was last modified.
+    Date/time when this event was last modified.
     """
 
     modified_by: str
     """
-    The user who last modified this device record.
+    The user who last modified this event.
     """
 
     name: str
@@ -70,9 +70,9 @@ class EventRecord(pydantic.BaseModel):
     "Bad Image Quality", and "Unexpected Left" are a few potential examples.
     """
 
-    org_id: str = pydantic.Field(description="The org to which this device belongs.")
+    org_id: str
     """
-    The org to which this device belongs.
+    The organization to which this event belongs.
     """
 
     start_time: int

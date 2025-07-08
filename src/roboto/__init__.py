@@ -81,6 +81,7 @@ from .domain.comments import (
 from .domain.datasets import (
     BeginManifestTransactionRequest,
     BeginSingleFileUploadRequest,
+    CreateDatasetIfNotExistsRequest,
     CreateDatasetRequest,
     Dataset,
     DatasetRecord,
@@ -180,6 +181,7 @@ __all__ = [
     "CreateActionRequest",
     "CreateCollectionRequest",
     "CreateCommentRequest",
+    "CreateDatasetIfNotExistsRequest",
     "CreateDatasetRequest",
     "CreateDeviceRequest",
     "CreateInvocationRequest",

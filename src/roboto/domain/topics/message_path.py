@@ -1,4 +1,4 @@
-# Copyright (c) 2024 Roboto Technologies, Inc.
+# Copyright (c) 2025 Roboto Technologies, Inc.
 #
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -12,7 +12,6 @@ import pathlib
 import typing
 
 from ...association import Association
-from ...compat import import_optional_dependency
 from ...http import RobotoClient
 from ...time import Time
 from .record import (
@@ -29,9 +28,26 @@ PreComputedStat: typing.TypeAlias = typing.Optional[typing.Union[int, float]]
 
 
 class MessagePath:
-    """
-    The set of data created by mapping over :py:class:`~roboto.domain.topics.Topic` data,
-    picking out just those values from each datum at a given attribute path.
+    """Represents a message path within a topic in the Roboto platform.
+
+    A message path defines a specific field or signal within a topic's data schema,
+    using dot notation to specify nested attributes. Message paths enable fine-grained
+    access to individual data elements within time-series robotics data, supporting
+    operations like statistical analysis, data filtering, and visualization.
+
+    Each message path has an associated data type (both native and canonical), metadata,
+    and statistical information computed from the underlying data. Message paths are
+    the fundamental building blocks for data analysis in Roboto, allowing users to
+    work with specific signals or measurements from complex robotics data structures.
+
+    Message paths support temporal filtering, data export to various formats including
+    pandas DataFrames, and integration with the broader Roboto analytics ecosystem.
+    They provide efficient access to time-series data while maintaining the semantic
+    structure of the original robotics messages.
+
+    The MessagePath class serves as the primary interface for accessing individual
+    data signals within topics, providing methods for data retrieval, statistical
+    analysis, and metadata management.
     """
 
     DELIMITER: typing.ClassVar = "."
@@ -42,13 +58,25 @@ class MessagePath:
 
     @staticmethod
     def parents(path: str) -> list[str]:
-        """
-        Given message path in dot notation, return list of its parent paths (also in dot notation).
+        """Get parent paths for a message path in dot notation.
 
-        Example:
+        Given a message path in dot notation, returns a list of its parent paths
+        ordered from most specific to least specific.
+
+        Args:
+            path: Message path in dot notation (e.g., "pose.pose.position.x").
+
+        Returns:
+            List of parent paths in dot notation, ordered from most to least specific.
+
+        Examples:
             >>> path = "pose.pose.position.x"
             >>> MessagePath.parents(path)
             ['pose.pose.position', 'pose.pose', 'pose']
+
+            >>> # Single level path has no parents
+            >>> MessagePath.parents("velocity")
+            []
         """
         parent_parts = MessagePath.parts(path)[:-1]
         return [
@@ -58,13 +86,25 @@ class MessagePath:
 
     @staticmethod
     def parts(path: str) -> list[str]:
-        """
-        Split message path in dot notation into its constituent path parts.
+        """Split message path in dot notation into its constituent parts.
 
-        Example:
+        Splits a message path string into individual components, useful for
+        programmatic manipulation of message path hierarchies.
+
+        Args:
+            path: Message path in dot notation (e.g., "pose.pose.position.x").
+
+        Returns:
+            List of path components in order from root to leaf.
+
+        Examples:
             >>> path = "pose.pose.position.x"
             >>> MessagePath.parts(path)
             ['pose', 'pose', 'position', 'x']
+
+            >>> # Single component path
+            >>> MessagePath.parts("velocity")
+            ['velocity']
         """
         return path.split(MessagePath.DELIMITER)
 
@@ -75,6 +115,30 @@ class MessagePath:
         roboto_client: typing.Optional[RobotoClient] = None,
         topic_data_service: typing.Optional[TopicDataService] = None,
     ) -> "MessagePath":
+        """Retrieve a message path by its unique identifier.
+
+        Fetches a message path record from the Roboto platform using its unique ID.
+        This is useful when you have a message path identifier from another operation.
+
+        Args:
+            message_path_id: Unique identifier for the message path.
+            roboto_client: HTTP client for API communication. If None, uses the default client.
+            topic_data_service: Service for accessing topic data. If None, creates a default instance.
+
+        Returns:
+            MessagePath instance representing the requested message path.
+
+        Raises:
+            RobotoNotFoundException: Message path with the given ID does not exist.
+            RobotoUnauthorizedException: Caller lacks permission to access the message path.
+
+        Examples:
+            >>> message_path = MessagePath.from_id("mp_abc123")
+            >>> print(message_path.path)
+            'angular_velocity.x'
+            >>> print(message_path.canonical_data_type)
+            CanonicalDataType.Number
+        """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(
             f"v1/topics/message-path/id/{message_path_id}"
@@ -107,14 +171,17 @@ class MessagePath:
 
     @property
     def count(self) -> PreComputedStat:
+        """Number of data points available for this message path."""
         return self.__get_statistic(MessagePathStatistic.Count)
 
     @property
     def created(self) -> datetime:
+        """Timestamp when this message path was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
+        """Identifier of the user or system that created this message path."""
         return self.__record.created_by
 
     @property
@@ -125,50 +192,62 @@ class MessagePath:
 
     @property
     def max(self) -> PreComputedStat:
+        """Maximum value observed for this message path."""
         return self.__get_statistic(MessagePathStatistic.Max)
 
     @property
     def mean(self) -> PreComputedStat:
+        """Mean (average) value for this message path."""
         return self.__get_statistic(MessagePathStatistic.Mean)
 
     @property
     def median(self) -> PreComputedStat:
+        """Median value for this message path."""
         return self.__get_statistic(MessagePathStatistic.Median)
 
     @property
     def message_path_id(self) -> str:
+        """Unique identifier for this message path."""
         return self.__record.message_path_id
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
+        """Metadata dictionary associated with this message path."""
         return dict(self.__record.metadata)
 
     @property
     def min(self) -> PreComputedStat:
+        """Minimum value observed for this message path."""
         return self.__get_statistic(MessagePathStatistic.Min)
 
     @property
     def modified(self) -> datetime:
+        """Timestamp when this message path was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
+        """Identifier of the user or system that last modified this message path."""
         return self.__record.modified_by
 
     @property
     def org_id(self) -> str:
+        """Organization ID that owns this message path."""
         return self.__record.org_id
 
     @property
     def path(self) -> str:
+        """Dot-delimited path to the attribute (e.g., 'pose.position.x')."""
         return self.__record.message_path
 
     @property
     def record(self) -> MessagePathRecord:
+        """Underlying MessagePathRecord for this message path."""
         return self.__record
 
     @property
     def topic_id(self) -> str:
+        """Unique identifier of the topic containing this message path."""
         return self.__record.topic_id
 
     def get_data(
@@ -177,54 +256,63 @@ class MessagePath:
         end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
-        """
-        Return a projection of topic data: the set of data created by mapping over data collected within a topic,
-        picking out just those values at this message path.
+        """Return data for this specific message path.
 
-        If ``start_time`` or ``end_time`` are defined,
-        they should either be integers that represent nanoseconds since UNIX epoch,
-        or convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
-        Either or both may be omitted.
-        ``start_time`` is inclusive, while ``end_time`` is exclusive.
+        Retrieves and yields data records containing only the values for this message path,
+        with optional temporal filtering. This provides a focused view of a single signal
+        or field within the broader topic data.
 
-        If ``cache_dir`` is defined, topic data will be downloaded to this location if necessary.
-        If not provided, ``cache_dir`` defaults to
-        :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
+        Args:
+            start_time: Start time (inclusive) as nanoseconds since UNIX epoch or
+                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
+            end_time: End time (exclusive) as nanoseconds since UNIX epoch or
+                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
+            cache_dir: Directory where topic data will be downloaded if necessary.
+                Defaults to :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
 
-        For each example below, assume the following is a sample datum record
-        that can be found in this MessagePath's associated topic:
+        Yields:
+            Dictionary records containing the log_time and the value for this message path.
 
-        ::
+        Notes:
+            For each example below, assume the following is a sample datum record
+            that can be found in this message path's associated topic:
 
-            {
-                "angular_velocity": {
-                    "x": <uint32>,
-                    "y": <uint32>,
-                    "z": <uint32>
-                },
-                "orientation": {
-                    "x": <uint32>,
-                    "y": <uint32>,
-                    "z": <uint32>,
-                    "w": <uint32>
+            ::
+
+                {
+                    "angular_velocity": {
+                        "x": <uint32>,
+                        "y": <uint32>,
+                        "z": <uint32>
+                    },
+                    "orientation": {
+                        "x": <uint32>,
+                        "y": <uint32>,
+                        "z": <uint32>,
+                        "w": <uint32>
+                    }
                 }
-            }
 
         Examples:
-            Print all data to stdout.
+            Print all data for a specific message path:
 
-            >>> topic = Topic.from_name_and_association(...)
+            >>> topic = Topic.from_name_and_file("/imu/data", "file_abc123")
             >>> angular_velocity_x = topic.get_message_path("angular_velocity.x")
             >>> for record in angular_velocity_x.get_data():
-            >>>      print(record)
+            ...     print(f"Time: {record['log_time']}, Value: {record['angular_velocity']['x']}")
 
-            Collect data into a dataframe. Requires installing the ``roboto[analytics]`` extra.
+            Get data within a time range:
 
-            >>> import math
-            >>> import pandas as pd
-            >>> topic = Topic.from_name_and_association(...)
-            >>> angular_velocity_x = topic.get_message_path("angular_velocity.x")
+            >>> for record in angular_velocity_x.get_data(
+            ...     start_time=1722870127699468923,
+            ...     end_time=1722870127799468923
+            ... ):
+            ...     print(record)
+
+            Collect data into a dataframe (requires installing the ``roboto[analytics]`` extra):
+
             >>> df = angular_velocity_x.get_data_as_df()
+            >>> import math
             >>> assert math.isclose(angular_velocity_x.mean, df[angular_velocity_x.path].mean())
         """
 
@@ -242,31 +330,66 @@ class MessagePath:
         end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
     ) -> pandas.DataFrame:
+        """Return this message path's data as a pandas DataFrame.
+
+        Retrieves message path data and converts it to a pandas DataFrame for analysis
+        and visualization. The DataFrame is indexed by log time and contains a column
+        for this message path's values.
+
+        Args:
+            start_time: Start time (inclusive) as nanoseconds since UNIX epoch or
+                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
+            end_time: End time (exclusive) as nanoseconds since UNIX epoch or
+                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
+            cache_dir: Directory where topic data will be downloaded if necessary.
+                Defaults to :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
+
+        Returns:
+            pandas DataFrame containing the message path data, indexed by log time.
+
+        Raises:
+            ImportError: pandas is not installed. Install with ``roboto[analytics]`` extra.
+
+        Notes:
+            Requires installing this package using the ``roboto[analytics]`` extra.
+
+        Examples:
+            >>> topic = Topic.from_name_and_file("/imu/data", "file_abc123")
+            >>> angular_velocity_x = topic.get_message_path("angular_velocity.x")
+            >>> df = angular_velocity_x.get_data_as_df()
+            >>> print(df.head())
+                                    angular_velocity.x
+            log_time
+            1722870127699468923                  0.1
+            1722870127699468924                  0.15
+            >>> print(f"Mean: {df[angular_velocity_x.path].mean()}")
+            Mean: 0.125
         """
-        Return this message path's underlying data as a pandas DataFrame.
-
-        Requires installing this package using the ``roboto[analytics]`` extra.
-
-        See :py:meth:`~roboto.domain.topics.message_path.MessagePath.get_data` for more information on the parameters.
-        """
-        pandas = import_optional_dependency("pandas", "analytics")
-
-        df = pandas.json_normalize(
-            data=list(
-                self.get_data(
-                    start_time=start_time,
-                    end_time=end_time,
-                    cache_dir=cache_dir,
-                )
-            )
+        return self.__topic_data_service.get_data_as_df(
+            topic_id=self.__record.topic_id,
+            message_paths_include=[self.__record.message_path],
+            start_time=start_time,
+            end_time=end_time,
+            cache_dir_override=cache_dir,
         )
 
-        if TopicDataService.LOG_TIME_ATTR_NAME in df.columns:
-            return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
-
-        return df
-
     def to_association(self) -> Association:
+        """Convert this message path to an Association object.
+
+        Creates an Association object that can be used to reference this message path
+        in other parts of the Roboto platform.
+
+        Returns:
+            Association object representing this message path.
+
+        Examples:
+            >>> message_path = MessagePath.from_id("mp_abc123")
+            >>> association = message_path.to_association()
+            >>> print(association.association_type)
+            AssociationType.MessagePath
+            >>> print(association.association_id)
+            mp_abc123
+        """
         return Association.msgpath(self.message_path_id)
 
     def __get_statistic(self, stat: MessagePathStatistic) -> PreComputedStat:

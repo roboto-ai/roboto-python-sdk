@@ -45,8 +45,28 @@ from .trigger_record import (
 
 
 class Trigger:
-    """
-    A rule that automatically invokes an action when specific events or conditions occur
+    """A rule that automatically invokes an action when specific events or conditions occur.
+
+    Triggers enable automated data processing workflows by monitoring for specific
+    events (like new datasets being created) and automatically invoking actions
+    when conditions are met. They eliminate the need for manual intervention in
+    routine data processing tasks.
+
+    Triggers can be configured to:
+
+    - Monitor for new datasets, files, or other data sources
+    - Apply conditional logic to determine when to execute
+    - Specify input data patterns and action parameters
+    - Override compute requirements and container parameters
+    - Execute actions for each matching item or in batch
+
+    A trigger consists of:
+
+    - Target action to invoke
+    - Input data requirements and patterns
+    - Execution conditions and causes
+    - Parameter values and overrides
+    - Scheduling and execution settings
     """
 
     __record: TriggerRecord
@@ -58,6 +78,37 @@ class Trigger:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator[TriggerEvaluationRecord, None, None]:
+        """Get all trigger evaluations for a specific dataset.
+
+        Retrieves the history of trigger evaluations that were performed for
+        a given dataset, including successful invocations and failed attempts.
+
+        Args:
+            dataset_id: The ID of the dataset to get evaluations for.
+            owner_org_id: Organization ID that owns the dataset. If not provided,
+                searches in the caller's organization.
+            roboto_client: Roboto client instance. Uses default if not provided.
+
+        Yields:
+            TriggerEvaluationRecord instances for the dataset.
+
+        Raises:
+            RobotoNotFoundException: If the dataset is not found.
+            RobotoUnauthorizedException: If the caller lacks permission to access evaluations.
+
+        Examples:
+            Get all evaluations for a dataset:
+
+            >>> for evaluation in Trigger.get_evaluations_for_dataset("ds_12345"):
+            ...     print(f"Trigger: {evaluation.trigger_name}, Status: {evaluation.status}")
+
+            Check if any triggers succeeded for a dataset:
+
+            >>> from roboto.domain.actions import TriggerEvaluationStatus
+            >>> evaluations = list(Trigger.get_evaluations_for_dataset("ds_12345"))
+            >>> successful = [e for e in evaluations if e.status == TriggerEvaluationStatus.Succeeded]
+            >>> print(f"Found {len(successful)} successful trigger evaluations")
+        """
         roboto_client = RobotoClient.defaulted(roboto_client)
         page_token: typing.Optional[str] = None
         while True:
@@ -98,8 +149,81 @@ class Trigger:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Trigger":
-        """
-        Invoke an action on every new dataset (or every new dataset file) that meets some acceptance criteria.
+        """Create a new trigger that automatically invokes an action when conditions are met.
+
+        Creates a trigger that monitors for specific events (like new datasets or files)
+        and automatically invokes the specified action when the trigger conditions are
+        satisfied. This enables automated data processing workflows.
+
+        Args:
+            name: Unique name for the trigger within the organization.
+            action_name: Name of the action to invoke when the trigger fires.
+            required_inputs: List of file patterns that must be present for the trigger to fire.
+                Uses glob patterns like "**/*.bag" or "data/*.csv".
+            for_each: Granularity of execution - Dataset creates one invocation per dataset,
+                DatasetFile creates one invocation per matching file.
+            enabled: Whether the trigger should be active immediately after creation.
+            action_digest: Specific version digest of the action to invoke. If not provided,
+                uses the latest version.
+            action_owner_id: Organization ID that owns the target action. If not provided,
+                searches in the caller's organization.
+            additional_inputs: Optional additional file patterns to include in invocations.
+            causes: List of events that can cause this trigger to be evaluated. If not
+                provided, uses default causes.
+            compute_requirement_overrides: Optional compute requirement overrides for
+                action invocations.
+            condition: Optional condition that must be met for the trigger to fire.
+                Can filter based on metadata, file properties, etc.
+            container_parameter_overrides: Optional container parameter overrides for
+                action invocations.
+            parameter_values: Parameter values to pass to the action when invoked.
+            service_user_id: Optional service user ID for authentication.
+            timeout: Optional timeout override for action invocations in minutes.
+            caller_org_id: Organization ID to create the trigger in. Defaults to caller's org.
+            roboto_client: Roboto client instance. Uses default if not provided.
+
+        Returns:
+            The newly created Trigger instance.
+
+        Raises:
+            RobotoIllegalArgumentException: If the trigger configuration is invalid.
+            RobotoInvalidRequestException: If the request is malformed.
+            RobotoUnauthorizedException: If the caller lacks permission to create triggers.
+
+        Examples:
+            Create a simple trigger for ROS bag files:
+
+            >>> from roboto.domain.actions import Trigger, TriggerForEachPrimitive
+            >>> trigger = Trigger.create(
+            ...     name="auto_process_bags",
+            ...     action_name="ros_ingestion",
+            ...     required_inputs=["**/*.bag"],
+            ...     for_each=TriggerForEachPrimitive.Dataset
+            ... )
+
+            Create a conditional trigger with parameters:
+
+            >>> from roboto.query import Condition
+            >>> condition = Condition("metadata.sensor_type").equals("lidar")
+            >>> trigger = Trigger.create(
+            ...     name="lidar_processing",
+            ...     action_name="lidar_processor",
+            ...     required_inputs=["**/*.pcd"],
+            ...     for_each=TriggerForEachPrimitive.Dataset,
+            ...     condition=condition,
+            ...     parameter_values={"resolution": "high", "filter": "statistical"}
+            ... )
+
+            Create a trigger with compute overrides:
+
+            >>> from roboto.domain.actions import ComputeRequirements
+            >>> trigger = Trigger.create(
+            ...     name="heavy_processing",
+            ...     action_name="ml_inference",
+            ...     required_inputs=["**/*.jpg", "**/*.png"],
+            ...     for_each=TriggerForEachPrimitive.DatasetFile,
+            ...     compute_requirement_overrides=ComputeRequirements(vCPU=8192, memory=16384)
+            ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 

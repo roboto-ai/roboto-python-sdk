@@ -9,6 +9,9 @@ from .create import create_command
 from .delete_dataset import delete_dataset_command
 from .delete_files import delete_files_command
 from .download_files import download_files_command
+from .import_external_file import (
+    import_external_file_command,
+)
 from .list_files import list_files_command
 from .search import search_command
 from .show import show_command
@@ -20,6 +23,7 @@ commands = [
     delete_dataset_command,
     delete_files_command,
     download_files_command,
+    import_external_file_command,
     list_files_command,
     show_command,
     search_command,

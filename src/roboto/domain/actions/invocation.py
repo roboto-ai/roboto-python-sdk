@@ -36,8 +36,23 @@ from .invocation_record import (
 
 
 class Invocation:
-    """
-    An instance of an execution of an action, initiated manually by a user or automatically by a trigger
+    """An instance of an execution of an action, initiated manually by a user or automatically by a trigger.
+
+    An Invocation represents a single execution of an Action with specific inputs,
+    parameters, and configuration. It tracks the execution lifecycle from creation
+    through completion, including status updates, logs, and results.
+
+    Invocations are created by calling :py:meth:`Action.invoke` or through the UI.
+    They cannot be created directly through the constructor. Each invocation has a
+    unique ID and maintains a complete audit trail of its execution.
+
+    Key features:
+
+    - Status tracking (Queued, Running, Completed, Failed, etc.)
+    - Input data specification and parameter values
+    - Compute requirement and container parameter overrides
+    - Log collection and output file management
+    - Progress monitoring and result retrieval
     """
 
     __record: InvocationRecord
@@ -49,6 +64,28 @@ class Invocation:
         invocation_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Invocation":
+        """Load an existing invocation by its ID.
+
+        Retrieves an invocation from the Roboto platform using its unique identifier.
+
+        Args:
+            invocation_id: The unique ID of the invocation to retrieve.
+            roboto_client: Roboto client instance. Uses default if not provided.
+
+        Returns:
+            The Invocation instance.
+
+        Raises:
+            RobotoNotFoundException: If the invocation is not found.
+            RobotoUnauthorizedException: If the caller lacks permission to access the invocation.
+
+        Examples:
+            Load an invocation and check its status:
+
+            >>> invocation = Invocation.from_id("iv_12345")
+            >>> print(f"Status: {invocation.current_status}")
+            >>> print(f"Created: {invocation.created}")
+        """
         roboto_client = RobotoClient.defaulted(roboto_client)
         response = roboto_client.get(f"v1/actions/invocations/{invocation_id}")
         record = response.to_record(InvocationRecord)
@@ -61,6 +98,43 @@ class Invocation:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Invocation", None, None]:
+        """Query invocations with optional filtering and pagination.
+
+        Searches for invocations based on the provided query specification.
+        Can filter by status, action name, creation time, and other attributes.
+
+        Args:
+            spec: Query specification with filters, sorting, and pagination.
+                If not provided, returns all accessible invocations.
+            owner_org_id: Organization ID to search within. If not provided,
+                searches in the caller's organization.
+            roboto_client: Roboto client instance. Uses default if not provided.
+
+        Yields:
+            Invocation instances matching the query criteria.
+
+        Raises:
+            ValueError: If the query specification contains unknown fields.
+            RobotoUnauthorizedException: If the caller lacks permission to query invocations.
+
+        Examples:
+            Query all invocations:
+
+            >>> for invocation in Invocation.query():
+            ...     print(f"Invocation: {invocation.id}")
+
+            Query completed invocations:
+
+            >>> from roboto.query import QuerySpecification
+            >>> from roboto.domain.actions import InvocationStatus
+            >>> spec = QuerySpecification().where("current_status").equals(InvocationStatus.Completed)
+            >>> completed = list(Invocation.query(spec))
+
+            Query recent invocations:
+
+            >>> spec = QuerySpecification().order_by("created", ascending=False).limit(10)
+            >>> recent = list(Invocation.query(spec))
+        """
         roboto_client = RobotoClient.defaulted(roboto_client)
         spec = spec or QuerySpecification()
 
@@ -103,6 +177,12 @@ class Invocation:
         record: InvocationRecord,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> None:
+        """Initialize an Invocation instance.
+
+        Args:
+            record: The invocation record containing all invocation data.
+            roboto_client: Roboto client instance. Uses default if not provided.
+        """
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -111,22 +191,27 @@ class Invocation:
 
     @property
     def action(self) -> ActionProvenance:
+        """Provenance information about the action that was invoked."""
         return self.__record.provenance.action
 
     @property
     def compute_requirements(self) -> ComputeRequirements:
+        """The compute requirements (CPU, memory) used for this invocation."""
         return self.__record.compute_requirements
 
     @property
     def container_parameters(self) -> ContainerParameters:
+        """The container parameters used for this invocation."""
         return self.__record.container_parameters
 
     @property
     def created(self) -> datetime.datetime:
+        """The timestamp when this invocation was created."""
         return self.__record.created
 
     @property
     def current_status(self) -> InvocationStatus:
+        """The current status of this invocation (e.g., Queued, Running, Completed)."""
         sorted_status_records = sorted(
             self.__record.status,
             # Sort by timestamp ASC, then by status value ASC
@@ -136,18 +221,22 @@ class Invocation:
 
     @property
     def data_source(self) -> InvocationDataSource:
+        """The data source that provided input data for this invocation."""
         return self.__record.data_source
 
     @property
     def executable(self) -> ExecutableProvenance:
+        """Provenance information about the executable (container) that was run."""
         return self.__record.provenance.executable
 
     @property
     def id(self) -> str:
+        """The unique identifier for this invocation."""
         return self.__record.invocation_id
 
     @property
     def input_data(self) -> typing.Optional[InvocationInput]:
+        """The input data specification for this invocation, if any."""
         if self.__record.rich_input_data:
             return self.__record.rich_input_data
 
@@ -161,37 +250,62 @@ class Invocation:
 
     @property
     def org_id(self) -> str:
+        """The organization ID that owns this invocation."""
         return self.__record.org_id
 
     @property
     def parameter_values(self) -> dict[str, typing.Any]:
+        """The parameter values that were provided when this invocation was created."""
         return self.__record.parameter_values
 
     @property
     def reached_terminal_status(self) -> bool:
+        """True if this invocation has reached a terminal status (Completed, Failed, etc.)."""
         return self.current_status.is_terminal()
 
     @property
     def record(self) -> InvocationRecord:
+        """The underlying invocation record containing all invocation data."""
         return self.__record
 
     @property
     def source(self) -> SourceProvenance:
+        """Provenance information about the source that initiated this invocation."""
         return self.__record.provenance.source
 
     @property
     def status_log(self) -> list[InvocationStatusRecord]:
+        """The complete history of status changes for this invocation."""
         return self.__record.status
 
     @property
     def timeout(self) -> int:
+        """The timeout in minutes for this invocation."""
         return self.__record.timeout
 
     @property
     def upload_destination(self) -> typing.Optional[InvocationUploadDestination]:
+        """The destination where output files from this invocation will be uploaded."""
         return self.__record.upload_destination
 
     def cancel(self) -> None:
+        """Cancel this invocation if it is not already in a terminal status.
+
+        Attempts to cancel the invocation. If the invocation has already
+        completed, failed, or reached another terminal status, this method
+        has no effect.
+
+        Raises:
+            RobotoNotFoundException: If the invocation is not found.
+            RobotoUnauthorizedException: If the caller lacks permission to cancel the invocation.
+
+        Examples:
+            Cancel a running invocation:
+
+            >>> invocation = Invocation.from_id("iv_12345")
+            >>> if not invocation.reached_terminal_status:
+            ...     invocation.cancel()
+        """
         if self.current_status.is_terminal():
             return
 
@@ -203,6 +317,22 @@ class Invocation:
     def get_logs(
         self, page_token: typing.Optional[str] = None
     ) -> collections.abc.Generator[LogRecord, None, None]:
+        """Retrieve runtime STDOUT/STDERR logs generated during this invocation's execution.
+
+        Fetches log records from the invocation's container execution, with support
+        for pagination to handle large log volumes.
+
+        Args:
+            page_token: Optional token for pagination. If provided, starts
+                retrieving logs from that point.
+
+        Yields:
+            LogRecord instances containing log messages and metadata.
+
+        Raises:
+            RobotoNotFoundException: If the invocation is not found.
+            RobotoUnauthorizedException: If the caller lacks permission to access logs.
+        """
         while True:
             response = self.__roboto_client.get(
                 f"v1/actions/invocations/{self.id}/logs",

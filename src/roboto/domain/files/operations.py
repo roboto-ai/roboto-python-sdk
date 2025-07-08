@@ -65,13 +65,13 @@ class ImportFileRequest(pydantic.BaseModel):
     """Optional key-value metadata pairs to associate with the file."""
 
     relative_path: str
-    """Path of the file relative to the dataset root (e.g., 'logs/session1.bag')."""
+    """Path of the file relative to the dataset root (e.g., `logs/session1.bag`)."""
 
     size: int
     """Size of the file in bytes."""
 
     uri: str
-    """Storage URI where the file is located (e.g., 's3://bucket/path/to/file.bag')."""
+    """Storage URI where the file is located (e.g., `s3://bucket/path/to/file.bag`)."""
 
 
 class QueryFilesRequest(pydantic.BaseModel):

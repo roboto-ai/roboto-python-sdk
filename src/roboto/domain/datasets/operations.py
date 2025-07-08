@@ -213,3 +213,22 @@ class RenameDirectoryRequest(pydantic.BaseModel):
 
     old_path: str
     """Current path of the directory to rename."""
+
+
+class CreateDirectoryRequest(pydantic.BaseModel):
+    """
+    Request payload to create a directory in a dataset
+    """
+
+    name: str
+    error_if_exists: bool = False
+    parent_path: typing.Optional[str] = None
+    origination: typing.Optional[str] = None
+    create_intermediate_dirs: bool = False
+    """If True, creates intermediate directories in the path if they don't exist.
+    If False, requires all parent directories to already exist."""
+
+
+class CreateDatasetIfNotExistsRequest(pydantic.BaseModel):
+    match_roboql_query: str
+    create_request: CreateDatasetRequest

@@ -1,4 +1,4 @@
-# Copyright (c) 2024 Roboto Technologies, Inc.
+# Copyright (c) 2025 Roboto Technologies, Inc.
 #
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -15,23 +15,31 @@ from ...association import Association
 
 
 class RepresentationStorageFormat(enum.Enum):
-    """
-    Supported representation format types
+    """Supported storage formats for topic data representations.
+
+    Defines the available formats for storing and accessing topic data within
+    the Roboto platform. Each format has different characteristics and use cases.
     """
 
     MCAP = "mcap"
+    """MCAP format - optimized for robotics time-series data with efficient random access."""
     PARQUET = "parquet"
+    """Parquet format - columnar storage optimized for analytics and large-scale data processing."""
 
 
 class RepresentationRecord(pydantic.BaseModel):
-    """
-    Pointer to data extracted from a Topic--potentially a specific slice of the data,
-    from within a MessagePath--processed for representation in a particular modality.
+    """Record representing a data representation for topic content.
 
-    Most MessagePaths within a Topic will point to the same Representation
-    (e.g., an MCAP file with all of the Topic data).
-    Some MessagePaths, however, may have more than one Representation,
-    such as both an MCAP and a preview GIF or statically rendered, line-chart preview.
+    A representation is a pointer to processed topic data stored in a specific format
+    and location. Representations enable efficient access to topic data by providing
+    multiple storage formats optimized for different use cases.
+
+    Most message paths within a topic point to the same representation (e.g., an MCAP or Parquet
+    file containing all topic data). However, some message paths may have multiple
+    representations for analytics or preview formats.
+
+    Representations are versioned and associated with specific files or storage locations
+    through the association field.
     """
 
     association: Association
@@ -48,29 +56,31 @@ class RepresentationRecord(pydantic.BaseModel):
 
 
 class CanonicalDataType(enum.Enum):
-    """
-    Well-known (and simplified) data types, normalized across frameworks/technologies.
-    Primarily used for UI purposes to determine if a Panel can render a particular MessagePath.
+    """Normalized data types used across different robotics frameworks.
+
+    Well-known and simplified data types that provide a common vocabulary for
+    describing message path data types across different frameworks and technologies.
+    These canonical types are primarily used for UI rendering decisions and
+    cross-platform compatibility.
+
+    The canonical types abstract away framework-specific details while preserving
+    the essential characteristics needed for data processing and visualization.
 
     References:
-
         - ROS 1 field types: http://wiki.ros.org/msg
         - ROS 2 field types: https://docs.ros.org/en/iron/Concepts/Basic/About-Interfaces.html#field-types
-        - uORB: there is no list of primitive field types, but they appear
-          to be the same as ROS: https://docs.px4.io/main/en/middleware/uorb.html#adding-a-new-topic
+        - uORB: https://docs.px4.io/main/en/middleware/uorb.html#adding-a-new-topic
 
     Example mappings:
-
-        - ``float32`` -> ``DataType.Number``
-        - ``uint8[]`` -> ``DataType.Array``
-        - ``uint8[]`` -> ``DataType.Image``
-        - ``geometry_msgs/Pose`` -> ``DataType.Object``
-        - ``std_msgs/Header`` -> ``DataType.Object``
-        - ``string`` -> ``DataType.String``
-        - ``char`` -> ``DataType.String``
-        - ``bool`` -> ``DataType.Boolean``
-        - ``byte`` -> ``DataType.Byte``
-
+        - ``float32`` -> ``CanonicalDataType.Number``
+        - ``uint8[]`` -> ``CanonicalDataType.Array``
+        - ``sensor_msgs/Image`` -> ``CanonicalDataType.Image``
+        - ``geometry_msgs/Pose`` -> ``CanonicalDataType.Object``
+        - ``std_msgs/Header`` -> ``CanonicalDataType.Object``
+        - ``string`` -> ``CanonicalDataType.String``
+        - ``char`` -> ``CanonicalDataType.String``
+        - ``bool`` -> ``CanonicalDataType.Boolean``
+        - ``byte`` -> ``CanonicalDataType.Byte``
     """
 
     Array = "array"
@@ -115,8 +125,15 @@ class MessagePathStatistic(enum.Enum):
 
 
 class MessagePathRecord(pydantic.BaseModel):
-    """
-    Path to a typed attribute within individual datum records contained within a Topic.
+    """Record representing a message path within a topic.
+
+    Defines a specific field or signal within a topic's data schema, including
+    its data type, metadata, and statistical information. Message paths use
+    dot notation to specify nested attributes within complex message structures.
+
+    Message paths are the fundamental units for accessing individual data elements
+    within time-series robotics data, enabling fine-grained analysis and visualization
+    of specific signals or measurements.
     """
 
     canonical_data_type: CanonicalDataType
@@ -165,14 +182,20 @@ class MessagePathRecord(pydantic.BaseModel):
 
 
 class TopicRecord(pydantic.BaseModel):
-    """
-    Collection of timestamped data that share a common name and association (e.g., file).
+    """Record representing a topic in the Roboto platform.
 
-    Data from the same file within the same named topic/channel are considered part of the same Topic.
-    Data from different files or with differently named topics/channels belong within unique Topics.
+    A topic is a collection of timestamped data records that share a common name
+    and association (typically a file). Topics represent logical data streams
+    from robotics systems, such as sensor readings, robot state information,
+    or other time-series data.
 
-    Source files that have been chunked by time or size but from the same point-in-time data collection will
-    produce multiple Topics for the same "logical topic" (~= name, schema) within those chunks.
+    Data from the same file with the same topic name are considered part of the
+    same topic. Data from different files or with different topic names belong
+    to separate topics, even if they have similar schemas.
+
+    When source files are chunked by time or size but represent the same logical
+    data collection, they will produce multiple topic records for the same
+    "logical topic" (same name and schema) across those chunks.
     """
 
     association: Association

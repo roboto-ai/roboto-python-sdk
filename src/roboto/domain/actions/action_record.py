@@ -20,8 +20,11 @@ from roboto.types import UserMetadata
 
 
 class Accessibility(str, enum.Enum):
-    """
-    Controls who can query for and invoke an action.
+    """Controls who can query for and invoke an action.
+
+    Accessibility levels determine the visibility and usability of actions
+    within the Roboto platform. Actions can be private to an organization
+    or published publicly in the Action Hub.
 
     Future accessibility levels may include: "user" and/or "team".
     """
@@ -34,16 +37,28 @@ class Accessibility(str, enum.Enum):
 
 
 class ActionParameter(pydantic.BaseModel):
-    """
-    A parameter that can be provided to an Action at invocation time.
+    """A parameter that can be provided to an Action at invocation time.
+
+    Action parameters allow customization of action behavior without modifying
+    the action itself. Parameters can be required or optional, have default
+    values, and include descriptions for documentation.
+
+    Parameters are validated when an action is invoked, ensuring that required
+    parameters are provided and that values conform to expected types.
     """
 
     name: str
+    """Name of the parameter."""
+
     required: bool = False
+    """Whether this parameter is required at invocation time."""
+
     description: typing.Optional[str] = None
+    """Human-readable description of the parameter."""
+
     default: typing.Optional[typing.Any] = None
-    """
-    Default value applied for parameter if it is not required and no value is given at invocation.
+    """Default value applied for parameter if it is not required and no value is given at invocation.
+
     Accepts any default value, but coerced to a string.
     """
 
@@ -70,12 +85,13 @@ class ActionParameter(pydantic.BaseModel):
 
 
 class ActionParameterChangeset(pydantic.BaseModel):
-    """
-    A changeset used to modify Action parameters.
-    """
+    """A changeset used to modify Action parameters."""
 
     put_parameters: list[ActionParameter] = pydantic.Field(default_factory=list)
+    """Parameters to add or update."""
+
     remove_parameters: list[str] = pydantic.Field(default_factory=list)
+    """Names of parameters to remove."""
 
     class Builder:
         __put_parameters: list[ActionParameter]
