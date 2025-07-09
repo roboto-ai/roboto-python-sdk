@@ -67,8 +67,9 @@ class ImportFileRequest(pydantic.BaseModel):
     relative_path: str
     """Path of the file relative to the dataset root (e.g., `logs/session1.bag`)."""
 
-    size: int
-    """Size of the file in bytes."""
+    size: typing.Optional[int] = None
+    """Size of the file in bytes. When importing a single file, you can omit the size, as Roboto will look up the size
+    from the object store. When calling import_batch, you must provide the size explicitly."""
 
     uri: str
     """Storage URI where the file is located (e.g., `s3://bucket/path/to/file.bag`)."""

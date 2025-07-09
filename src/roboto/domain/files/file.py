@@ -317,6 +317,93 @@ class File:
         return [cls(record, roboto_client) for record in records]
 
     @classmethod
+    def import_one(
+        cls,
+        dataset_id: str,
+        relative_path: str,
+        uri: str,
+        description: typing.Optional[str] = None,
+        tags: typing.Optional[list[str]] = None,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> "File":
+        """Import a single file from an external bucket into a Roboto dataset. This currently only supports AWS S3.
+
+        This is a convenience method for importing a single file from customer-owned buckets
+        that have been registered as bring-your-own bucket (BYOB) integrations with
+        Roboto. Unlike :py:meth:`import_batch`, this method automatically determines the file size
+        by querying the object store and verifies that the object actually exists before
+        importing, providing additional validation and convenience for single-file operations.
+
+        The file remains in its original location while metadata is registered with Roboto
+        for discovery, processing, and analysis. This method currently only works with S3 URIs from buckets
+        that have been properly registered as BYOB integrations for your organization.
+
+        Args:
+            dataset_id: ID of the dataset to import the file into.
+            relative_path: Path of the file relative to the dataset root (e.g., `logs/session1.bag`).
+            uri: URI where the file is located (e.g., `s3://my-bucket/path/to/file.bag`).
+                Must be from a registered BYOB integration.
+            description: Optional human-readable description of the file.
+            tags: Optional list of tags for file discovery and organization.
+            metadata: Optional key-value metadata pairs to associate with the file.
+            roboto_client: HTTP client for API communication. If None, uses the default client.
+
+        Returns:
+            File object representing the imported file.
+
+        Raises:
+            RobotoInvalidRequestException: If the URI is not a valid URI or if the bucket
+                integration is not properly configured.
+            RobotoNotFoundException: If the specified object does not exist.
+            RobotoUnauthorizedException: If the caller lacks upload permissions for the target
+                dataset or if the bucket doesn't belong to the caller's organization.
+
+        Notes:
+            - Only works with S3 URIs from registered BYOB integrations
+            - File size is automatically determined from the object metadata
+            - The file is not copied; only metadata is imported into Roboto
+            - For importing multiple files efficiently, use :py:meth:`import_batch` instead
+
+        Examples:
+            Import a single ROS bag file:
+
+            >>> from roboto.domain.files import File
+            >>> file = File.import_one(
+            ...     dataset_id="ds_abc123",
+            ...     relative_path="logs/session1.bag",
+            ...     uri="s3://my-bucket/data/session1.bag"
+            ... )
+            >>> print(f"Imported file: {file.relative_path}")
+            Imported file: logs/session1.bag
+
+            Import a file with metadata and tags:
+
+            >>> file = File.import_one(
+            ...     dataset_id="ds_abc123",
+            ...     relative_path="sensors/lidar_data.pcd",
+            ...     uri="s3://my-bucket/sensors/lidar_data.pcd",
+            ...     description="LiDAR point cloud from highway test",
+            ...     tags=["lidar", "highway", "test"],
+            ...     metadata={"sensor_type": "Velodyne", "resolution": "high"}
+            ... )
+            >>> print(f"File size: {file.size} bytes")
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        request = ImportFileRequest(
+            dataset_id=dataset_id,
+            relative_path=relative_path,
+            uri=uri,
+            description=description,
+            tags=tags,
+            metadata=metadata,
+        )
+        record = roboto_client.post("v1/files/import", data=request).to_record(
+            FileRecord
+        )
+        return cls(record, roboto_client)
+
+    @classmethod
     def query(
         cls,
         spec: typing.Optional[QuerySpecification] = None,

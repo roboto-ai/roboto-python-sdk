@@ -6,29 +6,21 @@
 
 import argparse
 
-from ... import Dataset, File, ImportFileRequest
+from ...domain.files import File
 from ..command import RobotoCommand
 from ..context import CLIContext
 from .shared_helpdoc import DATASET_ID_HELP
 
 
 def import_external_file(args, context: CLIContext, parser: argparse.ArgumentParser):
-    dataset = Dataset.from_id(args.dataset_id, context.roboto_client)
-
     normalized_relative_path = args.path if args.path else args.file.split("/")[-1]
 
-    fl = File.import_batch(
-        [
-            ImportFileRequest(
-                relative_path=normalized_relative_path,
-                dataset_id=args.dataset_id,
-                size=args.size,
-                uri=args.file,
-            ),
-        ],
+    fl = File.import_one(
+        dataset_id=args.dataset_id,
+        relative_path=normalized_relative_path,
+        uri=args.file,
         roboto_client=context.roboto_client,
-        caller_org_id=dataset.org_id,
-    )[0]
+    )
     print(fl.file_id)
 
 
