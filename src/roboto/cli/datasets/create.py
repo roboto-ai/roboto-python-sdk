@@ -36,15 +36,15 @@ def create_setup_parser(parser):
         metavar="KEY=VALUE",
         nargs="*",
         action=KeyValuePairsAction,
-        help="Zero or more ``<key>=<value>`` pairs which represent dataset metadata. "
-        + "Metadata can be changed after creation.",
+        help="Zero or more ``<key>=<value>`` pairs to add to this dataset's metadata. "
+        + "Metadata can be modified after creation.",
     )
     parser.add_argument(
         "-t",
         "--tag",
         type=str,
         nargs="*",
-        help="One or more tags to annotate this dataset. Tags can be modified after creation.",
+        help="One or more tags to add to this dataset. Tags can be modified after creation.",
         action="extend",
     )
     parser.add_argument(
@@ -66,5 +66,5 @@ create_command = RobotoCommand(
     name="create",
     logic=create,
     setup_parser=create_setup_parser,
-    command_kwargs={"help": "Creates a new dataset."},
+    command_kwargs={"help": "Create a new dataset."},
 )

@@ -105,7 +105,7 @@ def search_parser(parser: argparse.ArgumentParser):
         action=KeyValuePairsAction,
         help=(
             "Zero or more ``key=value`` pairs which represent action metadata. "
-            "``value`` is parsed as JSON. E.g.: ``--metadata foo=bar --metadata baz.nested=200``"
+            "``value`` is parsed as JSON. e.g. ``--metadata foo=bar --metadata baz.nested=200``"
         ),
     )
     parser.add_argument(
@@ -113,7 +113,7 @@ def search_parser(parser: argparse.ArgumentParser):
         required=False,
         type=str,
         nargs="*",
-        help="One or more tags associated with this action. E.g.: ``--tag foo --tag bar``",
+        help="One or more tags associated with this action. e.g. ``--tag foo --tag bar``",
         action="extend",
     )
     add_org_arg(parser=parser)

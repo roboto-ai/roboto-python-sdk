@@ -147,7 +147,7 @@ def update_parser(parser: argparse.ArgumentParser):
         action=ActionParameterArg,
         help=(
             "Add parameter(s) or overwrite existing parameter(s) with the same name. "
-            "Argument values must be wrapped in quotes. E.g.: "
+            "Argument values must be wrapped in quotes. e.g. "
             "``--put-parameter 'name=my_param|required=true|description=My description of my_param'``"
         ),
     )
@@ -194,7 +194,7 @@ def update_parser(parser: argparse.ArgumentParser):
         nargs="*",
         help=(
             "Remove each key from dataset metadata if it exists. "
-            "Dot notation is supported for nested keys. E.g.: ``--remove-metadata key1 key2.subkey3``"
+            "Dot notation is supported for nested keys. e.g. ``--remove-metadata key1 key2.subkey3``"
         ),
     )
     add_org_arg(parser=parser)

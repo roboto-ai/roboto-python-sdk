@@ -86,5 +86,5 @@ create_command = RobotoCommand(
     name="create",
     logic=create,
     setup_parser=create_setup_parser,
-    command_kwargs={"help": "Creates a new collection."},
+    command_kwargs={"help": "Create a new collection."},
 )

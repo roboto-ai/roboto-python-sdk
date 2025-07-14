@@ -33,6 +33,6 @@ commands = [
 
 command_set = RobotoCommandSet(
     name="datasets",
-    help="Manage data from a single event, such a robot run or drone flight. Includes file upload and download.",
+    help="Manage datasets, used to store files from a robot run or drone flight. Includes file upload and download.",
     commands=commands,
 )

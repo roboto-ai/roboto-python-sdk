@@ -318,7 +318,7 @@ def create_parser(parser: argparse.ArgumentParser):
             "``default`` values, if provided, are JSON parsed. "
             "This argument can be specified multiple times. "
             "Parameters can be modified after creation. "
-            "Argument values must be wrapped in quotes. E.g.: "
+            "Argument values must be wrapped in quotes. e.g. "
             "``--put-parameter 'name=my_param|required=true|description=My description of my_param'``"
         ),
     )

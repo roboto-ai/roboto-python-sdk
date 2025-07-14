@@ -24,3 +24,7 @@ USER_OVERRIDE_QUERY_PARAM = "robotoUserId"
 
 BEARER_TOKEN_HEADER = "X-Roboto-Bearer-Token"
 """Bearer token which is parsed as a JWT to provide additional request context for invocations"""
+
+API_VERSION_HEADER = "X-Roboto-Api-Version"
+"""Which expected rolling API version this request is being made against. If no value is provided, requests will
+be made against the latest API version."""

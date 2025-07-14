@@ -53,5 +53,5 @@ show_command = RobotoCommand(
     name="show",
     logic=show,
     setup_parser=show_setup_parser,
-    command_kwargs={"help": "Show information about a specific collection."},
+    command_kwargs={"help": "Show information about a collection."},
 )

@@ -344,13 +344,13 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "104fb9cb9b27ea95e847a94c003be03a9e039334a8ebca5ee27dafaf5c5711eb",
-              "url": "https://files.pythonhosted.org/packages/15/58/5260205b9968c20b6457ed82f48f9e3d6edf2f1f95103161798b73aeccf0/astroid-3.3.10-py3-none-any.whl"
+              "hash": "54c760ae8322ece1abd213057c4b5bba7c49818853fc901ef09719a60dbf9dec",
+              "url": "https://files.pythonhosted.org/packages/af/0f/3b8fdc946b4d9cc8cc1e8af42c4e409468c84441b933d037e101b3d72d86/astroid-3.3.11-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "c332157953060c6deb9caa57303ae0d20b0fbdb2e59b4a4f2a6ba49d0a7961ce",
-              "url": "https://files.pythonhosted.org/packages/00/c2/9b2de9ed027f9fe5734a6c0c0a601289d796b3caaf1e372e23fa88a73047/astroid-3.3.10.tar.gz"
+              "hash": "1e5a5011af2920c7c67a53f65d536d65bfa7116feeaf2354d8b94f29573bb0ce",
+              "url": "https://files.pythonhosted.org/packages/18/74/dfb75f9ccd592bbedb175d4a32fc643cf569d7c218508bfbd6ea7ef9c091/astroid-3.3.11.tar.gz"
             }
           ],
           "project_name": "astroid",
@@ -358,7 +358,7 @@
             "typing-extensions>=4; python_version < \"3.11\""
           ],
           "requires_python": ">=3.9.0",
-          "version": "3.3.10"
+          "version": "3.3.11"
         },
         {
           "artifacts": [
@@ -679,36 +679,36 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "056cfa2440fe1a157a7c2be897c749c83e1a322144aa4dad889f2fca66571019",
-              "url": "https://files.pythonhosted.org/packages/15/70/723d2ab259aeaed6c96e5c1857ebe7d474ed9aa8f487dea352c60f33798f/boto3-1.39.3-py3-none-any.whl"
+              "hash": "f8e9534b429121aa5c5b7c685c6a94dd33edf14f87926e9a182d5b50220ba284",
+              "url": "https://files.pythonhosted.org/packages/12/5c/93292e4d8c809950c13950b3168e0eabdac828629c21047959251ad3f28c/boto3-1.39.4-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "0a367106497649ae3d8a7b571b8c3be01b7b935a0fe303d4cc2574ed03aecbb4",
-              "url": "https://files.pythonhosted.org/packages/02/42/712a74bb86d06538c55067a35b8a82c57aa303eba95b2b1ee91c829288f4/boto3-1.39.3.tar.gz"
+              "hash": "6c955729a1d70181bc8368e02a7d3f350884290def63815ebca8408ee6d47571",
+              "url": "https://files.pythonhosted.org/packages/6a/1f/b7510dcd26eb14735d6f4b2904e219b825660425a0cf0b6f35b84c7249b0/boto3-1.39.4.tar.gz"
             }
           ],
           "project_name": "boto3",
           "requires_dists": [
-            "botocore<1.40.0,>=1.39.3",
+            "botocore<1.40.0,>=1.39.4",
             "botocore[crt]<2.0a0,>=1.21.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
             "s3transfer<0.14.0,>=0.13.0"
           ],
           "requires_python": ">=3.9",
-          "version": "1.39.3"
+          "version": "1.39.4"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "66a81cfac18ad5e9f47696c73fdf44cdbd8f8ca51ab3fca1effca0aabf61f02f",
-              "url": "https://files.pythonhosted.org/packages/53/e4/3698dbb037a44d82a501577c6e3824c19f4289f4afbcadb06793866250d8/botocore-1.39.3-py3-none-any.whl"
+              "hash": "c41e167ce01cfd1973c3fa9856ef5244a51ddf9c82cb131120d8617913b6812a",
+              "url": "https://files.pythonhosted.org/packages/58/44/f120319e0a9afface645e99f300175b9b308e4724cb400b32e1bd6eb3060/botocore-1.39.4-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "da8f477e119f9f8a3aaa8b3c99d9c6856ed0a243680aa3a3fbbfc15a8d4093fb",
-              "url": "https://files.pythonhosted.org/packages/60/66/96e89cc261d75f0b8125436272c335c74d2a39df84504a0c3956adcd1301/botocore-1.39.3.tar.gz"
+              "hash": "e662ac35c681f7942a93f2ec7b4cde8f8b56dd399da47a79fa3e370338521a56",
+              "url": "https://files.pythonhosted.org/packages/e6/9f/21c823ea2fae3fa5a6c9e8caaa1f858acd55018e6d317505a4f14c5bb999/botocore-1.39.4.tar.gz"
             }
           ],
           "project_name": "botocore",
@@ -720,25 +720,25 @@
             "urllib3<1.27,>=1.25.4; python_version < \"3.10\""
           ],
           "requires_python": ">=3.9",
-          "version": "1.39.3"
+          "version": "1.39.4"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "d842783a14f8fdd646895ac26f719a061408834473cfc10203f6a575beb15d39",
-              "url": "https://files.pythonhosted.org/packages/66/f3/80a3f974c8b535d394ff960a11ac20368e06b736da395b551a49ce950cce/certifi-2025.7.9-py3-none-any.whl"
+              "hash": "6b31f564a415d79ee77df69d757bb49a5bb53bd9f756cbbe24394ffd6fc1f4b2",
+              "url": "https://files.pythonhosted.org/packages/4f/52/34c6cf5bb9285074dc3531c437b3919e825d976fde097a7a73f79e726d03/certifi-2025.7.14-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "c1d2ec05395148ee10cf672ffc28cd37ea0ab0d99f9cc74c43e588cbd111b079",
-              "url": "https://files.pythonhosted.org/packages/de/8a/c729b6b60c66a38f590c4e774decc4b2ec7b0576be8f1aa984a53ffa812a/certifi-2025.7.9.tar.gz"
+              "hash": "8ea99dbdfaaf2ba2f9bac77b9249ef62ec5218e7c2b2e903378ed5fccf765995",
+              "url": "https://files.pythonhosted.org/packages/b3/76/52c535bcebe74590f296d6c77c86dabf761c41980e1347a2422e4aa2ae41/certifi-2025.7.14.tar.gz"
             }
           ],
           "project_name": "certifi",
           "requires_dists": [],
           "requires_python": ">=3.7",
-          "version": "2025.7.9"
+          "version": "2025.7.14"
         },
         {
           "artifacts": [

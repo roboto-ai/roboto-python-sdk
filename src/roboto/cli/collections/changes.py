@@ -43,7 +43,5 @@ changes_command = RobotoCommand(
     name="changelog",
     logic=show,
     setup_parser=show_setup_parser,
-    command_kwargs={
-        "help": "Provides a changelog for the revisions of a given collection."
-    },
+    command_kwargs={"help": "Get a changelog for the revisions of a collection."},
 )

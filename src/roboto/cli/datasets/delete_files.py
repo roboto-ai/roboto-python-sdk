@@ -42,5 +42,5 @@ delete_files_command = RobotoCommand(
     name="delete-files",
     logic=delete_files,
     setup_parser=delete_files_setup_parser,
-    command_kwargs={"help": "Delete file(s) from a specific dataset."},
+    command_kwargs={"help": "Delete files from a dataset."},
 )

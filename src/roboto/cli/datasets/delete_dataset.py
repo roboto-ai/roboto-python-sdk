@@ -28,5 +28,5 @@ delete_dataset_command = RobotoCommand(
     name="delete",
     logic=delete_dataset,
     setup_parser=delete_dataset_setup_parser,
-    command_kwargs={"help": "Delete dataset (and all related subresources) by id."},
+    command_kwargs={"help": "Delete a dataset and all contained resources."},
 )

@@ -60,5 +60,5 @@ upload_files_command = RobotoCommand(
     name="upload-files",
     logic=upload_files,
     setup_parser=upload_files_setup_parser,
-    command_kwargs={"help": "Uploads a file or directory to a specific dataset."},
+    command_kwargs={"help": "Upload a file or directory to a dataset."},
 )

@@ -136,7 +136,5 @@ update_command = RobotoCommand(
     name="update",
     logic=update,
     setup_parser=update_setup_parser,
-    command_kwargs={
-        "help": "Updates the resources and metadata of a given collection."
-    },
+    command_kwargs={"help": "Update the resources and metadata of a collection."},
 )

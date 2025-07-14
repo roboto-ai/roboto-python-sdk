@@ -76,7 +76,7 @@ def search_setup_parser(parser):
         action=KeyValuePairsAction,
         help=(
             "Zero or more ``<key>=<value>`` pairs which represent dataset metadata. "
-            "`value` is parsed as JSON. E.g.: --metadata foo=bar --metadata baz.nested=200"
+            "`value` is parsed as JSON. e.g. --metadata foo=bar --metadata baz.nested=200"
         ),
     )
     parser.add_argument(
@@ -84,7 +84,7 @@ def search_setup_parser(parser):
         required=False,
         type=str,
         nargs="*",
-        help="One or more tags associated with this dataset. E.g.: ``--tag foo --tag bar``",
+        help="One or more tags associated with this dataset. e.g. ``--tag foo --tag bar``",
         action="extend",
     )
     add_org_arg(parser=parser)
@@ -94,5 +94,5 @@ search_command = RobotoCommand(
     name="search",
     logic=search,
     setup_parser=search_setup_parser,
-    command_kwargs={"help": "Query dataset matching filter criteria."},
+    command_kwargs={"help": "Search for datasets matching filter criteria."},
 )

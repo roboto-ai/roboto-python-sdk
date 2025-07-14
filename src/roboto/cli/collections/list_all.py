@@ -40,5 +40,5 @@ list_all_command = RobotoCommand(
     name="list-all",
     logic=list_all,
     setup_parser=list_all_setup_parser,
-    command_kwargs={"help": "Lists all collections created for a given org."},
+    command_kwargs={"help": "List all collections."},
 )

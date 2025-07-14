@@ -89,7 +89,7 @@ def update_parser(parser: argparse.ArgumentParser):
         nargs="*",
         help=(
             "Remove each key from dataset metadata if it exists. "
-            "Dot notation is supported for nested keys. E.g.: ``--remove-metadata key1 key2.subkey3``"
+            "Dot notation is supported for nested keys. e.g. ``--remove-metadata key1 key2.subkey3``"
         ),
     )
 
@@ -98,5 +98,5 @@ update_command = RobotoCommand(
     name="update",
     logic=update,
     setup_parser=update_parser,
-    command_kwargs={"help": "Update an existing dataset."},
+    command_kwargs={"help": "Update metadata or properties of an existing dataset."},
 )

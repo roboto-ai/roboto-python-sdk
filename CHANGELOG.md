@@ -1,5 +1,15 @@
 # Changelog
 
+# 0.23.0
+## No Breaking Changes
+
+## Features Added
+  - Improved help text for various Roboto CLI commands.
+  - Add X-Roboto-Api-Version to all SDK requests.
+
+## Bugs Fixed
+  - 
+
 # 0.22.1
 ## No Breaking Changes
 
@@ -19,6 +29,8 @@
   - Comprehensive docstring updates for `roboto.domain.actions` module following Google-style format with Examples sections for all public methods, detailed Args/Returns/Raises documentation, and improved cross-references. All Action, Invocation, and Trigger classes now have extensive documentation with practical examples.
   - Comprehensive docstring updates for `roboto.domain.users` and `roboto.domain.orgs` modules following Google-style format with Examples sections for all public methods, field docstrings for Pydantic models, and enhanced Args/Returns/Raises documentation. All User, Org, and OrgInvite classes now have extensive documentation with practical examples.
   - Comprehensive docstring updates for `roboto.domain.events` module following Google-style format with Examples sections for all public methods, detailed Args/Returns/Raises documentation, and improved cross-references. All Event classes now have extensive documentation with practical examples using proper Roboto ID conventions.
+  - Comprehensive docstring updates for `roboto.domain.devices` module following Google-style format with Examples sections for all public methods, enhanced Args/Returns/Raises documentation, field docstrings for Pydantic models, and improved cross-references. All Device classes now have extensive documentation with practical examples for device registration, token management, and device operations.
+  - Comprehensive docstring updates for `roboto.domain.comments` module following Google-style format with Examples sections for all public methods, field docstrings for Pydantic models, and enhanced Args/Returns/Raises documentation. All Comment classes now have extensive documentation with practical examples for creating, retrieving, updating, and deleting comments on platform entities.
   - Added placeholder implementation for working with topic data ingested as Parquet in the SDK. Attempting to fetch Parquet-ingested data currently raises a `NotImplementedError`.
   - Added `roboto datasets import-external-file` CLI command for importing files from customer S3 buckets into Roboto datasets.
 

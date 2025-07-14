@@ -43,5 +43,5 @@ list_files_command = RobotoCommand(
     name="list-files",
     logic=list_files,
     setup_parser=list_files_setup_parser,
-    command_kwargs={"help": "Lists files for a specific dataset."},
+    command_kwargs={"help": "List files in a dataset."},
 )

@@ -52,5 +52,5 @@ download_files_command = RobotoCommand(
     name="download-files",
     logic=download_files,
     setup_parser=download_files_setup_parser,
-    command_kwargs={"help": "Downloads a file or directory from a specific dataset."},
+    command_kwargs={"help": "Download a file or directory from a dataset."},
 )

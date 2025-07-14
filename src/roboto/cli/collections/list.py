@@ -24,5 +24,5 @@ list_command = RobotoCommand(
     name="list",
     logic=list,
     setup_parser=add_org_arg,
-    command_kwargs={"help": "Lists existing collections."},
+    command_kwargs={"help": "List existing collections."},
 )

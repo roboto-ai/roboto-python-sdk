@@ -33,7 +33,10 @@ def import_external_file_setup_parser(parser):
         "--path",
         type=str,
         required=False,
-        help="Relative path of the uploaded file. If unprovided, defaults to the basename from the file URI.",
+        help=(
+            "Destination path within the dataset (relative to the root) where the file will be imported. "
+            "Defaults to the filename at the dataset root if not specified."
+        ),
     )
     parser.add_argument(
         "-f",
@@ -48,7 +51,7 @@ import_external_file_command = RobotoCommand(
     logic=import_external_file,
     setup_parser=import_external_file_setup_parser,
     command_kwargs={
-        "help": "Imports a file from an external storage location "
-        "(like a pre-registered S3 bring-your-own-bucket) into a dataset."
+        "help": "Import a file from an external storage location "
+        "(e.g. a pre-registered S3 bucket) into a dataset."
     },
 )
