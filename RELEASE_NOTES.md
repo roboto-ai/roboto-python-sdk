@@ -1,9 +1,9 @@
-# 0.23.0
+# 0.23.1
 ## No Breaking Changes
 
 ## Features Added
-  - Improved help text for various Roboto CLI commands.
-  - Add X-Roboto-Api-Version to all SDK requests.
+  - Extended `RobotoPrincipal` to include devices + invocations, and added methods to convert to and from a canonical string format.
+  - Add `RobotoSearch::for_roboto_client` and `RobotoClient.for_profile` to simplify code snippets for users with multiple profiles.
 
 ## Bugs Fixed
   - 

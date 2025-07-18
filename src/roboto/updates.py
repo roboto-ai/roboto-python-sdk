@@ -403,7 +403,7 @@ class UpdateCondition(pydantic.BaseModel):
     """
     A condition to be applied to an update operation, succeeding only if the condition evaluates to True at update-time.
 
-    `value` is compared to the resource's current value of `key` using `comparator`.
+    ``value`` is compared to the resource's current value of ``key`` using ``comparator``.
 
     This is a severely constrainted subset of the conditions supported by DynamoDB. See:
     https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.OperatorsAndFunctions.html

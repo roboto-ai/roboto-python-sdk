@@ -32,7 +32,7 @@ _CONFIG_ERROR_SUFFIX = (
 
 class RobotoConfig(pydantic.BaseModel):
     """
-    RobotoConfig captures an `api_key` and `endpoint` required to programmatically
+    RobotoConfig captures an ``api_key`` and ``endpoint`` required to programmatically
     interact with Roboto. Multiple profiles can be configured if desired.
     """
 

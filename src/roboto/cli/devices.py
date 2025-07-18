@@ -122,7 +122,7 @@ def generate_device_creds_common_logic(
     context: CLIContext,
 ):
     """
-    Used in `generate-creds` and `register`
+    Used in ``generate-creds`` and ``register``
     """
     device_token, device_secret = device.create_token()
 

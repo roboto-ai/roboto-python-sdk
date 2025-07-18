@@ -14,8 +14,8 @@ class Permissions(enum.Enum):
 
     For example:
     - When listing files associated with a dataset or pulling a container image hosted in Roboto's registry,
-      use `ReadOnly` permissions.
-    - When adding files to a dataset or pushing a container image to Roboto's registry, use `ReadWrite` permissions.
+      use ``ReadOnly`` permissions.
+    - When adding files to a dataset or pushing a container image to Roboto's registry, use ``ReadWrite`` permissions.
     """
 
     ReadOnly = "ReadOnly"

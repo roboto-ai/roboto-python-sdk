@@ -37,6 +37,10 @@ class RobotoClient:
     __http_client: HttpClient
 
     @classmethod
+    def for_profile(cls, profile: str) -> "RobotoClient":
+        return RobotoClient.from_config(RobotoConfig.from_env(profile_override=profile))
+
+    @classmethod
     def from_config(cls, config: RobotoConfig) -> "RobotoClient":
         auth_decorator = BearerTokenDecorator(token=config.api_key)
         return RobotoClient(endpoint=config.endpoint, auth_decorator=auth_decorator)

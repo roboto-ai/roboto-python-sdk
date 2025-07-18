@@ -15,7 +15,7 @@ def get_by_path(
 ) -> typing.Any:
     """
     Access a key path in a mapping.
-    Returns `None` if any part of the path is not found or traverses through an object that is not a mapping.
+    Returns ``None`` if any part of the path is not found or traverses through an object that is not a mapping.
     """
     try:
         return functools.reduce(lambda d, key: d.get(key, None), key_path, target)

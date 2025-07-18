@@ -47,7 +47,7 @@ def to_epoch_nanoseconds(value: Time):
 
     else:
         raise TypeError(
-            "Input must be either an int (epoch nanoseconds), string (`<sec>.<nsec>`) or a datetime.datetime object"
+            "Input must be either an int (epoch nanoseconds), string (``<sec>.<nsec>``) or a datetime.datetime object"
         )
 
 

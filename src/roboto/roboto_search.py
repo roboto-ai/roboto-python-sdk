@@ -1,8 +1,15 @@
+# Copyright (c) 2025 Roboto Technologies, Inc.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 # Copyright (c) 2024 Roboto Technologies, Inc.
 #
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
+from __future__ import annotations
 
 import collections.abc
 import math
@@ -17,6 +24,7 @@ from .domain import (
     files,
     topics,
 )
+from .http import RobotoClient
 from .query import Query, QueryClient, QueryTarget
 
 
@@ -27,12 +35,18 @@ class RobotoSearch:
     In most cases, using this class should be as simple as:
 
     >>> from roboto import RobotoSearch
-    >>> robosearch = RobotoSearch()
-    >>> for dataset in robosearch.find_datasets(...):
+    >>> rs = RobotoSearch()
+    >>> for dataset in rs.find_datasets(...):
     ...     ...
     """
 
     __query_client: QueryClient
+
+    @classmethod
+    def for_roboto_client(
+        cls, roboto_client: RobotoClient, org_id: typing.Optional[str] = None
+    ) -> RobotoSearch:
+        return RobotoSearch(query_client=QueryClient(roboto_client, org_id))
 
     def __init__(self, query_client: typing.Optional[QueryClient] = None):
         self.__query_client = (

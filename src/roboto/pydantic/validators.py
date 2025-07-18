@@ -9,13 +9,13 @@ import pydantic
 
 def remove_non_noneable_init_args(data: dict, model: pydantic.BaseModel) -> dict:
     """
-    Remove keys from `data` (e.g., kwargs passed to `__init__`) set to `None`
-    that are not allowed to be `None` according to `model`'s type definition.
+    Remove keys from ``data`` (e.g., kwargs passed to ``__init__``) set to ``None``
+    that are not allowed to be ``None`` according to ``model``'s type definition.
 
     This is particularly useful when marshalling data from the database into a
-    Pydantic model. If a database row has a `NULL` value for a
-    field that is not nullable, this function can be used to filter out those `None`
-    values before passing the data to the model's `__init__` method.
+    Pydantic model. If a database row has a ``NULL`` value for a
+    field that is not nullable, this function can be used to filter out those ``None``
+    values before passing the data to the model's ``__init__`` method.
 
     Example usage:
 
@@ -28,7 +28,7 @@ def remove_non_noneable_init_args(data: dict, model: pydantic.BaseModel) -> dict
     >>> Foo(a=None)
     Foo(a=3, b='bar')
 
-    Without this function, the above would raise a `ValidationError`.
+    Without this function, the above would raise a ``ValidationError``.
     """
 
     def _field_allows_none(field_name):

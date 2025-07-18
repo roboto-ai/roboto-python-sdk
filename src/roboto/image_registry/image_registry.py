@@ -83,7 +83,7 @@ class ImageRegistry:
                 then any attempt to overwrite an existing image tag will error.
 
         Returns:
-            A dictionary contains the `repository_name` and `repository_uri` of the created repository.
+            A dictionary contains the ``repository_name`` and ``repository_uri` of the created repository.
         """
         request_body = CreateImageRepositoryRequest(
             repository_name=repository_name,

@@ -68,7 +68,7 @@ class PaginatedList(pydantic.BaseModel, typing.Generic[Model]):
     """
     A list of records pulled from a paginated result set.
     It may be a subset of that result set,
-    in which case `next_token` will be set and can be used to fetch the next page.
+    in which case ``next_token`` will be set and can be used to fetch the next page.
     """
 
     items: list[Model]

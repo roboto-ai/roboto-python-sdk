@@ -10,7 +10,11 @@ import typing
 
 from ...exceptions import RobotoDomainException
 from ...http import RobotoClient
-from ..tokens import CreateTokenRequest, Token, TokenRecord
+from ..tokens import (
+    CreateTokenRequest,
+    Token,
+    TokenRecord,
+)
 from .operations import CreateDeviceRequest
 from .record import DeviceRecord
 
