@@ -23,6 +23,7 @@ sdk_examples = [
 
 types = [
     "pandas-stubs>=2.0",
+    "pyarrow-stubs>=20.0.0.20250715",  # https://github.com/apache/arrow/discussions/45919
     "types-requests===2.31.0.1",
 ]
 
@@ -41,6 +42,7 @@ module = [
     "nanoid",
     "numpy.*",
     "pandas.*",
+    "pyarrow.*",   # https://github.com/apache/arrow/discussions/45919
     "pluggy",
     "stumpy.*",
     "tqdm.*",

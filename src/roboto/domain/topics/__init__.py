@@ -18,6 +18,7 @@ from .operations import (
 )
 from .record import (
     CanonicalDataType,
+    MessagePathMetadataWellKnown,
     MessagePathRecord,
     MessagePathStatistic,
     RepresentationRecord,
@@ -38,6 +39,7 @@ __all__ = (
     "MessagePathRepresentationMapping",
     "MessagePathRecord",
     "MessagePathStatistic",
+    "MessagePathMetadataWellKnown",
     "RepresentationRecord",
     "RepresentationStorageFormat",
     "SetDefaultRepresentationRequest",

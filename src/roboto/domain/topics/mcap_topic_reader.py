@@ -19,6 +19,7 @@ from ...association import AssociationType
 from ...compat import import_optional_dependency
 from ...http import RobotoClient
 from ...logging import default_logger
+from ...time import TimeUnit
 from .mcap_reader import McapReader
 from .operations import (
     MessagePathRepresentationMapping,
@@ -50,6 +51,15 @@ def garbage_collect_old_topic_data(
 
 
 class McapTopicReader(TopicReader):
+    """Private interface for retrieving topic data stored in MCAP files.
+
+    Note:
+        This is not intended as a public API.
+        To access topic data, prefer the ``get_data`` or ``get_data_as_df`` methods
+        on :py:class:`~roboto.domain.topics.Topic`, :py:class:`~roboto.domain.topics.MessagePath`,
+        or :py:class:`~roboto.domain.events.Event`.
+    """
+
     __cache_dir: pathlib.Path
     __roboto_client: RobotoClient
 
@@ -77,11 +87,21 @@ class McapTopicReader(TopicReader):
             MessagePathRepresentationMapping
         ],
         log_time_attr_name: str,
+        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[
+            MessagePathRepresentationMapping
+        ] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         # Schedule a cleanup of the cache_dir to remove any old assets.
         atexit.register(garbage_collect_old_topic_data, cache_dir=self.__cache_dir)
+
+        if log_time_unit != TimeUnit.Nanoseconds:
+            raise NotImplementedError(
+                "Scaling log_time to units other than nanoseconds since Unix epoch "
+                "on data returned by `get_data` and `get_data_as_df` not yet implemented for this data."
+            )
 
         repr_id_to_outfile_map = self.__ensure_cached(message_paths_to_representations)
 
@@ -128,8 +148,12 @@ class McapTopicReader(TopicReader):
             MessagePathRepresentationMapping
         ],
         log_time_attr_name: str,
-        start_time: int | None = None,
-        end_time: int | None = None,
+        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
+        start_time: typing.Optional[int] = None,
+        end_time: typing.Optional[int] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[
+            MessagePathRepresentationMapping
+        ] = None,
     ) -> "pandas.DataFrame":
         pd = import_optional_dependency("pandas", "analytics")
 
@@ -138,6 +162,7 @@ class McapTopicReader(TopicReader):
                 self.get_data(
                     message_paths_to_representations=message_paths_to_representations,
                     log_time_attr_name=log_time_attr_name,
+                    log_time_unit=log_time_unit,
                     start_time=start_time,
                     end_time=end_time,
                 )

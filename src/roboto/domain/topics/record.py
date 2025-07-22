@@ -101,6 +101,7 @@ class CanonicalDataType(enum.Enum):
     and will assume "ns" if none is found.
     If the timestamp is in a different unit, add the following metadata to the `MessagePath` record:
     ``{ "unit": "s"|"ms"|"us"|"ns" }``
+    The unit must be a known value from :py:class:`~roboto.time.TimeUnit`.
     """
     Unknown = "unknown"
     """This is a fallback and should be used sparingly."""
@@ -122,6 +123,36 @@ class MessagePathStatistic(enum.Enum):
     Mean = "mean"
     Median = "median"
     Min = "min"
+
+
+class MessagePathMetadataWellKnown(str, enum.Enum):
+    """
+    Well-known metadata key names (with well-known semantics) that may be set in
+    :py:attr:`~roboto.domain.topics.MessagePathRecord.metadata`.
+
+    These are most often set by Roboto's first-party ingestion actions and used by Roboto clients.
+    """
+
+    ColumnName = "column_name"
+    """
+    The original name or path to this field in the source data schema.
+    May differ from :py:attr:`~roboto.domain.topics.MessagePathRecord.message_path`
+    if character substitutions were applied to conform to naming requirements.
+
+    Notes:
+        - Use of this metadata field is soft-deprecated as of SDK v0.24.0.
+        - Prefer use of :py:attr:`~roboto.domain.topics.MessagePathRecord.source_path` and
+          :py:attr:`~roboto.domain.topics.MessagePathRecord.path_in_schema` instead.
+          While those attributes are currently derived from metadata stored in this key,
+          first-class support for specifying those attributes will be added to
+          :py:class:`~MessagePathRecord` creation/update APIs in an upcoming SDK release.
+    """
+
+    Unit = "unit"
+    """
+    Unit of a field. E.g., 'ns' for a timestamp.
+    If provided, must match a known, supported unit from :py:class:`~roboto.time.TimeUnit`.
+    """
 
 
 class MessagePathRecord(pydantic.BaseModel):
@@ -153,6 +184,8 @@ class MessagePathRecord(pydantic.BaseModel):
     Dot-delimited path to the attribute within the datum record.
     """
 
+    message_path_id: str
+
     metadata: collections.abc.Mapping[str, typing.Any] = pydantic.Field(
         default_factory=dict,
     )
@@ -164,6 +197,20 @@ class MessagePathRecord(pydantic.BaseModel):
     modified: datetime.datetime
     modified_by: str
 
+    org_id: str
+    """
+    This message path's organization ID, which is the organization ID of the containing topic.
+    """
+
+    path_in_schema: list[str]
+    """
+    List of path components representing the field's location in the original data schema.
+    Unlike :py:attr:`message_path`, which must conform to Roboto-specific naming requirements
+    and assumes dots separated path parts imply nested data,
+    this preserves the exact path from the source data for accurate attribute access.
+    This is expected to be the split representation of :py:attr:`source_path`.
+    """
+
     representations: collections.abc.MutableSequence[RepresentationRecord] = (
         pydantic.Field(default_factory=list)
     )
@@ -171,14 +218,35 @@ class MessagePathRecord(pydantic.BaseModel):
     Zero to many Representations of this MessagePath.
     """
 
+    source_path: str
+    """
+    The original name of this field in the source data schema.
+    May differ from :py:attr:`message_path` if character substitutions were applied to conform to naming requirements.
+
+    This is the preferred field to use when specifying ``message_path_include`` or
+    ``message_path_exclude`` to the ``get_data`` or ``get_data_as_df`` methods
+    of :py:class:`~roboto.domain.topics.Topic` and :py:class:`~roboto.domain.events.Event`.
+    """
+
     topic_id: str
 
-    org_id: str
-    """
-    This message path's organization ID, which is the organization ID of the containing topic.
-    """
+    def parents(self, delimiter: str = ".") -> list[str]:
+        """
+        Logical message path ancestors of this path.
 
-    message_path_id: str
+        Examples:
+            Given a deeply nested field ``root.sub_obj_1.sub_obj_2.leaf_field``:
+
+            >>> field = "root.sub_obj_1.sub_obj_2.leaf_field"
+            >>> record = MessagePathRecord(message_path=field) # other fields omitted for brevity
+            >>> print(record.parents())
+            ['root.sub_obj_1.sub_obj_2', 'root.sub_obj_1', 'root']
+        """
+        parent_path_parts = self.path_in_schema[:-1]
+        return [
+            delimiter.join(parent_path_parts[:i])
+            for i in range(len(parent_path_parts), 0, -1)
+        ]
 
 
 class TopicRecord(pydantic.BaseModel):

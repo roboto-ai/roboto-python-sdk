@@ -10,15 +10,20 @@ import typing
 
 from ...http import RobotoClient
 from ...logging import default_logger
-from ...time import Time, to_epoch_nanoseconds
+from ...time import (
+    Time,
+    TimeUnit,
+    to_epoch_nanoseconds,
+)
 from .mcap_topic_reader import McapTopicReader
 from .operations import (
     MessagePathRepresentationMapping,
 )
-from .parquet_topic_reader import (
-    ParquetTopicReader,
+from .parquet import ParquetTopicReader
+from .record import (
+    CanonicalDataType,
+    MessagePathRecord,
 )
-from .record import MessagePathRecord
 from .topic_reader import TopicReader
 
 if typing.TYPE_CHECKING:
@@ -28,16 +33,17 @@ logger = default_logger()
 
 
 class TopicDataService:
-    """Internal service for retrieving and managing topic data.
+    """Internal service for retrieving topic data.
 
     This service handles the low-level operations for accessing topic data that has been
-    ingested by the Roboto platform. It manages representation downloads, filtering,
-    and processing of various data formats to provide efficient access to time-series robotics data.
+    ingested by the Roboto platform. It manages downloads, filtering, and processing
+    various data formats to provide efficient access to time-series robotics data.
 
     Note:
-        This is an internal service class and is not intended as a public API.
-        To access topic data, prefer :py:meth:`~roboto.domain.topics.Topic.get_data`
-        or :py:meth:`~roboto.domain.topics.MessagePath.get_data` instead.
+        This is not intended as a public API.
+        To access topic data, prefer the ``get_data`` or ``get_data_as_df`` methods
+        on :py:class:`~roboto.domain.topics.Topic`, :py:class:`~roboto.domain.topics.MessagePath`,
+        or :py:class:`~roboto.domain.events.Event`.
     """
 
     DEFAULT_CACHE_DIR: typing.ClassVar[pathlib.Path] = (
@@ -67,6 +73,7 @@ class TopicDataService:
         message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
+        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         cache_dir_override: typing.Union[str, pathlib.Path, None] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         """Retrieve data for a specific topic with optional filtering.
@@ -82,6 +89,7 @@ class TopicDataService:
                 If None, no paths are excluded.
             start_time: Start time (inclusive) for temporal filtering.
             end_time: End time (exclusive) for temporal filtering.
+            log_time_unit: Time unit for the log_time field in the returned records.
             cache_dir_override: Override the default cache directory for downloads.
 
         Yields:
@@ -90,34 +98,39 @@ class TopicDataService:
         """
         cache_dir = self.__ensure_cache_dir(cache_dir_override)
 
-        message_path_repr_mappings = self.__get_filtered_message_path_mappings(
-            topic_id=topic_id,
+        message_path_repr_mappings = self.__get_message_path_mappings(topic_id)
+        filtered_message_path_repr_mappings = self.__filter_message_path_mappings(
+            message_path_repr_mappings,
             message_paths_include=message_paths_include,
             message_paths_exclude=message_paths_exclude,
         )
 
-        normalized_start_time = (
+        start_time_ns = (
             to_epoch_nanoseconds(start_time) if start_time is not None else None
         )
-        normalized_end_time = (
-            to_epoch_nanoseconds(end_time) if end_time is not None else None
-        )
+        end_time_ns = to_epoch_nanoseconds(end_time) if end_time is not None else None
 
-        if McapTopicReader.accepts(message_path_repr_mappings):
+        if McapTopicReader.accepts(filtered_message_path_repr_mappings):
             reader: TopicReader = McapTopicReader(self.__roboto_client, cache_dir)
             yield from reader.get_data(
-                message_path_repr_mappings,
-                TopicDataService.LOG_TIME_ATTR_NAME,
-                normalized_start_time,
-                normalized_end_time,
+                filtered_message_path_repr_mappings,
+                log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
+                log_time_unit=log_time_unit,
+                start_time=start_time_ns,
+                end_time=end_time_ns,
             )
-        elif ParquetTopicReader.accepts(message_path_repr_mappings):
-            reader = ParquetTopicReader()
+        elif ParquetTopicReader.accepts(filtered_message_path_repr_mappings):
+            reader = ParquetTopicReader(self.__roboto_client)
+            timestamp_mapping = self.__find_timestamp_message_path_mapping(
+                message_path_repr_mappings
+            )
             yield from reader.get_data(
-                message_path_repr_mappings,
-                TopicDataService.LOG_TIME_ATTR_NAME,
-                normalized_start_time,
-                normalized_end_time,
+                filtered_message_path_repr_mappings,
+                log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
+                log_time_unit=log_time_unit,
+                start_time=start_time_ns,
+                end_time=end_time_ns,
+                timestamp_message_path_representation_mapping=timestamp_mapping,
             )
         else:
             raise NotImplementedError(
@@ -131,38 +144,64 @@ class TopicDataService:
         message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
+        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         cache_dir_override: typing.Union[str, pathlib.Path, None] = None,
     ) -> "pandas.DataFrame":
+        """Retrieve data for a specific topic as a pandas DataFrame with optional filtering.
+
+        Downloads and processes topic data representations, applying message path and temporal filters as specified.
+        Merges data from multiple representations when necessary and returns the result as a pandas DataFrame.
+
+        Args:
+            topic_id: Unique identifier of the topic to retrieve data for.
+            message_paths_include: Dot notation paths to include in the results.
+                If None, all paths are included.
+            message_paths_exclude: Dot notation paths to exclude from the results.
+                If None, no paths are excluded.
+            start_time: Start time (inclusive) for temporal filtering.
+            end_time: End time (exclusive) for temporal filtering.
+            log_time_unit: Time unit for the log_time field in the returned DataFrame.
+            cache_dir_override: Override the default cache directory for downloads.
+
+        Returns:
+            pandas.DataFrame containing the filtered topic data,
+            with log_time as the index if available.
+        """
         cache_dir = self.__ensure_cache_dir(cache_dir_override)
 
-        message_path_repr_mappings = self.__get_filtered_message_path_mappings(
-            topic_id=topic_id,
+        message_path_repr_mappings = self.__get_message_path_mappings(topic_id)
+        filtered_message_path_repr_mappings = self.__filter_message_path_mappings(
+            message_path_repr_mappings,
             message_paths_include=message_paths_include,
             message_paths_exclude=message_paths_exclude,
         )
 
-        normalized_start_time = (
+        start_time_ns = (
             to_epoch_nanoseconds(start_time) if start_time is not None else None
         )
-        normalized_end_time = (
-            to_epoch_nanoseconds(end_time) if end_time is not None else None
-        )
+        end_time_ns = to_epoch_nanoseconds(end_time) if end_time is not None else None
 
-        if McapTopicReader.accepts(message_path_repr_mappings):
+        if McapTopicReader.accepts(filtered_message_path_repr_mappings):
             reader: TopicReader = McapTopicReader(self.__roboto_client, cache_dir)
             df = reader.get_data_as_df(
-                message_path_repr_mappings,
-                TopicDataService.LOG_TIME_ATTR_NAME,
-                normalized_start_time,
-                normalized_end_time,
+                filtered_message_path_repr_mappings,
+                log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
+                log_time_unit=log_time_unit,
+                start_time=start_time_ns,
+                end_time=end_time_ns,
             )
-        elif ParquetTopicReader.accepts(message_path_repr_mappings):
-            reader = ParquetTopicReader()
+        elif ParquetTopicReader.accepts(filtered_message_path_repr_mappings):
+            reader = ParquetTopicReader(self.__roboto_client)
+            timestamp_mapping = self.__find_timestamp_message_path_mapping(
+                message_path_repr_mappings
+            )
             df = reader.get_data_as_df(
-                message_path_repr_mappings,
-                TopicDataService.LOG_TIME_ATTR_NAME,
-                normalized_start_time,
-                normalized_end_time,
+                filtered_message_path_repr_mappings,
+                log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
+                log_time_unit=log_time_unit,
+                start_time=start_time_ns,
+                end_time=end_time_ns,
+                timestamp_message_path_representation_mapping=timestamp_mapping,
             )
         else:
             raise NotImplementedError(
@@ -189,46 +228,43 @@ class TopicDataService:
 
     def __filter_message_paths(
         self,
-        seq: collections.abc.Sequence[MessagePathRecord],
+        message_path_records: collections.abc.Sequence[MessagePathRecord],
         include_paths: typing.Optional[collections.abc.Sequence[str]],
         exclude_paths: typing.Optional[collections.abc.Sequence[str]],
     ) -> collections.abc.Sequence[MessagePathRecord]:
         if not include_paths and not exclude_paths:
-            return seq
+            return message_path_records
 
         filtered = []
-        include_paths_set = set(include_paths or [])
-        exclude_paths_set = set(exclude_paths or [])
-        for message_path_record in seq:
-            message_path_parts = message_path_record.message_path.split(".")
-            message_path_parents = set(
-                ".".join(message_path_parts[:i])
-                for i in range(len(message_path_parts), 0, -1)
+        include_paths_set = set(include_paths) if include_paths is not None else set()
+        exclude_paths_set = set(exclude_paths) if exclude_paths is not None else set()
+
+        for record in message_path_records:
+            paths = set(record.parents())
+            paths.add(record.source_path)
+            paths.add(
+                # May be different from source_path, support specifying either one
+                record.message_path
             )
 
-            if include_paths and message_path_parents.isdisjoint(include_paths_set):
+            if include_paths and paths.isdisjoint(include_paths_set):
                 continue
 
-            if exclude_paths and not message_path_parents.isdisjoint(exclude_paths_set):
+            if exclude_paths and not paths.isdisjoint(exclude_paths_set):
                 continue
 
-            filtered.append(message_path_record)
+            filtered.append(record)
 
         return filtered
 
-    def __get_filtered_message_path_mappings(
+    def __filter_message_path_mappings(
         self,
-        topic_id: str,
+        message_path_repr_mappings: collections.abc.Iterable[
+            MessagePathRepresentationMapping
+        ],
         message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
         message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
     ) -> list[MessagePathRepresentationMapping]:
-        message_path_repr_mappings_response = self.__roboto_client.get(
-            f"v1/topics/id/{topic_id}/message-path/representations"
-        )
-        message_path_repr_mappings = message_path_repr_mappings_response.to_record_list(
-            MessagePathRepresentationMapping
-        )
-
         # Exclude a MessagePathRepresentationMapping if no message paths remain after applying message path filters.
         message_path_repr_mappings = [
             message_path_repr_map.model_copy(
@@ -260,3 +296,31 @@ class TopicDataService:
             )
 
         return message_path_repr_mappings
+
+    def __find_timestamp_message_path_mapping(
+        self,
+        message_path_repr_mappings: collections.abc.Iterable[
+            MessagePathRepresentationMapping
+        ],
+    ) -> typing.Optional[MessagePathRepresentationMapping]:
+        for mapping in message_path_repr_mappings:
+            for message_path in mapping.message_paths:
+                if message_path.canonical_data_type != CanonicalDataType.Timestamp:
+                    continue
+
+                return MessagePathRepresentationMapping(
+                    message_paths=[message_path], representation=mapping.representation
+                )
+
+        return None
+
+    def __get_message_path_mappings(
+        self,
+        topic_id: str,
+    ) -> list[MessagePathRepresentationMapping]:
+        message_path_repr_mappings_response = self.__roboto_client.get(
+            f"v1/topics/id/{topic_id}/message-path/representations"
+        )
+        return message_path_repr_mappings_response.to_record_list(
+            MessagePathRepresentationMapping
+        )

@@ -24,8 +24,10 @@ pex_binary(
     "//packages/roboto/src/roboto:roboto-src",
 
     # roboto[analytics] extras
+    "//build-support:3rdparty#fsspec",
     "//build-support:3rdparty#numpy",
     "//build-support:3rdparty#pandas",
+    "//build-support:3rdparty#pyarrow",
     "//build-support:3rdparty#stumpy",
 
     # build-support[sdk_examples] extras

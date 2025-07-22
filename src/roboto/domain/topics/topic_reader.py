@@ -8,6 +8,7 @@ import abc
 import collections.abc
 import typing
 
+from ...time import TimeUnit
 from .operations import (
     MessagePathRepresentationMapping,
 )
@@ -17,6 +18,15 @@ if typing.TYPE_CHECKING:
 
 
 class TopicReader(abc.ABC):
+    """Private interface for retrieving topic data of a particular format.
+
+    Note:
+        This is not intended as a public API.
+        To access topic data, prefer the ``get_data`` or ``get_data_as_df`` methods
+        on :py:class:`~roboto.domain.topics.Topic`, :py:class:`~roboto.domain.topics.MessagePath`,
+        or :py:class:`~roboto.domain.events.Event`.
+    """
+
     @staticmethod
     @abc.abstractmethod
     def accepts(
@@ -32,8 +42,12 @@ class TopicReader(abc.ABC):
             MessagePathRepresentationMapping
         ],
         log_time_attr_name: str,
+        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[
+            MessagePathRepresentationMapping
+        ] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]: ...
 
     @abc.abstractmethod
@@ -43,6 +57,10 @@ class TopicReader(abc.ABC):
             MessagePathRepresentationMapping
         ],
         log_time_attr_name: str,
+        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[
+            MessagePathRepresentationMapping
+        ] = None,
     ) -> "pandas.DataFrame": ...

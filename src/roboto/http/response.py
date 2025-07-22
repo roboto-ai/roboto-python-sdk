@@ -5,7 +5,6 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import base64
-import collections.abc
 import enum
 import http
 import http.client
@@ -235,7 +234,7 @@ class HttpResponse:
 
     def to_record_list(
         self, record_type: typing.Type[PydanticModel]
-    ) -> collections.abc.Sequence[PydanticModel]:
+    ) -> list[PydanticModel]:
         return [
             record_type.model_validate(item)
             for item in self.to_dict(json_path=["data"])
