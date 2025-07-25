@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
 import datetime
 import functools
@@ -23,6 +25,7 @@ from ...ai.summary import (
 from ...association import Association
 from ...env import RobotoEnv
 from ...exceptions import (
+    RobotoDeviceNotFoundException,
     RobotoFailedToGenerateException,
 )
 from ...http import PaginatedList, RobotoClient
@@ -35,6 +38,7 @@ from ...updates import (
     UpdateCondition,
 )
 from ...waiters import Interval, wait_for
+from ..devices import Device
 from ..files import (
     DirectoryRecord,
     File,
@@ -119,9 +123,11 @@ class Dataset:
         metadata: typing.Optional[dict[str, typing.Any]] = None,
         name: typing.Optional[str] = None,
         tags: typing.Optional[list[str]] = None,
+        device_id: typing.Optional[str] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> "Dataset":
+        create_device_if_missing: bool = False,
+    ) -> Dataset:
         """Create a new dataset in the Roboto platform.
 
         Creates a new dataset with the specified properties and returns a Dataset
@@ -133,13 +139,20 @@ class Dataset:
             metadata: Optional key-value metadata pairs to associate with the dataset.
             name: Optional short name for the dataset (max 120 characters).
             tags: Optional list of tags for dataset discovery and organization.
+            device_id: Optional identifier of the device that generated this data.
             caller_org_id: Organization ID to create the dataset in. Required for multi-org users.
             roboto_client: HTTP client for API communication. If None, uses the default client.
+            create_device_if_missing: If True, and a device_id is provided that does not
+                exist in the organization, a new device will be created automatically. If False,
+                and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
+                will be raised.
 
         Returns:
             Dataset instance representing the newly created dataset.
 
         Raises:
+            RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
+                a device registered with Roboto for the organization.
             RobotoInvalidRequestException: Invalid dataset parameters.
             RobotoUnauthorizedException: Caller lacks permission to create datasets.
 
@@ -159,11 +172,30 @@ class Dataset:
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = CreateDatasetRequest(
-            description=description, metadata=metadata or {}, name=name, tags=tags or []
+            description=description,
+            device_id=device_id,
+            metadata=metadata or {},
+            name=name,
+            tags=tags or [],
         )
-        record = roboto_client.post(
-            "v1/datasets", data=request, caller_org_id=caller_org_id
-        ).to_record(DatasetRecord)
+
+        try:
+            record = roboto_client.post(
+                "v1/datasets", data=request, caller_org_id=caller_org_id
+            ).to_record(DatasetRecord)
+        except RobotoDeviceNotFoundException as exc:
+            if not create_device_if_missing or device_id is None:
+                raise exc
+
+            Device.create(
+                device_id=device_id,
+                caller_org_id=caller_org_id,
+                roboto_client=roboto_client,
+            )
+            record = roboto_client.post(
+                "v1/datasets", data=request, caller_org_id=caller_org_id
+            ).to_record(DatasetRecord)
+
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
@@ -174,9 +206,11 @@ class Dataset:
         metadata: typing.Optional[dict[str, typing.Any]] = None,
         name: typing.Optional[str] = None,
         tags: typing.Optional[list[str]] = None,
+        device_id: typing.Optional[str] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> "Dataset":
+        create_device_if_missing: bool = False,
+    ) -> Dataset:
         """Create a dataset if no existing dataset matches the specified query.
 
         Searches for existing datasets using the provided RoboQL query. If a matching
@@ -191,13 +225,20 @@ class Dataset:
             metadata: Optional key-value metadata pairs to associate with the dataset.
             name: Optional short name for the dataset (max 120 characters).
             tags: Optional list of tags for dataset discovery and organization.
+            device_id: Optional identifier of the device that generated this data.
             caller_org_id: Organization ID to create the dataset in. Required for multi-org users.
             roboto_client: HTTP client for API communication. If None, uses the default client.
+            create_device_if_missing: If True, and a device_id is provided that does not
+                exist in the organization, a new device will be created automatically. If False,
+                and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
+                will be raised.
 
         Returns:
             Dataset instance representing either the existing matched dataset or the newly created dataset.
 
         Raises:
+            RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
+                a device registered with Roboto for the organization.
             RobotoInvalidRequestException: Invalid dataset parameters or malformed RoboQL query.
             RobotoUnauthorizedException: Caller lacks permission to create datasets or search existing ones.
 
@@ -229,22 +270,40 @@ class Dataset:
             match_roboql_query=match_roboql_query,
             create_request=CreateDatasetRequest(
                 description=description,
+                device_id=device_id,
                 metadata=metadata or {},
                 name=name,
                 tags=tags or [],
             ),
         )
-        record = roboto_client.post(
-            "v1/datasets/create_if_not_exists",
-            data=request,
-            caller_org_id=caller_org_id,
-        ).to_record(DatasetRecord)
+
+        try:
+            record = roboto_client.post(
+                "v1/datasets/create_if_not_exists",
+                data=request,
+                caller_org_id=caller_org_id,
+            ).to_record(DatasetRecord)
+        except RobotoDeviceNotFoundException as exc:
+            if not create_device_if_missing or device_id is None:
+                raise exc
+
+            Device.create(
+                device_id=device_id,
+                caller_org_id=caller_org_id,
+                roboto_client=roboto_client,
+            )
+
+            record = roboto_client.post(
+                "v1/datasets/create_if_not_exists",
+                data=request,
+                caller_org_id=caller_org_id,
+            ).to_record(DatasetRecord)
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
     def from_id(
         cls, dataset_id: str, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> "Dataset":
+    ) -> Dataset:
         """Create a Dataset instance from a dataset ID.
 
         Retrieves dataset information from the Roboto platform using the provided
@@ -258,7 +317,7 @@ class Dataset:
             Dataset instance representing the requested dataset.
 
         Raises:
-            RobotoNotFoundException: Dataset with the given ID does not exist.
+            RobotoDatasetNotFoundException: Dataset with the given ID does not exist.
             RobotoUnauthorizedException: Caller lacks permission to access the dataset.
 
         Examples:
@@ -404,6 +463,16 @@ class Dataset:
         return self.__record.description
 
     @property
+    def device_id(self) -> typing.Optional[str]:
+        """Identifier of the device that generated this data.
+
+        Returns the optional identifier of the device that generated the data
+        contained within this dataset. Can be None if the dataset was not
+        generated by a device.
+        """
+        return self.__record.device_id
+
+    @property
     def metadata(self) -> dict[str, typing.Any]:
         """Custom metadata associated with this dataset.
 
@@ -543,7 +612,7 @@ class Dataset:
         the files will not be deleted from S3, but the dataset record and all associated metadata will be deleted.
 
         Raises:
-            RobotoNotFoundException: Dataset does not exist or has already been deleted.
+            RobotoDatasetNotFoundException: Dataset does not exist or has already been deleted.
             RobotoUnauthorizedException: Caller lacks permission to delete the dataset.
 
         Examples:
@@ -1024,7 +1093,7 @@ class Dataset:
             metadata_changeset=MetadataChangeset(put_tags=tags),
         )
 
-    def refresh(self) -> "Dataset":
+    def refresh(self) -> Dataset:
         """Refresh this dataset instance with the latest data from the platform.
 
         Fetches the current state of the dataset from the Roboto platform and updates
@@ -1035,7 +1104,7 @@ class Dataset:
             This Dataset instance with refreshed data.
 
         Raises:
-            RobotoNotFoundException: Dataset no longer exists.
+            RobotoDatasetNotFoundException: Dataset no longer exists.
             RobotoUnauthorizedException: Caller lacks permission to access the dataset.
 
         Examples:
@@ -1071,6 +1140,31 @@ class Dataset:
         """Remove each tag in this sequence if it exists"""
         self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
+    def set_device_id(
+        self, device_id: str, create_device_if_missing: bool = False
+    ) -> Dataset:
+        """
+        Set the device ID for this dataset.
+
+        Args:
+            device_id: The device ID to set for this dataset.
+            create_device_if_missing: If True, and a device_id is provided that does not
+                exist in the organization, a new device will be created automatically. If False,
+                and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
+                will be raised.
+
+        Returns:
+            This Dataset instance with refreshed data.
+
+        Raises:
+            RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
+                a device registered with Roboto for the organization this dataset is being created in.
+        """
+        return self.update(
+            device_id=device_id,
+            create_device_if_missing=create_device_if_missing,
+        )
+
     def to_association(self) -> Association:
         return Association.dataset(self.dataset_id)
 
@@ -1097,9 +1191,11 @@ class Dataset:
         self,
         conditions: typing.Optional[list[UpdateCondition]] = None,
         description: typing.Optional[str] = None,
+        device_id: typing.Optional[str] = None,
         metadata_changeset: typing.Optional[MetadataChangeset] = None,
         name: typing.Optional[str] = None,
-    ) -> "Dataset":
+        create_device_if_missing: bool = False,
+    ) -> Dataset:
         """Update this dataset's properties.
 
         Updates various properties of the dataset including name, description,
@@ -1109,15 +1205,22 @@ class Dataset:
         Args:
             conditions: Optional list of conditions that must be met for the update to proceed.
             description: New description for the dataset.
+            device_id: New device ID for the dataset.
             metadata_changeset: Metadata changes to apply (add, update, or remove fields/tags).
             name: New name for the dataset.
+            create_device_if_missing: If True, and a device_id is provided that does not
+                exist in the organization, a new device will be created automatically. If False,
+                and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
+                will be raised.
 
         Returns:
             Updated Dataset instance with the new properties.
 
         Raises:
-            RobotoUnauthorizedException: Caller lacks permission to update the dataset.
             RobotoConditionalUpdateFailedException: Update conditions were not met.
+            RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
+                a device registered with Roboto for the organization.
+            RobotoUnauthorizedException: Caller lacks permission to update the dataset.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
@@ -1136,14 +1239,31 @@ class Dataset:
         request = UpdateDatasetRequest(
             conditions=conditions,
             description=description,
+            device_id=device_id,
             name=name,
             metadata_changeset=metadata_changeset,
         )
 
-        self.__record = self.__roboto_client.put(
-            f"/v1/datasets/{self.dataset_id}",
-            data=request,
-        ).to_record(DatasetRecord)
+        try:
+            self.__record = self.__roboto_client.put(
+                f"/v1/datasets/{self.dataset_id}",
+                data=request,
+            ).to_record(DatasetRecord)
+        except RobotoDeviceNotFoundException as exc:
+            if not create_device_if_missing or device_id is None:
+                raise exc
+
+            Device.create(
+                device_id=device_id,
+                caller_org_id=self.org_id,
+                roboto_client=self.__roboto_client,
+            )
+
+            self.__record = self.__roboto_client.put(
+                f"/v1/datasets/{self.dataset_id}",
+                data=request,
+            ).to_record(DatasetRecord)
+
         return self
 
     def rename_directory(self, old_path: str, new_path: str) -> DirectoryRecord:

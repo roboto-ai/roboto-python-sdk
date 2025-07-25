@@ -74,6 +74,12 @@ class CreateDatasetRequest(pydantic.BaseModel):
     )
     """Optional human-readable description of the dataset."""
 
+    device_id: typing.Optional[str] = pydantic.Field(
+        default=None,
+        description="The ID of the device which created this dataset, if applicable.",
+    )
+    """Optional identifier of the device that generated this data."""
+
     name: typing.Optional[str] = pydantic.Field(
         default=None,
         description="A short name for this dataset. Must be under 120 characters or less.",
@@ -156,6 +162,9 @@ class UpdateDatasetRequest(pydantic.BaseModel):
 
     description: typing.Optional[str] = None
     """New description for the dataset."""
+
+    device_id: typing.Optional[str] = None
+    """New device ID for the dataset."""
 
     name: typing.Optional[str] = pydantic.Field(default=None, max_length=120)
     """New name for the dataset (max 120 characters)."""

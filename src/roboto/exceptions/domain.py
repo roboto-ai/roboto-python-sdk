@@ -123,6 +123,10 @@ class RobotoDomainException(Exception):
             else:
                 return RobotoUnauthorizedException(error.msg, headers=error.headers)
         if error.status == 404:
+            if message is not None and "RobotoDeviceNotFoundException" in message:
+                return RobotoDeviceNotFoundException(error.msg, headers=error.headers)
+            if message is not None and "RobotoDatasetNotFoundException" in message:
+                return RobotoDatasetNotFoundException(error.msg, headers=error.headers)
             return RobotoNotFoundException(error.msg, headers=error.headers)
         if 500 <= error.status < 600:
             return RobotoServiceException(error.msg, headers=error.headers)
@@ -190,6 +194,18 @@ class RobotoNotFoundException(RobotoDomainException):
     @property
     def http_status_code(self) -> int:
         return 404
+
+
+class RobotoDatasetNotFoundException(RobotoNotFoundException):
+    """
+    Specialization of RobotoNotFoundException for datasets.
+    """
+
+
+class RobotoDeviceNotFoundException(RobotoNotFoundException):
+    """
+    Specialization of RobotoNotFoundException for devices.
+    """
 
 
 class RobotoNotReadyException(RobotoDomainException):

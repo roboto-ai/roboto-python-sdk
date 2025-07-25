@@ -7,7 +7,9 @@
 from .domain import (
     RobotoConditionException,
     RobotoConflictException,
+    RobotoDatasetNotFoundException,
     RobotoDeprecatedException,
+    RobotoDeviceNotFoundException,
     RobotoDomainException,
     RobotoExpiredException,
     RobotoFailedToGenerateException,
@@ -38,6 +40,8 @@ __all__ = [
     "ServerError",
     "RobotoConditionException",
     "RobotoConflictException",
+    "RobotoDatasetNotFoundException",
+    "RobotoDeviceNotFoundException",
     "RobotoDeprecatedException",
     "RobotoDomainException",
     "RobotoExpiredException",

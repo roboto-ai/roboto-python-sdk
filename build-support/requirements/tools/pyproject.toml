@@ -10,6 +10,7 @@ dependencies = [
     "mypy==1.15",
     "pytest~=7.3",
     "pytest-cov~=4.1",
+    "pytest-xdist~=3.3",
     "PyGithub~=2.6.1",
 ]
 
