@@ -32,6 +32,19 @@ if typing.TYPE_CHECKING:
 logger = default_logger()
 
 
+def iterable_to_set(arg: collections.abc.Iterable[str]) -> set[str]:
+    if isinstance(arg, set):
+        return arg
+    elif isinstance(arg, str):
+        return {
+            arg,
+        }
+    elif isinstance(arg, collections.abc.Iterable):
+        return set(arg)
+    else:
+        raise TypeError("Input must be iterable.")
+
+
 class TopicDataService:
     """Internal service for retrieving topic data.
 
@@ -69,8 +82,8 @@ class TopicDataService:
     def get_data(
         self,
         topic_id: str,
-        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
-        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
@@ -140,8 +153,8 @@ class TopicDataService:
     def get_data_as_df(
         self,
         topic_id: str,
-        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
-        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
@@ -228,16 +241,20 @@ class TopicDataService:
 
     def __filter_message_paths(
         self,
-        message_path_records: collections.abc.Sequence[MessagePathRecord],
-        include_paths: typing.Optional[collections.abc.Sequence[str]],
-        exclude_paths: typing.Optional[collections.abc.Sequence[str]],
-    ) -> collections.abc.Sequence[MessagePathRecord]:
+        message_path_records: collections.abc.Iterable[MessagePathRecord],
+        include_paths: typing.Optional[collections.abc.Iterable[str]],
+        exclude_paths: typing.Optional[collections.abc.Iterable[str]],
+    ) -> list[MessagePathRecord]:
         if not include_paths and not exclude_paths:
-            return message_path_records
+            return list(message_path_records)
 
         filtered = []
-        include_paths_set = set(include_paths) if include_paths is not None else set()
-        exclude_paths_set = set(exclude_paths) if exclude_paths is not None else set()
+        include_paths_set = (
+            iterable_to_set(include_paths) if include_paths is not None else set()
+        )
+        exclude_paths_set = (
+            iterable_to_set(exclude_paths) if exclude_paths is not None else set()
+        )
 
         for record in message_path_records:
             paths = set(record.parents())
@@ -262,8 +279,8 @@ class TopicDataService:
         message_path_repr_mappings: collections.abc.Iterable[
             MessagePathRepresentationMapping
         ],
-        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
-        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
     ) -> list[MessagePathRepresentationMapping]:
         # Exclude a MessagePathRepresentationMapping if no message paths remain after applying message path filters.
         message_path_repr_mappings = [

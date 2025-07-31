@@ -57,8 +57,8 @@ class GetDataArgs:
     """
 
     topic: Topic
-    message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None
-    message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None
+    message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None
+    message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None
     start_time: typing.Optional[Time] = None
     end_time: typing.Optional[Time] = None
     cache_dir: typing.Union[str, pathlib.Path, None] = None
@@ -641,8 +641,8 @@ class Event:
 
     def get_data(
         self,
-        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
-        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
         topic_name: typing.Optional[str] = None,
         topic_data_service: typing.Optional[TopicDataService] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
@@ -702,7 +702,7 @@ class Event:
 
             >>> event.get_data(message_paths_include=["velocity"], message_paths_exclude=["velocity.z"])
         """
-        result = self.__get_data_args(
+        args = self.__get_data_args(
             message_paths_include=message_paths_include,
             message_paths_exclude=message_paths_exclude,
             topic_name=topic_name,
@@ -710,19 +710,19 @@ class Event:
             cache_dir=cache_dir,
             strict_associations=strict_associations,
         )
-        topic = result.topic
+        topic = args.topic
         yield from topic.get_data(
-            message_paths_include=result.message_paths_include,
-            message_paths_exclude=result.message_paths_exclude,
-            start_time=result.start_time,
-            end_time=result.end_time,
-            cache_dir=result.cache_dir,
+            message_paths_include=args.message_paths_include,
+            message_paths_exclude=args.message_paths_exclude,
+            start_time=args.start_time,
+            end_time=args.end_time,
+            cache_dir=args.cache_dir,
         )
 
     def get_data_as_df(
         self,
-        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
-        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
         topic_name: typing.Optional[str] = None,
         topic_data_service: typing.Optional[TopicDataService] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
@@ -1131,8 +1131,8 @@ class Event:
 
     def __get_data_args(
         self,
-        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
-        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
         topic_name: typing.Optional[str] = None,
         topic_data_service: typing.Optional[TopicDataService] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
@@ -1168,7 +1168,7 @@ class Event:
             return GetDataArgs(
                 topic=topic,
                 message_paths_include=[
-                    message_path.path for message_path in message_paths
+                    message_path.record.source_path for message_path in message_paths
                 ],
                 start_time=self.start_time,
                 end_time=self.end_time,

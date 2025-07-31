@@ -35,6 +35,7 @@ module = [
     "boto3.*",
     "botocore.*",
     "cookiecutter.*",
+    "cron_converter.*",
     "cryptography.*",
     "dateutil.*",
     "docker.*",

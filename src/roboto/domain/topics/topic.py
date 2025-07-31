@@ -661,8 +661,8 @@ class Topic:
 
     def get_data(
         self,
-        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
-        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
@@ -748,8 +748,8 @@ class Topic:
 
     def get_data_as_df(
         self,
-        message_paths_include: typing.Optional[collections.abc.Sequence[str]] = None,
-        message_paths_exclude: typing.Optional[collections.abc.Sequence[str]] = None,
+        message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
+        message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,

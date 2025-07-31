@@ -20,13 +20,13 @@ import pathspec
 
 from ...ai.summary import (
     AISummary,
-    AISummaryStatus,
+    PollingStreamingAISummary,
+    StreamingAISummary,
 )
 from ...association import Association
 from ...env import RobotoEnv
 from ...exceptions import (
     RobotoDeviceNotFoundException,
-    RobotoFailedToGenerateException,
 )
 from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger
@@ -37,7 +37,6 @@ from ...updates import (
     StrSequence,
     UpdateCondition,
 )
-from ...waiters import Interval, wait_for
 from ..devices import Device
 from ..files import (
     DirectoryRecord,
@@ -773,115 +772,98 @@ class Dataset:
             roboto_client=self.__roboto_client,
         )
 
-    def generate_summary(self) -> AISummary:
-        """Generate a new AI-powered summary of this dataset.
+    def generate_summary(self) -> StreamingAISummary:
+        """Generate a new AI summary for this dataset.
 
-        Creates a new AI-generated summary that analyzes the dataset's contents,
-        including files, metadata, and topics. If a summary already exists, it will
-        be overwritten. The results are persisted and can be retrieved later with
-        get_summary().
+        Creates a new AI-generated summary that analyzes the dataset's content,
+        structure, and metadata. The summary generation is asynchronous and can
+        be monitored through the returned StreamingAISummary object.
 
         Returns:
-            AISummary object containing the generated summary text and creation timestamp.
+            StreamingAISummary object that provides access to the summary as it
+            is being generated. The summary starts in pending status and can be
+            monitored for completion.
 
         Raises:
-            RobotoUnauthorizedException: Caller lacks permission to generate summaries.
-            RobotoInvalidRequestException: Dataset is not suitable for summarization.
+            RobotoUnauthorizedException: Caller lacks permission to generate summaries
+                for this dataset.
 
         Examples:
+            Generate a summary and wait for completion:
+
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> summary = dataset.generate_summary()
-            >>> print(summary.text)
-            This dataset contains autonomous vehicle sensor data from a highway
-            driving session, including camera images, LiDAR point clouds, and
-            GPS coordinates collected over a 30-minute period.
-            >>> print(summary.created)
-            2024-01-15 10:30:00+00:00
+            >>> complete_text = summary.complete_text
+            >>> print(complete_text)
+            'This dataset contains 42 files with sensor data from highway driving tests...'
+
+            Generate a summary and stream the text as it's generated:
+
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> summary = dataset.generate_summary()
+            >>> for text_chunk in summary.text_stream():
+            ...     print(text_chunk, end='', flush=True)
+
+            Check summary status without blocking:
+
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> summary = dataset.generate_summary()
+            >>> if summary.current and summary.current.status == AISummaryStatus.Complete:
+            ...     print("Summary is ready!")
         """
-        return self.__roboto_client.post(
+        initial_summary = self.__roboto_client.post(
             f"v1/datasets/{self.dataset_id}/summary"
         ).to_record(AISummary)
 
-    def get_summary(self) -> AISummary:
-        """Get the latest AI-generated summary of this dataset.
-
-        Retrieves the most recent AI-generated summary for this dataset. If no summary
-        exists, one will be automatically generated (equivalent to calling generate_summary()).
-
-        Once a summary is generated, it persists and is returned by this method until
-        generate_summary() is explicitly called again. The summary does not automatically
-        update when the dataset or its files change.
-
-        Returns:
-            AISummary object containing the summary text and creation timestamp.
-
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to access summaries.
-
-        Examples:
-            >>> dataset = Dataset.from_id("ds_abc123")
-            >>> summary = dataset.get_summary()
-            >>> print(summary.text)
-            This dataset contains autonomous vehicle sensor data from a highway
-            driving session, including camera images, LiDAR point clouds, and
-            GPS coordinates collected over a 30-minute period.
-
-            >>> # Summary is cached - subsequent calls return the same summary
-            >>> cached_summary = dataset.get_summary()
-            >>> assert summary.created == cached_summary.created
-        """
-        return self.__roboto_client.get(
-            f"v1/datasets/{self.dataset_id}/summary"
-        ).to_record(AISummary)
-
-    def get_summary_sync(
-        self,
-        timeout: float = 60,  # 1 minute in seconds
-        poll_interval: Interval = 2,
-    ) -> AISummary:
-        """
-        Poll the summary endpoint until a summary's status is COMPLETED, or raise an exception if the status is FAILED
-        or the configurable timeout is reached.
-
-        This method will call `get_summary()` repeatedly until the summary reaches a terminal status.
-        If no summary exists when this method is called, one will be generated automatically.
-
-        Args:
-            timeout: The maximum amount of time, in seconds, to wait for the summary to complete. Defaults to 1 minute.
-            poll_interval: The amount of time, in seconds, to wait between polling iterations. Defaults to 2 seconds.
-
-        Returns: An AI Summary object containing a full LLM summary of the dataset.
-
-        Raises:
-            RobotoFailedToGenerateException: If the summary status becomes FAILED.
-            TimeoutError: If the timeout is reached before the summary completes.
-
-        Example:
-            >>> from roboto import Dataset
-            >>> dataset = Dataset.from_id("ds_abc123")
-            >>> summary = dataset.get_summary_sync(timeout=60)
-            >>> print(summary.text)
-            This dataset contains ...
-        """
-
-        def _check_summary_completion() -> bool:
-            summary = self.get_summary()
-
-            if summary.status == AISummaryStatus.Failed:
-                raise RobotoFailedToGenerateException(
-                    f"Summary generation failed for dataset {self.dataset_id}"
-                )
-
-            return summary.status == AISummaryStatus.Complete
-
-        wait_for(
-            _check_summary_completion,
-            timeout=timeout,
-            interval=poll_interval,
-            timeout_msg=f"Timed out waiting for summary completion for dataset '{self.dataset_id}'",
+        return PollingStreamingAISummary(
+            poll_fn=self.__get_latest_summary,
+            poll_on_init=False,
+            initial_summary=initial_summary,
         )
 
-        return self.get_summary()
+    def get_summary(self) -> StreamingAISummary:
+        """Retrieve the existing AI summary for this dataset.
+
+        Fetches the current AI summary for this dataset if one exists, or generates
+        a new one if no summary has been created yet. The summary provides an
+        AI-generated analysis of the dataset's content, structure, and metadata.
+
+        Returns:
+            StreamingAISummary object that provides access to the existing summary.
+            If no summary exists, a new one will be generated automatically.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to access summaries
+                for this dataset.
+
+        Examples:
+            Get the current summary:
+
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> summary = dataset.get_summary()
+            >>> print(summary.complete_text)
+            'This dataset contains 42 files with sensor data from highway driving tests...'
+
+            Check if summary is still being generated:
+
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> summary = dataset.get_summary()
+            >>> if summary.current and summary.current.status == AISummaryStatus.Pending:
+            ...     print("Summary is still being generated...")
+            ...     # Wait for completion
+            ...     final_summary = summary.await_completion()
+            ...     print(final_summary.text)
+
+            Stream summary text as it becomes available:
+
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> summary = dataset.get_summary()
+            >>> for text_chunk in summary.text_stream():
+            ...     print(text_chunk, end='', flush=True)
+        """
+        return PollingStreamingAISummary(
+            poll_fn=self.__get_latest_summary, poll_on_init=True
+        )
 
     def get_topics(
         self,
@@ -1451,6 +1433,11 @@ class Dataset:
                 manifest_items=manifest_items,
             ),
         )
+
+    def __get_latest_summary(self) -> AISummary:
+        return self.__roboto_client.get(
+            f"v1/datasets/{self.dataset_id}/summary"
+        ).to_record(AISummary)
 
     def __list_directory_files(
         self,

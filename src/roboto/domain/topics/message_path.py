@@ -318,7 +318,7 @@ class MessagePath:
 
         yield from self.__topic_data_service.get_data(
             topic_id=self.__record.topic_id,
-            message_paths_include=[self.__record.message_path],
+            message_paths_include=[self.__record.source_path],
             start_time=start_time,
             end_time=end_time,
             cache_dir_override=cache_dir,
@@ -367,7 +367,7 @@ class MessagePath:
         """
         return self.__topic_data_service.get_data_as_df(
             topic_id=self.__record.topic_id,
-            message_paths_include=[self.__record.message_path],
+            message_paths_include=[self.__record.source_path],
             start_time=start_time,
             end_time=end_time,
             cache_dir_override=cache_dir,

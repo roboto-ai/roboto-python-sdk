@@ -1,5 +1,17 @@
 # Changelog
 
+# 0.25.0
+## No Breaking Changes
+
+## Features Added
+  - Updates to `README.md` including list of supported formats
+  - Add `StreamingAISummary`, and modify existing `get_summary` and `generate_summary` methods to return it.
+  - Initial support for invoking actions on a recurring schedule, via `ScheduledTrigger`.
+  - Added `InvocationInput::file_query` and `InvocationInput::topic_query` for concisely specifying invocation inputs using RoboQL queries.
+
+## Bugs Fixed
+  - Support both single strings and collections of strings for `message_paths_include`/`message_paths_exclude` parameters in `Topic::get_data`, `MessagePath::get_data`, `Event::get_data`, and their `::get_data_as_df` variants.
+
 # 0.24.1
 ## No Breaking Changes
 
@@ -10,7 +22,6 @@
   for use accessing fields on topic data without heuristically assuming all message paths are or can be dot separated.
 
 ## Bugs Fixed
-  - 
 
 # 0.23.1
 ## No Breaking Changes
@@ -26,16 +37,11 @@
   - Improved help text for various Roboto CLI commands.
   - Add X-Roboto-Api-Version to all SDK requests.
 
-## Bugs Fixed
-  - 
-
 # 0.22.1
 ## No Breaking Changes
 
 ## Features Added
   - Added `File::import_one` which automatically looks up the size of S3 files + verifies they exist.
-
-## Bugs Fixed
 
 # 0.22.0
 ## No Breaking Changes
@@ -53,8 +59,6 @@
   - Added placeholder implementation for working with topic data ingested as Parquet in the SDK. Attempting to fetch Parquet-ingested data currently raises a `NotImplementedError`.
   - Added `roboto datasets import-external-file` CLI command for importing files from customer S3 buckets into Roboto datasets.
 
-## Bugs Fixed
-
 # 0.21.0
 ## No Breaking Changes
 
@@ -67,8 +71,6 @@
   - Added an optional `upload_destination` argument to `Action::invoke` and `Trigger::invoke`. If provided, it tells the Roboto platform where to upload any outputs produced by the invocation.
   - Added an optional `--output-dataset-id` command-line argument to `roboto actions invoke` to let users set an invocation's upload destination to a Roboto dataset.
 
-## Bugs Fixed
-
 # 0.20.1
 ## No Breaking Changes
 
@@ -77,8 +79,6 @@
   - Add subset of audit fields to `RepresentationRecord` to enable determination of "latest" representation of topic data.
   - Add ability to pass `caller_org_id` to `File::import_batch`, which is necessary to exercise bring-your-own-bucket file imports for users belonging to multiple orgs.
   - Added a method to Dataset to list directories. Added metadata properties to `DirectoryRecord`. Added the `S3Directory` storage type to `FileStorageType`. Added `fs_type`, `name`, and `parent_id` to `FileRecord`. 
-
-## Bugs Fixed
 
 # 0.20.0
 ## No Breaking Changes
@@ -92,15 +92,9 @@
   - Added `CanonicalDataType.Timestamp` to support identifying `MessagePath`s that should be interpreted as time elapsed since the Unix epoch.
   - Added `RepresentationStorageFormat.PARQUET` in support of progress towards accepting Parquet files as a first-class ingest-able format (in addition to bag, db3/yaml, mcap, ulg, journalctrl, csv and others).
 
-## Bugs Fixed
-
 # 0.19.0
 ## Breaking Changes
   - The list of tuples returned by `ActionInput::files` now has a `File` as its first element rather than a `FileRecord`. This gives action writers access to more powerful file operations, such as retrieving topics.
-
-## Features Added
-
-## Bugs Fixed
 
 # 0.18.0
 ## Breaking Changes
@@ -126,13 +120,9 @@
 ## Features Added
   - Reduced the scope of `ingestion_status` updates to make the feature more usable in ingestion actions.
 
-## Bugs Fixed
-
 # 0.16.0
 ## No Breaking Changes
 
 ## Features Added
   - Updated `ingestion_status` to allow a `PartlyIngested` state, and made `ingestion_status` an optional parameter to `file.update` calls.
   - Added `CHANGELOG.md`.
-
-## Bugs Fixed

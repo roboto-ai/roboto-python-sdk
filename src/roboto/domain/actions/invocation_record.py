@@ -230,6 +230,18 @@ class InvocationInput(pydantic.BaseModel):
     ) -> InvocationInput:
         return cls(files=FileSelector(dataset_id=dataset_id, paths=file_paths))
 
+    @classmethod
+    def file_query(cls, roboql_query: str) -> InvocationInput:
+        """Specify file inputs using a RoboQL query."""
+
+        return cls(files=FileSelector(query=roboql_query))
+
+    @classmethod
+    def topic_query(cls, roboql_query: str) -> InvocationInput:
+        """Specify topic inputs using a RoboQL query."""
+
+        return cls(topics=DataSelector(query=roboql_query))
+
     @property
     def safe_files(self) -> list[FileSelector]:
         if self.files is None:

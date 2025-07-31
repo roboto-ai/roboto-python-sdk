@@ -55,6 +55,17 @@ class TriggerEvaluationCause(enum.Enum):
     FileIngest = "file_ingest"
     """Trigger evaluation caused by files being ingested into a dataset."""
 
+    RecurringSchedule = "recurring_schedule"
+    """Trigger evaluation caused by a recurring schedule.
+
+    This cause is used internally by the Roboto system, to track the evaluation
+    history of scheduled triggers. It should not be used when creating or updating
+    triggers, and doing so will result in an error.
+
+    To create a trigger that invokes an action on a recurring schedule, use
+    :py:class:`~roboto.domain.actions.ScheduledTrigger`.
+    """
+
 
 class TriggerRecord(pydantic.BaseModel):
     """A wire-transmissible representation of a trigger.

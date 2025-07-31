@@ -125,6 +125,19 @@ class QueryRecord(pydantic.BaseModel):
     )
 
 
+class QualifiedRoboqlQuery(pydantic.BaseModel):
+    """
+    A RoboQL query which has been qualified with a target.
+    """
+
+    query: str = pydantic.Field(
+        description="The conditions, sorting behavior, and limit of this query."
+    )
+    target: QueryTarget = pydantic.Field(
+        description="The type of data being requested, e.g. 'Datasets' or 'Topics'."
+    )
+
+
 class SubmitStructuredQueryRequest(pydantic.BaseModel):
     """
     Request payload to submit a structured query

@@ -16,6 +16,7 @@ The main classes in this module are:
 - :py:class:`~roboto.domain.actions.Action`: A reusable function to process data
 - :py:class:`~roboto.domain.actions.Invocation`: An execution instance of an action
 - :py:class:`~roboto.domain.actions.Trigger`: A rule that automatically invokes actions
+- :py:class:`~roboto.domain.actions.ScheduledTrigger`: A trigger that invokes an action periodically
 
 Examples:
     Basic action invocation:
@@ -83,6 +84,17 @@ from .invocation_record import (
     SourceProvenance,
     UploadDestinationType,
 )
+from .scheduled_trigger import (
+    ScheduledTrigger,
+    TriggerSchedule,
+)
+from .scheduled_trigger_operations import (
+    CreateScheduledTriggerRequest,
+    UpdateScheduledTriggerRequest,
+)
+from .scheduled_trigger_record import (
+    ScheduledTriggerRecord,
+)
 from .trigger import Trigger
 from .trigger_operations import (
     CreateTriggerRequest,
@@ -101,6 +113,12 @@ from .trigger_record import (
     TriggerForEachPrimitive,
     TriggerRecord,
 )
+from .trigger_view import (
+    TriggerOnEvent,
+    TriggerOnSchedule,
+    TriggerType,
+    TriggerView,
+)
 
 __all__ = (
     "Accessibility",
@@ -116,6 +134,7 @@ __all__ = (
     "ContainerParameters",
     "CreateActionRequest",
     "CreateInvocationRequest",
+    "CreateScheduledTriggerRequest",
     "CreateTriggerRequest",
     "DataSelector",
     "EvaluateTriggersRequest",
@@ -135,6 +154,8 @@ __all__ = (
     "LogsLocation",
     "LogRecord",
     "QueryTriggersRequest",
+    "ScheduledTrigger",
+    "ScheduledTriggerRecord",
     "SetActionAccessibilityRequest",
     "SetContainerInfoRequest",
     "SetLogsLocationRequest",
@@ -148,9 +169,15 @@ __all__ = (
     "TriggerEvaluationStatus",
     "TriggerEvaluationsSummaryResponse",
     "TriggerForEachPrimitive",
+    "TriggerOnEvent",
+    "TriggerOnSchedule",
     "TriggerRecord",
+    "TriggerSchedule",
+    "TriggerType",
+    "TriggerView",
     "UpdateActionRequest",
     "UpdateInvocationStatus",
+    "UpdateScheduledTriggerRequest",
     "UpdateTriggerRequest",
     "UploadDestinationType",
 )

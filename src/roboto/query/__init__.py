@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .api import (
+    QualifiedRoboqlQuery,
     QueryContext,
     QueryRecord,
     QueryScheme,
@@ -42,6 +43,7 @@ __all__ = (
     "ConditionType",
     "ConditionValue",
     "ConditionVisitor",
+    "QualifiedRoboqlQuery",
     "Query",
     "QueryClient",
     "QueryContext",

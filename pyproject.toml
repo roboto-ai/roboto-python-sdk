@@ -8,6 +8,7 @@ dependencies = [
     "boto3~=1.26",
     "botocore~=1.29",
     "cookiecutter~=2.5.0",
+    "cron-converter~=1.2.1",
     "filelock~=3.15",
     "mcap~=1.1.1",
     "mcap-ros1-support~=0.7.1",
