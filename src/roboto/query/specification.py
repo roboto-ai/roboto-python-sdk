@@ -15,7 +15,7 @@ from .conditions import Condition, ConditionGroup
 MAX_PAGE_SIZE: int = 1000
 """Maximum allowable page size for search."""
 
-DEFAULT_PAGE_SIZE: int = 500
+DEFAULT_PAGE_SIZE: int = 100
 """Default page size for search."""
 
 

@@ -322,6 +322,7 @@ class File:
         description: typing.Optional[str] = None,
         tags: typing.Optional[list[str]] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
+        device_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "File":
         """Import a single file from an external bucket into a Roboto dataset. This currently only supports AWS S3.
@@ -344,6 +345,7 @@ class File:
             description: Optional human-readable description of the file.
             tags: Optional list of tags for file discovery and organization.
             metadata: Optional key-value metadata pairs to associate with the file.
+            device_id: Optional identifier of the device that generated this data.
             roboto_client: HTTP client for API communication. If None, uses the default client.
 
         Returns:
@@ -394,6 +396,7 @@ class File:
             description=description,
             tags=tags,
             metadata=metadata,
+            device_id=device_id,
         )
         record = roboto_client.post("v1/files/import", data=request).to_record(
             FileRecord
@@ -528,6 +531,16 @@ class File:
         contents, purpose, or context. Can be None if no description was provided.
         """
         return self.__record.description
+
+    @property
+    def device_id(self) -> typing.Optional[str]:
+        """Identifier of the device that generated this data.
+
+        Returns the optional identifier of the device that generated the data
+        contained within this file. Can be None if the file was not generated
+        by a device.
+        """
+        return self.__record.device_id
 
     @property
     def file_id(self) -> str:
@@ -1075,6 +1088,24 @@ class File:
 
         return response.to_record(FileRecord)
 
+    def set_device_id(self, device_id: str) -> "File":
+        """Set the device ID for this file.
+
+        Args:
+            device_id: The device ID to set for this file.
+
+        Returns:
+            Updated File instance with the new device ID.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to update the file.
+
+        Examples:
+            >>> file = File.from_id("file_abc123")
+            >>> updated_file = file.set_device_id("device_xyz789")
+        """
+        return self.update(device_id=device_id)
+
     def to_association(self) -> Association:
         """Convert this file to an Association reference.
 
@@ -1117,6 +1148,7 @@ class File:
         description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
         ingestion_complete: typing.Union[typing.Literal[True], NotSetType] = NotSet,
+        device_id: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
     ) -> "File":
         """Update this file's properties.
 
@@ -1130,6 +1162,7 @@ class File:
                 Use NotSet to leave metadata unchanged.
             ingestion_complete: Set to True to mark the file as fully ingested.
                 Use NotSet to leave ingestion status unchanged.
+            device_id: New device ID for the file. Use NotSet to leave unchanged.
 
         Returns:
             Updated File instance with the new properties.
@@ -1156,6 +1189,7 @@ class File:
                 description=description,
                 metadata_changeset=metadata_changeset,
                 ingestion_complete=ingestion_complete,
+                device_id=device_id,
             )
         )
         self.__record = self.__roboto_client.put(

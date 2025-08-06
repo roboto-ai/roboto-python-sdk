@@ -11,6 +11,7 @@ from .file_creds import (
     S3Credentials,
 )
 from .file_downloader import FileDownloader
+from .lazy_lookup_file import LazyLookupFile
 from .operations import (
     AbortTransactionsRequest,
     DeleteFileRequest,
@@ -39,18 +40,19 @@ __all__ = (
     "CredentialProvider",
     "DatasetCredentials",
     "DeleteFileRequest",
-    "File",
     "DirectoryContentsPage",
+    "DirectoryRecord",
+    "FSType",
+    "File",
     "FileDownloader",
     "FileRecord",
     "FileRecordRequest",
     "FileStatus",
     "FileStorageType",
     "FileTag",
-    "FSType",
     "ImportFileRequest",
     "IngestionStatus",
-    "DirectoryRecord",
+    "LazyLookupFile",
     "QueryFilesRequest",
     "RenameFileRequest",
     "S3Credentials",

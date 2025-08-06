@@ -58,6 +58,9 @@ class ImportFileRequest(pydantic.BaseModel):
     description: typing.Optional[str] = None
     """Optional human-readable description of the file."""
 
+    device_id: typing.Optional[str] = None
+    """Optional identifier of the device that generated this data."""
+
     tags: typing.Optional[list[str]] = None
     """Optional list of tags for file discovery and organization."""
 
@@ -127,6 +130,9 @@ class UpdateFileRecordRequest(pydantic.BaseModel):
 
     description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
     """New description for the file, or NotSet to leave unchanged."""
+
+    device_id: typing.Optional[typing.Union[str, NotSetType]] = NotSet
+    """New device ID for the file, or NotSet to leave unchanged."""
 
     metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
     """Metadata changes to apply (add, update, or remove fields/tags), or NotSet to leave unchanged."""

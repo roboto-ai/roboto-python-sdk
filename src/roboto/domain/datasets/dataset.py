@@ -42,6 +42,7 @@ from ..files import (
     DirectoryRecord,
     File,
     FileRecord,
+    LazyLookupFile,
 )
 from ..files.file_creds import (
     FileCredentialsHelper,
@@ -1267,6 +1268,7 @@ class Dataset:
         delete_after_upload: bool = False,
         max_batch_size: int = MAX_FILES_PER_MANIFEST,
         print_progress: bool = True,
+        device_id: typing.Optional[str] = None,
     ) -> None:
         """
         Uploads all files and directories recursively from the specified directory path. You can use
@@ -1306,7 +1308,7 @@ class Dataset:
         }
 
         self.upload_files(
-            all_files, file_destination_paths, max_batch_size, print_progress
+            all_files, file_destination_paths, max_batch_size, print_progress, device_id
         )
 
         if delete_after_upload:
@@ -1319,7 +1321,8 @@ class Dataset:
         file_path: pathlib.Path,
         file_destination_path: typing.Optional[str] = None,
         print_progress: bool = True,
-    ) -> None:
+        device_id: typing.Optional[str] = None,
+    ) -> File:
         """
         Upload a single file to the dataset.
         If `file_destination_path` is not provided, the file will be uploaded to the top-level of the dataset.
@@ -1339,6 +1342,15 @@ class Dataset:
             [file_path],
             {file_path: file_destination_path},
             print_progress=print_progress,
+            device_id=device_id,
+        )
+
+        return LazyLookupFile(
+            lambda: File.from_path_and_dataset_id(
+                file_destination_path,
+                self.dataset_id,
+                roboto_client=self.__roboto_client,
+            )
         )
 
     def upload_files(
@@ -1347,6 +1359,7 @@ class Dataset:
         file_destination_paths: collections.abc.Mapping[pathlib.Path, str] = {},
         max_batch_size: int = MAX_FILES_PER_MANIFEST,
         print_progress: bool = True,
+        device_id: typing.Optional[str] = None,
     ):
         """
         Upload multiple files to the dataset.
@@ -1372,13 +1385,13 @@ class Dataset:
 
             if len(working_set) >= max_batch_size:
                 self.__upload_files_batch(
-                    working_set, file_destination_paths, print_progress
+                    working_set, file_destination_paths, print_progress, device_id
                 )
                 working_set = []
 
         if len(working_set) > 0:
             self.__upload_files_batch(
-                working_set, file_destination_paths, print_progress
+                working_set, file_destination_paths, print_progress, device_id
             )
 
     def _complete_manifest_transaction(self, transaction_id: str) -> None:
@@ -1398,6 +1411,7 @@ class Dataset:
         self,
         origination: str,
         resource_manifest: dict[str, int],
+        device_id: typing.Optional[str] = None,
     ) -> tuple[str, dict[str, str]]:
         """
         This should be considered private.
@@ -1407,6 +1421,7 @@ class Dataset:
         request = BeginManifestTransactionRequest(
             origination=origination,
             resource_manifest=resource_manifest,
+            device_id=device_id,
         )
 
         result = self.__roboto_client.post(
@@ -1551,6 +1566,7 @@ class Dataset:
         files: collections.abc.Iterable[pathlib.Path],
         file_destination_paths: collections.abc.Mapping[pathlib.Path, str] = {},
         print_progress: bool = True,
+        device_id: typing.Optional[str] = None,
     ):
         package_version = self.__retrieve_roboto_version()
 
@@ -1566,6 +1582,7 @@ class Dataset:
         transaction_id, create_upload_mappings = self._create_manifest_transaction(
             origination=origination,
             resource_manifest=file_manifest,
+            device_id=device_id,
         )
 
         file_path_to_manifest_mappings = {

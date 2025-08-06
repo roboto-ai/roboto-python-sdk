@@ -49,7 +49,13 @@ class BeginManifestTransactionRequest(pydantic.BaseModel):
     """
 
     origination: str
+    """Additional information about what uploaded the file, e.g. `roboto client v1.0.0`."""
+
+    device_id: typing.Optional[str] = None
+    """The ID of the device which created this dataset, if applicable."""
+
     resource_manifest: dict[str, int]
+    """Dictionary mapping destination file paths to file sizes in bytes."""
 
 
 class BeginManifestTransactionResponse(pydantic.BaseModel):
