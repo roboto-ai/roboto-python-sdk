@@ -6,17 +6,12 @@
 ## Features Added
   - The `storage` and `memory` compute requirements in `action.json` can now be specified with their units for clarity: `storage_GiB`/`storage_gib` and `memory_MiB`/`memory_mib`.
 
-## Bugs Fixed
-
 # 0.25.1
 ## No Breaking Changes
 
 ## Features Added
   - Allow `device_id' to be specified explicitly when uploading, importing, or updating files.
   - Change `Dataset::upload_file` to return a lazy-resolving `File` handle vs. returning `None`.
-
-## Bugs Fixed
-  - 
 
 # 0.25.0
 ## No Breaking Changes
@@ -38,8 +33,6 @@
   - Extended first-class support for Parquet-based recording data: `Topic::get_data`, `MessagePath::get_data`, `Event::get_data`, and their `::get_data_as_df` variants now work with data ingested from Parquet files (previously raised `NotImplementedError`).
   - Addition of `MessagePathRecord::path_in_schema`, `MessagePathRecord::source_path`, and `MessagePathRecord::parents`
   for use accessing fields on topic data without heuristically assuming all message paths are or can be dot separated.
-
-## Bugs Fixed
 
 # 0.23.1
 ## No Breaking Changes
