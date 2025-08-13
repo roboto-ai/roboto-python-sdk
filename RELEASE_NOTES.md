@@ -1,10 +1,8 @@
-# 0.25.1
+# 0.25.2
 ## No Breaking Changes
 
 ## Features Added
-  - Allow `device_id' to be specified explicitly when uploading, importing, or updating files.
-  - Change `Dataset::upload_file` to return a lazy-resolving `File` handle vs. returning `None`.
+  - The `storage` and `memory` compute requirements in `action.json` can now be specified with their units for clarity: `storage_GiB`/`storage_gib` and `memory_MiB`/`memory_mib`.
 
 ## Bugs Fixed
-  - 
 

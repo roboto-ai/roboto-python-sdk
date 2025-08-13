@@ -169,10 +169,34 @@ class ComputeRequirements(pydantic.BaseModel):
         https://docs.aws.amazon.com/AmazonECS/latest/developerguide/AWS_Fargate.html#fargate-tasks-size
     """
 
-    vCPU: int = 512  # 256, 512, 1024, 2048, 4096, 8192, 16384
-    memory: int = 1024  # 512, 1024, 2024, ... (120 * 1024) in MiB
-    gpu: typing.Literal[False] = False  # Not yet supported
-    storage: int = 21  # in GiB (min 21, max 200 if on premium tier)
+    vCPU: int = 512
+    """Container CPU units. Set to 512 by default.
+
+    1024 CPU units equal 1 vCPU.
+
+    Possible values: 256, 512, 1024, 2048, 4096, 8192, 16384.
+    """
+
+    memory: int = pydantic.Field(
+        default=1024, validation_alias=pydantic.AliasChoices("memory_MiB", "memory_mib")
+    )
+    """Container memory in MiB. Set to 1024 MiB by default.
+
+    The possible values depend on the CPU units chosen, with
+    as little as 512 MiB and as much as 122,800 MiB (120 GiB).
+    """
+
+    gpu: typing.Literal[False] = False
+    """GPU configuration is not yet supported."""
+
+    storage: int = pydantic.Field(
+        default=21, validation_alias=pydantic.AliasChoices("storage_GiB", "storage_gib")
+    )
+    """Container storage in GiB. Set to 21 GiB by default.
+
+    The minimum allowed value is 21 GiB, and the maximum allowed
+    value is 200 GiB (for premium-tier orgs).
+    """
 
     @pydantic.model_validator(mode="after")
     def validate_storage_limit(self):
@@ -225,7 +249,9 @@ class ComputeRequirements(pydantic.BaseModel):
             and self.storage == other.storage
         )
 
-    model_config = pydantic.ConfigDict(extra="ignore")
+    model_config = pydantic.ConfigDict(
+        extra="ignore", validate_by_name=True, validate_by_alias=True
+    )
 
 
 class ContainerParameters(pydantic.BaseModel):

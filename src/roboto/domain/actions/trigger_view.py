@@ -20,9 +20,13 @@ from .invocation_record import (
     InvocationInput,
     InvocationUploadDestination,
 )
+from .scheduled_trigger_record import (
+    ScheduledTriggerRecord,
+)
 from .trigger_record import (
     TriggerEvaluationCause,
     TriggerForEachPrimitive,
+    TriggerRecord,
 )
 
 
@@ -128,3 +132,101 @@ class TriggerView(pydantic.BaseModel):
 
     modified_by: str
     """User who last modified this scheduled trigger."""
+
+    def to_event_trigger_record(self) -> typing.Optional[TriggerRecord]:
+        """Convert this trigger view into a :py:class:`~roboto.domain.actions.TriggerRecord` if possible.
+
+        Returns:
+            A ``TriggerRecord`` instance if ``self.trigger_type`` is ``TriggerType.EventDriven``,
+            otherwise None.
+        """
+
+        if self.trigger_type is not TriggerType.EventDriven:
+            return None
+
+        assert self.on_event is not None
+        return TriggerRecord(
+            trigger_id=self.trigger_id,
+            name=self.name,
+            action=self.action.model_copy(deep=True),
+            enabled=self.enabled,
+            required_inputs=self.on_event.required_inputs,
+            additional_inputs=(
+                self.on_event.additional_inputs[:]
+                if self.on_event.additional_inputs
+                else None
+            ),
+            for_each=self.on_event.for_each,
+            condition=self.on_event.condition,
+            causes=self.on_event.causes[:],
+            created=self.created,
+            created_by=self.created_by,
+            modified=self.modified,
+            modified_by=self.modified_by,
+            org_id=self.org_id,
+            service_user_id=self.service_user_id,
+            compute_requirement_overrides=(
+                self.compute_requirement_overrides.model_copy(deep=True)
+                if self.compute_requirement_overrides
+                else None
+            ),
+            container_parameter_overrides=(
+                self.container_parameter_overrides.model_copy(deep=True)
+                if self.container_parameter_overrides
+                else None
+            ),
+            timeout=self.timeout,
+            parameter_values=(
+                dict(self.parameter_values) if self.parameter_values else dict()
+            ),
+        )
+
+    def to_scheduled_trigger_record(self) -> typing.Optional[ScheduledTriggerRecord]:
+        """Convert this trigger view into a :py:class:`~roboto.domain.actions.ScheduledTriggerRecord` if possible.
+
+        Returns:
+            A ``ScheduledTriggerRecord`` instance if ``self.trigger_type`` is ``TriggerType.Scheduled``,
+            otherwise None.
+        """
+
+        if self.trigger_type is not TriggerType.Scheduled:
+            return None
+
+        assert self.on_schedule is not None
+        return ScheduledTriggerRecord(
+            trigger_id=self.trigger_id,
+            name=self.name,
+            action=self.action.model_copy(deep=True),
+            schedule=self.on_schedule.schedule,
+            enabled=self.enabled,
+            invocation_input=(
+                self.on_schedule.invocation_input.model_copy(deep=True)
+                if self.on_schedule.invocation_input
+                else None
+            ),
+            invocation_upload_destination=(
+                self.invocation_upload_destination.model_copy(deep=True)
+                if self.invocation_upload_destination
+                else None
+            ),
+            next_occurrence=self.on_schedule.next_occurrence,
+            created=self.created,
+            created_by=self.created_by,
+            modified=self.modified,
+            modified_by=self.modified_by,
+            org_id=self.org_id,
+            compute_requirement_overrides=(
+                self.compute_requirement_overrides.model_copy(deep=True)
+                if self.compute_requirement_overrides
+                else None
+            ),
+            container_parameter_overrides=(
+                self.container_parameter_overrides.model_copy(deep=True)
+                if self.container_parameter_overrides
+                else None
+            ),
+            timeout=self.timeout,
+            parameter_values=(
+                dict(self.parameter_values) if self.parameter_values else None
+            ),
+        )
