@@ -95,6 +95,7 @@ from .scheduled_trigger_operations import (
 from .scheduled_trigger_record import (
     ScheduledTriggerRecord,
 )
+from .stats import ActionStatsRecord
 from .trigger import Trigger
 from .trigger_operations import (
     CreateTriggerRequest,
@@ -128,6 +129,7 @@ __all__ = (
     "ActionProvenance",
     "ActionRecord",
     "ActionReference",
+    "ActionStatsRecord",
     "CancelActiveInvocationsResponse",
     "CancelActiveInvocationsRequest",
     "ComputeRequirements",

@@ -1,21 +1,20 @@
 # Changelog
 
-# 0.25.2
-## No Breaking Changes
+# 0.25.3
+## Features Added
+  - Added `ActionStatsRecord` + an API to retrieve them for an org within a given time window.
+  - Introduced `CanonicalDataType.Categorical` for data that can take a limited, fixed set of values. To be interpreted correctly by Roboto clients, a `MessagePathRecord` with this type must have a `"dictionary"` metadata key containing the list of possible values. This enables Roboto to map categorical values to indices and visualize the data as plots.
 
+# 0.25.2
 ## Features Added
   - The `storage` and `memory` compute requirements in `action.json` can now be specified with their units for clarity: `storage_GiB`/`storage_gib` and `memory_MiB`/`memory_mib`.
 
 # 0.25.1
-## No Breaking Changes
-
 ## Features Added
   - Allow `device_id' to be specified explicitly when uploading, importing, or updating files.
   - Change `Dataset::upload_file` to return a lazy-resolving `File` handle vs. returning `None`.
 
 # 0.25.0
-## No Breaking Changes
-
 ## Features Added
   - Updates to `README.md` including list of supported formats
   - Add `StreamingAISummary`, and modify existing `get_summary` and `generate_summary` methods to return it.
@@ -26,8 +25,6 @@
   - Support both single strings and collections of strings for `message_paths_include`/`message_paths_exclude` parameters in `Topic::get_data`, `MessagePath::get_data`, `Event::get_data`, and their `::get_data_as_df` variants.
 
 # 0.24.1
-## No Breaking Changes
-
 ## Features Added
   - Allow `device_id` to be specified explicitly when creating or updating datasets.
   - Extended first-class support for Parquet-based recording data: `Topic::get_data`, `MessagePath::get_data`, `Event::get_data`, and their `::get_data_as_df` variants now work with data ingested from Parquet files (previously raised `NotImplementedError`).
@@ -35,28 +32,20 @@
   for use accessing fields on topic data without heuristically assuming all message paths are or can be dot separated.
 
 # 0.23.1
-## No Breaking Changes
-
 ## Features Added
   - Extended `RobotoPrincipal` to include devices + invocations, and added methods to convert to and from a canonical string format.
   - Add `RobotoSearch::for_roboto_client` and `RobotoClient.for_profile` to simplify code snippets for users with multiple profiles.
 
 # 0.23.0
-## No Breaking Changes
-
 ## Features Added
   - Improved help text for various Roboto CLI commands.
   - Add X-Roboto-Api-Version to all SDK requests.
 
 # 0.22.1
-## No Breaking Changes
-
 ## Features Added
   - Added `File::import_one` which automatically looks up the size of S3 files + verifies they exist.
 
 # 0.22.0
-## No Breaking Changes
-
 ## Features Added
   - Added `RobotoPrincipal`, which generalized providing a user or org to various platform APIs.
   - Added `Dataset::create_if_not_exists` to simplify a common pattern from read only BYOB file import scenarios.
@@ -71,8 +60,6 @@
   - Added `roboto datasets import-external-file` CLI command for importing files from customer S3 buckets into Roboto datasets.
 
 # 0.21.0
-## No Breaking Changes
-
 ## Features Added
   - Add `summary_id` and `status` to `AISummary`, in support of new async summary generation.
   - Add rich documentation to many `roboto.domain.*` files
@@ -83,17 +70,13 @@
   - Added an optional `--output-dataset-id` command-line argument to `roboto actions invoke` to let users set an invocation's upload destination to a Roboto dataset.
 
 # 0.20.1
-## No Breaking Changes
-
 ## Features Added
   - [CLI] Actions that don't take inputs can now be invoked from the command-line by leaving out the arguments `--dataset-id` and `--input-data`. For actions that take inputs, both arguments must be provided as before.
   - Add subset of audit fields to `RepresentationRecord` to enable determination of "latest" representation of topic data.
   - Add ability to pass `caller_org_id` to `File::import_batch`, which is necessary to exercise bring-your-own-bucket file imports for users belonging to multiple orgs.
-  - Added a method to Dataset to list directories. Added metadata properties to `DirectoryRecord`. Added the `S3Directory` storage type to `FileStorageType`. Added `fs_type`, `name`, and `parent_id` to `FileRecord`. 
+  - Added a method to Dataset to list directories. Added metadata properties to `DirectoryRecord`. Added the `S3Directory` storage type to `FileStorageType`. Added `fs_type`, `name`, and `parent_id` to `FileRecord`.
 
 # 0.20.0
-## No Breaking Changes
-
 ## Features Added
   - Support has been added for topic inputs to action invocations, via `InvocationInput.topics`. Action writers can access the topics via `ActionInput.topics`.
   - Added the `requires_downloaded_inputs` optional flag to `Action::create` and `Action::update`. It controls whether an action invocation's inputs will be available in its working directory before business logic runs. This is true by default.
@@ -126,14 +109,10 @@
   - Don't reject API requests that contain extra fields. This enables backwards-compatibility with outdated SDK builds and forwards-compatibility for adding new fields to the SDK independent of our server release cycle.
 
 # 0.17.0
-## No Breaking Changes
-
 ## Features Added
   - Reduced the scope of `ingestion_status` updates to make the feature more usable in ingestion actions.
 
 # 0.16.0
-## No Breaking Changes
-
 ## Features Added
   - Updated `ingestion_status` to allow a `PartlyIngested` state, and made `ingestion_status` an optional parameter to `file.update` calls.
   - Added `CHANGELOG.md`.

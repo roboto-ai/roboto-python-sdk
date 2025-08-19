@@ -1,5 +1,5 @@
-# 0.25.2
-## No Breaking Changes
-
+# 0.25.3
 ## Features Added
-  - The `storage` and `memory` compute requirements in `action.json` can now be specified with their units for clarity: `storage_GiB`/`storage_gib` and `memory_MiB`/`memory_mib`.
+  - Added `ActionStatsRecord` + an API to retrieve them for an org within a given time window.
+  - Introduced `CanonicalDataType.Categorical` for data that can take a limited, fixed set of values. To be interpreted correctly by Roboto clients, a `MessagePathRecord` with this type must have a `"dictionary"` metadata key containing the list of possible values. This enables Roboto to map categorical values to indices and visualize the data as plots.
+

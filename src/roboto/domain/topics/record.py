@@ -87,6 +87,22 @@ class CanonicalDataType(enum.Enum):
     """A sequence of values."""
     Boolean = "boolean"
     Byte = "byte"
+    Categorical = "categorical"
+    """
+    Data that can take a limited, fixed set of values.
+    To be interpreted correctly by Roboto clients,
+    a ``MessagePathRecord`` with this type must have a ``"categories"`` metadata key on the ``MessagePathRecord``,
+    which must be the ordered list of values that the Categorical can take.
+
+    For example, a signal that is logged as either "off" or "on"
+    could be represented as a Categorical with the metadata ``"categories"=["off", "on"]``.
+    This allows Roboto to map the value "off" to 0 and "on" to 1
+    --each corresponding to their index position in the metadata array--
+    and therefore visualize these state transitions as a plot.
+
+    The default visual representation of ``Categorical`` data will be the same as ``String`` data,
+    but the Roboto visualizer will be capable of rendering Categorical data in a plot.
+    """
     Image = "image"
     """Special purpose type for data that can be rendered as an image."""
     Number = "number"
@@ -146,6 +162,15 @@ class MessagePathMetadataWellKnown(str, enum.Enum):
           While those attributes are currently derived from metadata stored in this key,
           first-class support for specifying those attributes will be added to
           :py:class:`~MessagePathRecord` creation/update APIs in an upcoming SDK release.
+    """
+
+    Categories = "categories"
+    """
+    An ordered list of values that a :py:attr:`~roboto.domain.topics.CanonicalDataType.Categorical` can take.
+
+    Examples:
+        - ``"categories"=["off", "on"]``
+        - ``"categories"=["left", "up", "right", "down"]``
     """
 
     Unit = "unit"

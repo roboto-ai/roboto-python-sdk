@@ -14,7 +14,10 @@ from ...auth import (
     GetAccessResponse,
 )
 from ...http import RobotoClient
-from ...query import QuerySpecification
+from ...query import (
+    QuerySpecification,
+    SortDirection,
+)
 from ...sentinels import (
     NotSet,
     NotSetType,
@@ -118,10 +121,17 @@ class Collection:
         roboto_client: typing.Optional["RobotoClient"] = None,
         owner_org_id: Optional[str] = None,
         content_mode: CollectionContentMode = CollectionContentMode.SummaryOnly,
+        sort_by: Optional[str] = None,
+        sort_direction: Optional[SortDirection] = None,
     ) -> collections.abc.Generator["Collection", None, None]:
         roboto_client = RobotoClient.defaulted(roboto_client)
 
         spec = QuerySpecification()
+
+        if sort_by:
+            spec.sort_by = sort_by
+            spec.sort_direction = sort_direction
+
         query_params = {"content_mode": content_mode.value}
 
         while True:
@@ -139,6 +149,11 @@ class Collection:
                 spec.after = paginated_result.next_token
             else:
                 break
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Collection):
+            return False
+        return self.record == other.record
 
     def __init__(
         self,
