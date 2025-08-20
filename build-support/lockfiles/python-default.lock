@@ -838,36 +838,36 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "3c3d6731390b5b11f5e489d5d9daa57f0c3e171efb63ac8f47203df9c71812b3",
-              "url": "https://files.pythonhosted.org/packages/16/6e/5a9dcf38ad87838fb99742c4a3ab1b7507ad3a02c8c27a9ccda7a0bb5709/boto3-1.40.12-py3-none-any.whl"
+              "hash": "b43110b6ad30e683fab769b4c5659b6b0606afa535627de831f7181306009d5e",
+              "url": "https://files.pythonhosted.org/packages/e4/63/43a2eaad011b0025ce12a2ffa6d1fea9a34d06b7d33bf32c54cc1eb2df65/boto3-1.40.13-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "c6b32aee193fbd2eb84696d2b5b2410dcda9fb4a385e1926cff908377d222247",
-              "url": "https://files.pythonhosted.org/packages/41/19/2c4d140a7f99b5903b21b9ccd7253c71f147c346c3c632b2117444cf2d65/boto3-1.40.12.tar.gz"
+              "hash": "7ff74221328868c5f7dcd7a9b959e7b882c1ab1b04cc9df868ea70de7d8bd004",
+              "url": "https://files.pythonhosted.org/packages/e3/f2/3f7e2b2d866cdce0fceca7aa19baba939291200b7087defc6063b183d7cc/boto3-1.40.13.tar.gz"
             }
           ],
           "project_name": "boto3",
           "requires_dists": [
-            "botocore<1.41.0,>=1.40.12",
+            "botocore<1.41.0,>=1.40.13",
             "botocore[crt]<2.0a0,>=1.21.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
             "s3transfer<0.14.0,>=0.13.0"
           ],
           "requires_python": ">=3.9",
-          "version": "1.40.12"
+          "version": "1.40.13"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "84e96004a8b426c5508f6b5600312d6271364269466a3a957dc377ad8effc438",
-              "url": "https://files.pythonhosted.org/packages/1e/b6/65fd6e718c9538ba1462c9b71e9262bc723202ff203fe64ff66ff676d823/botocore-1.40.12-py3-none-any.whl"
+              "hash": "5bf7334d6a0a87a907d607b115710bede2440376cefa8c33b0d99571fb226d87",
+              "url": "https://files.pythonhosted.org/packages/9a/d3/7132aef7b202f3256027b3ac4caff5878e01be4d16062c2a7a92c430f120/botocore-1.40.13-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "c6560578e799b47b762b7e555bd9c5dd5c29c5d23bd778a8a72e98c979b3c727",
-              "url": "https://files.pythonhosted.org/packages/7d/b2/7933590fc5bca1980801b71e09db1a95581afff177cbf3c8a031d922885c/botocore-1.40.12.tar.gz"
+              "hash": "d7003526a9169e8ab3566db2227cf0b85d9e689e9ff97f2803c629a8e4624fb5",
+              "url": "https://files.pythonhosted.org/packages/8b/79/f8bd10ff414d0f2ecc2cbad09af384b962b22bb8a741da41e510c9e06bf1/botocore-1.40.13.tar.gz"
             }
           ],
           "project_name": "botocore",
@@ -879,7 +879,7 @@
             "urllib3<1.27,>=1.25.4; python_version < \"3.10\""
           ],
           "requires_python": ">=3.9",
-          "version": "1.40.12"
+          "version": "1.40.13"
         },
         {
           "artifacts": [

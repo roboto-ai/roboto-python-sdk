@@ -250,7 +250,14 @@ class ComputeRequirements(pydantic.BaseModel):
         )
 
     model_config = pydantic.ConfigDict(
-        extra="ignore", validate_by_name=True, validate_by_alias=True
+        extra="ignore",
+        # Alias support:
+        # Ruslan attempted setting
+        #   validate_by_name=True
+        #   validate_by_alias=True
+        # which are the recommended settings, but that applies to pydantic>=2.11 only,
+        # and Roboto currently claims compatibility with Pydantic~=2.5
+        populate_by_name=True,
     )
 
 
