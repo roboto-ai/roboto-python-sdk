@@ -1,6 +1,13 @@
 # Changelog
 
+# 0.26.0
+## Features Added
+  - Add natural language chat, through `roboto.ai.chat` constructs and `roboto chat start` CLI command
+
 # 0.25.4
+## Bugs Fixed
+  - Fix Pydantic model validation bug introduced to `roboto.domain.actions.ComputeRequirements` in v0.25.2.
+
 # 0.25.3
 ## Features Added
   - Added `ActionStatsRecord` + an API to retrieve them for an org within a given time window.
