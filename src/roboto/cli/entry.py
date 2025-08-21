@@ -22,6 +22,7 @@ from .actions import (
     command_set as actions_command_set,
 )
 from .argparse import SortingHelpFormatter
+from .chat import command_set as chat_command_set
 from .collections import (
     command_set as collections_command_set,
 )
@@ -56,6 +57,7 @@ from .users import (
 
 COMMAND_SETS = [
     actions_command_set,
+    chat_command_set,
     collections_command_set,
     datasets_command_set,
     devices_command_set,

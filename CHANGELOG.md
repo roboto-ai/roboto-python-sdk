@@ -1,10 +1,15 @@
 # Changelog
 
+# 0.26.0
 # 0.25.4
+## Bugs Fixed
+  - Fix Pydantic model validation bug introduced to `roboto.domain.actions.ComputeRequirements` in v0.25.2.
+
 # 0.25.3
 ## Features Added
   - Added `ActionStatsRecord` + an API to retrieve them for an org within a given time window.
   - Introduced `CanonicalDataType.Categorical` for data that can take a limited, fixed set of values. To be interpreted correctly by Roboto clients, a `MessagePathRecord` with this type must have a `"dictionary"` metadata key containing the list of possible values. This enables Roboto to map categorical values to indices and visualize the data as plots.
+  - Add natural language chat, through `roboto.ai.chat` constructs and `roboto chat start` CLI command
 
 # 0.25.2
 ## Features Added
