@@ -212,7 +212,7 @@ class TriggerEvaluationDataConstraint(pydantic.BaseModel):
     evaluate files from dataset ds_12345 with upload ID tx_123abc
     """
 
-    transaction_id: str | None = None
+    transaction_id: typing.Union[str, None] = None
     """If set, only consider files from this upload."""
 
 

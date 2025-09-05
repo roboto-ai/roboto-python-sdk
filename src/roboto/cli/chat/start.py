@@ -6,6 +6,7 @@
 
 import argparse
 import time
+import typing
 
 from ...ai.chat import Chat
 from ..command import RobotoCommand
@@ -46,7 +47,7 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
     print(BIG_ART)
     print("\nWhat do you want to chat about? (Enter 'quit' to exit)")
 
-    chat: Chat | None = None
+    chat: typing.Union[Chat, None] = None
 
     while True:
         prompt = input("> ")

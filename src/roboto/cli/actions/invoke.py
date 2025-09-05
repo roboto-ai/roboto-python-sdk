@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import argparse
+import typing
 
 from ...domain import actions
 from ..command import (
@@ -44,7 +45,7 @@ def invoke(
     compute_requirements = parse_compute_requirements(args, action.compute_requirements)
     container_parameters = parse_container_overrides(args, action.container_parameters)
 
-    upload_destination: actions.InvocationUploadDestination | None = None
+    upload_destination: typing.Union[actions.InvocationUploadDestination, None] = None
     if args.output_dataset_id:
         upload_destination = actions.InvocationUploadDestination.dataset(
             args.output_dataset_id

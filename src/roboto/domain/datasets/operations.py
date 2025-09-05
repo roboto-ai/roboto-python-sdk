@@ -245,5 +245,13 @@ class CreateDirectoryRequest(pydantic.BaseModel):
 
 
 class CreateDatasetIfNotExistsRequest(pydantic.BaseModel):
+    """Request payload to create a dataset if no existing dataset matches
+    the specified query.
+
+    Searches for existing datasets using the provided RoboQL query. If a matching
+    dataset is found, returns that dataset. If no match is found, creates a new
+    dataset with the specified properties and returns it.
+    """
+
     match_roboql_query: str
     create_request: CreateDatasetRequest

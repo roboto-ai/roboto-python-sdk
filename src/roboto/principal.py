@@ -17,6 +17,9 @@ class RobotoPrincipalType(str, enum.Enum):
     Device = "device"
     """See :py:class:`roboto.domain.devices.Device`."""
 
+    Integration = "integration"
+    """A third-party integration which has been granted limited access to the Roboto platform."""
+
     Invocation = "invocation"
     """See :py:class:`roboto.domain.actions.Invocation`."""
 
@@ -51,7 +54,7 @@ class RobotoPrincipal(pydantic.BaseModel):
         return value
 
     @classmethod
-    def for_device(cls, device_id: str, org_id: str) -> "RobotoPrincipal":
+    def for_device(cls, device_id: str, org_id: str) -> RobotoPrincipal:
         """Create a principal representing a device.
 
         Args:
@@ -66,7 +69,19 @@ class RobotoPrincipal(pydantic.BaseModel):
         )
 
     @classmethod
-    def for_invocation(cls, invocation_id: str) -> "RobotoPrincipal":
+    def for_integration(cls, integration_id: str) -> RobotoPrincipal:
+        """Create a principal representing a third-party integration.
+
+        Args:
+            integration_id: Unique identifier for the integration.
+
+        Returns:
+            A RobotoPrincipal instance configured for the specified integration.
+        """
+        return RobotoPrincipal(ptype=RobotoPrincipalType.Integration, id=integration_id)
+
+    @classmethod
+    def for_invocation(cls, invocation_id: str) -> RobotoPrincipal:
         """Create a principal representing an invocation.
 
         Args:
@@ -78,7 +93,7 @@ class RobotoPrincipal(pydantic.BaseModel):
         return RobotoPrincipal(ptype=RobotoPrincipalType.Invocation, id=invocation_id)
 
     @classmethod
-    def for_org(cls, org_id: str) -> "RobotoPrincipal":
+    def for_org(cls, org_id: str) -> RobotoPrincipal:
         """Create a principal representing an organization.
 
         Args:
@@ -90,7 +105,7 @@ class RobotoPrincipal(pydantic.BaseModel):
         return RobotoPrincipal(ptype=RobotoPrincipalType.Org, id=org_id)
 
     @classmethod
-    def for_user(cls, user_id: str) -> "RobotoPrincipal":
+    def for_user(cls, user_id: str) -> RobotoPrincipal:
         """Create a principal representing a user.
 
         Args:

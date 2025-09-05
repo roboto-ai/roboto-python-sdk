@@ -32,7 +32,9 @@ class McapReader:
 
     __message_iterator: typing.Iterator[mcap.reader.DecodedMessageTuple]
     __message_paths: collections.abc.Sequence[MessagePathRecord]
-    __next_unconsummed_decode_result: mcap.reader.DecodedMessageTuple | None = None
+    __next_unconsummed_decode_result: typing.Union[
+        mcap.reader.DecodedMessageTuple, None
+    ] = None
 
     def __init__(
         self,
@@ -102,7 +104,7 @@ class McapReader:
 
         return self.__next_unconsummed_decode_result.message.log_time
 
-    def next(self) -> DecodedMessage | None:
+    def next(self) -> typing.Union[DecodedMessage, None]:
         """Read and return the next decoded message.
 
         Advances the reader to the next message and returns it as a DecodedMessage

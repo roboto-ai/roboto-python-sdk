@@ -54,7 +54,7 @@ class Association(pydantic.BaseModel):
         unquoted = urllib.parse.unquote_plus(encoded)
 
         association_type, association_id, *rest = unquoted.split(cls.URL_ENCODING_SEP)
-        association_version: int | None = None
+        association_version: typing.Union[int, None] = None
         if rest:
             association_version = int(rest[0])
 
@@ -131,7 +131,7 @@ class Association(pydantic.BaseModel):
     association_type: AssociationType
     """association_type is the Roboto domain entity type of the association."""
 
-    association_version: int | None = None
+    association_version: typing.Union[int, None] = None
     """association_version is the Roboto domain entity version of the association, if it exists."""
 
     parent: typing.Optional[Association] = None

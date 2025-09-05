@@ -38,7 +38,7 @@ def import_optional_dependency(
     pip_extra: KNOWN_PIP_EXTRAS,
     *,
     errors: typing.Literal["warn", "ignore"],
-) -> types.ModuleType | None: ...
+) -> typing.Union[types.ModuleType, None]: ...
 
 
 def import_optional_dependency(
@@ -46,7 +46,7 @@ def import_optional_dependency(
     pip_extra: KNOWN_PIP_EXTRAS,
     *,
     errors: typing.Literal["raise", "warn", "ignore"] = "raise",
-) -> types.ModuleType | None:
+) -> typing.Union[types.ModuleType, None]:
     """
     Import an optional dependency.
 

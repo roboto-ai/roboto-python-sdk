@@ -37,8 +37,8 @@ class KeyValuePairsAction(argparse.Action):
         self,
         parser: argparse.ArgumentParser,
         namespace: argparse.Namespace,
-        values: str | collections.abc.Sequence[typing.Any] | None,
-        option_string: str | None = None,
+        values: typing.Union[str, collections.abc.Sequence[typing.Any], None],
+        option_string: typing.Union[str, None] = None,
     ):
         if values is None:
             return

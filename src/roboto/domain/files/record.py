@@ -244,9 +244,11 @@ class DirectoryRecord(pydantic.BaseModel):
     upload_id: str
 
 
-def is_directory(record: FileRecord | DirectoryRecord) -> TypeGuard[DirectoryRecord]:
+def is_directory(
+    record: typing.Union[FileRecord, DirectoryRecord]
+) -> TypeGuard[DirectoryRecord]:
     return record.fs_type == FSType.Directory
 
 
-def is_file(record: FileRecord | DirectoryRecord) -> TypeGuard[FileRecord]:
+def is_file(record: typing.Union[FileRecord, DirectoryRecord]) -> TypeGuard[FileRecord]:
     return record.fs_type == FSType.File

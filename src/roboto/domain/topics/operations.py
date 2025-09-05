@@ -173,17 +173,19 @@ class MessagePathChangeset(pydantic.BaseModel):
     making multiple schema changes efficiently.
     """
 
-    message_paths_to_add: collections.abc.Sequence[AddMessagePathRequest] | None = None
+    message_paths_to_add: typing.Union[
+        collections.abc.Sequence[AddMessagePathRequest], None
+    ] = None
     """Message paths to add to a topic."""
 
-    message_paths_to_delete: (
-        collections.abc.Sequence[DeleteMessagePathRequest] | None
-    ) = None
+    message_paths_to_delete: typing.Union[
+        collections.abc.Sequence[DeleteMessagePathRequest], None
+    ] = None
     """Message paths to delete from a topic."""
 
-    message_paths_to_update: (
-        collections.abc.Sequence[UpdateMessagePathRequest] | None
-    ) = None
+    message_paths_to_update: typing.Union[
+        collections.abc.Sequence[UpdateMessagePathRequest], None
+    ] = None
     """Message paths to update on a topic."""
 
     replace_all: bool = False

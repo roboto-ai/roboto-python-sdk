@@ -1099,6 +1099,7 @@ class File:
 
         Raises:
             RobotoUnauthorizedException: Caller lacks permission to update the file.
+            RobotoDeviceNotFoundException: The specified device ID does not exist.
 
         Examples:
             >>> file = File.from_id("file_abc123")

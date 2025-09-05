@@ -1,5 +1,9 @@
 # Changelog
 
+# 0.26.1
+## Bugs Fixed
+  - Added a docstring for `CreateDatasetIfNotExistsRequest` to fix rendering issue in docs 
+
 # 0.26.0
 ## Features Added
   - Add natural language chat, through `roboto.ai.chat` constructs and `roboto chat start` CLI command
