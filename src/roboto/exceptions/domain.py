@@ -298,6 +298,30 @@ class RobotoConflictException(RobotoDomainException):
         return 409
 
 
+class RobotoLayoutConflictException(RobotoConflictException):
+    """
+    Thrown when multiple layouts with the same name are found and need disambiguation.
+    Contains the conflicting layout records for client handling.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        conflicting_layouts: list[dict[str, Any]],
+        stack_trace: list[str] = [],
+        headers: dict[str, str] = {},
+        *args,
+        **kwargs,
+    ):
+        super().__init__(message, stack_trace, headers, *args, **kwargs)
+        self.conflicting_layouts = conflicting_layouts
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        result["error"]["conflicting_layouts"] = self.conflicting_layouts
+        return result
+
+
 class RobotoServiceException(RobotoDomainException):
     """
     Thrown when Roboto Service failed in an unexpected way

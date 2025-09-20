@@ -12,6 +12,7 @@ dependencies = [
     "pytest-cov~=4.1",
     "pytest-xdist~=3.3",
     "PyGithub~=2.6.1",
+    "testcontainers[postgres]>=4.13.0",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +48,7 @@ module = [
     "pyarrow.*",   # https://github.com/apache/arrow/discussions/45919
     "pluggy",
     "stumpy.*",
+    "testcontainers.*",  # https://github.com/testcontainers/testcontainers-python/issues/305
     "tqdm.*",
     "wrapt",
     "yaml"

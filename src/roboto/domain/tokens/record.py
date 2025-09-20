@@ -9,6 +9,8 @@ from typing import Optional
 
 import pydantic
 
+from roboto.auth.scope import ApiScope
+
 
 class TokenContext(pydantic.BaseModel):
     """Context for token usage"""
@@ -18,6 +20,7 @@ class TokenContext(pydantic.BaseModel):
     description: Optional[str] = None
     expires: datetime.datetime
     last_used: Optional[datetime.datetime] = None
+    api_scopes: set[ApiScope]
     enabled: bool = True
 
 

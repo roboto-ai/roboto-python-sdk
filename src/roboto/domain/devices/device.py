@@ -8,14 +8,19 @@ import collections.abc
 import datetime
 import typing
 
+from ...auth.scope import ApiScope
 from ...exceptions import RobotoDomainException
 from ...http import RobotoClient
+from ...updates import MetadataChangeset
 from ..tokens import (
     CreateTokenRequest,
     Token,
     TokenRecord,
 )
-from .operations import CreateDeviceRequest
+from .operations import (
+    CreateDeviceRequest,
+    UpdateDeviceRequest,
+)
 from .record import DeviceRecord
 
 
@@ -58,6 +63,8 @@ class Device:
         device_id: str,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
+        tags: typing.Optional[list[str]] = None,
     ) -> "Device":
         """Register a new device with the Roboto platform.
 
@@ -74,6 +81,10 @@ class Device:
                 Required if the caller belongs to multiple organizations.
             roboto_client: Optional RobotoClient instance for API communication. If not provided,
                 the default client configuration will be used.
+            metadata: Optional key-value pairs to associate with the device for discovery and search.
+                For example: {"model": "mk2", "serial_number": "SN001234"}.
+            tags: Optional list of tags to associate with the device for discovery and organization.
+                For example: ["production", "warehouse-a"].
 
         Returns:
             A Device instance representing the newly registered device.
@@ -103,7 +114,12 @@ class Device:
             Device org: og_xyz789
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        request = CreateDeviceRequest(device_id=device_id, org_id=caller_org_id)
+        request = CreateDeviceRequest(
+            device_id=device_id,
+            org_id=caller_org_id,
+            metadata=metadata or {},
+            tags=tags or [],
+        )
         record = roboto_client.post(
             "v1/devices/create", caller_org_id=caller_org_id, data=request
         ).to_record(DeviceRecord)
@@ -263,6 +279,16 @@ class Device:
         return self.__record.org_id
 
     @property
+    def metadata(self) -> dict[str, typing.Any]:
+        """Key-value metadata pairs associated with this device."""
+        return self.__record.metadata
+
+    @property
+    def tags(self) -> list[str]:
+        """List of tags associated with this device."""
+        return self.__record.tags
+
+    @property
     def record(self) -> DeviceRecord:
         """
         The underlying DeviceRecord object which represents this device. This is often used as the wire representation
@@ -276,6 +302,7 @@ class Device:
         expiry_days: int = 366,
         name: typing.Optional[str] = None,
         description: typing.Optional[str] = None,
+        api_scopes: typing.Optional[collections.abc.Collection[ApiScope]] = None,
     ) -> tuple[Token, str]:
         """Create an authentication token for this device.
 
@@ -289,6 +316,8 @@ class Device:
             name: Human-readable name for the token. If not provided, defaults to
                 "{org_id}_{device_id}" format.
             description: Optional description explaining the token's purpose or usage context.
+            api_scopes: Optional set of API scopes to limit the token's permissions. If not provided,
+                the token will have full access to all APIs.
 
         Returns:
             A tuple containing:
@@ -325,6 +354,7 @@ class Device:
             expiry_days=expiry_days,
             name=name or f"{self.org_id}_{self.device_id}",
             description=description,
+            api_scopes=None if api_scopes is None else set(api_scopes),
         )
 
         record = self.__roboto_client.post(
@@ -368,6 +398,86 @@ class Device:
             f"v1/devices/id/{self.device_id}", owner_org_id=self.org_id
         )
 
+    def put_metadata(self, metadata: dict[str, typing.Any]) -> "Device":
+        """Add or update metadata fields for this device.
+
+        Args:
+            metadata: Key-value pairs to add or update in the device's metadata.
+                Existing keys will be overwritten, new keys will be added.
+
+        Returns:
+            Updated Device instance with the new metadata.
+
+        Example:
+            >>> device = Device.from_id("robot_001")
+            >>> updated_device = device.put_metadata({
+            ...     "firmware_version": "2.1.0",
+            ...     "location": "warehouse-b"
+            ... })
+            >>> print(updated_device.metadata["firmware_version"])
+            2.1.0
+        """
+        return self.update(
+            UpdateDeviceRequest(
+                metadata_changeset=MetadataChangeset(put_fields=metadata)
+            )
+        )
+
+    def put_tags(self, tags: list[str]) -> "Device":
+        """Add tags to this device.
+
+        Args:
+            tags: List of tags to add to the device. Duplicate tags will be ignored.
+
+        Returns:
+            Updated Device instance with the new tags added.
+
+        Example:
+            >>> device = Device.from_id("robot_001")
+            >>> updated_device = device.put_tags(["production", "warehouse-c"])
+            >>> print("production" in updated_device.tags)
+            True
+        """
+        return self.update(
+            UpdateDeviceRequest(metadata_changeset=MetadataChangeset(put_tags=tags))
+        )
+
+    def remove_metadata(self, keys: list[str]) -> "Device":
+        """Remove metadata fields from this device.
+
+        Args:
+            keys: List of metadata keys to remove from the device.
+
+        Returns:
+            Updated Device instance with the specified metadata keys removed.
+
+        Example:
+            >>> device = Device.from_id("robot_001")
+            >>> updated_device = device.remove_metadata(["old_field", "deprecated_key"])
+        """
+        return self.update(
+            UpdateDeviceRequest(
+                metadata_changeset=MetadataChangeset(remove_fields=keys)
+            )
+        )
+
+    def remove_tags(self, tags: list[str]) -> "Device":
+        """Remove tags from this device.
+
+        Args:
+            tags: List of tags to remove from the device.
+
+        Returns:
+            Updated Device instance with the specified tags removed.
+
+        Example:
+            >>> device = Device.from_id("robot_001")
+            >>> updated_device = device.remove_tags(["old_tag", "deprecated"])
+        """
+        return self.update(
+            UpdateDeviceRequest(metadata_changeset=MetadataChangeset(remove_tags=tags))
+        )
+
     def tokens(self) -> collections.abc.Sequence[Token]:
         """Retrieve all authentication tokens associated with this device.
 
@@ -409,3 +519,30 @@ class Device:
             Token(record=record, roboto_client=self.__roboto_client)
             for record in records
         ]
+
+    def update(self, request: UpdateDeviceRequest) -> "Device":
+        """Update device properties using a structured request.
+
+        Args:
+            request: UpdateDeviceRequest containing the changes to apply.
+
+        Returns:
+            Updated Device instance with the changes applied.
+
+        Example:
+            >>> from roboto.updates import MetadataChangeset
+            >>> device = Device.from_id("robot_001")
+            >>> updated_device = device.update(UpdateDeviceRequest(
+            ...     metadata_changeset=MetadataChangeset(
+            ...         put_fields={"version": "2.0"},
+            ...         put_tags=["updated"],
+            ...         remove_tags=["old"]
+            ...     )
+            ... ))
+        """
+        record = self.__roboto_client.put(
+            f"v1/devices/id/{self.device_id}",
+            owner_org_id=self.org_id,
+            data=request,
+        ).to_record(DeviceRecord)
+        return Device(record=record, roboto_client=self.__roboto_client)

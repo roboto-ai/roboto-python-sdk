@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
+import typing
 
 import pydantic
 
@@ -34,3 +35,9 @@ class DeviceRecord(pydantic.BaseModel):
 
     org_id: str
     """The org to which this device belongs."""
+
+    metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    """Key-value metadata pairs associated with this device."""
+
+    tags: list[str] = pydantic.Field(default_factory=list)
+    """List of tags associated with this device."""

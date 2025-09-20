@@ -7,6 +7,7 @@
 import collections.abc
 import typing
 
+from ...auth.scope import ApiScope
 from ...exceptions import RobotoDomainException
 from ...http import RobotoClient
 from .operations import CreateTokenRequest
@@ -30,6 +31,7 @@ class Token:
         name: str,
         description: typing.Optional[str] = None,
         expiry_days: int = 30,
+        api_scopes: typing.Optional[set[ApiScope]] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> tuple["Token", str]:
         """
@@ -39,7 +41,10 @@ class Token:
         roboto_client = RobotoClient.defaulted(roboto_client)
 
         request = CreateTokenRequest(
-            name=name, description=description, expiry_days=expiry_days
+            name=name,
+            description=description,
+            expiry_days=expiry_days,
+            api_scopes=api_scopes,
         )
 
         record = roboto_client.post("v1/tokens", data=request).to_record(TokenRecord)

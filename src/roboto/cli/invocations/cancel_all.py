@@ -17,7 +17,7 @@ def cancel_all(
     args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
 ) -> None:
     """
-    Iteratively cancel active invocations until the response returns 0 for count_remaining
+    Iteratively cancel active invocations until the response returns False for has_more
     or the configured timeout is reached.
     """
     start_time = utcnow()
@@ -25,7 +25,9 @@ def cancel_all(
     total_failure_count = 0
 
     try:
-        while True:
+        has_more = True
+
+        while has_more:
             if args.timeout > 0:
                 elapsed = (utcnow() - start_time).total_seconds()
                 if elapsed > args.timeout:
@@ -42,25 +44,22 @@ def cancel_all(
 
             total_success_count += response.success_count
             total_failure_count += response.failure_count
+            has_more = response.has_more
 
-            if response.count_remaining == 0:
+            if has_more:
                 print(
-                    f"Successfully cancelled {total_success_count} invocations "
-                    f"with {total_failure_count} failures"
-                )
-                break
-            else:
-                print(
-                    f"Cancelled {response.success_count} invocations "
-                    f"({response.failure_count} failures). "
-                    f"Remaining: {response.count_remaining}"
+                    f"Progress: cancelled {response.success_count} invocations, "
+                    f"{response.failure_count} failures."
                 )
 
     except KeyboardInterrupt:
-        print(
-            f"Successfully cancelled {total_success_count} invocations "
-            f"with {total_failure_count} failures"
-        )
+        pass
+    finally:
+        if total_success_count > 0 or total_failure_count > 0:
+            print(
+                f"Successfully cancelled {total_success_count} invocations. "
+                f"Failed to cancel {total_failure_count} invocations."
+            )
 
 
 def cancel_all_parser(parser: argparse.ArgumentParser):

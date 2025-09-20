@@ -32,7 +32,7 @@ class CancelActiveInvocationsRequest(pydantic.BaseModel):
     cancel in a single call for performance reasons.
 
     For large numbers of active invocations, continue calling this operation
-    until the count_remaining returned in the response is 0.
+    until the has_more returned in the response is False.
     """
 
     created_before: Optional[datetime.datetime] = None
@@ -45,9 +45,9 @@ class CancelActiveInvocationsRequest(pydantic.BaseModel):
 class CancelActiveInvocationsResponse(pydantic.BaseModel):
     """Response payload from bulk cancellation of active invocations.
 
-    Contains the results of a bulk cancellation operation, including counts
-    of successful and failed cancellations, and the number of invocations
-    remaining to be cancelled.
+    Contains the results of a bulk cancellation operation,
+    including counts of successful and failed cancellations,
+    and whether there are more active invocations to cancel.
     """
 
     success_count: int
@@ -56,8 +56,8 @@ class CancelActiveInvocationsResponse(pydantic.BaseModel):
     failure_count: int
     """Number of invocations that failed to cancel."""
 
-    count_remaining: int
-    """Number of invocations that are still active."""
+    has_more: bool
+    """Whether there are more active invocations to cancel."""
 
 
 class CreateInvocationRequest(pydantic.BaseModel):

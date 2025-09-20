@@ -21,11 +21,10 @@ automated data ingestion and platform interaction.
 """
 
 from .device import Device
-from .operations import CreateDeviceRequest
+from .operations import (
+    CreateDeviceRequest,
+    UpdateDeviceRequest,
+)
 from .record import DeviceRecord
 
-__all__ = [
-    "CreateDeviceRequest",
-    "Device",
-    "DeviceRecord",
-]
+__all__ = ["CreateDeviceRequest", "Device", "DeviceRecord", "UpdateDeviceRequest"]
