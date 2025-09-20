@@ -7,6 +7,7 @@
 import collections.abc
 import datetime
 import typing
+import urllib.parse
 
 from ...auth.scope import ApiScope
 from ...exceptions import RobotoDomainException
@@ -228,8 +229,9 @@ class Device:
             Found device created by: user@example.com
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
+        encoded_device_id = urllib.parse.quote(device_id, safe="")
         record = roboto_client.get(
-            f"v1/devices/id/{device_id}",
+            f"v1/devices/id/{encoded_device_id}",
             owner_org_id=org_id,
         ).to_record(DeviceRecord)
         return cls(record=record, roboto_client=roboto_client)
@@ -260,6 +262,13 @@ class Device:
         device's org.
         """
         return self.__record.device_id
+
+    @property
+    def encoded_device_id(self) -> str:
+        """
+        The device ID, URL-encoded. This is useful for constructing URLs to Roboto APIs which contain the device ID.
+        """
+        return urllib.parse.quote(self.device_id, safe="")
 
     @property
     def modified(self) -> datetime.datetime:
@@ -358,7 +367,7 @@ class Device:
         )
 
         record = self.__roboto_client.post(
-            f"v1/devices/id/{self.device_id}/tokens",
+            f"v1/devices/id/{self.encoded_device_id}/tokens",
             owner_org_id=self.org_id,
             data=request,
         ).to_record(TokenRecord)
@@ -395,7 +404,7 @@ class Device:
             Device deleted successfully
         """
         self.__roboto_client.delete(
-            f"v1/devices/id/{self.device_id}", owner_org_id=self.org_id
+            f"v1/devices/id/{self.encoded_device_id}", owner_org_id=self.org_id
         )
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Device":
@@ -513,7 +522,7 @@ class Device:
             No tokens found for device
         """
         records = self.__roboto_client.get(
-            f"v1/devices/id/{self.device_id}/tokens", owner_org_id=self.org_id
+            f"v1/devices/id/{self.encoded_device_id}/tokens", owner_org_id=self.org_id
         ).to_record_list(TokenRecord)
         return [
             Token(record=record, roboto_client=self.__roboto_client)
@@ -541,7 +550,7 @@ class Device:
             ... ))
         """
         record = self.__roboto_client.put(
-            f"v1/devices/id/{self.device_id}",
+            f"v1/devices/id/{self.encoded_device_id}",
             owner_org_id=self.org_id,
             data=request,
         ).to_record(DeviceRecord)
