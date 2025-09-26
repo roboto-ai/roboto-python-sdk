@@ -1,13 +1,19 @@
-# Copyright (c) 2024 Roboto Technologies, Inc.
+# Copyright (c) 2025 Roboto Technologies, Inc.
 #
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import json
 import pathlib
 import typing
 
-from ..domain import actions, datasets, orgs
+from ..domain import (
+    actions,
+    datasets,
+    orgs,
+    secrets,
+)
 from ..env import RobotoEnv, RobotoEnvKey
 from ..http import RobotoClient
 from .action_input import (
@@ -305,4 +311,35 @@ class ActionRuntime:
                 f"Couldn't find parameter '{name}' from environment. " + _BAD_ENV_BLURB
             )
 
-        return parameter_value
+        if not secrets.is_secret_uri(parameter_value):
+            return parameter_value
+        else:
+            return self.get_secret_parameter(name)
+
+    def get_secret_parameter(self, name: str) -> str:
+        """
+        Gets the value of the secret action parameter with the given name.
+        """
+        if self.__roboto_env.action_runtime_config_dir is None:
+            raise ActionRuntimeException(
+                "Couldn't find action runtime config dir from environment. "
+                + _BAD_ENV_BLURB
+            )
+
+        secrets_file = (
+            pathlib.Path(self.__roboto_env.action_runtime_config_dir) / "secrets.json"
+        )
+        if not secrets_file.exists():
+            raise ActionRuntimeException(
+                f"Secrets file '{secrets_file}' does not exist."
+            )
+
+        secrets_dict = json.loads(secrets_file.read_text())
+
+        value = secrets_dict.get(name, "")
+
+        if not value:
+            raise ActionRuntimeException(
+                f"Couldn't find value for secret parameter '{name}' in secrets file '{secrets_file}'."
+            )
+        return value

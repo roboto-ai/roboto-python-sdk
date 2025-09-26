@@ -45,6 +45,9 @@ from .invocations import (
     command_set as invocations_command_set,
 )
 from .orgs import command_set as orgs_command_set
+from .secrets import (
+    command_set as secrets_command_set,
+)
 from .tokens import (
     command_set as tokens_command_set,
 )
@@ -65,6 +68,7 @@ COMMAND_SETS = [
     invocations_command_set,
     orgs_command_set,
     users_command_set,
+    secrets_command_set,
     tokens_command_set,
     triggers_command_set,
 ]

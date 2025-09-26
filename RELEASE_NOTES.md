@@ -1,4 +1,4 @@
-# 0.26.3
-## Bugs Fixed
-  - `Device::from_id` and others fail when the device_id contains spaces, +, or other characters which need to be URL encoded.
+# 0.27.0
+## Features Added
+  - Added `Secret` to domain, in support of providing API keys and other secrets to actions in a more secure way.
 

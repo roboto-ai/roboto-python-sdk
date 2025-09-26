@@ -46,6 +46,7 @@ class RobotoEnvKey(str, enum.Enum):
 
     ActionInputsManifest = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_INPUTS_MANIFEST"
     ActionParametersFile = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_PARAMETERS_FILE"
+    ActionRuntimeConfigDir = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_RUNTIME_CONFIG_DIR"
     ActionTimeout = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_TIMEOUT"
     ApiKey = f"{ROBOTO_ENV_VAR_PREFIX}API_KEY"
     BearerToken = f"{ROBOTO_ENV_VAR_PREFIX}BEARER_TOKEN"
@@ -96,6 +97,10 @@ class RobotoEnv(pydantic_settings.BaseSettings):
 
     action_parameters_file: typing.Optional[str] = pydantic.Field(
         default=None, alias="ROBOTO_ACTION_PARAMETERS_FILE"
+    )
+
+    action_runtime_config_dir: typing.Optional[str] = pydantic.Field(
+        default=None, alias="ROBOTO_ACTION_RUNTIME_CONFIG_DIR"
     )
 
     action_timeout: typing.Optional[str] = pydantic.Field(
