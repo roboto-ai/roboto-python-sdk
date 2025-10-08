@@ -1,5 +1,9 @@
 # Changelog
 
+# 0.28.1
+## Bugs Fixed
+  - Fix SDK repo synchronization issue that caused a broken release.
+
 # 0.28.0
 ## Features Added
   - Rename `ActionRuntime` to `InvocationContext` to better reflect that this utility provides context for the current action invocation. For backward compatibility, `ActionRuntime` remains available as a deprecated alias and will be removed in a future release. Update your code to use `InvocationContext.from_env()` instead of `ActionRuntime.from_env()`.
