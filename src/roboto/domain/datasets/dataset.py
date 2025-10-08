@@ -880,6 +880,11 @@ class Dataset:
         Topics can be filtered by name using include/exclude patterns. Topics specified
         on both the inclusion and exclusion lists will be excluded.
 
+        Note:
+            This method returns topics WITHOUT message_paths populated (for performance).
+            The message_paths list will be empty. If you need message_paths, iterate
+            through files and call file.get_topics() instead.
+
         Args:
             include: If provided, only topics with names in this sequence are yielded.
             exclude: If provided, topics with names in this sequence are skipped.

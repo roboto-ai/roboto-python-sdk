@@ -27,7 +27,7 @@ def _unpack_key(key: str) -> tuple[str, str]:
 class FileDownloader:
     """A utility for downloading Roboto files."""
 
-    def __init__(self, roboto_client: typing.Optional[RobotoClient]):
+    def __init__(self, roboto_client: typing.Optional[RobotoClient] = None):
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__creds_helper = FileCredentialsHelper(self.__roboto_client)
         self.__file_service = FileService(self.__roboto_client)

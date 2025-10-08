@@ -276,6 +276,11 @@ class Topic:
         contain topics with the same name (e.g., chunked files with the same schema),
         they are returned as separate topic objects.
 
+        Note:
+            This method returns topics WITHOUT message_paths populated (for performance).
+            The message_paths list will be empty. If you need message_paths, use
+            Topic.get_by_file() for each file instead.
+
         Args:
             dataset_id: Unique identifier of the dataset to search.
             roboto_client: HTTP client for API communication. If None, uses the default client.

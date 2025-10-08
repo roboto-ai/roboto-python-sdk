@@ -5,21 +5,19 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .action_input import (
+    DEFAULT_INPUT_FILE,
     ActionInput,
-    ActionInputResolver,
+    ActionInputRecord,
 )
-from .file_changeset import (
-    FilesChangesetFileManager,
-)
-from .invocation_context import (
-    ActionRuntime,
-    InvocationContext,
-)
+from .file_resolver import InputFileResolver
+from .input_resolver import ActionInputResolver
+from .topic_resolver import InputTopicResolver
 
 __all__ = (
+    "DEFAULT_INPUT_FILE",
     "ActionInput",
+    "ActionInputRecord",
     "ActionInputResolver",
-    "ActionRuntime",
-    "FilesChangesetFileManager",
-    "InvocationContext",
+    "InputFileResolver",
+    "InputTopicResolver",
 )

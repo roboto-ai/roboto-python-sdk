@@ -39,7 +39,7 @@ class FilesChangesetFileManager:
     It uses a "file changeset" file to accumulate these pending updates during an action's runtime, and then applies
     them automatically at the end of an action, after the action's output directory has been uploaded.
 
-    The most common way to get access to this would be via :class:`roboto.action_runtime.ActionRuntime`.
+    The most common way to get access to this would be via :class:`roboto.action_runtime.InvocationContext`.
     """
 
     __path: pathlib.Path
@@ -67,9 +67,9 @@ class FilesChangesetFileManager:
         Order of calls matters.
 
         Examples:
-            >>> from roboto import ActionRuntime
-            >>> action_runtime = ActionRuntime.from_env()
-            >>> file_changeset_manager = action_runtime.file_changeset_manager
+            >>> from roboto import InvocationContext
+            >>> context = InvocationContext.from_env()
+            >>> file_changeset_manager = context.file_changeset_manager
             >>>
             >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
             >>> file_changeset_manager.put_tags("images/front0_raw_000734.jpg", ["cloudy", "rainy"]})
@@ -91,9 +91,9 @@ class FilesChangesetFileManager:
         Order of calls matters.
 
         Examples:
-            >>> from roboto import ActionRuntime
-            >>> action_runtime = ActionRuntime.from_env()
-            >>> file_changeset_manager = action_runtime.file_changeset_manager
+            >>> from roboto import InvocationContext
+            >>> context = InvocationContext.from_env()
+            >>> file_changeset_manager = context.file_changeset_manager
             >>>
             >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
             >>> file_changeset_manager.put_tags("images/front0_raw_000734.jpg", ["cloudy", "rainy"]})
@@ -117,9 +117,9 @@ class FilesChangesetFileManager:
         Order of calls matters.
 
         Examples:
-            >>> from roboto import ActionRuntime
-            >>> action_runtime = ActionRuntime.from_env()
-            >>> file_changeset_manager = action_runtime.file_changeset_manager
+            >>> from roboto import InvocationContext
+            >>> context = InvocationContext.from_env()
+            >>> file_changeset_manager = context.file_changeset_manager
             >>>
             >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
             >>> file_changeset_manager.put_fields("images/front0_raw_000734.jpg", {"cars": 2, "trucks": 3})
@@ -144,9 +144,9 @@ class FilesChangesetFileManager:
         Order of calls matters.
 
         Examples:
-            >>> from roboto import ActionRuntime
-            >>> action_runtime = ActionRuntime.from_env()
-            >>> file_changeset_manager = action_runtime.file_changeset_manager
+            >>> from roboto import InvocationContext
+            >>> context = InvocationContext.from_env()
+            >>> file_changeset_manager = context.file_changeset_manager
             >>>
             >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
             >>> file_changeset_manager.put_fields("images/front0_raw_000734.jpg", {"cars": 2, "trucks": 3})
@@ -167,9 +167,9 @@ class FilesChangesetFileManager:
         ``${ROBOTO_OUTPUT_DIR}/relative_path`` by the end of the user portion of an action's runtime.
 
         Examples:
-            >>> from roboto import ActionRuntime
-            >>> action_runtime = ActionRuntime.from_env()
-            >>> file_changeset_manager = action_runtime.file_changeset_manager
+            >>> from roboto import InvocationContext
+            >>> context = InvocationContext.from_env()
+            >>> file_changeset_manager = context.file_changeset_manager
             >>>
             >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
             >>> file_changeset_manager.set_description("images/front0_raw_000734.jpg", "This image was over-exposed")

@@ -7,6 +7,7 @@
 from .action_runtime import (
     ActionRuntime,
     FilesChangesetFileManager,
+    InvocationContext,
 )
 from .ai.summary import AISummary
 from .association import (
@@ -212,6 +213,7 @@ __all__ = [
     "ImportFileRequest",
     "IngestionStatus",
     "Invocation",
+    "InvocationContext",
     "InvocationDataSource",
     "InvocationDataSourceType",
     "InvocationProvenance",
