@@ -41,6 +41,7 @@ Examples:
 """
 
 from .action import Action
+from .action_config import ActionConfig
 from .action_operations import (
     CreateActionRequest,
     SetActionAccessibilityRequest,
@@ -124,6 +125,7 @@ from .trigger_view import (
 __all__ = (
     "Accessibility",
     "Action",
+    "ActionConfig",
     "ActionParameter",
     "ActionParameterChangeset",
     "ActionProvenance",

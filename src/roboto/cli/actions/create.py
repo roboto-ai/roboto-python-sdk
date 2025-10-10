@@ -32,11 +32,10 @@ from ..terminal import print_error_and_exit
 from ..validation import (
     pydantic_validation_handler,
 )
-from .action_config import ActionConfig
 
 
 def determine_updates(
-    action_config: ActionConfig, existing_action: actions.Action
+    action_config: actions.ActionConfig, existing_action: actions.Action
 ) -> collections.abc.Mapping:
     """Create an updates dict matching Action::update kwargs from an ActionConfig and an existing Action."""
 
@@ -122,14 +121,14 @@ def determine_updates(
 def create(
     args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
 ) -> None:
-    config: typing.Optional[ActionConfig] = None
+    config: typing.Optional[actions.ActionConfig] = None
     if args.action_config_file:
         if not args.action_config_file.exists():
             print_error_and_exit(
                 f"Action config file '{args.action_config_file}' does not exist."
             )
         with pydantic_validation_handler("Action config file"):
-            config = ActionConfig.model_validate_json(
+            config = actions.ActionConfig.model_validate_json(
                 args.action_config_file.read_text()
             )
 
@@ -186,7 +185,7 @@ def create(
 
     with pydantic_validation_handler("Action configuration"):
         config_with_overrides = (
-            ActionConfig.model_validate(config_params)
+            actions.ActionConfig.model_validate(config_params)
             if config is None
             else config.model_copy(update=config_params)
         )

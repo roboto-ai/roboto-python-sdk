@@ -72,17 +72,18 @@ class Org:
         Examples:
             Create a basic organization:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.create("my-company")
             >>> print(f"Created org: {org.name}")
 
             Create an organization with email domain binding:
 
-            >>> from roboto import Org, RobotoRegion
+            >>> from roboto import RobotoRegion
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.create(
             ...     name="acme-corp",
             ...     bind_email_domain=True,
-            ...     data_region=RobotoRegion.EU_WEST
+            ...     data_region=RobotoRegion.EU_CENTRAL
             ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -113,7 +114,7 @@ class Org:
         Examples:
             Load an organization by ID:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> print(f"Organization: {org.name}")
         """
@@ -140,7 +141,7 @@ class Org:
         Examples:
             List user's organizations:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> orgs = Org.for_self()
             >>> for org in orgs:
             ...     print(f"Member of: {org.name}")
@@ -170,7 +171,7 @@ class Org:
         Examples:
             List another user's organizations:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> orgs = Org.for_user("alice@example.com")
             >>> print(f"Alice is in {len(orgs)} organizations")
         """
@@ -245,7 +246,7 @@ class Org:
         Examples:
             Grant admin role to a user:
 
-            >>> from roboto import Org, OrgRoleName
+            >>> from roboto.domain.orgs import Org, OrgRoleName
             >>> org = Org.from_id("org_12345")
             >>> org.add_role_for_user("alice@example.com", OrgRoleName.admin)
         """
@@ -276,7 +277,7 @@ class Org:
         Examples:
             Remove admin role from a user:
 
-            >>> from roboto import Org, OrgRoleName
+            >>> from roboto.domain.orgs import Org, OrgRoleName
             >>> org = Org.from_id("org_12345")
             >>> org.remove_role_from_user("alice@example.com", OrgRoleName.admin)
         """
@@ -305,7 +306,7 @@ class Org:
         Examples:
             Bind a company email domain:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> org.bind_email_domain("acme.com")
         """
@@ -327,7 +328,7 @@ class Org:
         Examples:
             Delete an organization:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> org.delete()  # Permanently removes the organization
         """
@@ -345,7 +346,7 @@ class Org:
         Examples:
             List bound email domains:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> domains = org.email_domains()
             >>> for domain in domains:
@@ -378,7 +379,7 @@ class Org:
         Examples:
             Invite a user to the organization:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> invite = org.invite_user("alice@example.com")
             >>> print(f"Invitation created: {invite.invite_id}")
@@ -401,7 +402,7 @@ class Org:
         Examples:
             List pending invitations:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> invites = org.invites()
             >>> for invite in invites:
@@ -425,7 +426,7 @@ class Org:
         Examples:
             Refresh organization data:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> org.refresh()  # Updates with latest data from server
         """
@@ -453,7 +454,7 @@ class Org:
         Examples:
             Remove a user from the organization:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> org.remove_user("alice@example.com")
         """
@@ -481,12 +482,12 @@ class Org:
         Examples:
             Update organization name:
 
-            >>> from roboto import Org, UpdateOrgRequest, OrgRecordUpdates
+            >>> from roboto.domain.orgs import Org, UpdateOrgRequest, OrgRecordUpdates
             >>> org = Org.from_id("org_12345")
-            >>> update = UpdateOrgRequest(
+            >>> request = UpdateOrgRequest(
             ...     updates=OrgRecordUpdates(name="New Company Name")
             ... )
-            >>> org.update(update)
+            >>> org.update(request)
         """
         self.__record = self.__roboto_client.put(
             f"v1/orgs/id/{self.org_id}", data=update
@@ -505,7 +506,7 @@ class Org:
         Examples:
             List organization members:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> users = org.users()
             >>> for user_record in users:
@@ -534,7 +535,7 @@ class Org:
         Examples:
             Unbind an email domain:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> org.unbind_email_domain("old-company.com")
         """
@@ -554,7 +555,7 @@ class Org:
         Examples:
             Export organization data:
 
-            >>> from roboto import Org
+            >>> from roboto.domain.orgs import Org
             >>> org = Org.from_id("org_12345")
             >>> org_data = org.to_dict()
             >>> print(f"Org created: {org_data.get('created')}")

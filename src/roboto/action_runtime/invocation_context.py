@@ -32,8 +32,16 @@ log = default_logger()
 def _raise_for_missing_env_var(var_name: str, env_var_name: str) -> typing.NoReturn:
     raise ActionRuntimeException(
         f"Could not find {var_name} from environment. Expected environment variable '{env_var_name}'. "
-        "This most likely means you're testing an action using a script on a developer machine, "
-        "and the script leaves this environment variable unset."
+        "This most likely means you're testing an action outside of Roboto's hosted compute environment, "
+        "and the action's runtime environment was not fully setup."
+    )
+
+
+def _raise_for_missing_file(contents: str) -> typing.NoReturn:
+    raise ActionRuntimeException(
+        f"Could not find file expected to contain {contents}. "
+        "This most likely means you're testing an action outside of Roboto's hosted compute environment, "
+        "and the action's runtime environment was not fully setup."
     )
 
 
@@ -68,10 +76,16 @@ class InvocationContext:
     __invocation_id: str
     __invocation: typing.Optional[actions.Invocation] = None
     __roboto_client: RobotoClient
-    __roboto_env: RobotoEnv
     __org_id: str
     __org: typing.Optional[orgs.Org] = None
     __output_dir: pathlib.Path
+    __input_data_manifest_file: typing.Optional[pathlib.Path]
+    __parameters_file: typing.Optional[pathlib.Path]
+    __secrets_file: typing.Optional[pathlib.Path]
+
+    # Memoized file contents
+    __parameters_cache: typing.Optional[dict[str, typing.Any]] = None
+    __secrets_cache: typing.Optional[dict[str, str]] = None
 
     @classmethod
     def from_env(cls) -> "InvocationContext":
@@ -117,13 +131,26 @@ class InvocationContext:
                 f"Output directory '{output_dir}' does not exist."
             )
 
+        # Resolve file paths from environment
+        parameters_file = (
+            pathlib.Path(env.action_parameters_file)
+            if env.action_parameters_file
+            else None
+        )
+
+        secrets_file = None
+        if env.action_runtime_config_dir:
+            secrets_file = pathlib.Path(env.action_runtime_config_dir) / "secrets.json"
+
         return cls(
             dataset_id=env.dataset_id,
             input_dir=input_dir,
             invocation_id=env.invocation_id,
             org_id=env.org_id,
             output_dir=output_dir,
-            roboto_env=env,
+            input_data_manifest_file=env.action_inputs_manifest_file,
+            parameters_file=parameters_file,
+            secrets_file=secrets_file,
             roboto_client=RobotoClient.from_env(),
         )
 
@@ -134,7 +161,9 @@ class InvocationContext:
         invocation_id: str,
         org_id: str,
         output_dir: pathlib.Path,
-        roboto_env: RobotoEnv,
+        input_data_manifest_file: typing.Optional[pathlib.Path] = None,
+        parameters_file: typing.Optional[pathlib.Path] = None,
+        secrets_file: typing.Optional[pathlib.Path] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ):
         self.__dataset = None
@@ -147,7 +176,12 @@ class InvocationContext:
         self.__org_id = org_id
         self.__output_dir = output_dir
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
-        self.__roboto_env = roboto_env
+        self.__input_data_manifest_file = input_data_manifest_file
+        self.__parameters_file = parameters_file
+        self.__secrets_file = secrets_file
+        # Caches will be loaded on first access
+        self.__parameters_cache = None
+        self.__secrets_cache = None
 
     @property
     def dataset_id(self) -> str:
@@ -280,15 +314,14 @@ class InvocationContext:
         """
         Instance of :class:`~roboto.action_runtime.ActionInput` containing resolved references to input data.
         """
-        action_inputs_manifest_file = self.__roboto_env.action_inputs_manifest_file
-        if action_inputs_manifest_file is None:
+        if self.__input_data_manifest_file is None:
             raise ActionRuntimeException("Couldn't find action input manifest file")
 
-        if action_inputs_manifest_file.stat().st_size == 0:
+        if self.__input_data_manifest_file.stat().st_size == 0:
             return ActionInput()
 
         input_record = ActionInputRecord.model_validate_json(
-            action_inputs_manifest_file.read_text()
+            self.__input_data_manifest_file.read_text()
         )
 
         return ActionInput.from_record(input_record, self.__roboto_client)
@@ -314,12 +347,20 @@ class InvocationContext:
             >>> context.get_optional_parameter("model_version", "latest")
             "latest"
         """
-        parameter_env_name = RobotoEnvKey.for_parameter(name)
-        parameter_value = self.__roboto_env.get_env_var(
-            parameter_env_name, default_value
-        )
+        # If no parameters file exists, return the default value
+        if self.__parameters_file is None:
+            return default_value
 
-        if parameter_value is None or not secrets.is_secret_uri(parameter_value):
+        parameter_value = self.__parameters.get(name)
+
+        if parameter_value is None:
+            return default_value
+
+        # Convert to string if needed
+        if not isinstance(parameter_value, str):
+            parameter_value = str(parameter_value)
+
+        if not secrets.is_secret_uri(parameter_value):
             return parameter_value
         else:
             return self.get_secret_parameter(name)
@@ -329,42 +370,72 @@ class InvocationContext:
         Gets the value of the action parameter with the given name,
         raising an `ActionRuntimeException` if the parameter is not set.
         """
-        parameter_env_name = RobotoEnvKey.for_parameter(name)
-        parameter_value = self.__roboto_env.get_env_var(parameter_env_name)
-        if parameter_value is None:
-            _raise_for_missing_env_var(f"parameter '{name}'", parameter_env_name)
-
-        if not secrets.is_secret_uri(parameter_value):
-            return parameter_value
-        else:
-            return self.get_secret_parameter(name)
+        value = self.get_optional_parameter(name)
+        if value is None:
+            raise ActionRuntimeException(
+                f"Could not find parameter '{name}'. "
+                "This most likely means you're testing an action outside of Roboto's hosted compute environment, "
+                "and the parameter was not provided."
+            )
+        return value
 
     def get_secret_parameter(self, name: str) -> str:
         """
         Gets the value of the secret action parameter with the given name.
         """
-        if self.__roboto_env.action_runtime_config_dir is None:
-            _raise_for_missing_env_var(
-                "action runtime config dir", RobotoEnvKey.ActionRuntimeConfigDir
-            )
-
-        secrets_file = (
-            pathlib.Path(self.__roboto_env.action_runtime_config_dir) / "secrets.json"
-        )
-        if not secrets_file.exists():
-            raise ActionRuntimeException(
-                f"Secrets file '{secrets_file}' does not exist."
-            )
-
-        secrets_dict = json.loads(secrets_file.read_text())
-
-        value = secrets_dict.get(name, "")
+        value = self.__secrets.get(name)
 
         if not value:
             raise ActionRuntimeException(
-                f"Couldn't find value for secret parameter '{name}' in secrets file '{secrets_file}'."
+                f"Couldn't find value for secret parameter '{name}' in secrets file '{self.__secrets_file}'."
             )
         return value
+
+    @property
+    def __parameters(self) -> dict[str, typing.Any]:
+        """Load and cache parameters from the action parameters file."""
+        if self.__parameters_cache is None:
+            if self.__parameters_file is None:
+                _raise_for_missing_file("parameters")
+
+            self.__parameters_cache = self.__load_runtime_data_from_file(
+                self.__parameters_file
+            )
+        return self.__parameters_cache
+
+    @property
+    def __secrets(self) -> dict[str, str]:
+        """Load and cache secrets from the secrets file."""
+        if self.__secrets_cache is None:
+            if self.__secrets_file is None:
+                _raise_for_missing_file("secrets")
+
+            self.__secrets_cache = self.__load_runtime_data_from_file(
+                self.__secrets_file
+            )
+        return self.__secrets_cache
+
+    def __load_runtime_data_from_file(
+        self, file_path: pathlib.Path
+    ) -> dict[str, typing.Any]:
+        """Load runtime data (supplied parameter values, secrets, etc)
+        from a file. Assumes the file is JSON with an object at its root."""
+        result: dict[str, typing.Any] = {}
+
+        try:
+            loaded_data = json.loads(file_path.read_text())
+        except Exception:
+            raise ActionRuntimeException(f"Failed to load {file_path}")
+        else:
+            if isinstance(loaded_data, dict):
+                result = loaded_data
+            else:
+                raise ActionRuntimeException(
+                    f"Expected {file_path} to contain JSON with an object at its root, "
+                    f"found: {type(loaded_data)}"
+                )
+
+        return result
 
 
 class ActionRuntime(InvocationContext):

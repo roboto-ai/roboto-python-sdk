@@ -1,4 +1,4 @@
-# Copyright (c) 2024 Roboto Technologies, Inc.
+# Copyright (c) 2025 Roboto Technologies, Inc.
 #
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -10,7 +10,12 @@ import typing
 import pydantic
 from pydantic import ConfigDict
 
-from ...domain import actions
+from .action_record import (
+    ActionParameter,
+    ActionReference,
+    ComputeRequirements,
+    ContainerParameters,
+)
 
 
 class DockerImageConfig(pydantic.BaseModel):
@@ -20,18 +25,38 @@ class DockerImageConfig(pydantic.BaseModel):
 
 
 class ActionConfig(pydantic.BaseModel):
-    """Model for file-based Action config, to be used when creating or updating Actions."""
+    """User-facing model for Action configuration used when creating or updating Actions.
+
+    This model defines the structure of the "action.json" file accepted by
+    ``roboto actions create --from-file`` and templated for new Roboto Actions
+    created by ``roboto actions init``.
+
+    ActionConfig intentionally differs from :py:class:`roboto.domain.actions.action_record.ActionRecord`
+    by providing a simplified interface that:
+        - Omits platform-managed fields (e.g., ``created``, ``modified``, ``org_id``, ``digest``)
+        - Omits post-creation fields (e.g., ``published``, ``accessibility``)
+        - Focuses on user-configurable options relevant at creation time
+
+    Structure:
+        - Required: ``name``
+        - Optional: Most configuration options (compute requirements, parameters, metadata, etc.)
+
+    See Also:
+        :py:class:`roboto.domain.actions.action_record.ActionRecord`: The complete action representation
+        :py:class:`roboto.domain.actions.action_record.ActionParameter`: Parameter configuration
+        :py:class:`roboto.domain.actions.action_record.ComputeRequirements`: Compute resource configuration
+    """
 
     # Required
     name: str
 
     # Optional
-    compute_requirements: typing.Optional[actions.ComputeRequirements] = None
-    container_parameters: typing.Optional[actions.ContainerParameters] = None
+    compute_requirements: typing.Optional[ComputeRequirements] = None
+    container_parameters: typing.Optional[ContainerParameters] = None
     description: typing.Optional[str] = None
-    inherits: typing.Optional[actions.ActionReference] = None
+    inherits: typing.Optional[ActionReference] = None
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    parameters: list[actions.ActionParameter] = pydantic.Field(default_factory=list)
+    parameters: list[ActionParameter] = pydantic.Field(default_factory=list)
     requires_downloaded_inputs: typing.Optional[bool] = None
     tags: list[str] = pydantic.Field(default_factory=list)
     short_description: typing.Optional[str] = None
@@ -39,7 +64,7 @@ class ActionConfig(pydantic.BaseModel):
 
     # Mutually exclusive
     docker_config: typing.Optional[DockerImageConfig] = None
-    """Configuration with which the CLI can build a Docker image for the Action."""
+    """Configuration with which to build a Docker image for the Action."""
 
     image_uri: typing.Optional[str] = None
     """URI to a non-local Docker image. Must already be pushed a registry accessible by the Roboto Platform."""

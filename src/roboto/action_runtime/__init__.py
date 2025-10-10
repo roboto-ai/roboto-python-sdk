@@ -8,6 +8,11 @@ from .action_input import (
     ActionInput,
     ActionInputResolver,
 )
+from .exceptions import (
+    ActionRuntimeException,
+    PrepareEnvException,
+)
+from .exit_codes import ExitCode
 from .file_changeset import (
     FilesChangesetFileManager,
 )
@@ -15,11 +20,18 @@ from .invocation_context import (
     ActionRuntime,
     InvocationContext,
 )
+from .prepare import (
+    prepare_invocation_environment,
+)
 
 __all__ = (
     "ActionInput",
     "ActionInputResolver",
     "ActionRuntime",
+    "ActionRuntimeException",
+    "ExitCode",
     "FilesChangesetFileManager",
     "InvocationContext",
+    "PrepareEnvException",
+    "prepare_invocation_environment",
 )
