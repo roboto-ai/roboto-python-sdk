@@ -23,7 +23,6 @@ class InputTopicResolver:
         self,
         roboto_client: typing.Optional[RobotoClient] = None,
         roboto_search: typing.Optional[RobotoSearch] = None,
-        download: bool = False,
     ):
         self.roboto_client = RobotoClient.defaulted(roboto_client)
         self.roboto_search = (
@@ -31,19 +30,10 @@ class InputTopicResolver:
             if roboto_search is not None
             else RobotoSearch.for_roboto_client(self.roboto_client)
         )
-        self.download = download
 
     def resolve_all(
         self, topic_selectors: collections.abc.Sequence[DataSelector]
     ) -> list[Topic]:
-        if self.download:
-            log.info(
-                "Note: downloading topics before your business logic runs is not currently supported. "
-                "You can still access topic data from your action using the SDK methods "
-                "Topic::get_data or Topic::get_data_as_df. For more details, please take a look at "
-                "our documentation: https://docs.roboto.ai/reference/python-sdk/roboto/domain/topics/topic/index.html"
-            )
-
         topic_ids: set[str] = set()
         all_topics: list[Topic] = []
 

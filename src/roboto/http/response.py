@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import base64
+import collections.abc
 import enum
 import http
 import http.client
@@ -25,6 +26,8 @@ logger = default_logger()
 
 Model = typing.TypeVar("Model")
 PydanticModel = typing.TypeVar("PydanticModel", bound=pydantic.BaseModel)
+
+DEFAULT_RESPONSE_JSONPATH = ("data",)
 
 
 class BatchResponseElement(pydantic.BaseModel, typing.Generic[Model]):
@@ -229,27 +232,39 @@ class HttpResponse:
             next_token=unmarshalled["next_token"],
         )
 
-    def to_record(self, record_type: typing.Type[PydanticModel]) -> PydanticModel:
-        return record_type.model_validate(self.to_dict(json_path=["data"]))
+    def to_record(
+        self,
+        record_type: typing.Type[PydanticModel],
+        json_path: typing.Optional[
+            collections.abc.Sequence[str]
+        ] = DEFAULT_RESPONSE_JSONPATH,
+    ) -> PydanticModel:
+        return record_type.model_validate(self.to_dict(json_path=json_path))
 
     def to_record_list(
-        self, record_type: typing.Type[PydanticModel]
+        self,
+        record_type: typing.Type[PydanticModel],
+        json_path: typing.Optional[
+            collections.abc.Sequence[str]
+        ] = DEFAULT_RESPONSE_JSONPATH,
     ) -> list[PydanticModel]:
         return [
             record_type.model_validate(item)
-            for item in self.to_dict(json_path=["data"])
+            for item in self.to_dict(json_path=json_path)
         ]
 
     def to_string_list(self) -> list[str]:
         return [str(item) for item in self.to_dict(json_path=["data"])]
 
-    def to_dict(self, json_path: typing.Optional[list[str]] = None) -> typing.Any:
+    def to_dict(
+        self, json_path: typing.Optional[collections.abc.Sequence[str]] = None
+    ) -> typing.Any:
         with self.__response:
-            unmarsalled = json.loads(self.__response.read().decode("utf-8"))
+            unmarshalled = json.loads(self.__response.read().decode("utf-8"))
             if json_path is None:
-                return unmarsalled
+                return unmarshalled
 
-            return get_by_path(unmarsalled, json_path)
+            return get_by_path(unmarshalled, json_path)
 
     def to_string(self):
         with self.__response:

@@ -11,6 +11,7 @@ from .actions import (
     add_action_reference_arg,
     add_compute_requirements_args,
     add_container_parameters_args,
+    parse_action_reference_string,
     parse_compute_requirements,
     parse_container_overrides,
 )
@@ -28,6 +29,7 @@ __all__ = (
     "add_container_parameters_args",
     "add_org_arg",
     "get_defaulted_org_id",
+    "parse_action_reference_string",
     "parse_compute_requirements",
     "parse_container_overrides",
 )

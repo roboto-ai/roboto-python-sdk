@@ -56,9 +56,11 @@ class RobotoEnvKey(str, enum.Enum):
         f"{ROBOTO_ENV_VAR_PREFIX}DATASET_METADATA_CHANGESET_FILE"
     )
     DatasetId = f"{ROBOTO_ENV_VAR_PREFIX}DATASET_ID"
+    DryRun = f"{ROBOTO_ENV_VAR_PREFIX}DRY_RUN"
     FileMetadataChangesetFile = f"{ROBOTO_ENV_VAR_PREFIX}FILE_METADATA_CHANGESET_FILE"
     InputDir = f"{ROBOTO_ENV_VAR_PREFIX}INPUT_DIR"
     InvocationId = f"{ROBOTO_ENV_VAR_PREFIX}INVOCATION_ID"
+    LogLevel = f"{ROBOTO_ENV_VAR_PREFIX}LOG_LEVEL"
     OrgId = f"{ROBOTO_ENV_VAR_PREFIX}ORG_ID"
     OutputDir = f"{ROBOTO_ENV_VAR_PREFIX}OUTPUT_DIR"
     Profile = f"{ROBOTO_ENV_VAR_PREFIX}PROFILE"
@@ -129,6 +131,20 @@ class RobotoEnv(pydantic_settings.BaseSettings):
         alias="ROBOTO_DATASET_METADATA_CHANGESET_FILE",
     )
 
+    dry_run: typing.Optional[bool] = pydantic.Field(
+        default=False, alias="ROBOTO_DRY_RUN"
+    )
+    """
+    Flag that action developers should use to gate side effects during local invocation.
+
+    When set to True, actions should skip operations that have side effects, such as:
+    - Uploading files to Roboto datasets
+    - Modifying metadata
+    - Making external API calls that are not idempotent
+
+    This enables safe local testing and development without affecting production resources.
+    """
+
     file_metadata_changeset_file: typing.Optional[str] = pydantic.Field(
         default=None, alias="ROBOTO_FILE_METADATA_CHANGESET_FILE"
     )
@@ -139,6 +155,10 @@ class RobotoEnv(pydantic_settings.BaseSettings):
 
     invocation_id: typing.Optional[str] = pydantic.Field(
         default=None, alias="ROBOTO_INVOCATION_ID"
+    )
+
+    log_level: typing.Optional[str] = pydantic.Field(
+        default=None, alias="ROBOTO_LOG_LEVEL"
     )
 
     org_id: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_ORG_ID")

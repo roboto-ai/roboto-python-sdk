@@ -36,7 +36,7 @@ class DeprecationAction(argparse.Action):
         parser.error(deprecation_msg)
 
 
-class SortingHelpFormatter(argparse.HelpFormatter):
+class SortingHelpFormatter(argparse.RawTextHelpFormatter):
     def add_arguments(self, actions):
         actions = sorted(actions, key=attrgetter("option_strings"))
         super(SortingHelpFormatter, self).add_arguments(actions)

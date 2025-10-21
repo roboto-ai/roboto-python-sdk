@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import json
+import logging
 import pathlib
 import typing
 
@@ -71,10 +72,12 @@ class InvocationContext:
 
     __dataset_id: str
     __dataset: typing.Optional[datasets.Dataset] = None
+    __dry_run: bool
     __file_changeset_manager: typing.Optional[FilesChangesetFileManager] = None
     __input_dir: pathlib.Path
     __invocation_id: str
     __invocation: typing.Optional[actions.Invocation] = None
+    __log_level: typing.Optional[str]
     __roboto_client: RobotoClient
     __org_id: str
     __org: typing.Optional[orgs.Org] = None
@@ -152,6 +155,8 @@ class InvocationContext:
             parameters_file=parameters_file,
             secrets_file=secrets_file,
             roboto_client=RobotoClient.from_env(),
+            dry_run=bool(env.dry_run),
+            log_level=env.log_level,
         )
 
     def __init__(
@@ -165,13 +170,17 @@ class InvocationContext:
         parameters_file: typing.Optional[pathlib.Path] = None,
         secrets_file: typing.Optional[pathlib.Path] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
+        dry_run: bool = False,
+        log_level: typing.Optional[str] = None,
     ):
         self.__dataset = None
         self.__dataset_id = dataset_id
+        self.__dry_run = dry_run
         self.__file_changeset_manager = None
         self.__input_dir = input_dir
         self.__invocation = None
         self.__invocation_id = invocation_id
+        self.__log_level = log_level
         self.__org = None
         self.__org_id = org_id
         self.__output_dir = output_dir
@@ -271,6 +280,34 @@ class InvocationContext:
                 self.__invocation_id, roboto_client=self.__roboto_client
             )
         return self.__invocation
+
+    @property
+    def is_dry_run(self) -> bool:
+        return self.__dry_run
+
+    @property
+    def log_level(self) -> int:
+        """
+        The log level for the action invocation.
+
+        Returns:
+            The log level constant (e.g., logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR) if set,
+            or logging.INFO if no log level was specified.
+
+        Note:
+            This value must be explicitly applied using ``logging.getLogger().setLevel()``
+            or similar logging configuration to take effect.
+        """
+        if self.__log_level is None:
+            return logging.INFO
+
+        log_level_name_to_constant = {
+            "ERROR": logging.ERROR,
+            "WARNING": logging.WARNING,
+            "INFO": logging.INFO,
+            "DEBUG": logging.DEBUG,
+        }
+        return log_level_name_to_constant.get(self.__log_level, logging.INFO)
 
     @property
     def org_id(self) -> str:

@@ -11,7 +11,7 @@ import typing
 
 def get_by_path(
     target: collections.abc.Mapping[typing.Any, typing.Any],
-    key_path: collections.abc.Iterable[typing.Any],
+    key_path: collections.abc.Sequence[typing.Any],
 ) -> typing.Any:
     """
     Access a key path in a mapping.

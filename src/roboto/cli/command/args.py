@@ -44,8 +44,20 @@ class KeyValuePairsAction(argparse.Action):
             return
 
         try:
+            # Normalize to list if single string (when using nargs and parameter is not specified or nargs is 1)
+            if isinstance(values, str):
+                values = [values]
+
             for pair in values:
-                key, value = pair.split("=")
+                # Use maxsplit=1 to handle values that contain '=' characters
+                parts = pair.split("=", 1)
+                if len(parts) != 2:
+                    raise ValueError(
+                        f"Expected format 'KEY=VALUE', got '{pair}'. "
+                        f"Make sure the argument contains an '=' sign."
+                    )
+                key, value = parts
+
                 if key in self.value_dict:
                     raise parser.error(
                         f"Key '{key}' was defined multiple times for '{self.dest}'"

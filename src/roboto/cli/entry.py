@@ -9,6 +9,7 @@ import logging
 import pathlib
 import sys
 import typing
+import warnings
 
 from ..config import RobotoConfig
 from ..http import (
@@ -114,9 +115,23 @@ def construct_parser(
     )
 
     parser.add_argument(
+        "--log-level",
+        help=(
+            "Set the log level for the CLI. "
+            "Choices (case-insensitive): ERROR, WARNING, INFO, DEBUG. "
+            "If not specified, defaults to error."
+        ),
+        type=str.upper,
+        choices=["ERROR", "WARNING", "INFO", "DEBUG"],
+        default="ERROR",
+        dest="log_level",
+    )
+
+    parser.add_argument(
         "--verbose",
         "-v",
         help=(
+            "DEPRECATED: Use --log-level instead. "
             "Set increasing levels of verbosity. "
             "Only error logs are printed by default. "
             "Use -v (warn), -vv (info), -vvv (debug)."
@@ -166,7 +181,6 @@ def construct_parser(
 
 
 def entry():
-    logging.basicConfig(level=logging.ERROR, stream=sys.stderr)
     context = CLIContext()
     parser = construct_parser(context)
 
@@ -182,8 +196,26 @@ def entry():
 
     args = parser.parse_args(unparsed, args)
 
-    log_level = max(logging.ERROR - (args.verbose * 10), logging.DEBUG)
-    logging.getLogger().setLevel(log_level)
+    # Set log level from --log-level or --verbose (deprecated)
+    if args.verbose > 0:
+        # Deprecated --verbose flag takes precedence for backward compatibility
+        warnings.warn(
+            "The --verbose flag is deprecated. Use --log-level instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Map verbose count to log level
+        # 0 = ERROR, 1 = WARNING, 2 = INFO, 3+ = DEBUG
+        log_level_map = {
+            logging.ERROR: "ERROR",  # 40
+            logging.WARNING: "WARNING",  # 30
+            logging.INFO: "INFO",  # 20
+            logging.DEBUG: "DEBUG",  # 10
+        }
+        log_level = max(logging.ERROR - (args.verbose * 10), logging.DEBUG)
+        args.log_level = log_level_map[log_level]
+
+    logging.basicConfig(level=args.log_level, stream=sys.stderr, format="%(message)s")
 
     try:
         if args.version:

@@ -123,14 +123,8 @@ def create(
 ) -> None:
     config: typing.Optional[actions.ActionConfig] = None
     if args.action_config_file:
-        if not args.action_config_file.exists():
-            print_error_and_exit(
-                f"Action config file '{args.action_config_file}' does not exist."
-            )
         with pydantic_validation_handler("Action config file"):
-            config = actions.ActionConfig.model_validate_json(
-                args.action_config_file.read_text()
-            )
+            config = actions.ActionConfig.from_file(args.action_config_file)
 
     default_compute_reqs_from_file = config.compute_requirements if config else None
     compute_requirements = parse_compute_requirements(

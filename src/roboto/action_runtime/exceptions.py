@@ -21,3 +21,6 @@ class PrepareEnvException(ActionRuntimeException):
         super().__init__()
         self.exit_code = exit_code
         self.reason = reason
+
+    def __str__(self) -> str:
+        return f"{self.reason} (Exit code {self.exit_code})"

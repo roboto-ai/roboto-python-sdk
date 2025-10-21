@@ -19,6 +19,38 @@ from ..validation import (
 )
 
 
+def parse_action_reference_string(value: str) -> actions.ActionReference:
+    """Parse action reference string into ActionReference object.
+
+    Args:
+        value: Action reference string (e.g., "my-action", "org/my-action", "action@digest")
+
+    Returns:
+        Parsed ActionReference instance
+    """
+    org_name_parts = value.split("/", maxsplit=1)
+    name_part = org_name_parts[-1]
+    name_digest_parts = name_part.split("@", maxsplit=1)
+
+    parse_result = dict()
+
+    if len(org_name_parts) == 2:
+        # Org is explicit: Action belongs to the org specified in the reference
+        # Example: "some-org/an-action"
+        action_owner = org_name_parts[0]
+        parse_result["owner"] = action_owner
+
+    if len(name_digest_parts) == 2:
+        action_name, action_digest = name_digest_parts
+        parse_result["name"] = action_name
+        parse_result["digest"] = action_digest
+    elif len(name_digest_parts) == 1:
+        action_name = name_digest_parts[0]
+        parse_result["name"] = action_name
+
+    return actions.ActionReference.model_validate(parse_result)
+
+
 class ActionReferenceParser(argparse.Action):
     """Parse an action reference string into its org (if given) and action name components."""
 
@@ -32,29 +64,8 @@ class ActionReferenceParser(argparse.Action):
         if not isinstance(values, str):
             raise ValueError("ActionReference must be a string")
 
-        org_name_parts = values.split("/", maxsplit=1)
-        name_part = org_name_parts[-1]
-        name_digest_parts = name_part.split("@", maxsplit=1)
-
-        parse_result = dict()
-
-        if len(org_name_parts) == 2:
-            # Org is explicit: Action belongs to the org specified in the reference
-            # Example: "some-org/an-action"
-            action_owner = org_name_parts[0]
-            parse_result["owner"] = action_owner
-
-        if len(name_digest_parts) == 2:
-            action_name, action_digest = name_digest_parts
-            parse_result["name"] = action_name
-            parse_result["digest"] = action_digest
-        elif len(name_digest_parts) == 1:
-            action_name = name_digest_parts[0]
-            parse_result["name"] = action_name
-
-        setattr(
-            namespace, self.dest, actions.ActionReference.model_validate(parse_result)
-        )
+        action_reference = parse_action_reference_string(values)
+        setattr(namespace, self.dest, action_reference)
 
 
 def add_action_reference_arg(

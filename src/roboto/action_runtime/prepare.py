@@ -126,13 +126,12 @@ def prepare_invocation_environment(
         _ensure_file_path_exists(secrets_file)
         secrets_file.write_text(json.dumps(secret_params, indent=2))
 
-    if merged_parameters:
-        log.info(
-            "Writing action parameter values to %s",
-            parameters_values_file,
-        )
-        _ensure_file_path_exists(parameters_values_file)
-        parameters_values_file.write_text(json.dumps(merged_parameters, indent=2))
+    log.info(
+        "Writing action parameter values to %s",
+        parameters_values_file,
+    )
+    _ensure_file_path_exists(parameters_values_file)
+    parameters_values_file.write_text(json.dumps(merged_parameters, indent=2))
 
     # Resolve and optionally download inputs
     resolved_input: typing.Optional[ActionInputRecord] = None

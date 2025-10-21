@@ -69,6 +69,24 @@ class ActionConfig(pydantic.BaseModel):
     image_uri: typing.Optional[str] = None
     """URI to a non-local Docker image. Must already be pushed a registry accessible by the Roboto Platform."""
 
+    @classmethod
+    def from_file(cls, path: pathlib.Path) -> "ActionConfig":
+        """Load ActionConfig from a JSON file.
+
+        Args:
+            path: Path to the JSON file containing action configuration
+
+        Returns:
+            Parsed ActionConfig instance
+
+        Raises:
+            FileNotFoundError: If the file doesn't exist
+            pydantic.ValidationError: If the JSON is invalid or doesn't match the schema
+        """
+        if not path.exists():
+            raise FileNotFoundError(f"{path.name} not found: {path}")
+        return cls.model_validate_json(path.read_text())
+
     @pydantic.model_validator(mode="before")
     def enforce_invariants(cls, values: dict) -> dict:
         if values.get("docker_config") and values.get("image_uri"):

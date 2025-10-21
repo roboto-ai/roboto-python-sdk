@@ -8,7 +8,10 @@ from ..command import RobotoCommandSet
 from .create import create_command
 from .delete import delete_command
 from .init import init_command
-from .invoke import invoke_command
+from .invoke import (
+    invoke_hosted_command,
+    invoke_local_command,
+)
 from .list_invocations import (
     list_invocations_command,
 )
@@ -22,7 +25,8 @@ commands = [
     update_command,
     search_command,
     show_command,
-    invoke_command,
+    invoke_hosted_command,
+    invoke_local_command,
     list_invocations_command,
     init_command,
 ]

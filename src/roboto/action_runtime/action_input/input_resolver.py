@@ -134,6 +134,13 @@ class ActionInputResolver:
             log.info(f"Downloading {len(files)} file(s) ...")
             resolved_files = self.file_downloader.download_files(download_path, files)
 
+            if topics:
+                log.warning(
+                    "Topic data cannot be downloaded during action invocation setup. "
+                    "Use topic.get_data() or topic.get_data_as_df() in your action code to access topic data. "
+                    "See: https://docs.roboto.ai/reference/python-sdk/roboto/domain/topics/topic/index.html"
+                )
+
         return ActionInputRecord(
             files=[(file.record, path) for file, path in resolved_files],
             topics=[topic.record for topic in topics],
