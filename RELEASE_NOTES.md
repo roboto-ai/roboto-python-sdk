@@ -1,4 +1,4 @@
-# 0.29.0rc1
+# 0.29.0
 ## Features Added
   - Added utilities to initialize an invocation's runtime environment in the SDK to better support action development and local testing.
   - `roboto actions invoke-local` command enables local invocation of actions from either local directories (e.g., actions created with `roboto actions init`) or actions fetched from the Roboto platform.
