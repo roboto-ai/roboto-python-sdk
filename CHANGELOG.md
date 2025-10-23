@@ -1,6 +1,6 @@
 # Changelog
 
-# 0.30.0rc2
+# 0.30.0
 ## Features Added
   - Added an optional `total_count` field to `PaginatedList`
 
