@@ -202,20 +202,36 @@ class InvocationContext:
     @property
     def dataset(self) -> datasets.Dataset:
         """
-        A :class:`~roboto.domain.datasets.Dataset` object for the dataset whose data this action is operating on.
+        A :class:`~roboto.domain.datasets.Dataset` instance for the dataset whose data this action is operating on,
+        if any.
 
-        This object will be lazy-initialized the first time it is accessed, which might result in a
-        :class:`~roboto.exceptions.domain.RobotoNotFoundException` if the dataset does not exist.
+        This resource will be lazily initialized the first time it is accessed.
         After the first call, the dataset will be cached.
 
-        This is particularly useful for adding tags or metadata to a dataset at runtime, for example:
+        This is particularly useful for adding tags or metadata to a dataset at runtime.
 
-        >>> from roboto import InvocationContext
-        >>> context = InvocationContext.from_env()
-        >>> context.dataset.put_tags(["tagged_by_action"])
-        >>> context.dataset.put_metadata({"voltage_spikes_seen": 693})
+        Raises:
+            RobotoNotFoundException: If the dataset does not exist.
+            ActionRuntimeException: If the dataset is not specified (e.g., when running locally,
+                using scheduled triggers, or invoking via CLI with query-based input data).
+
+        Examples:
+            Add tags/metadata to the dataset:
+
+            >>> context.dataset.put_tags(["tagged_by_action"])
+            >>> context.dataset.put_metadata({"voltage_spikes_seen": 693})
         """
         if self.__dataset is None:
+            UNSPECIFIED_DATASET_ID = (
+                actions.InvocationDataSource.unspecified().data_source_id
+            )
+            if self.dataset_id == UNSPECIFIED_DATASET_ID:
+                raise ActionRuntimeException(
+                    "No dataset is associated with this invocation. "
+                    "This occurs when running locally, using scheduled triggers, "
+                    "or invoking via CLI with query-based input data."
+                )
+
             self.__dataset = datasets.Dataset.from_id(
                 self.__dataset_id, roboto_client=self.__roboto_client
             )
