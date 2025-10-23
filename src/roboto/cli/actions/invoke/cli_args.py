@@ -85,6 +85,7 @@ def add_parameter_args(parser: argparse.ArgumentParser) -> None:
         metavar="<PARAMETER_NAME>=<PARAMETER_VALUE>",
         dest="params",
         action=KeyValuePairsAction,
+        parse_json=False,  # Passed to KeyValuePairsAction
         default=dict(),
         help=(
             "Parameter in ``<parameter_name>=<parameter_value>`` format. "

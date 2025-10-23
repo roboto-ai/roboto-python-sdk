@@ -76,6 +76,8 @@ class PaginatedList(pydantic.BaseModel, typing.Generic[Model]):
     items: list[Model]
     # Opaque token that can be used to fetch the next page of results.
     next_token: typing.Optional[str] = None
+    # Total number of items in the result set.
+    total_count: typing.Optional[int] = None
 
 
 class StreamedList(pydantic.BaseModel, typing.Generic[Model]):

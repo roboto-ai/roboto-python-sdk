@@ -1,5 +1,10 @@
 # Changelog
 
+# 0.30.0rc0  - Added an optional total_count field to `PaginatedList`
+
+## Bugs Fixed
+  - Action parameters passed via `roboto actions invoke --parameter` are now correctly treated as strings, matching the documented behavior.
+
 # 0.29.0
 ## Features Added
   - Added utilities to initialize an invocation's runtime environment in the SDK to better support action development and local testing.
