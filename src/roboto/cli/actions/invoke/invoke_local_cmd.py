@@ -114,10 +114,10 @@ def invoke_local(
         workspace=workspace,
         action_source=action_source,
         org_id=org_id,
-        roboto_endpoint=context.roboto_client.endpoint,
         dataset_id=dataset_id,
         provided_params=provided_params,
         cleanup_workdir=is_temp_workdir,
+        roboto_config=context.roboto_config,
         dry_run=getattr(args, "dry_run", False),
         log_level=args.log_level,
     )

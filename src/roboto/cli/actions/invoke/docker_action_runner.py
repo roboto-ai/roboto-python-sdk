@@ -20,13 +20,10 @@ import typing
 from ....action_runtime import (
     ActionRuntimeException,
 )
+from ....config import RobotoConfig
 from ....env import RobotoEnvKey
 from .action_resolution import ActionSource
 from .workspace import Workspace
-
-# Docker container paths for Roboto configuration
-HOST_CONFIG_FILE_PATH = "~/.roboto/config.json"
-CONTAINER_CONFIG_FILE_PATH = "/roboto.config.json"
 
 
 class DockerActionRunner:
@@ -41,10 +38,10 @@ class DockerActionRunner:
         workspace: Workspace,
         action_source: ActionSource,
         org_id: str,
-        roboto_endpoint: str,
         dataset_id: str,
         provided_params: dict[str, typing.Any],
         cleanup_workdir: bool,
+        roboto_config: RobotoConfig,
         dry_run: bool = False,
         log_level: typing.Optional[str] = None,
     ):
@@ -54,20 +51,20 @@ class DockerActionRunner:
             workspace: Workspace instance with all paths
             action_source: ActionSource indicating where action comes from
             org_id: Organization ID
-            roboto_endpoint: Roboto service endpoint
             dataset_id: Dataset ID for invocation
             provided_params: User-provided parameter values
             cleanup_workdir: Whether to clean up workdir after execution
+            roboto_config: RobotoConfig instance
             dry_run: Whether to run in dry-run mode (gates side effects)
             log_level: Log level for the action invocation
         """
         self.workspace = workspace
         self.action_source = action_source
         self.org_id = org_id
-        self.roboto_endpoint = roboto_endpoint
         self.dataset_id = dataset_id
         self.provided_params = provided_params
         self.cleanup_workdir = cleanup_workdir
+        self.roboto_config = roboto_config
         self.dry_run = dry_run
         self.log_level = log_level
 
@@ -107,8 +104,6 @@ class DockerActionRunner:
             "-it",
             "-u",
             f"{os.getuid()}:{os.getgid()}",
-            "-v",
-            f"{os.path.expanduser(HOST_CONFIG_FILE_PATH)}:{CONTAINER_CONFIG_FILE_PATH}",
             "-v",
             f"{self.workspace.root}:{self.workspace.root}",
         ]
@@ -160,7 +155,8 @@ class DockerActionRunner:
             RobotoEnvKey.OutputDir.value: str(self.workspace.output_dir),
             RobotoEnvKey.InvocationId.value: "inv_LOCAL_DOCKER_INVOCATION",
             RobotoEnvKey.OrgId.value: self.org_id,
-            RobotoEnvKey.RobotoServiceEndpoint.value: self.roboto_endpoint,
+            RobotoEnvKey.RobotoServiceEndpoint.value: self.roboto_config.endpoint,
+            RobotoEnvKey.ApiKey.value: self.roboto_config.api_key,
             RobotoEnvKey.ActionRuntimeConfigDir.value: str(self.workspace.config_dir),
             RobotoEnvKey.ActionInputsManifest.value: str(
                 self.workspace.input_data_manifest_file
@@ -173,7 +169,6 @@ class DockerActionRunner:
             ),
             RobotoEnvKey.DryRun.value: str(self.dry_run).lower(),
             RobotoEnvKey.RobotoEnv.value: f"LOCAL ({socket.getfqdn()})",
-            RobotoEnvKey.ConfigFile.value: CONTAINER_CONFIG_FILE_PATH,
             "HOME": str(self.workspace.root),
         }
 

@@ -247,7 +247,7 @@ def __populate_context(
 
     auth_decorator = BearerTokenDecorator(config.api_key)
 
-    context.roboto_service_base_url = config.endpoint
+    context.roboto_config = config
     context.roboto_client = RobotoClient(
         endpoint=config.endpoint,
         auth_decorator=auth_decorator,

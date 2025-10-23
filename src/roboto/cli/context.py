@@ -6,6 +6,7 @@
 
 import typing
 
+from ..config import RobotoConfig
 from ..http import HttpClient, RobotoClient
 
 
@@ -14,6 +15,7 @@ class CLIContext:
     __http: typing.Optional[HttpClient]
     extensions: dict[str, typing.Any]
     roboto_client: RobotoClient
+    roboto_config: RobotoConfig
 
     @property
     def roboto_service_base_url(self) -> str:
