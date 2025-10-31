@@ -4,11 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-# Copyright (c) 2024 Roboto Technologies, Inc.
-#
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at https://mozilla.org/MPL/2.0/.
 from __future__ import annotations
 
 import collections.abc
@@ -24,6 +19,7 @@ from .domain import (
     files,
     topics,
 )
+from .env import RobotoEnv
 from .http import RobotoClient
 from .query import Query, QueryClient, QueryTarget
 
@@ -47,6 +43,31 @@ class RobotoSearch:
         cls, roboto_client: RobotoClient, org_id: typing.Optional[str] = None
     ) -> RobotoSearch:
         return RobotoSearch(query_client=QueryClient(roboto_client, org_id))
+
+    @classmethod
+    def from_env(cls) -> RobotoSearch:
+        """Create a RobotoSearch instance configured from environment variables.
+
+        Reads authentication credentials and endpoint configuration from environment
+        variables ($ROBOTO_API_KEY/$ROBOTO_BEARER_TOKEN, $ROBOTO_SERVICE_ENDPOINT)
+        or the config file at $ROBOTO_CONFIG_FILE (default: ~/.roboto/config.json).
+        If using the config file, $ROBOTO_PROFILE can be used to select a profile from the config.
+
+        $ROBOTO_ORG_ID can be used to set the organization ID to query.
+        This should only be necessary if you belong to multiple organizations.
+
+        Returns:
+            A configured RobotoSearch instance ready to query the Roboto platform.
+
+        Examples:
+            >>> import roboto
+            >>> roboto_search = roboto.RobotoSearch.from_env()
+            >>> for dataset in roboto_search.find_datasets():
+            ...     print(dataset.name)
+        """
+        roboto_client = RobotoClient.from_env()
+        env = RobotoEnv.default()
+        return cls.for_roboto_client(roboto_client, env.org_id)
 
     def __init__(self, query_client: typing.Optional[QueryClient] = None):
         self.__query_client = (
