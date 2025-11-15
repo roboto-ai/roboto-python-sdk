@@ -1,8 +1,7 @@
-# 0.31.0
+# 0.31.1
 ## Features Added
-  - Add `RobotoSearch::from_env` classmethod for convenience and consistency with other Roboto resource factories.
+  - Many improvements to `roboto.ai.Chat` and `roboto chat start`
 
 ## Bugs Fixed
-  - `get_data` and `get_data_as_df` APIs now correctly handle extracting array fields from ROS messages.
-  - `get_data` and `get_data_as_df` APIs now correctly handle extracting ROS1 and ROS2 timestamp fields.
+  - `roboto actions init` no longer prompts to delete and re-download a previously cached Action template (if exists). This should always happen to ensure new Actions are making use of the latest template.
 

@@ -1,12 +1,12 @@
-# Copyright (c) 2024 Roboto Technologies, Inc.
+# Copyright (c) 2025 Roboto Technologies, Inc.
 #
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import argparse
-import os
 import pathlib
+import tempfile
 
 from cookiecutter.main import cookiecutter
 
@@ -26,7 +26,27 @@ def init(
     if not path.is_dir():
         parser.error(f"{path} does not exist, or is not a directory.")
 
-    cookiecutter(COOKIECUTTER_REPO, output_dir=path)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # GM (2025-11-05)
+        # cookiecutter currently always includes the following prompt:
+        #   > You've downloaded ... before. Is it okay to delete and re-download it? [y/n] (y)
+        # I think this is annoying and useless. Also selecting "n" is always the wrong thing to do.
+        # cookiecutter maintainers refuse to add an option for always redownloading the template:
+        # see https://github.com/cookiecutter/cookiecutter/issues/1201.
+        # So, this.
+        # Refs:
+        #   1. https://github.com/cookiecutter/cookiecutter/blob/main/cookiecutter/main.py#L79-L82
+        #   2. https://github.com/cookiecutter/cookiecutter/blob/main/cookiecutter/config.py#L89-L113
+        cookiecutter_config = {"cookiecutters_dir": tmpdir}
+
+        try:
+            cookiecutter(
+                COOKIECUTTER_REPO,
+                output_dir=str(path),
+                default_config=cookiecutter_config,  # type: ignore
+            )
+        except KeyboardInterrupt:
+            pass
 
 
 def init_parser(parser: argparse.ArgumentParser):
@@ -35,7 +55,7 @@ def init_parser(parser: argparse.ArgumentParser):
         nargs="?",
         type=pathlib.Path,
         help="Existing directory under which an action package will be created.",
-        default=os.getcwd(),
+        default=pathlib.Path.cwd(),
     )
 
 

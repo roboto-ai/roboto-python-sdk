@@ -50,6 +50,7 @@ class InvocationContext:
     """A utility for performing common lookups and other operations during a Roboto Action's runtime.
 
     The easiest and most common way to initialize this is:
+
     >>> from roboto import InvocationContext
     >>> context = InvocationContext.from_env()
 
@@ -63,10 +64,10 @@ class InvocationContext:
     >>> from roboto import InvocationContext
     >>> context = InvocationContext(
     ...     dataset_id="ds_XXXXXXXXXXXX",
-    ...     input_dir=pathlib.Path("/path/to/local/input/dir"),
+    ...     input_dir=pathlib.Path("/path/to/tmp/input/dir"),
     ...     invocation_id="iv_XXXXXXXXXXXX",
     ...     org_id="og_XXXXXXXXXXXX",
-    ...     output_dir=pathlib.Path("/path/to/local/output/dir"),
+    ...     output_dir=pathlib.Path("/path/to/tmp/output/dir"),
     ... )
     """
 
