@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
 import datetime
 import pathlib
@@ -15,6 +17,7 @@ import botocore.config
 import botocore.credentials
 import botocore.session
 
+from ...ai import SetSummaryRequest
 from ...ai.summary import (
     AISummary,
     PollingStreamingAISummary,
@@ -164,7 +167,7 @@ class File:
         file_id: str,
         version_id: typing.Optional[int] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> "File":
+    ) -> File:
         """Create a File instance from a file ID.
 
         Retrieves file information from the Roboto platform using the provided file ID
@@ -205,7 +208,7 @@ class File:
         dataset_id: str,
         version_id: typing.Optional[int] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> "File":
+    ) -> File:
         """Create a File instance from a file path and dataset ID.
 
         Retrieves file information using the file's relative path within a specific dataset.
@@ -247,7 +250,7 @@ class File:
         requests: collections.abc.Sequence[ImportFileRequest],
         roboto_client: typing.Optional[RobotoClient] = None,
         caller_org_id: typing.Optional[str] = None,
-    ) -> collections.abc.Sequence["File"]:
+    ) -> collections.abc.Sequence[File]:
         """Import files from customer S3 bring-your-own buckets into Roboto datasets.
 
         This is the ingress point for importing data stored in customer-owned S3 buckets
@@ -324,7 +327,7 @@ class File:
         metadata: typing.Optional[dict[str, typing.Any]] = None,
         device_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> "File":
+    ) -> File:
         """Import a single file from an external bucket into a Roboto dataset. This currently only supports AWS S3.
 
         This is a convenience method for importing a single file from customer-owned buckets
@@ -409,7 +412,7 @@ class File:
         spec: typing.Optional[QuerySpecification] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
         owner_org_id: typing.Optional[str] = None,
-    ) -> collections.abc.Generator["File", None, None]:
+    ) -> collections.abc.Generator[File, None, None]:
         """Query files using a specification with filters and pagination.
 
         Searches for files matching the provided query specification. Results are returned
@@ -950,7 +953,7 @@ class File:
 
             yield topic
 
-    def mark_ingested(self) -> "File":
+    def mark_ingested(self) -> File:
         """Mark this file as fully ingested and ready for post-processing.
 
         Updates the file's ingestion status to indicate that all data has been
@@ -978,7 +981,7 @@ class File:
         """
         return self.update(ingestion_complete=True)
 
-    def put_metadata(self, metadata: dict[str, typing.Any]) -> "File":
+    def put_metadata(self, metadata: dict[str, typing.Any]) -> File:
         """Add or update metadata fields for this file.
 
         Adds new metadata fields or updates existing ones. Existing fields not
@@ -1005,7 +1008,7 @@ class File:
         """
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
 
-    def put_tags(self, tags: list[str]) -> "File":
+    def put_tags(self, tags: list[str]) -> File:
         """Add or update tags for this file.
 
         Replaces the file's current tags with the provided list. To add tags
@@ -1028,7 +1031,7 @@ class File:
         """
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
-    def refresh(self) -> "File":
+    def refresh(self) -> File:
         """Refresh this file instance with the latest data from the platform.
 
         Fetches the current state of the file from the Roboto platform and updates
@@ -1088,7 +1091,7 @@ class File:
 
         return response.to_record(FileRecord)
 
-    def set_device_id(self, device_id: str) -> "File":
+    def set_device_id(self, device_id: str) -> File:
         """Set the device ID for this file.
 
         Args:
@@ -1106,6 +1109,26 @@ class File:
             >>> updated_file = file.set_device_id("device_xyz789")
         """
         return self.update(device_id=device_id)
+
+    def set_summary(self, summary: str) -> File:
+        """Explicitly set the AI summary text for this file.
+
+        This method is intended to be used in cases where an action or other active component is able to generate
+        a more specialized summary than `File::generate_summary` would, and you want to make that summary
+        canonical from the perspective of the UI and `File::get_summary`.
+
+        Args:
+            summary: The summary text to set for this file. This text will be rendered as Markdown, and can include
+            specialized roboto:// entity links for rich UI linking.
+        Returns:
+            This File instance for method chaining.
+        """
+        self.__roboto_client.put(
+            f"v1/files/{self.file_id}/summary",
+            data=SetSummaryRequest(summary=summary),
+        )
+
+        return self
 
     def to_association(self) -> Association:
         """Convert this file to an Association reference.
@@ -1150,7 +1173,7 @@ class File:
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
         ingestion_complete: typing.Union[typing.Literal[True], NotSetType] = NotSet,
         device_id: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
-    ) -> "File":
+    ) -> File:
         """Update this file's properties.
 
         Updates various properties of the file including description, metadata,

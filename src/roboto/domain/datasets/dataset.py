@@ -18,6 +18,7 @@ import typing
 
 import pathspec
 
+from ...ai import SetSummaryRequest
 from ...ai.summary import (
     AISummary,
     PollingStreamingAISummary,
@@ -1152,6 +1153,26 @@ class Dataset:
             device_id=device_id,
             create_device_if_missing=create_device_if_missing,
         )
+
+    def set_summary(self, summary: str) -> Dataset:
+        """Explicitly set the AI summary text for this dataset.
+
+        This method is intended to be used in cases where an action or other active component is able to generate
+        a more specialized summary than `Dataset::generate_summary` would, and you want to make that summary
+        canonical from the perspective of the UI and `Dataset::get_summary`.
+
+        Args:
+            summary: The summary text to set for this dataset. This text will be rendered as Markdown, and can include
+            specialized roboto:// entity links for rich UI linking.
+        Returns:
+            This Dataset instance for method chaining.
+        """
+        self.__roboto_client.put(
+            f"v1/datasets/{self.dataset_id}/summary",
+            data=SetSummaryRequest(summary=summary),
+        )
+
+        return self
 
     def to_association(self) -> Association:
         return Association.dataset(self.dataset_id)

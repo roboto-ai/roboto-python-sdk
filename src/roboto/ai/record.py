@@ -14,3 +14,12 @@ class PromptRequest(pydantic.BaseModel):
 
     prompt: str
     """The prompt to send to the AI model."""
+
+
+class SetSummaryRequest(pydantic.BaseModel):
+    """
+    A request to set the summary of an entity.
+    """
+
+    summary: str
+    """The summary to set."""

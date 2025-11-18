@@ -1,8 +1,14 @@
 # Changelog
 
+# 0.31.2
+## Features Added
+  - Added `Dataset::set_summary` and `File::set_summary` to enable actions to set a custom summary for a dataset or file.
+
 # 0.31.1
 ## Features Added
   - Many improvements to `roboto.ai.Chat` and `roboto chat start`
+  - Added `TriggerEvaluationCause.FileMetadataUpdate` to enable triggers to fire when file metadata or tags are updated (distinct from `FileIngest` which fires when files are marked as ingested).
+  - Trigger conditions now support resource-qualified field paths in RoboQL syntax (e.g., `file.metadata.key`, `dataset.name`), enabling conditions to target specific resource types. This allows per-file triggers to filter based on file-specific properties while per-dataset triggers can reference dataset properties.
 
 ## Bugs Fixed
   - `roboto actions init` no longer prompts to delete and re-download a previously cached Action template (if exists). This should always happen to ensure new Actions are making use of the latest template.

@@ -25,6 +25,7 @@ from .conditions import (
     ConditionOperator,
     ConditionType,
     ConditionValue,
+    Field,
 )
 from .specification import (
     DEFAULT_PAGE_SIZE,
@@ -43,6 +44,7 @@ __all__ = (
     "ConditionType",
     "ConditionValue",
     "ConditionVisitor",
+    "Field",
     "QualifiedRoboqlQuery",
     "Query",
     "QueryClient",

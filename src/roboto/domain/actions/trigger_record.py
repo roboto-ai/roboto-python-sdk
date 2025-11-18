@@ -55,6 +55,9 @@ class TriggerEvaluationCause(enum.Enum):
     FileIngest = "file_ingest"
     """Trigger evaluation caused by files being ingested into a dataset."""
 
+    FileMetadataUpdate = "file_metadata_update"
+    """Trigger evaluation caused by file metadata or tag updates."""
+
     RecurringSchedule = "recurring_schedule"
     """Trigger evaluation caused by a recurring schedule.
 
@@ -212,8 +215,11 @@ class TriggerEvaluationDataConstraint(pydantic.BaseModel):
     evaluate files from dataset ds_12345 with upload ID tx_123abc
     """
 
-    transaction_id: typing.Union[str, None] = None
+    transaction_id: typing.Optional[str] = None
     """If set, only consider files from this upload."""
+
+    file_id: typing.Optional[str] = None
+    """If set, only consider this file as part of trigger evaluation."""
 
 
 class TriggerEvaluationRecord(pydantic.BaseModel):

@@ -1,7 +1,4 @@
-# 0.31.1
+# 0.31.2
 ## Features Added
-  - Many improvements to `roboto.ai.Chat` and `roboto chat start`
-
-## Bugs Fixed
-  - `roboto actions init` no longer prompts to delete and re-download a previously cached Action template (if exists). This should always happen to ensure new Actions are making use of the latest template.
+  - Added `Dataset::set_summary` and `File::set_summary` to enable actions to set a custom summary for a dataset or file.
 
