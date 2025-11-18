@@ -18,7 +18,7 @@ jobs:
             image: macos-latest
             arch: aarch64
           - os: macos
-            image: macos-13
+            image: macos-15-intel
             arch: x86_64
           - os: linux
             image: ubuntu-24.04
@@ -118,7 +118,7 @@ jobs:
           - image: macos-latest
             os: macos
             arch: aarch64
-          - image: macos-13
+          - image: macos-15-intel
             os: macos
             arch: x86_64
           - image: ubuntu-24.04
