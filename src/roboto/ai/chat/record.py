@@ -11,6 +11,8 @@ from typing import Any, Optional, Union
 
 import pydantic
 
+from ..core import RobotoLLMContext
+
 
 class ChatRole(str, Enum):
     """Enumeration of possible roles in a chat conversation.
@@ -44,6 +46,22 @@ class ChatMessageStatus(str, Enum):
     """Message generation has finished and content is complete."""
 
 
+class ChatStatus(str, Enum):
+    """Enumeration of possible chat session states.
+
+    Tracks the overall status of a chat session from creation to termination.
+    """
+
+    NOT_STARTED = "not_started"
+    """Chat session has been created but no messages have been sent."""
+
+    USER_TURN = "user_turn"
+    """User has the turn to send a message."""
+
+    ROBOTO_TURN = "roboto_turn"
+    """Roboto is generating a message."""
+
+
 class ChatContentType(str, Enum):
     """Enumeration of different types of content within chat messages.
 
@@ -73,15 +91,23 @@ class ChatTextContent(pydantic.BaseModel):
 class ChatToolUseContent(pydantic.BaseModel):
     """Tool usage request content within a chat message."""
 
-    tool_use: dict[str, Any]
-    """Tool invocation details including tool name and parameters."""
+    content_type: typing.Literal[ChatContentType.TOOL_USE] = ChatContentType.TOOL_USE
+    tool_name: str
+    tool_use_id: str
+    raw_request: Optional[dict[str, Any]] = None
 
 
 class ChatToolResultContent(pydantic.BaseModel):
     """Tool execution result content within a chat message."""
 
-    tool_result: dict[str, Any]
-    """Results returned from tool execution including output data and status."""
+    content_type: typing.Literal[ChatContentType.TOOL_RESULT] = (
+        ChatContentType.TOOL_RESULT
+    )
+    tool_name: str
+    tool_use_id: str
+    runtime_ms: int
+    status: str
+    raw_response: Optional[dict[str, Any]] = None
 
 
 ChatContent: typing.TypeAlias = Union[
@@ -160,6 +186,31 @@ class ChatRecord(pydantic.BaseModel):
     continuation_token: str
     """Token used for incremental updates and synchronization."""
 
+    status: ChatStatus
+    """Current status of the chat session."""
+
+    title: Optional[str] = None
+    """Title of the chat session."""
+
+    def calculate_new_status(self) -> ChatStatus:
+        """Calculate the new status of the chat session based on the latest message."""
+        if len(self.messages) == 0:
+            return ChatStatus.NOT_STARTED
+
+        latest_message = self.messages[-1]
+
+        is_user_turn = (
+            latest_message.role == ChatRole.ASSISTANT
+            and latest_message.status == ChatMessageStatus.COMPLETED
+            and len(latest_message.content) > 0
+            and isinstance(latest_message.content[-1], ChatTextContent)
+        )
+
+        if is_user_turn:
+            return ChatStatus.USER_TURN
+        else:
+            return ChatStatus.ROBOTO_TURN
+
 
 class ChatRecordDelta(pydantic.BaseModel):
     """Incremental update to a chat session.
@@ -174,6 +225,45 @@ class ChatRecordDelta(pydantic.BaseModel):
     continuation_token: str
     """Updated token for the next incremental synchronization."""
 
+    status: Optional[ChatStatus] = None
+    """Updated status of the chat session."""
+
+    title: Optional[str] = None
+    """Updated title of the chat session."""
+
+    def calculate_new_status(self) -> ChatStatus | None:
+        """Calculate the new status of the chat session based on the latest message."""
+        if len(self.messages_by_idx) == 0:
+            return None
+
+        latest_message_idx = max(self.messages_by_idx.keys())
+        latest_message = self.messages_by_idx[latest_message_idx]
+
+        is_user_turn = (
+            latest_message.role == ChatRole.ASSISTANT
+            and latest_message.status == ChatMessageStatus.COMPLETED
+            and len(latest_message.content) > 0
+            and isinstance(latest_message.content[-1], ChatTextContent)
+        )
+
+        if is_user_turn:
+            return ChatStatus.USER_TURN
+        else:
+            return ChatStatus.ROBOTO_TURN
+
+
+class SendMessageRequest(pydantic.BaseModel):
+    """Request payload for sending a message to a chat session.
+
+    Contains the message content and optional context for the AI assistant.
+    """
+
+    context: Optional[RobotoLLMContext] = None
+    """Optional context to include with the message."""
+
+    message: ChatMessage
+    """Message content to send."""
+
 
 class StartChatRequest(pydantic.BaseModel):
     """Request payload for starting a new chat session.
@@ -181,6 +271,9 @@ class StartChatRequest(pydantic.BaseModel):
     Contains the initial messages and configuration for creating a new
     chat conversation.
     """
+
+    context: Optional[RobotoLLMContext] = None
+    """Optional context to include with the message."""
 
     messages: list[ChatMessage]
     """Initial messages to start the conversation with."""

@@ -1,5 +1,15 @@
 # Changelog
 
+# _version_ (upcoming)
+
+## No Breaking Changes
+
+## Features Added
+  - Internal: Added infrastructure to support file uploads independent of datasets, enabling upcoming features for file and topic management.
+
+## Bugs Fixed
+  - 
+
 # 0.31.2
 ## Features Added
   - Added `Dataset::set_summary` and `File::set_summary` to enable actions to set a custom summary for a dataset or file.

@@ -1,4 +1,4 @@
-AUTOGEN_VERSION = "0.31.2"
+AUTOGEN_VERSION = "0.31.3"
 
 __all__= ("AUTOGEN_VERSION",)
     

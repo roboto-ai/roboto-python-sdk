@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import collections.abc
 import time
+import typing
 from typing import Optional, Union
 
 from ...http import RobotoClient
+from ..core import RobotoLLMContext
 from .event import (
     ChatEvent,
     ChatStartTextEvent,
@@ -21,13 +23,14 @@ from .event import (
 )
 from .record import (
     ChatMessage,
-    ChatMessageStatus,
     ChatRecord,
     ChatRecordDelta,
     ChatRole,
+    ChatStatus,
     ChatTextContent,
     ChatToolResultContent,
     ChatToolUseContent,
+    SendMessageRequest,
     StartChatRequest,
 )
 
@@ -103,6 +106,7 @@ class Chat:
     def start(
         cls,
         message: Union[str, ChatMessage, collections.abc.Sequence[ChatMessage]],
+        context: Optional[RobotoLLMContext] = None,
         system_prompt: Optional[str] = None,
         org_id: Optional[str] = None,
         roboto_client: Optional[RobotoClient] = None,
@@ -148,6 +152,7 @@ class Chat:
             messages = list(message)
 
         request = StartChatRequest(
+            context=context,
             messages=list(messages),
             system_prompt=system_prompt,
         )
@@ -195,6 +200,11 @@ class Chat:
         return self.__record.messages
 
     @property
+    def status(self) -> ChatStatus:
+        """Current status of the chat session."""
+        return self.__record.status
+
+    @property
     def transcript(self) -> str:
         """Human-readable transcript of the entire conversation.
 
@@ -221,6 +231,9 @@ class Chat:
                 )
             else:
                 self.__record.messages.append(delta.messages_by_idx[idx])
+
+        if delta.status is not None:
+            self.__record.status = delta.status
 
         return delta
 
@@ -302,18 +315,7 @@ class Chat:
             ...     time.sleep(0.1)
             >>> print("Assistant finished responding")
         """
-        # If the last message was a COMPLETED text content block from the assistant, it's the user's turn.
-        #
-        # We need to make sure it's a text block though, because the only other valid content block for an assistant is
-        # a tool use, which will kick off a new message from the Roboto role with the tool result. The assistant and
-        # Roboto might talk back and forth for a while before they're done iterating on tools and presenting the user
-        # with the data they wanted.
-        return self.latest_message is None or (
-            self.latest_message.role == ChatRole.ASSISTANT
-            and self.latest_message.status == ChatMessageStatus.COMPLETED
-            and len(self.latest_message.content) > 0
-            and isinstance(self.latest_message.content[-1], ChatTextContent)
-        )
+        return self.status == ChatStatus.USER_TURN
 
     def refresh(self) -> Chat:
         """Update the chat session with the latest messages and status.
@@ -334,7 +336,9 @@ class Chat:
         self.__get_delta_and_update()
         return self
 
-    def send(self, message: ChatMessage) -> Chat:
+    def send(
+        self, message: ChatMessage, context: typing.Optional[RobotoLLMContext] = None
+    ) -> Chat:
         """Send a structured message to the chat session.
 
         Sends a ChatMessage object to the conversation. The message will be processed by the AI assistant, and a
@@ -342,6 +346,7 @@ class Chat:
 
         Args:
             message: ChatMessage object containing the message content and metadata.
+            context: Optional context to include with the message.
 
         Returns:
             Self for method chaining.
@@ -359,15 +364,19 @@ class Chat:
             >>> for text in chat.stream():
             ...     print(text, end="", flush=True)
         """
+        request = SendMessageRequest(message=message, context=context)
+
         self.__roboto_client.post(
             f"v1/ai/chats/{self.__record.chat_id}/messages",
-            data=message,
+            data=request,
         )
 
         self.__record.messages.append(message)
         return self
 
-    def send_text(self, text: str) -> Chat:
+    def send_text(
+        self, text: str, context: typing.Optional[RobotoLLMContext] = None
+    ) -> Chat:
         """Send a text message to the chat session.
 
         Convenience method for sending a simple text message without needing to construct a ChatMessage object. The
@@ -375,6 +384,7 @@ class Chat:
 
         Args:
             text: Text content to send to the assistant.
+            context: Optional context to include with the message.
 
         Returns:
             Self for method chaining.
@@ -392,7 +402,9 @@ class Chat:
             >>> for response in chat.stream():
             ...     print(response, end="", flush=True)
         """
-        return self.send(ChatMessage.text(text=text, role=ChatRole.USER))
+        return self.send(
+            ChatMessage.text(text=text, role=ChatRole.USER), context=context
+        )
 
     def stream_events(
         self,
@@ -423,7 +435,6 @@ class Chat:
         start_time = time.time()
 
         text_in_progress = False
-        tool_ids_to_names: dict[str, str] = {}
 
         while True:
             delta = self.__get_delta_and_update()
@@ -445,18 +456,16 @@ class Chat:
                             text_in_progress = False
 
                     if isinstance(content, ChatToolUseContent):
-                        tool_use_id = content.tool_use["toolUseId"]
-                        tool_name = content.tool_use["name"]
-                        tool_ids_to_names[tool_use_id] = tool_name
-                        yield ChatToolUseEvent(name=tool_name, tool_use_id=tool_use_id)
+                        yield ChatToolUseEvent(
+                            name=content.tool_name, tool_use_id=content.tool_use_id
+                        )
                     elif isinstance(content, ChatToolResultContent):
-                        tool_use_id = content.tool_result["toolResult"]["toolUseId"]
-                        tool_name = tool_ids_to_names.get(tool_use_id, "unknown")
+                        tool_use_id = content.tool_use_id
+                        tool_name = content.tool_name
                         yield ChatToolResultEvent(
                             name=tool_name,
                             tool_use_id=tool_use_id,
-                            success=content.tool_result["toolResult"]["status"]
-                            == "success",
+                            success=content.status == "success",
                         )
 
             if self.is_user_turn():

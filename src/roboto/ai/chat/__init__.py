@@ -11,7 +11,9 @@ from .record import (
     ChatMessageStatus,
     ChatRecord,
     ChatRole,
+    ChatStatus,
     ChatTextContent,
+    SendMessageRequest,
     StartChatRequest,
 )
 
@@ -23,5 +25,7 @@ __all__ = [
     "ChatMessageStatus",
     "ChatTextContent",
     "ChatRole",
+    "ChatStatus",
+    "SendMessageRequest",
     "StartChatRequest",
 ]
