@@ -44,7 +44,7 @@ class FileService:
         batch_size: int = _DEFAULT_UPLOAD_BATCH_SIZE,
         device_id: typing.Optional[str] = None,
         caller_org_id: typing.Optional[str] = None,
-    ) -> None:
+    ) -> list[str]:
         items: list[TransactionFile] = []
         for local_path in files:
             try:
@@ -63,13 +63,14 @@ class FileService:
             )
 
         if not items:
-            return
+            return []
 
         # GM(2025-11-19)
         # For reasons related to OpenFGA scalability/throughput,
         # upload transactions are currently limited to 500 files.
         # Until that is fixed, implement batching by creating multiple transactions.
         # When that is lifted, batching is already handled by the UploadTransaction.
+        completed_upload_node_ids: list[str] = []
         for batch_start in range(0, len(items), batch_size):
             item_batch = items[batch_start : batch_start + batch_size]
 
@@ -97,3 +98,7 @@ class FileService:
 
                     for future in futures:
                         future.result()
+
+                completed_upload_node_ids.extend(txn.completed_upload_node_ids)
+
+        return completed_upload_node_ids

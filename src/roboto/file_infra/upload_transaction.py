@@ -128,6 +128,8 @@ class UploadTransaction:
         self.__transaction_id: typing.Optional[str] = None
         self.__upload_mappings: typing.Optional[dict[str, str]] = None
 
+        self.__completed_upload_node_ids: list[str] = []
+
     def __enter__(self) -> UploadTransaction:
         resource_manifest = {
             file["destination_path"]: file["file_size"] for file in self.__items
@@ -174,6 +176,10 @@ class UploadTransaction:
                 uploaded.append(uploadable)
 
             self.__flush(uploaded)
+
+    @property
+    def completed_upload_node_ids(self) -> list[str]:
+        return self.__completed_upload_node_ids
 
     @property
     def credential_provider(self) -> CredentialProvider:
@@ -225,10 +231,12 @@ class UploadTransaction:
         )
 
     def __flush(self, batch: list[UploadableFile]):
-        manifest_items = [file["destination_path"] for file in batch]
-        self.__roboto_client.put(
+        manifest_items = [file["upload_uri"] for file in batch]
+        response = self.__roboto_client.put(
             f"v2/datasets/{self.__dataset_id}/batch_uploads/{self.transaction_id}/progress",
             data=ReportTransactionProgressRequest(
                 manifest_items=manifest_items,
             ),
         )
+        node_ids = response.to_string_list()
+        self.__completed_upload_node_ids.extend(node_ids)

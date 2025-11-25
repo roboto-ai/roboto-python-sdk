@@ -9,10 +9,13 @@ from __future__ import annotations
 import collections.abc
 from datetime import datetime
 import pathlib
+import tempfile
 import typing
 import urllib.parse
 
 from ...association import Association
+from ...compat import import_optional_dependency
+from ...exceptions import RobotoConflictException
 from ...http import RobotoClient
 from ...logging import default_logger
 from ...sentinels import (
@@ -21,7 +24,7 @@ from ...sentinels import (
     is_set,
     remove_not_set,
 )
-from ...time import Time
+from ...time import Time, TimeUnit
 from ...updates import (
     MetadataChangeset,
     TaglessMetadataChangeset,
@@ -36,6 +39,12 @@ from .operations import (
     UpdateMessagePathRequest,
     UpdateTopicRequest,
 )
+from .parquet import (
+    ParquetParser,
+    field_to_message_path_request,
+    make_topic_filename_safe,
+    upload_representation_file,
+)
 from .record import (
     CanonicalDataType,
     MessagePathRecord,
@@ -47,6 +56,7 @@ from .topic_data_service import TopicDataService
 
 if typing.TYPE_CHECKING:
     import pandas  # pants: no-infer-dep
+
 
 logger = default_logger()
 
@@ -180,6 +190,155 @@ class Topic:
         )
         record = response.to_record(TopicRecord)
         return cls(record, roboto_client)
+
+    @classmethod
+    def create_from_df(
+        cls,
+        file_id: str,
+        dataset_id: str,
+        topic_name: str,
+        df: "pandas.DataFrame",
+        timestamp_column: typing.Optional[str] = None,
+        timestamp_unit: typing.Optional[typing.Union[str, TimeUnit]] = None,
+        caller_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> Topic:
+        """Create a Topic from a pandas DataFrame and associate it with a file.
+
+        If a topic with the same name already exists for the specified file, it will be
+        updated with the new data and schema.
+
+        Args:
+            file_id: ID of the file to associate this topic with.
+            dataset_id: ID of the dataset containing the file.
+            topic_name: Name for the topic. Must be unique within the file.
+            df: pandas DataFrame containing the data to ingest. Must include a timestamp
+                column (either explicitly specified or automatically detectable).
+            timestamp_column: Name of the column to use as the timestamp. If not provided,
+                the method will attempt to automatically detect a timestamp column by looking
+                for the first column that is a timezone-aware timestamp type.
+            timestamp_unit: Unit of the timestamp column values. Required when timestamp_column
+                contains numeric values (int, float, decimal). Valid values include "s", "ms",
+                "us", "ns". Not needed for datetime columns or when timestamp_column is not specified.
+            caller_org_id: Organization ID of the caller. If not provided, uses the default
+                from the client context.
+            roboto_client: Roboto client instance. If not provided, uses the default client.
+
+        Returns:
+            The created or updated Topic instance.
+
+        Raises:
+            IngestionException: If the timestamp column cannot be determined, is not present
+                in the DataFrame, has an invalid type, or if the timestamp unit is required
+                but not provided.
+            ImportError: If pandas or pyarrow are not installed. Install with
+                ``pip install roboto[ingestion]`` to use this feature.
+            RobotoUnauthorizedException: If the caller lacks permission to create topics
+                or upload files to the specified dataset.
+
+        Notes:
+            - For most use cases, prefer :py:meth:`File.add_topic` instead
+
+        Examples:
+            Create a topic when you have file and dataset IDs:
+
+            >>> import pandas as pd
+            >>> from roboto.domain.topics import Topic
+            >>> df = pd.DataFrame({
+            ...     "timestamp": [1763947309.4198897, 1763947316.7686195, 1763947335.0095527],
+            ...     "temperature": [20.5, 21.0, 20.8],
+            ...     "humidity": [45.2, 46.1, 45.8]
+            ... })
+            >>> topic = Topic.create_from_df(
+            ...     file_id="file_abc123",
+            ...     dataset_id="ds_xyz789",
+            ...     topic_name="sensor_data",
+            ...     df=df,
+            ...     timestamp_column="timestamp",
+            ...     timestamp_unit="s"
+            ... )
+            >>> print(f"Created topic: {topic.name}")
+            Created topic: sensor_data
+
+            Using File.add_topic() is typically more convenient:
+
+            >>> from roboto import File
+            >>> file = File.from_id("file_abc123")
+            >>> topic = file.add_topic(
+            ...     "sensor_data",
+            ...     df,
+            ...     timestamp_column="timestamp",
+            ...     timestamp_unit="s"
+            ... )
+        """
+        # PyArrow is required by Pandas to serialize to Parquet.
+        # Re-use the `import_optional_dependency` code path as an assert
+        # with a action-oriented error message.
+        import_optional_dependency("pyarrow", "ingestion")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = pathlib.Path(tmpdir)
+
+            # Serialize to file
+            file_name = make_topic_filename_safe(topic_name)
+            parquet_path = tmpdir_path / f"{file_name}_{file_id}.parquet"
+            df.to_parquet(parquet_path, engine="pyarrow")
+
+            # Index as topic and message_paths
+            parser = ParquetParser(parquet_path)
+            timestamp = parser.extract_timestamp_info(timestamp_column, timestamp_unit)
+            message_path_requests = []
+            for field in parser.fields:
+                message_path_request = field_to_message_path_request(
+                    field, parser, timestamp
+                )
+                message_path_requests.append(message_path_request)
+
+            # Create or update topic
+            try:
+                topic = Topic.create(
+                    file_id=file_id,
+                    topic_name=topic_name,
+                    schema_name=topic_name,
+                    message_count=parser.row_count,
+                    message_paths=message_path_requests,
+                    start_time=timestamp.start_time_ns(),
+                    end_time=timestamp.end_time_ns(),
+                    caller_org_id=caller_org_id,
+                    roboto_client=roboto_client,
+                )
+                logger.info("Created topic '%s'", topic_name)
+            except RobotoConflictException:
+                topic = Topic.from_name_and_file(
+                    file_id=file_id,
+                    topic_name=topic_name,
+                    roboto_client=roboto_client,
+                )
+                logger.info("Topic '%s' already exists, updating it", topic_name)
+                topic.update(
+                    schema_name=topic_name,
+                    message_count=parser.row_count,
+                    message_path_changeset=MessagePathChangeset.from_replacement_message_paths(
+                        message_path_requests
+                    ),
+                    start_time=timestamp.start_time_ns(),
+                    end_time=timestamp.end_time_ns(),
+                )
+
+            # Upload representation file and set as default representation for topic
+            representation_file_id = upload_representation_file(
+                parquet_path,
+                Association.dataset(dataset_id),
+                caller_org_id=caller_org_id,
+                roboto_client=roboto_client,
+            )
+            topic.set_default_representation(
+                association=Association.file(representation_file_id),
+                storage_format=RepresentationStorageFormat.PARQUET,
+                version=1,
+            )
+
+        return topic
 
     @classmethod
     def from_id(

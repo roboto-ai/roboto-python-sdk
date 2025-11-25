@@ -1,14 +1,13 @@
 # Changelog
 
-# _version_ (upcoming)
+# 0.32.0
+## Features Added
+  - Added `File::add_topic` and `Topic::create_from_df` methods to create topics directly from pandas DataFrames. SDK must be installed with the `"ingestion"` package extra (e.g. `pip install roboto[ingestion]`) to use this feature.
 
-## No Breaking Changes
+# 0.31.3
 
 ## Features Added
   - Internal: Added infrastructure to support file uploads independent of datasets, enabling upcoming features for file and topic management.
-
-## Bugs Fixed
-  - 
 
 # 0.31.2
 ## Features Added

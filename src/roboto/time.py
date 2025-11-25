@@ -37,6 +37,9 @@ class TimeUnit(str, enum.Enum):
     Microseconds = "us"
     Nanoseconds = "ns"
 
+    def __str__(self) -> str:
+        return self.value
+
     def nano_multiplier(self) -> int:
         if self == TimeUnit.Seconds:
             return NSEC_PER_SEC

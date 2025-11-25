@@ -33,11 +33,17 @@ from .http import (
     HttpError,
     ServerError,
 )
+from .ingestion import (
+    IngestionException,
+    TimestampFieldNotFoundException,
+)
 
 __all__ = [
     "ClientError",
     "HttpError",
+    "IngestionException",
     "ServerError",
+    "TimestampFieldNotFoundException",
     "RobotoConditionException",
     "RobotoConflictException",
     "RobotoDatasetNotFoundException",

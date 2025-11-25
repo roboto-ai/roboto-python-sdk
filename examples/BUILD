@@ -23,7 +23,7 @@ pex_binary(
     ":notebook-utils",
     "//packages/roboto/src/roboto:roboto-src",
 
-    # roboto[analytics] extras
+    # roboto extras (optional deps)
     "//build-support:3rdparty#fsspec",
     "//build-support:3rdparty#numpy",
     "//build-support:3rdparty#pandas",

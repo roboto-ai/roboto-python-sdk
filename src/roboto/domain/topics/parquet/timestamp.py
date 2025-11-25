@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import dataclasses
+import datetime
 import typing
 
 from ....compat import import_optional_dependency
@@ -20,6 +21,32 @@ from ..record import (
 
 if typing.TYPE_CHECKING:
     import pyarrow  # pants: no-infer-dep
+
+
+def is_timestamp_like(arrow_type: "pyarrow.DataType") -> bool:
+    pa = import_optional_dependency("pyarrow", "ingestion")
+
+    return any(
+        [
+            pa.types.is_timestamp(arrow_type),
+            pa.types.is_integer(arrow_type),
+            pa.types.is_decimal(arrow_type),
+            pa.types.is_floating(arrow_type),
+        ],
+    )
+
+
+def is_timezone_aware(arrow_type: "pyarrow.DataType") -> bool:
+    pa = import_optional_dependency("pyarrow", "ingestion")
+
+    return (
+        pa.types.is_timestamp(arrow_type)
+        and typing.cast("pyarrow.TimestampType", arrow_type).tz is not None
+    )
+
+
+def time_unit_from_timestamp_type(timestamp_type: "pyarrow.TimestampType") -> TimeUnit:
+    return TimeUnit(timestamp_type.unit)
 
 
 @dataclasses.dataclass
@@ -65,3 +92,29 @@ class Timestamp:
                 "Make sure you're using the most recent Roboto SDK version. "
                 "If problem persists, please reach out to Roboto support!"
             ) from None
+
+
+@dataclasses.dataclass
+class TimestampInfo:
+    field: "pyarrow.Field"
+    unit: TimeUnit
+    start_time: typing.Optional[typing.Union[int, float, datetime.datetime]]
+    end_time: typing.Optional[typing.Union[int, float, datetime.datetime]]
+
+    def start_time_ns(self) -> typing.Optional[int]:
+        if self.start_time is None:
+            return None
+
+        if isinstance(self.start_time, datetime.datetime):
+            return int(self.start_time.timestamp() * 1_000_000_000)
+
+        return int(self.start_time * self.unit.nano_multiplier())
+
+    def end_time_ns(self) -> typing.Optional[int]:
+        if self.end_time is None:
+            return None
+
+        if isinstance(self.end_time, datetime.datetime):
+            return int(self.end_time.timestamp() * 1_000_000_000)
+
+        return int(self.end_time * self.unit.nano_multiplier())

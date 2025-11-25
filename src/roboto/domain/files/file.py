@@ -31,6 +31,7 @@ from ...sentinels import (
     NotSetType,
     remove_not_set,
 )
+from ...time import TimeUnit
 from ...updates import MetadataChangeset
 from ..topics import Topic
 from .file_creds import (
@@ -47,6 +48,9 @@ from .progress import (
     ProgressMonitorFactory,
 )
 from .record import FileRecord, IngestionStatus
+
+if typing.TYPE_CHECKING:
+    import pandas  # pants: no-infer-dep
 
 
 class File:
@@ -649,6 +653,116 @@ class File:
         metadata changes create new versions.
         """
         return self.__record.version
+
+    def add_topic(
+        self,
+        topic_name: str,
+        df: "pandas.DataFrame",
+        timestamp_column: typing.Optional[str] = None,
+        timestamp_unit: typing.Optional[typing.Union[str, TimeUnit]] = None,
+    ) -> Topic:
+        """Create a Topic from a pandas DataFrame and associate it with this file.
+
+        If a topic with the same name already exists for this file, it will be updated
+        with the new data and schema.
+
+        Args:
+            topic_name: Name for the topic. Must be unique within this file.
+            df: pandas DataFrame containing the data to ingest. Must include a timestamp
+                column (either explicitly specified or automatically detectable).
+            timestamp_column: Name of the column to use as the timestamp. If not provided,
+                the method will attempt to automatically detect a timestamp column by looking
+                for the first column that is a timezone-aware timestamp type.
+            timestamp_unit: Unit of the timestamp column values. Required when timestamp_column
+                contains numeric values (int, float, decimal).
+                Valid values include "s", "ms", "us", "ns".
+                Not needed for datetime columns or when timestamp_column is not specified.
+
+        Returns:
+            The created or updated Topic instance.
+
+        Raises:
+            IngestionException: If the timestamp column cannot be determined, is not present
+                in the DataFrame, has an invalid type, or if the timestamp unit is required
+                but not provided.
+            ImportError: If pandas or pyarrow are not installed. Install with
+                ``pip install roboto[ingestion]`` to use this feature.
+            RobotoUnauthorizedException: If the caller lacks permission to create topics
+                or upload files to this file's dataset.
+
+        Notes:
+            - Requires installing this package using the ``roboto[ingestion]`` extra
+            - Topic names are unique within a file
+            - Schema and statistics are automatically inferred from the DataFrame
+
+        Examples:
+            Create a topic with explicit timestamp column and unit:
+
+            >>> import pandas as pd
+            >>> from roboto import File
+            >>> file = File.from_id("file_abc123")
+            >>> df = pd.DataFrame({
+            ...     "timestamp": [1763947309.4198897, 1763947316.7686195, 1763947335.0095527],
+            ...     "temperature": [20.5, 21.0, 20.8],
+            ...     "humidity": [45.2, 46.1, 45.8]
+            ... })
+            >>> topic = file.add_topic(
+            ...     topic_name="sensor_data",
+            ...     df=df,
+            ...     timestamp_column="timestamp",
+            ...     timestamp_unit="s"
+            ... )
+            >>> print(f"Created topic: {topic.name}")
+            Created topic: sensor_data
+
+            Create a topic with automatic timestamp detection:
+
+            >>> import pandas as pd
+            >>> from roboto import File
+            >>> file = File.from_id("file_abc123")
+            >>> df = pd.DataFrame({
+            ...     "ts": pd.date_range("2025-11-24", periods=3, freq="1s", tz="UTC"),
+            ...     "velocity": [10.5, 11.2, 10.8],
+            ...     "acceleration": [0.5, 0.3, -0.2]
+            ... })
+            >>> topic = file.add_topic("motion_data", df)
+
+            Retrieve the data back
+
+            >>> retrieved_df = topic.get_data_as_df()
+            >>> print(f"Retrieved {len(retrieved_df)} rows")
+            Retrieved 3 rows
+
+            Add derived data as a new topic to the same file:
+
+            >>> import pandas as pd
+            >>> from roboto import File
+            >>> file = File.from_id("file_abc123")
+            >>> # Get existing topic data as DataFrame
+            >>> original_topic = file.get_topic("sensor_data")
+            >>> original_df = original_topic.get_data_as_df().reset_index(drop=True)
+            >>> # Create derived data
+            >>> derived_df = pd.DataFrame({
+            ...     "timestamp": original_df["ts"],
+            ...     "temp_category": original_df["temperature"].apply(
+            ...         lambda x: "hot" if x > 25 else "not_hot"
+            ...     )
+            ... })
+            >>> derived_topic = file.add_topic(
+            ...     "temperature_categories",
+            ...     derived_df,
+            ... )
+        """
+        return Topic.create_from_df(
+            self.file_id,
+            self.dataset_id,
+            topic_name,
+            df,
+            timestamp_column=timestamp_column,
+            timestamp_unit=timestamp_unit,
+            caller_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
 
     def delete(self) -> None:
         """Delete this file from the Roboto platform.

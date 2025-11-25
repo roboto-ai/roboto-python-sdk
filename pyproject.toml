@@ -41,6 +41,10 @@ analytics = [
     "pyarrow>=20.0.0",
     "stumpy>=1.13",
 ]
+ingestion = [
+    "pandas>=2.0",
+    "pyarrow>=20.0.0",
+]
 
 examples = [
     "ipython~=8.28",

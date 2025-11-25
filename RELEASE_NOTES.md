@@ -1,4 +1,4 @@
-# 0.31.2
+# 0.32.0
 ## Features Added
-  - Added `Dataset::set_summary` and `File::set_summary` to enable actions to set a custom summary for a dataset or file.
+  - Added `File::add_topic` and `Topic::create_from_df` methods to create topics directly from pandas DataFrames. SDK must be installed with the `"ingestion"` package extra (e.g. `pip install roboto[ingestion]`) to use this feature.
 

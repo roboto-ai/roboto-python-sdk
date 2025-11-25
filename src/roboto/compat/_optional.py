@@ -20,7 +20,7 @@ IMPORT_ERROR_MSG_TEMPLATE = (
     "Re-install roboto using pip or conda with 'roboto[{pip_extra}]' to install a compatible version."
 )
 
-KNOWN_PIP_EXTRAS: typing.TypeAlias = typing.Literal["analytics"]
+KNOWN_PIP_EXTRAS: typing.TypeAlias = typing.Literal["analytics", "ingestion"]
 
 
 @typing.overload

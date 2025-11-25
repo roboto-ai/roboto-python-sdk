@@ -801,48 +801,48 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "8df6df755727be40ad9e309cfda07f9a12c147e17b639430c55d4e4feee8a167",
-              "url": "https://files.pythonhosted.org/packages/90/8e/966263696eb441e8d1c4daa5fdfb3b4be10a96a23c418cc74c80b0b03d4e/boto3-1.40.76-py3-none-any.whl"
+              "hash": "10a3f5a72e071c362f5aa8443bd949edc31b7494c48a315ccdab14b1c387a1fd",
+              "url": "https://files.pythonhosted.org/packages/37/d3/56e8c147e369fdc1b5526584f87151ca1742949bf5e6ab7500d926107624/boto3-1.41.3-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "16f4cf97f8dd8e0aae015f4dc66219bd7716a91a40d1e2daa0dafa241a4761c5",
-              "url": "https://files.pythonhosted.org/packages/26/04/8cf6cf7e6390c71b9c958f3bfedc45d1182b51a35f7789354bf7b2ff4e8c/boto3-1.40.76.tar.gz"
+              "hash": "8a89f3900a356879022c1600f72cbb3d8b85708f094d2d08a461bd193d0b07ca",
+              "url": "https://files.pythonhosted.org/packages/90/30/1f1bfb34a97709b5d004d5c16ccac81a73ea6c5ce86ce75eaff0a75aee3f/boto3-1.41.3.tar.gz"
             }
           ],
           "project_name": "boto3",
           "requires_dists": [
-            "botocore<1.41.0,>=1.40.76",
+            "botocore<1.42.0,>=1.41.3",
             "botocore[crt]<2.0a0,>=1.21.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
-            "s3transfer<0.15.0,>=0.14.0"
+            "s3transfer<0.16.0,>=0.15.0"
           ],
           "requires_python": ">=3.9",
-          "version": "1.40.76"
+          "version": "1.41.3"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "fe425d386e48ac64c81cbb4a7181688d813df2e2b4c78b95ebe833c9e868c6f4",
-              "url": "https://files.pythonhosted.org/packages/7f/6c/522e05388aa6fc66cf8ea46c6b29809a1a6f527ea864998b01ffb368ca36/botocore-1.40.76-py3-none-any.whl"
+              "hash": "fe2379b30cc726e9e44bf47c3834fe208b85f7eaa57b934ab05f305ca9d05a8b",
+              "url": "https://files.pythonhosted.org/packages/9f/18/a0597e4491d3a725768162c48a4dd1e1a57323fdb40fca04a34e9a68ef93/botocore-1.41.3-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "2b16024d68b29b973005adfb5039adfe9099ebe772d40a90ca89f2e165c495dc",
-              "url": "https://files.pythonhosted.org/packages/07/eb/50e2d280589a3c20c3b649bb66262d2b53a25c03262e4cc492048ac7540a/botocore-1.40.76.tar.gz"
+              "hash": "1c6ad338f445c9bf02e231bfa302239d60520ec6dd88ded3206b34dca100103c",
+              "url": "https://files.pythonhosted.org/packages/8c/e9/d6207e08f35280cb8755b316f0e0a0cd2e8405d1b849e847c26fb4e3e3a6/botocore-1.41.3.tar.gz"
             }
           ],
           "project_name": "botocore",
           "requires_dists": [
-            "awscrt==0.28.4; extra == \"crt\"",
+            "awscrt==0.29.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
             "python-dateutil<3.0.0,>=2.1",
             "urllib3!=2.2.0,<3,>=1.25.4; python_version >= \"3.10\"",
             "urllib3<1.27,>=1.25.4; python_version < \"3.10\""
           ],
           "requires_python": ">=3.9",
-          "version": "1.40.76"
+          "version": "1.41.3"
         },
         {
           "artifacts": [
@@ -1580,13 +1580,13 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "4d111e6e0c13d0644cad6ddaa7ed0261a0b36971f6d23e7ec9b4b9097da78a10",
-              "url": "https://files.pythonhosted.org/packages/36/f4/c6e662dade71f56cd2f3735141b265c3c79293c109549c1e6933b0651ffc/exceptiongroup-1.3.0-py3-none-any.whl"
+              "hash": "a7a39a3bd276781e98394987d3a5701d0c4edffb633bb7a5144577f82c773598",
+              "url": "https://files.pythonhosted.org/packages/8a/0e/97c33bf5009bdbac74fd2beace167cab3f978feb69cc36f1ef79360d6c4e/exceptiongroup-1.3.1-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "b241f5885f560bc56a59ee63ca4c6a8bfa46ae4ad651af316d4e81817bb9fd88",
-              "url": "https://files.pythonhosted.org/packages/0b/9f/a65090624ecf468cdca03533906e7c69ed7588582240cfe7cc9e770b50eb/exceptiongroup-1.3.0.tar.gz"
+              "hash": "8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219",
+              "url": "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz"
             }
           ],
           "project_name": "exceptiongroup",
@@ -1595,7 +1595,7 @@
             "typing-extensions>=4.6.0; python_version < \"3.13\""
           ],
           "requires_python": ">=3.7",
-          "version": "1.3.0"
+          "version": "1.3.1"
         },
         {
           "artifacts": [
@@ -2825,18 +2825,18 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "65939ab4c8dcd0c42185c2d0d1a9d60b254dc8c46fc4fdb286b63c51e9358e07",
-              "url": "https://files.pythonhosted.org/packages/f7/46/1eaa5db8d54a594bdade67afbcae42e9a2da676628be3eb39f36dcff6390/jupyterlab-4.4.10-py3-none-any.whl"
+              "hash": "88e157c75c1afff64c7dc4b801ec471450b922a4eae4305211ddd40da8201c8a",
+              "url": "https://files.pythonhosted.org/packages/6c/1e/5a4d5498eba382fee667ed797cf64ae5d1b13b04356df62f067f48bb0f61/jupyterlab-4.5.0-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "521c017508af4e1d6d9d8a9d90f47a11c61197ad63b2178342489de42540a615",
-              "url": "https://files.pythonhosted.org/packages/6a/5d/75c42a48ff5fc826a7dff3fe4004cda47c54f9d981c351efacfbc9139d3c/jupyterlab-4.4.10.tar.gz"
+              "hash": "aec33d6d8f1225b495ee2cf20f0514f45e6df8e360bdd7ac9bace0b7ac5177ea",
+              "url": "https://files.pythonhosted.org/packages/df/e5/4fa382a796a6d8e2cd867816b64f1ff27f906e43a7a83ad9eb389e448cd8/jupyterlab-4.5.0.tar.gz"
             }
           ],
           "project_name": "jupyterlab",
           "requires_dists": [
-            "altair==5.5.0; extra == \"docs-screenshots\"",
+            "altair==6.0.0; extra == \"docs-screenshots\"",
             "async-lru>=1.0.0",
             "build; extra == \"dev\"",
             "bump2version; extra == \"dev\"",
@@ -2857,7 +2857,7 @@
             "jupyter-server<3,>=2.4.0",
             "jupyterlab-geojson==3.4.0; extra == \"docs-screenshots\"",
             "jupyterlab-language-pack-zh-cn==4.3.post1; extra == \"docs-screenshots\"",
-            "jupyterlab-server<3,>=2.27.1",
+            "jupyterlab-server<3,>=2.28.0",
             "matplotlib==3.10.0; extra == \"docs-screenshots\"",
             "myst-parser; extra == \"docs\"",
             "nbconvert>=7.0.0; extra == \"docs-screenshots\"",
@@ -2881,7 +2881,7 @@
             "pyyaml-include<3.0; extra == \"upgrade-extension\"",
             "requests-cache; extra == \"test\"",
             "requests; extra == \"test\"",
-            "ruff==0.11.4; extra == \"dev\"",
+            "ruff==0.11.12; extra == \"dev\"",
             "scipy==1.15.1; extra == \"docs-screenshots\"",
             "setuptools>=41.1.0",
             "sphinx-copybutton; extra == \"docs\"",
@@ -2890,11 +2890,10 @@
             "tomli>=1.2.2; python_version < \"3.11\"",
             "tornado>=6.2.0",
             "traitlets",
-            "vega-datasets==0.9.0; extra == \"docs-screenshots\"",
             "virtualenv; extra == \"test\""
           ],
           "requires_python": ">=3.9",
-          "version": "4.4.10"
+          "version": "4.5.0"
         },
         {
           "artifacts": [
@@ -3859,13 +3858,13 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "362b7c95527f7dd3c4c84d410b782872fd9c734fb2524c11dd92758527b6eda6",
-              "url": "https://files.pythonhosted.org/packages/6c/d7/06d13087e20388926e7423d2489e728d2e59f2453039cdb0574a7c070e76/notebook-7.4.7-py3-none-any.whl"
+              "hash": "3300262d52905ca271bd50b22617681d95f08a8360d099e097726e6d2efb5811",
+              "url": "https://files.pythonhosted.org/packages/73/96/00df2a4760f10f5af0f45c4955573cae6189931f9a30265a35865f8c1031/notebook-7.5.0-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "3f0a04027dfcee8a876de48fba13ab77ec8c12f72f848a222ed7f5081b9e342a",
-              "url": "https://files.pythonhosted.org/packages/04/09/f6f64ba156842ef68d3ea763fa171a2f7e7224f200a15dd4af5b83c34756/notebook-7.4.7.tar.gz"
+              "hash": "3b27eaf9913033c28dde92d02139414c608992e1df4b969c843219acf2ff95e4",
+              "url": "https://files.pythonhosted.org/packages/89/ac/a97041621250a4fc5af379fb377942841eea2ca146aab166b8fcdfba96c2/notebook-7.5.0.tar.gz"
             }
           ],
           "project_name": "notebook",
@@ -3875,9 +3874,9 @@
             "ipykernel; extra == \"test\"",
             "jupyter-server<3,>=2.4.0",
             "jupyter-server[test]<3,>=2.4.0; extra == \"test\"",
-            "jupyterlab-server<3,>=2.27.1",
-            "jupyterlab-server[test]<3,>=2.27.1; extra == \"test\"",
-            "jupyterlab<4.5,>=4.4.9",
+            "jupyterlab-server<3,>=2.28.0",
+            "jupyterlab-server[test]<3,>=2.28.0; extra == \"test\"",
+            "jupyterlab<4.6,>=4.5.0rc0",
             "myst-parser; extra == \"docs\"",
             "nbsphinx; extra == \"docs\"",
             "nbval; extra == \"test\"",
@@ -3894,8 +3893,8 @@
             "sphinxcontrib-spelling; extra == \"docs\"",
             "tornado>=6.2.0"
           ],
-          "requires_python": ">=3.8",
-          "version": "7.4.7"
+          "requires_python": ">=3.9",
+          "version": "7.5.0"
         },
         {
           "artifacts": [
@@ -5876,13 +5875,13 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "ea3b790c7077558ed1f02a3072fb3cb992bbbd253392f4b6e9e8976941c7d456",
-              "url": "https://files.pythonhosted.org/packages/48/f0/ae7ca09223a81a1d890b2557186ea015f6e0502e9b8cb8e1813f1d8cfa4e/s3transfer-0.14.0-py3-none-any.whl"
+              "hash": "6f8bf5caa31a0865c4081186689db1b2534cef721d104eb26101de4b9d6a5852",
+              "url": "https://files.pythonhosted.org/packages/5f/e1/5ef25f52973aa12a19cf4e1375d00932d7fb354ffd310487ba7d44225c1a/s3transfer-0.15.0-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "eff12264e7c8b4985074ccce27a3b38a485bb7f7422cc8046fee9be4983e4125",
-              "url": "https://files.pythonhosted.org/packages/62/74/8d69dcb7a9efe8baa2046891735e5dfe433ad558ae23d9e3c14c633d1d58/s3transfer-0.14.0.tar.gz"
+              "hash": "d36fac8d0e3603eff9b5bfa4282c7ce6feb0301a633566153cbd0b93d11d8379",
+              "url": "https://files.pythonhosted.org/packages/ca/bb/940d6af975948c1cc18f44545ffb219d3c35d78ec972b42ae229e8e37e08/s3transfer-0.15.0.tar.gz"
             }
           ],
           "project_name": "s3transfer",
@@ -5891,7 +5890,7 @@
             "botocore[crt]<2.0a.0,>=1.37.4; extra == \"crt\""
           ],
           "requires_python": ">=3.9",
-          "version": "0.14.0"
+          "version": "0.15.0"
         },
         {
           "artifacts": [
