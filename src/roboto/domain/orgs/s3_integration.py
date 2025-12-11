@@ -123,27 +123,18 @@ class S3IntegrationService:
             >>> from roboto.domain.orgs import S3IntegrationService
             >>> from roboto import RobotoClient
             >>> service = S3IntegrationService(RobotoClient())
-            >>> service.register_bucket(
-            ...     org_id="org_12345",
-            ...     account_id="123456789012",
-            ...     bucket_name="my-data-bucket"
-            ... )
+            >>> service.register_bucket(org_id="org_12345", account_id="123456789012", bucket_name="my-data-bucket")
 
             Register a bucket with read-only access:
 
             >>> service.register_bucket(
-            ...     org_id="org_12345",
-            ...     account_id="123456789012",
-            ...     bucket_name="my-readonly-bucket",
-            ...     readonly=True
+            ...     org_id="org_12345", account_id="123456789012", bucket_name="my-readonly-bucket", readonly=True
             ... )
         """
         logger.info("Checking that you have access to the specified account and bucket")
 
         try:
-            available_account_id = self.__sts_client.get_caller_identity().get(
-                "Account"
-            )
+            available_account_id = self.__sts_client.get_caller_identity().get("Account")
         except botocore.exceptions.ClientError:
             raise RobotoInvalidRequestException("Couldn't get caller ID from AWS")
 
@@ -159,9 +150,7 @@ class S3IntegrationService:
         if bucket_name not in bucket_names:
             raise ValueError(f"Account {account_id} does not own bucket {bucket_name}")
 
-        aws_region = self.__s3_client.get_bucket_location(Bucket=bucket_name)[
-            "LocationConstraint"
-        ]
+        aws_region = self.__s3_client.get_bucket_location(Bucket=bucket_name)["LocationConstraint"]
 
         response = self.__roboto_client.post(
             "v1/integrations/storage/s3/register",

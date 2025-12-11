@@ -48,21 +48,13 @@ class UpdateScheduledTriggerRequest(pydantic.BaseModel):
     on the request attributes.
     """
 
-    action_name: Union[
-        Annotated[str, pydantic.Field(pattern=r"[\w\-]+")], NotSetType
-    ] = NotSet
+    action_name: Union[Annotated[str, pydantic.Field(pattern=r"[\w\-]+")], NotSetType] = NotSet
     action_owner_id: Union[str, NotSetType] = NotSet
-    compute_requirement_overrides: Union[Optional[ComputeRequirements], NotSetType] = (
-        NotSet
-    )
-    container_parameter_overrides: Union[Optional[ContainerParameters], NotSetType] = (
-        NotSet
-    )
+    compute_requirement_overrides: Union[Optional[ComputeRequirements], NotSetType] = NotSet
+    container_parameter_overrides: Union[Optional[ContainerParameters], NotSetType] = NotSet
     enabled: Union[bool, NotSetType] = NotSet
     invocation_input: Union[Optional[InvocationInput], NotSetType] = NotSet
-    invocation_upload_destination: Union[
-        Optional[InvocationUploadDestination], NotSetType
-    ] = NotSet
+    invocation_upload_destination: Union[Optional[InvocationUploadDestination], NotSetType] = NotSet
     parameter_values: Union[Optional[dict[str, Any]], NotSetType] = NotSet
     schedule: Union[str, NotSetType] = NotSet
     timeout: Union[Optional[Annotated[int, pydantic.Field(ge=0)]], NotSetType] = NotSet

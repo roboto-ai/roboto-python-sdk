@@ -5,16 +5,17 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-from enum import Enum
 import typing
 from typing import Any, Optional, Union
 
 import pydantic
 
+from ...compat import StrEnum
+from ...time import utcnow
 from ..core import RobotoLLMContext
 
 
-class ChatRole(str, Enum):
+class ChatRole(StrEnum):
     """Enumeration of possible roles in a chat conversation.
 
     Defines the different participants that can send messages in a chat session.
@@ -30,7 +31,7 @@ class ChatRole(str, Enum):
     """Roboto system providing tool results and system information."""
 
 
-class ChatMessageStatus(str, Enum):
+class ChatMessageStatus(StrEnum):
     """Enumeration of possible message generation states.
 
     Tracks the lifecycle of message generation from initiation to completion.
@@ -45,8 +46,22 @@ class ChatMessageStatus(str, Enum):
     COMPLETED = "completed"
     """Message generation has finished and content is complete."""
 
+    FAILED = "failed"
+    """Message generation failed due to an error."""
 
-class ChatStatus(str, Enum):
+    CANCELLED = "cancelled"
+    """Message generation was cancelled by the user."""
+
+    def is_terminal(self) -> bool:
+        """Check if the message generation is in a terminal state.
+
+        Returns:
+            True if the message is in a terminal state, False otherwise.
+        """
+        return self in (ChatMessageStatus.COMPLETED, ChatMessageStatus.FAILED, ChatMessageStatus.CANCELLED)
+
+
+class ChatStatus(StrEnum):
     """Enumeration of possible chat session states.
 
     Tracks the overall status of a chat session from creation to termination.
@@ -62,7 +77,7 @@ class ChatStatus(str, Enum):
     """Roboto is generating a message."""
 
 
-class ChatContentType(str, Enum):
+class ChatContentType(StrEnum):
     """Enumeration of different types of content within chat messages.
 
     Defines the various content types that can be included in chat messages.
@@ -76,6 +91,9 @@ class ChatContentType(str, Enum):
 
     TOOL_RESULT = "tool_result"
     """Results returned from tool executions."""
+
+    ERROR = "error"
+    """Error information when message generation fails."""
 
 
 class ChatTextContent(pydantic.BaseModel):
@@ -100,9 +118,7 @@ class ChatToolUseContent(pydantic.BaseModel):
 class ChatToolResultContent(pydantic.BaseModel):
     """Tool execution result content within a chat message."""
 
-    content_type: typing.Literal[ChatContentType.TOOL_RESULT] = (
-        ChatContentType.TOOL_RESULT
-    )
+    content_type: typing.Literal[ChatContentType.TOOL_RESULT] = ChatContentType.TOOL_RESULT
     tool_name: str
     tool_use_id: str
     runtime_ms: int
@@ -110,9 +126,21 @@ class ChatToolResultContent(pydantic.BaseModel):
     raw_response: Optional[dict[str, Any]] = None
 
 
-ChatContent: typing.TypeAlias = Union[
-    ChatTextContent, ChatToolUseContent, ChatToolResultContent
-]
+class ChatErrorContent(pydantic.BaseModel):
+    """Error content within a chat message.
+
+    Used when message generation fails due to an error or is cancelled by the user.
+    """
+
+    content_type: typing.Literal[ChatContentType.ERROR] = ChatContentType.ERROR
+    error_message: str
+    """User-friendly error message describing what went wrong."""
+
+    error_code: Optional[str] = None
+    """Optional error code for programmatic handling."""
+
+
+ChatContent: typing.TypeAlias = Union[ChatTextContent, ChatToolUseContent, ChatToolResultContent, ChatErrorContent]
 """Type alias for all possible content types within chat messages."""
 
 
@@ -132,6 +160,9 @@ class ChatMessage(pydantic.BaseModel):
 
     status: ChatMessageStatus = ChatMessageStatus.NOT_STARTED
     """Current generation status of this message."""
+
+    created: datetime.datetime = pydantic.Field(default_factory=utcnow)
+    """Timestamp when this message was created."""
 
     @classmethod
     def text(cls, text: str, role: ChatRole = ChatRole.USER) -> "ChatMessage":
@@ -159,6 +190,14 @@ class ChatMessage(pydantic.BaseModel):
             True if the message status is COMPLETED, False otherwise.
         """
         return self.status == ChatMessageStatus.COMPLETED
+
+    def is_unsuccessful(self) -> bool:
+        """Check if message generation failed or was cancelled.
+
+        Returns:
+            True if the message status is FAILED or CANCELLED, False otherwise.
+        """
+        return self.role != ChatRole.USER and self.status in (ChatMessageStatus.FAILED, ChatMessageStatus.CANCELLED)
 
 
 class ChatRecord(pydantic.BaseModel):
@@ -199,6 +238,11 @@ class ChatRecord(pydantic.BaseModel):
 
         latest_message = self.messages[-1]
 
+        # Failed or cancelled messages always return control to the user
+        if latest_message.is_unsuccessful():
+            return ChatStatus.USER_TURN
+
+        # Normal completion: assistant message with text content
         is_user_turn = (
             latest_message.role == ChatRole.ASSISTANT
             and latest_message.status == ChatMessageStatus.COMPLETED
@@ -239,6 +283,11 @@ class ChatRecordDelta(pydantic.BaseModel):
         latest_message_idx = max(self.messages_by_idx.keys())
         latest_message = self.messages_by_idx[latest_message_idx]
 
+        # Failed or cancelled messages always return control to the user
+        if latest_message.is_unsuccessful():
+            return ChatStatus.USER_TURN
+
+        # Normal completion: assistant message with text content
         is_user_turn = (
             latest_message.role == ChatRole.ASSISTANT
             and latest_message.status == ChatMessageStatus.COMPLETED

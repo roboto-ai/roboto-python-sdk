@@ -25,9 +25,7 @@ from ..common_args import add_org_arg
 from ..context import CLIContext
 
 
-def search(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def search(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     conditions: list[typing.Union[Condition, ConditionGroup]] = []
     if args.name:
         conditions.append(
@@ -65,16 +63,10 @@ def search(
         if len(conditions) == 1:
             query_args["condition"] = conditions[0]
         else:
-            query_args["condition"] = ConditionGroup(
-                conditions=conditions, operator=ConditionOperator.And
-            )
+            query_args["condition"] = ConditionGroup(conditions=conditions, operator=ConditionOperator.And)
 
     query = QuerySpecification(**query_args)
-    accessibility = (
-        actions.Accessibility.ActionHub
-        if args.actionhub
-        else actions.Accessibility.Organization
-    )
+    accessibility = actions.Accessibility.ActionHub if args.actionhub else actions.Accessibility.Organization
     matching_actions = actions.Action.query(
         query,
         accessibility=accessibility,

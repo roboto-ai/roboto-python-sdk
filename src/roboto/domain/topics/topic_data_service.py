@@ -59,9 +59,7 @@ class TopicDataService:
         or :py:class:`~roboto.domain.events.Event`.
     """
 
-    DEFAULT_CACHE_DIR: typing.ClassVar[pathlib.Path] = (
-        pathlib.Path.home() / ".cache" / "roboto" / "topic-data"
-    )
+    DEFAULT_CACHE_DIR: typing.ClassVar[pathlib.Path] = pathlib.Path.home() / ".cache" / "roboto" / "topic-data"
     LOG_TIME_ATTR_NAME: typing.ClassVar[str] = "log_time"
 
     __cache_dir: pathlib.Path
@@ -73,11 +71,7 @@ class TopicDataService:
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
     ):
         self.__roboto_client = roboto_client
-        self.__cache_dir = (
-            pathlib.Path(cache_dir)
-            if cache_dir is not None
-            else TopicDataService.DEFAULT_CACHE_DIR
-        )
+        self.__cache_dir = pathlib.Path(cache_dir) if cache_dir is not None else TopicDataService.DEFAULT_CACHE_DIR
 
     def get_data(
         self,
@@ -118,9 +112,7 @@ class TopicDataService:
             message_paths_exclude=message_paths_exclude,
         )
 
-        start_time_ns = (
-            to_epoch_nanoseconds(start_time) if start_time is not None else None
-        )
+        start_time_ns = to_epoch_nanoseconds(start_time) if start_time is not None else None
         end_time_ns = to_epoch_nanoseconds(end_time) if end_time is not None else None
 
         if McapTopicReader.accepts(filtered_message_path_repr_mappings):
@@ -134,9 +126,7 @@ class TopicDataService:
             )
         elif ParquetTopicReader.accepts(filtered_message_path_repr_mappings):
             reader = ParquetTopicReader(self.__roboto_client)
-            timestamp_mapping = self.__find_timestamp_message_path_mapping(
-                message_path_repr_mappings
-            )
+            timestamp_mapping = self.__find_timestamp_message_path_mapping(message_path_repr_mappings)
             yield from reader.get_data(
                 filtered_message_path_repr_mappings,
                 log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
@@ -146,9 +136,7 @@ class TopicDataService:
                 timestamp_message_path_representation_mapping=timestamp_mapping,
             )
         else:
-            raise NotImplementedError(
-                "No compatible reader found for this data. Please reach out to Roboto support."
-            )
+            raise NotImplementedError("No compatible reader found for this data. Please reach out to Roboto support.")
 
     def get_data_as_df(
         self,
@@ -189,9 +177,7 @@ class TopicDataService:
             message_paths_exclude=message_paths_exclude,
         )
 
-        start_time_ns = (
-            to_epoch_nanoseconds(start_time) if start_time is not None else None
-        )
+        start_time_ns = to_epoch_nanoseconds(start_time) if start_time is not None else None
         end_time_ns = to_epoch_nanoseconds(end_time) if end_time is not None else None
 
         if McapTopicReader.accepts(filtered_message_path_repr_mappings):
@@ -205,9 +191,7 @@ class TopicDataService:
             )
         elif ParquetTopicReader.accepts(filtered_message_path_repr_mappings):
             reader = ParquetTopicReader(self.__roboto_client)
-            timestamp_mapping = self.__find_timestamp_message_path_mapping(
-                message_path_repr_mappings
-            )
+            timestamp_mapping = self.__find_timestamp_message_path_mapping(message_path_repr_mappings)
             df = reader.get_data_as_df(
                 filtered_message_path_repr_mappings,
                 log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
@@ -217,23 +201,15 @@ class TopicDataService:
                 timestamp_message_path_representation_mapping=timestamp_mapping,
             )
         else:
-            raise NotImplementedError(
-                "No compatible reader found for this data. Please reach out to Roboto support."
-            )
+            raise NotImplementedError("No compatible reader found for this data. Please reach out to Roboto support.")
 
         if TopicDataService.LOG_TIME_ATTR_NAME in df.columns:
             return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
 
         return df
 
-    def __ensure_cache_dir(
-        self, cache_dir_override: typing.Union[str, pathlib.Path, None] = None
-    ) -> pathlib.Path:
-        cache_dir = (
-            pathlib.Path(cache_dir_override)
-            if cache_dir_override is not None
-            else self.__cache_dir
-        )
+    def __ensure_cache_dir(self, cache_dir_override: typing.Union[str, pathlib.Path, None] = None) -> pathlib.Path:
+        cache_dir = pathlib.Path(cache_dir_override) if cache_dir_override is not None else self.__cache_dir
         if not cache_dir.exists():
             cache_dir.mkdir(parents=True)
 
@@ -249,12 +225,8 @@ class TopicDataService:
             return list(message_path_records)
 
         filtered = []
-        include_paths_set = (
-            iterable_to_set(include_paths) if include_paths is not None else set()
-        )
-        exclude_paths_set = (
-            iterable_to_set(exclude_paths) if exclude_paths is not None else set()
-        )
+        include_paths_set = iterable_to_set(include_paths) if include_paths is not None else set()
+        exclude_paths_set = iterable_to_set(exclude_paths) if exclude_paths is not None else set()
 
         for record in message_path_records:
             paths = set(record.parents())
@@ -276,9 +248,7 @@ class TopicDataService:
 
     def __filter_message_path_mappings(
         self,
-        message_path_repr_mappings: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_path_repr_mappings: collections.abc.Iterable[MessagePathRepresentationMapping],
         message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
         message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
     ) -> list[MessagePathRepresentationMapping]:
@@ -303,8 +273,7 @@ class TopicDataService:
 
         # WARN if no message paths are left after filtering
         if not any(
-            len(message_path_repr_map.message_paths) > 0
-            for message_path_repr_map in message_path_repr_mappings
+            len(message_path_repr_map.message_paths) > 0 for message_path_repr_map in message_path_repr_mappings
         ):
             logger.warning(
                 "The request for topic data will not yield any results. "
@@ -316,9 +285,7 @@ class TopicDataService:
 
     def __find_timestamp_message_path_mapping(
         self,
-        message_path_repr_mappings: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_path_repr_mappings: collections.abc.Iterable[MessagePathRepresentationMapping],
     ) -> typing.Optional[MessagePathRepresentationMapping]:
         for mapping in message_path_repr_mappings:
             for message_path in mapping.message_paths:
@@ -338,6 +305,4 @@ class TopicDataService:
         message_path_repr_mappings_response = self.__roboto_client.get(
             f"v1/topics/id/{topic_id}/message-path/representations"
         )
-        return message_path_repr_mappings_response.to_record_list(
-            MessagePathRepresentationMapping
-        )
+        return message_path_repr_mappings_response.to_record_list(MessagePathRepresentationMapping)

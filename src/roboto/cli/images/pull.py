@@ -16,9 +16,7 @@ from ..common_args import add_org_arg
 from ..context import CLIContext
 
 
-def pull(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def pull(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     image_registry = ImageRegistry(context.roboto_client)
     parts = args.remote_image.split(":")
     if len(parts) == 1:
@@ -28,9 +26,7 @@ def pull(
     else:
         raise ValueError("Invalid image format. Expected '<repository>:<tag>'.")
 
-    credentials = image_registry.get_temporary_credentials(
-        repository_uri, Permissions.ReadOnly, org_id=args.org
-    )
+    credentials = image_registry.get_temporary_credentials(repository_uri, Permissions.ReadOnly, org_id=args.org)
     login_cmd = f"docker login --username {credentials.username} --password-stdin {credentials.registry_url}"
     try:
         subprocess.run(
@@ -77,10 +73,5 @@ pull_command = RobotoCommand(
     name="pull",
     logic=pull,
     setup_parser=pull_parser,
-    command_kwargs={
-        "help": (
-            "Pull a container image hosted in Roboto's image registry. "
-            "Requires Docker CLI."
-        )
-    },
+    command_kwargs={"help": ("Pull a container image hosted in Roboto's image registry. Requires Docker CLI.")},
 )

@@ -55,9 +55,7 @@ class FileService:
             items.append(
                 {
                     "local_path": local_path,
-                    "destination_path": destination_paths.get(
-                        local_path, local_path.name
-                    ),
+                    "destination_path": destination_paths.get(local_path, local_path.name),
                     "file_size": file_size,
                 }
             )
@@ -85,15 +83,11 @@ class FileService:
                 # Heuristic: all files in a transaction are uploaded to the same object store.
                 first_file_uri = list(txn.upload_mappings.values())[0]
 
-                object_store = self.__object_store_registry.get_store_for_uri(
-                    first_file_uri, txn.credential_provider
-                )
+                object_store = self.__object_store_registry.get_store_for_uri(first_file_uri, txn.credential_provider)
                 with object_store:
                     futures: list[FutureLike[None]] = []
                     for file in txn:
-                        future = object_store.put(
-                            file["local_path"], file["upload_uri"]
-                        )
+                        future = object_store.put(file["local_path"], file["upload_uri"])
                         futures.append(future)
 
                     for future in futures:

@@ -16,9 +16,7 @@ from ..common_args import (
 from ..context import CLIContext
 
 
-def show(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def show(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     owner_org_id = args.action.owner if args.action.owner else args.org
     action = actions.Action.from_name(
         name=args.action.name,

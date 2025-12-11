@@ -32,9 +32,7 @@ from .input_parsing import (
 )
 
 
-def invoke_hosted(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def invoke_hosted(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     """Invoke an action on the hosted Roboto platform."""
     # Validate input specification
     validate_input_specification(args, parser)
@@ -63,9 +61,7 @@ def invoke_hosted(
     # Determine upload destination
     upload_destination: typing.Union[actions.InvocationUploadDestination, None] = None
     if args.output_dataset_id:
-        upload_destination = actions.InvocationUploadDestination.dataset(
-            args.output_dataset_id
-        )
+        upload_destination = actions.InvocationUploadDestination.dataset(args.output_dataset_id)
 
     # Parse input specification
     invocation_input = parse_input_spec(args)
@@ -94,9 +90,7 @@ def invoke_hosted(
         caller_org_id=args.org,
     )
 
-    print(
-        f"Queued invocation of '{action.record.reference!r}'. Invocation ID: '{invocation.id}'"
-    )
+    print(f"Queued invocation of '{action.record.reference!r}'. Invocation ID: '{invocation.id}'")
 
 
 def invoke_parser(parser: argparse.ArgumentParser) -> None:

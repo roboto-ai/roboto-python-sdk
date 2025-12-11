@@ -6,10 +6,10 @@
 
 from __future__ import annotations
 
-import enum
+from ..compat import StrEnum
 
 
-class ApiScope(str, enum.Enum):
+class ApiScope(StrEnum):
     """
     Scopes define the set of APIs a credential holder can access.
     """

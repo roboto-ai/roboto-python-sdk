@@ -16,9 +16,7 @@ from ..context import CLIContext
 COOKIECUTTER_REPO = "https://github.com/roboto-ai/cookiecutter-roboto-actions.git"
 
 
-def init(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def init(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     path: pathlib.Path = args.path
     path = path.resolve()
     print(f"Creating Roboto action package under: {path}")

@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from typing import Any, Optional
+
 import pydantic
 
 
@@ -16,3 +18,10 @@ class RobotoLLMContext(pydantic.BaseModel):
 
     file_ids: list[str] = pydantic.Field(default_factory=list)
     """IDs of files that are relevant to the user's query."""
+
+    visualizer_state: Optional[dict[str, Any]] = None
+    """State of the visualizer, if a request is being made from the visualizer. This is expected to be a relatively
+    opaque JSON blob"""
+
+    misc_context: Optional[dict[str, Any]] = None
+    """Miscellaneous context that is relevant to the user's query."""

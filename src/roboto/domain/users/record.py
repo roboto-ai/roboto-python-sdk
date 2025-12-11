@@ -37,20 +37,14 @@ class UserRecord(pydantic.BaseModel):
     picture_url: Optional[str] = None
     """URL to the user's profile picture."""
 
-    notification_channels_enabled: dict[NotificationChannel, bool] = pydantic.Field(
-        default_factory=dict
-    )
+    notification_channels_enabled: dict[NotificationChannel, bool] = pydantic.Field(default_factory=dict)
     """Mapping of notification channels to their enabled/disabled status."""
 
-    notification_types_enabled: dict[NotificationType, bool] = pydantic.Field(
-        default_factory=dict
-    )
+    notification_types_enabled: dict[NotificationType, bool] = pydantic.Field(default_factory=dict)
     """Mapping of notification types to their enabled/disabled status."""
 
     def is_email_notifications_enabled(self) -> bool:
         return self.notification_channels_enabled.get(NotificationChannel.Email, False)
 
     def is_comment_mentions_enabled(self) -> bool:
-        return self.notification_types_enabled.get(
-            NotificationType.CommentMention, False
-        )
+        return self.notification_types_enabled.get(NotificationType.CommentMention, False)

@@ -46,9 +46,7 @@ def check_last_update():
     ):
         http = HttpClient()
 
-        releases = http.get(url="https://pypi.org/pypi/roboto/json").to_dict(
-            json_path=["releases"]
-        )
+        releases = http.get(url="https://pypi.org/pypi/roboto/json").to_dict(json_path=["releases"])
         versions = list(releases.keys())
         versions.sort(key=Version)
         latest = versions[-1]
@@ -59,9 +57,7 @@ def check_last_update():
 
         cli_state_file.write_text(state.model_dump_json())
 
-        suppress_message = (
-            os.getenv("ROBOTO_CLI_SUPPRESS_UPGRADE_PROMPT", "false").lower() != "false"
-        )
+        suppress_message = os.getenv("ROBOTO_CLI_SUPPRESS_UPGRADE_PROMPT", "false").lower() != "false"
 
         if state.out_of_date and not suppress_message:
             notice = f"{AnsiColor.BLUE}[notice]{AnsiColor.END}"

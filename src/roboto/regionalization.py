@@ -4,10 +4,10 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import enum
+from .compat import StrEnum
 
 
-class RobotoRegion(str, enum.Enum):
+class RobotoRegion(StrEnum):
     """
     The geographic region of a Roboto resource. Used when configuring org-level default behavior for data storage, in
     order to ensure that data is close to your users.

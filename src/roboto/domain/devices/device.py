@@ -101,10 +101,7 @@ class Device:
         Examples:
             Register a robot device:
 
-            >>> device = Device.create(
-            ...     device_id="robot_001",
-            ...     caller_org_id="og_abc123"
-            ... )
+            >>> device = Device.create(device_id="robot_001", caller_org_id="og_abc123")
             >>> print(f"Registered device: {device.device_id}")
             Registered device: robot_001
 
@@ -121,9 +118,9 @@ class Device:
             metadata=metadata or {},
             tags=tags or [],
         )
-        record = roboto_client.post(
-            "v1/devices/create", caller_org_id=caller_org_id, data=request
-        ).to_record(DeviceRecord)
+        record = roboto_client.post("v1/devices/create", caller_org_id=caller_org_id, data=request).to_record(
+            DeviceRecord
+        )
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
@@ -236,9 +233,7 @@ class Device:
         ).to_record(DeviceRecord)
         return cls(record=record, roboto_client=roboto_client)
 
-    def __init__(
-        self, record: DeviceRecord, roboto_client: typing.Optional[RobotoClient] = None
-    ):
+    def __init__(self, record: DeviceRecord, roboto_client: typing.Optional[RobotoClient] = None):
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__record = record
 
@@ -352,9 +347,7 @@ class Device:
             Create a token with custom expiry and description:
 
             >>> token, secret = device.create_token(
-            ...     expiry_days=30,
-            ...     name="Monthly Upload Token",
-            ...     description="Token for automated monthly data uploads"
+            ...     expiry_days=30, name="Monthly Upload Token", description="Token for automated monthly data uploads"
             ... )
             >>> print(f"Token expires in 30 days: {token.token_id}")
             Token expires in 30 days: to_def789ghi012
@@ -403,9 +396,7 @@ class Device:
             Deleting device: old_robot_001
             Device deleted successfully
         """
-        self.__roboto_client.delete(
-            f"v1/devices/id/{self.encoded_device_id}", owner_org_id=self.org_id
-        )
+        self.__roboto_client.delete(f"v1/devices/id/{self.encoded_device_id}", owner_org_id=self.org_id)
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Device":
         """Add or update metadata fields for this device.
@@ -419,18 +410,11 @@ class Device:
 
         Example:
             >>> device = Device.from_id("robot_001")
-            >>> updated_device = device.put_metadata({
-            ...     "firmware_version": "2.1.0",
-            ...     "location": "warehouse-b"
-            ... })
+            >>> updated_device = device.put_metadata({"firmware_version": "2.1.0", "location": "warehouse-b"})
             >>> print(updated_device.metadata["firmware_version"])
             2.1.0
         """
-        return self.update(
-            UpdateDeviceRequest(
-                metadata_changeset=MetadataChangeset(put_fields=metadata)
-            )
-        )
+        return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(put_fields=metadata)))
 
     def put_tags(self, tags: list[str]) -> "Device":
         """Add tags to this device.
@@ -447,9 +431,7 @@ class Device:
             >>> print("production" in updated_device.tags)
             True
         """
-        return self.update(
-            UpdateDeviceRequest(metadata_changeset=MetadataChangeset(put_tags=tags))
-        )
+        return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(put_tags=tags)))
 
     def remove_metadata(self, keys: list[str]) -> "Device":
         """Remove metadata fields from this device.
@@ -464,11 +446,7 @@ class Device:
             >>> device = Device.from_id("robot_001")
             >>> updated_device = device.remove_metadata(["old_field", "deprecated_key"])
         """
-        return self.update(
-            UpdateDeviceRequest(
-                metadata_changeset=MetadataChangeset(remove_fields=keys)
-            )
-        )
+        return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(remove_fields=keys)))
 
     def remove_tags(self, tags: list[str]) -> "Device":
         """Remove tags from this device.
@@ -483,9 +461,7 @@ class Device:
             >>> device = Device.from_id("robot_001")
             >>> updated_device = device.remove_tags(["old_tag", "deprecated"])
         """
-        return self.update(
-            UpdateDeviceRequest(metadata_changeset=MetadataChangeset(remove_tags=tags))
-        )
+        return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(remove_tags=tags)))
 
     def tokens(self) -> collections.abc.Sequence[Token]:
         """Retrieve all authentication tokens associated with this device.
@@ -524,10 +500,7 @@ class Device:
         records = self.__roboto_client.get(
             f"v1/devices/id/{self.encoded_device_id}/tokens", owner_org_id=self.org_id
         ).to_record_list(TokenRecord)
-        return [
-            Token(record=record, roboto_client=self.__roboto_client)
-            for record in records
-        ]
+        return [Token(record=record, roboto_client=self.__roboto_client) for record in records]
 
     def update(self, request: UpdateDeviceRequest) -> "Device":
         """Update device properties using a structured request.
@@ -541,13 +514,13 @@ class Device:
         Example:
             >>> from roboto.updates import MetadataChangeset
             >>> device = Device.from_id("robot_001")
-            >>> updated_device = device.update(UpdateDeviceRequest(
-            ...     metadata_changeset=MetadataChangeset(
-            ...         put_fields={"version": "2.0"},
-            ...         put_tags=["updated"],
-            ...         remove_tags=["old"]
+            >>> updated_device = device.update(
+            ...     UpdateDeviceRequest(
+            ...         metadata_changeset=MetadataChangeset(
+            ...             put_fields={"version": "2.0"}, put_tags=["updated"], remove_tags=["old"]
+            ...         )
             ...     )
-            ... ))
+            ... )
         """
         record = self.__roboto_client.put(
             f"v1/devices/id/{self.encoded_device_id}",

@@ -81,21 +81,17 @@ class FileCredentialsHelper:
         if transaction_id:
             query_params["transaction_id"] = transaction_id
 
-        return self.__roboto_client.get(
-            f"v1/datasets/id/{dataset_id}/credentials", query=query_params
-        ).to_record_list(DatasetCredentials)
+        return self.__roboto_client.get(f"v1/datasets/id/{dataset_id}/credentials", query=query_params).to_record_list(
+            DatasetCredentials
+        )
 
-    def get_dataset_download_creds_provider(
-        self, dataset_id: str, bucket_name: str
-    ) -> CredentialProvider:
+    def get_dataset_download_creds_provider(self, dataset_id: str, bucket_name: str) -> CredentialProvider:
         def _wrapped():
             all_creds = self.get_dataset_creds(dataset_id, Permissions.ReadOnly)
             filtered = [cred for cred in all_creds if cred.bucket == bucket_name]
 
             if len(filtered) == 0:
-                raise RobotoInternalException(
-                    f"Dataset {dataset_id} has no read creds for bucket {bucket_name}."
-                )
+                raise RobotoInternalException(f"Dataset {dataset_id} has no read creds for bucket {bucket_name}.")
 
             return filtered[0].to_s3_credentials()
 
@@ -110,9 +106,7 @@ class FileCredentialsHelper:
             )
 
             if len(all_creds) == 0:
-                raise RobotoInternalException(
-                    f"Dataset {dataset_id} has no write creds."
-                )
+                raise RobotoInternalException(f"Dataset {dataset_id} has no write creds.")
 
             return all_creds[0].to_s3_credentials()
 

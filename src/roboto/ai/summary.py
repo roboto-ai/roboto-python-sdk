@@ -5,7 +5,6 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-import enum
 import time
 import typing
 
@@ -15,8 +14,10 @@ from roboto.exceptions import (
     RobotoFailedToGenerateException,
 )
 
+from ..compat import StrEnum
 
-class AISummaryStatus(str, enum.Enum):
+
+class AISummaryStatus(StrEnum):
     """
     Status of an AI summary.
     """
@@ -78,9 +79,7 @@ class StreamingAISummary(typing.Protocol):
         """
         ...
 
-    def await_completion(
-        self, timeout_s: typing.Optional[float] = None, poll_interval_s: float = 2
-    ) -> AISummary:
+    def await_completion(self, timeout_s: typing.Optional[float] = None, poll_interval_s: float = 2) -> AISummary:
         """Wait for the summary to complete.
 
         This will return instantly if the summary is already complete.
@@ -157,9 +156,7 @@ class PollingStreamingAISummary(StreamingAISummary):
     def current(self) -> typing.Optional[AISummary]:
         return self.__summary
 
-    def await_completion(
-        self, timeout_s: typing.Optional[float] = None, poll_interval_s: float = 2
-    ) -> AISummary:
+    def await_completion(self, timeout_s: typing.Optional[float] = None, poll_interval_s: float = 2) -> AISummary:
         for _ in self.text_stream(timeout_s, poll_interval_s):
             pass
 
@@ -182,10 +179,7 @@ class PollingStreamingAISummary(StreamingAISummary):
 
         start_time = time.perf_counter()
 
-        while (
-            self.__summary is not None
-            and self.__summary.status == AISummaryStatus.Pending
-        ):
+        while self.__summary is not None and self.__summary.status == AISummaryStatus.Pending:
             self.__summary = self.__poll_fn()
 
             if self.__summary.status == AISummaryStatus.Failed:

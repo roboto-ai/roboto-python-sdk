@@ -140,9 +140,7 @@ class UpdateFileRecordRequest(pydantic.BaseModel):
     ingestion_complete: typing.Union[typing.Literal[True], NotSetType] = NotSet
     """Set to True to mark file as fully ingested, or NotSet to leave unchanged."""
 
-    model_config = pydantic.ConfigDict(
-        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
-    )
+    model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
 
 
 class DirectoryContentsPage(pydantic.BaseModel):

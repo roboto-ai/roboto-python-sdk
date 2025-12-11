@@ -50,32 +50,24 @@ class Token:
         record = roboto_client.post("v1/tokens", data=request).to_record(TokenRecord)
 
         if record.secret is None:
-            raise RobotoDomainException(
-                "Token was generated without returning secret value, this renders it unusable."
-            )
+            raise RobotoDomainException("Token was generated without returning secret value, this renders it unusable.")
 
         return cls(record=record, roboto_client=roboto_client), record.secret
 
     @classmethod
-    def from_id(
-        cls, token_id: str, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> "Token":
+    def from_id(cls, token_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> "Token":
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(f"v1/tokens/id/{token_id}").to_record(TokenRecord)
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
-    def for_self(
-        cls, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> collections.abc.Collection["Token"]:
+    def for_self(cls, roboto_client: typing.Optional[RobotoClient] = None) -> collections.abc.Collection["Token"]:
         roboto_client = RobotoClient.defaulted(roboto_client)
         records = roboto_client.get("v1/tokens").to_record_list(TokenRecord)
 
         return [cls(record=record, roboto_client=roboto_client) for record in records]
 
-    def __init__(
-        self, record: TokenRecord, roboto_client: typing.Optional[RobotoClient] = None
-    ):
+    def __init__(self, record: TokenRecord, roboto_client: typing.Optional[RobotoClient] = None):
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
 

@@ -14,8 +14,8 @@ import typing
 import boto3
 import pydantic
 
-from . import AwsSecretsManagerAccessCreds
 from ...http import RobotoClient
+from . import AwsSecretsManagerAccessCreds
 from .record import (
     CreateSecretRequest,
     GetSecretAccessCredsResponse,
@@ -104,9 +104,7 @@ class Secret:
             Create a secret with an initial value:
 
             >>> secret = Secret.create(
-            ...     name="database_password",
-            ...     caller_org_id="org_123",
-            ...     initial_value="super_secure_password"
+            ...     name="database_password", caller_org_id="org_123", initial_value="super_secure_password"
             ... )
             >>> print(secret.name)
             'database_password'
@@ -441,9 +439,7 @@ class Secret:
             'temp_key'
         """
         client = self.__boto_client_for_creds()
-        client.put_secret_value(
-            SecretId=self.__record.location.arn, SecretString=new_value
-        )
+        client.put_secret_value(SecretId=self.__record.location.arn, SecretString=new_value)
 
         return self
 
@@ -455,9 +451,7 @@ class Secret:
         creds = res.creds
 
         if not isinstance(creds, AwsSecretsManagerAccessCreds):
-            raise NotImplementedError(
-                f"Unsupported secret store type: {self.__record.store_type}"
-            )
+            raise NotImplementedError(f"Unsupported secret store type: {self.__record.store_type}")
 
         return boto3.client(
             "secretsmanager",

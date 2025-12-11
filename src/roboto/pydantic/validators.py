@@ -21,10 +21,10 @@ def remove_non_noneable_init_args(data: dict, model: pydantic.BaseModel) -> dict
 
     >>> class Foo(pydantic.BaseModel):
     ...     a: int = 3
+    ...
     ...     def __init__(self, **kwargs):
     ...         filtered_kwargs = remove_non_noneable_init_args(kwargs, self)
     ...         super().__init__(**filtered_kwargs)
-    ...
     >>> Foo(a=None)
     Foo(a=3, b='bar')
 
@@ -53,8 +53,6 @@ def validate_nonzero_gitpath_specs(value: list[str]) -> list[str]:
     if len(value) == 0:
         raise ValueError("Paths must not be empty.")
     elif len(filtered) == 0:
-        raise ValueError(
-            "Paths must have at least one entry which is not the empty string or just whitespace."
-        )
+        raise ValueError("Paths must have at least one entry which is not the empty string or just whitespace.")
 
     return value

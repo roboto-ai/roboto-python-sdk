@@ -10,6 +10,7 @@ import typing
 
 import pydantic
 
+from ...compat import StrEnum
 from ...pydantic import (
     validate_nonzero_gitpath_specs,
 )
@@ -24,7 +25,7 @@ from .invocation_record import (
 )
 
 
-class TriggerForEachPrimitive(str, enum.Enum):
+class TriggerForEachPrimitive(StrEnum):
     """Defines the granularity at which a trigger executes.
 
     Determines whether the trigger creates one invocation per dataset or
@@ -141,9 +142,7 @@ class TriggerRecord(pydantic.BaseModel):
         return validate_nonzero_gitpath_specs(value)
 
     @pydantic.field_validator("additional_inputs")
-    def validate_additional_inputs(
-        cls, value: typing.Optional[list[str]]
-    ) -> typing.Optional[list[str]]:
+    def validate_additional_inputs(cls, value: typing.Optional[list[str]]) -> typing.Optional[list[str]]:
         if value is None or len(value) == 0:
             return []
 
@@ -234,9 +233,7 @@ class TriggerEvaluationRecord(pydantic.BaseModel):
     evaluation_start: datetime.datetime
     evaluation_end: typing.Optional[datetime.datetime] = None
     status: TriggerEvaluationStatus
-    status_detail: typing.Optional[str] = (
-        None  # E.g., exception that caused the evaluation to fail
-    )
+    status_detail: typing.Optional[str] = None  # E.g., exception that caused the evaluation to fail
     outcome: typing.Optional[TriggerEvaluationOutcome] = None
     outcome_reason: typing.Optional[TriggerEvaluationOutcomeReason] = None
     cause: typing.Optional[TriggerEvaluationCause] = None

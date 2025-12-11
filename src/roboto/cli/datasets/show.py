@@ -19,9 +19,7 @@ def show(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 
 def show_setup_parser(parser):
-    parser.add_argument(
-        "-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP
-    )
+    parser.add_argument("-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP)
 
 
 show_command = RobotoCommand(

@@ -113,9 +113,7 @@ def _find_matches_multidimensional(
     # and then add that distance profile to the running total.
     # N.b.: for a target of len N and query of len M, there are a total of N - M + 1 subsequences
     #   (the first starts at index 0, the second at index 1, ..., the last starts at index N - M)
-    summed_distance_profile: numpy.typing.NDArray[numpy.floating] = np.zeros(
-        len(target) - len(query) + 1
-    )
+    summed_distance_profile: numpy.typing.NDArray[numpy.floating] = np.zeros(len(target) - len(query) + 1)
     for column in query_dims:
         query_sequence = query[column].to_numpy()
         target_sequence = target[column].to_numpy()
@@ -219,9 +217,7 @@ def find_similar_signals(
                         distance=match_result.distance,
                         start_idx=match_result.start_idx,
                         start_time=topic_data.index[match_result.start_idx].item(),
-                        subsequence=topic_data[
-                            match_result.start_idx : match_result.end_idx + 1
-                        ],
+                        subsequence=topic_data[match_result.start_idx : match_result.end_idx + 1],
                     )
                 )
     else:
@@ -260,9 +256,7 @@ def find_similar_signals(
                         distance=match_result.distance,
                         start_idx=match_result.start_idx,
                         start_time=target_signal.index[match_result.start_idx].item(),
-                        subsequence=target_signal[
-                            match_result.start_idx : match_result.end_idx + 1
-                        ],
+                        subsequence=target_signal[match_result.start_idx : match_result.end_idx + 1],
                     )
                 )
 

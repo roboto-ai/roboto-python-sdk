@@ -23,9 +23,9 @@ DEFAULT_INPUT_FILE = pathlib.Path.cwd() / "action_input.json"
 class ActionInputRecord(pydantic.BaseModel):
     """Serializable representation of an ``ActionInput``."""
 
-    files: collections.abc.Sequence[
-        tuple[FileRecord, typing.Optional[pathlib.Path]]
-    ] = pydantic.Field(default_factory=list)
+    files: collections.abc.Sequence[tuple[FileRecord, typing.Optional[pathlib.Path]]] = pydantic.Field(
+        default_factory=list
+    )
 
     topics: collections.abc.Sequence[TopicRecord] = pydantic.Field(default_factory=list)
 
@@ -47,8 +47,8 @@ class ActionInput:
 
     """
 
-    files: collections.abc.Sequence[tuple[File, typing.Optional[pathlib.Path]]] = (
-        dataclasses.field(default_factory=list)
+    files: collections.abc.Sequence[tuple[File, typing.Optional[pathlib.Path]]] = dataclasses.field(
+        default_factory=list
     )
     """
     Files passed as input data to an action invocation.
@@ -64,15 +64,11 @@ class ActionInput:
     """
 
     @classmethod
-    def from_record(
-        cls, record: ActionInputRecord, roboto_client: RobotoClient
-    ) -> ActionInput:
+    def from_record(cls, record: ActionInputRecord, roboto_client: RobotoClient) -> ActionInput:
         """Create an ActionInput instance from its serialized representation."""
 
         return cls(
-            files=[
-                (File(file_rec, roboto_client), path) for file_rec, path in record.files
-            ],
+            files=[(File(file_rec, roboto_client), path) for file_rec, path in record.files],
             topics=[Topic(topic_rec, roboto_client) for topic_rec in record.topics],
         )
 

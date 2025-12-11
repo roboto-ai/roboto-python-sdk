@@ -5,15 +5,15 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-import enum
 import typing
 
 import pydantic
 
+from ...compat import StrEnum
 from ..users import UserRecord
 
 
-class OrgStatus(str, enum.Enum):
+class OrgStatus(StrEnum):
     """Organization status enumeration.
 
     Represents the current operational state of an organization.
@@ -29,7 +29,7 @@ class OrgStatus(str, enum.Enum):
     """Organization is being deleted and resources are being cleaned up."""
 
 
-class OrgTier(str, enum.Enum):
+class OrgTier(StrEnum):
     """Organization tier enumeration.
 
     See our pricing page for details on different organization tiers and
@@ -65,7 +65,7 @@ class OrgRecord(pydantic.BaseModel):
     """User ID of the organization creator."""
 
 
-class OrgRoleName(str, enum.Enum):
+class OrgRoleName(StrEnum):
     """Organization role enumeration.
 
     Defines the different permission levels users can have within an organization.

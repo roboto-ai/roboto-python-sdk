@@ -63,13 +63,9 @@ class FileService:
     __roboto_client: RobotoClient
 
     @staticmethod
-    def __transfer_manager_for_client_provider(
-        credential_provider: CredentialProvider, max_concurrency: int = 8
-    ):
+    def __transfer_manager_for_client_provider(credential_provider: CredentialProvider, max_concurrency: int = 8):
         s3_client = File.generate_s3_client(credential_provider)
-        transfer_config = s3_transfer.TransferConfig(
-            use_threads=True, max_concurrency=max_concurrency
-        )
+        transfer_config = s3_transfer.TransferConfig(use_threads=True, max_concurrency=max_concurrency)
         return s3_transfer.create_transfer_manager(s3_client, transfer_config)
 
     def __init__(self, roboto_client: RobotoClient):
@@ -77,16 +73,12 @@ class FileService:
 
     def download_files(
         self,
-        file_generator: collections.abc.Generator[
-            tuple[FileRecord, pathlib.Path], None, None
-        ],
+        file_generator: collections.abc.Generator[tuple[FileRecord, pathlib.Path], None, None],
         credential_provider: CredentialProvider,
         progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory(),
         max_concurrency: int = 8,
     ) -> None:
-        total_file_count = progress_monitor_factory.get_context().get(
-            "total_file_count", 0
-        )
+        total_file_count = progress_monitor_factory.get_context().get("total_file_count", 0)
 
         if total_file_count >= 20:
             self.__download_many_files(
@@ -97,9 +89,7 @@ class FileService:
             )
         else:
             for record, local_path in file_generator:
-                File(record, self.__roboto_client).download(
-                    local_path, credential_provider, progress_monitor_factory
-                )
+                File(record, self.__roboto_client).download(local_path, credential_provider, progress_monitor_factory)
 
     def upload_files(
         self,
@@ -110,15 +100,11 @@ class FileService:
         progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory(),
         max_concurrency: int = 20,
     ) -> None:
-        expected_file_count = progress_monitor_factory.get_context().get(
-            "expected_file_count", "?"
-        )
+        expected_file_count = progress_monitor_factory.get_context().get("expected_file_count", "?")
 
         if expected_file_count >= MANY_FILES:
             base_path = progress_monitor_factory.get_context().get("base_path", "?")
-            expected_file_size = progress_monitor_factory.get_context().get(
-                "expected_file_size", -1
-            )
+            expected_file_size = progress_monitor_factory.get_context().get("expected_file_size", -1)
 
             progress_monitor = progress_monitor_factory.upload_monitor(
                 source=f"{expected_file_count} files from {base_path}",
@@ -157,24 +143,16 @@ class FileService:
             encoded_tags = urllib.parse.urlencode(serializable_tags)
             extra_args = {"Tagging": encoded_tags}
 
-        with self.__transfer_manager_for_client_provider(
-            credential_provider, max_concurrency
-        ) as transfer_manager:
+        with self.__transfer_manager_for_client_provider(credential_provider, max_concurrency) as transfer_manager:
             for src, uri in file_generator:
                 parsed_uri = urllib.parse.urlparse(uri)
                 bucket = parsed_uri.netloc
                 key = parsed_uri.path.lstrip("/")
 
-                subscribers = [
-                    s3_transfer.ProgressCallbackInvoker(progress_monitor.update)
-                ]
+                subscribers = [s3_transfer.ProgressCallbackInvoker(progress_monitor.update)]
 
                 if on_file_complete is not None:
-                    subscribers.append(
-                        DynamicCallbackSubscriber(
-                            on_done_cb=partial(on_file_complete, uri)
-                        )
-                    )
+                    subscribers.append(DynamicCallbackSubscriber(on_done_cb=partial(on_file_complete, uri)))
 
                 transfer_manager.upload(
                     str(src),
@@ -204,9 +182,7 @@ class FileService:
             encoded_tags = urllib.parse.urlencode(serializable_tags)
             upload_file_args["ExtraArgs"] = {"Tagging": encoded_tags}
 
-        progress_monitor = progress_monitor_factory.upload_monitor(
-            source=key, size=local_path.stat().st_size
-        )
+        progress_monitor = progress_monitor_factory.upload_monitor(source=key, size=local_path.stat().st_size)
         upload_file_args["Callback"] = progress_monitor.update
 
         try:
@@ -218,20 +194,14 @@ class FileService:
 
     def __download_many_files(
         self,
-        file_generator: collections.abc.Generator[
-            tuple[FileRecord, pathlib.Path], None, None
-        ],
+        file_generator: collections.abc.Generator[tuple[FileRecord, pathlib.Path], None, None],
         credential_provider: CredentialProvider,
         progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory(),
         max_concurrency: int = 8,
     ):
-        transfer_manager = self.__transfer_manager_for_client_provider(
-            credential_provider, max_concurrency
-        )
+        transfer_manager = self.__transfer_manager_for_client_provider(credential_provider, max_concurrency)
 
-        total_file_count = progress_monitor_factory.get_context().get(
-            "total_file_count", 0
-        )
+        total_file_count = progress_monitor_factory.get_context().get("total_file_count", 0)
 
         base_path = progress_monitor_factory.get_context().get("base_path", "?")
 

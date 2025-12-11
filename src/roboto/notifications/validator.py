@@ -4,14 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from enum import Enum
 
 import pydantic
 
+from ..compat import StrEnum
 from ..exceptions import RobotoConditionException
 
 
-class NotificationType(str, Enum):
+class NotificationType(StrEnum):
     """Notification type enum"""
 
     CommentMention = "comment_mention"
@@ -20,7 +20,7 @@ class NotificationType(str, Enum):
     # etc...
 
 
-class NotificationChannel(str, Enum):
+class NotificationChannel(StrEnum):
     """Notification channel enum"""
 
     Email = "email"
@@ -32,7 +32,7 @@ class NotificationChannel(str, Enum):
     # etc...
 
 
-class ReadStatus(str, Enum):
+class ReadStatus(StrEnum):
     """Notification read status enum"""
 
     Unread = "unread"
@@ -40,7 +40,7 @@ class ReadStatus(str, Enum):
 
 
 # https://docs.aws.amazon.com/ses/latest/dg/event-publishing-retrieving-sns-examples.html#event-publishing-retrieving-sns-subscription
-class EmailLifecycleStatus(str, Enum):
+class EmailLifecycleStatus(StrEnum):
     """Notification email lifecycle status enum"""
 
     Initiated = "Initiated"  # for Roboto use only, this is not an SES status
@@ -57,7 +57,7 @@ class EmailLifecycleStatus(str, Enum):
     Subscription = "Subscription"
 
 
-class WebUiLifecycleStatus(str, Enum):
+class WebUiLifecycleStatus(StrEnum):
     """Notification web ui status enum"""
 
     Acknowledged = "Acknowledged"

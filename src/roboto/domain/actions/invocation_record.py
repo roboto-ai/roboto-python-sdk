@@ -125,9 +125,7 @@ class InvocationUploadDestination(pydantic.BaseModel):
             An InvocationUploadDestination configured for the specified dataset.
         """
 
-        return cls(
-            destination_type=UploadDestinationType.Dataset, destination_id=dataset_id
-        )
+        return cls(destination_type=UploadDestinationType.Dataset, destination_id=dataset_id)
 
     @property
     def is_dataset(self) -> bool:
@@ -137,10 +135,7 @@ class InvocationUploadDestination(pydantic.BaseModel):
             True if this destination is configured for a dataset with a valid ID.
         """
 
-        return (
-            self.destination_type is UploadDestinationType.Dataset
-            and self.destination_id is not None
-        )
+        return self.destination_type is UploadDestinationType.Dataset and self.destination_id is not None
 
     @property
     def is_unknown(self) -> bool:
@@ -225,9 +220,7 @@ class InvocationInput(pydantic.BaseModel):
         return self
 
     @classmethod
-    def from_dataset_file_paths(
-        cls, dataset_id: str, file_paths: list[str]
-    ) -> InvocationInput:
+    def from_dataset_file_paths(cls, dataset_id: str, file_paths: list[str]) -> InvocationInput:
         return cls(files=FileSelector(dataset_id=dataset_id, paths=file_paths))
 
     @classmethod
@@ -440,32 +433,20 @@ class InvocationRecord(pydantic.BaseModel):
                 "created": self.created.isoformat(),
                 "data_source": self.data_source.model_dump(mode="json"),
                 "input_data": self.input_data,
-                "rich_input_data": (
-                    self.rich_input_data.model_dump(mode="json")
-                    if self.rich_input_data
-                    else None
-                ),
+                "rich_input_data": (self.rich_input_data.model_dump(mode="json") if self.rich_input_data else None),
                 "upload_destination": (
-                    self.upload_destination.model_dump(mode="json")
-                    if self.upload_destination
-                    else None
+                    self.upload_destination.model_dump(mode="json") if self.upload_destination else None
                 ),
                 "invocation_id": self.invocation_id,
                 "idempotency_id": self.idempotency_id,
-                "compute_requirements": self.compute_requirements.model_dump(
-                    mode="json"
-                ),
-                "container_parameters": self.container_parameters.model_dump(
-                    mode="json"
-                ),
+                "compute_requirements": self.compute_requirements.model_dump(mode="json"),
+                "container_parameters": self.container_parameters.model_dump(mode="json"),
                 "last_heartbeat": self.last_heartbeat,
                 "last_status": self.last_status,
                 "org_id": self.org_id,
                 "parameter_values": self.parameter_values,
                 "provenance": self.provenance.model_dump(mode="json"),
-                "status": [
-                    status_record.to_presentable_dict() for status_record in self.status
-                ],
+                "status": [status_record.to_presentable_dict() for status_record in self.status],
                 "duration": str(self.duration),
                 "timeout": self.timeout,
             },

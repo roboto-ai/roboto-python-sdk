@@ -6,10 +6,10 @@
 
 from __future__ import annotations
 
-import enum
+from .compat import StrEnum
 
 
-class RobotoApiVersion(str, enum.Enum):
+class RobotoApiVersion(StrEnum):
     """Enumeration of supported Roboto API versions.
 
     This enum defines the available API versions for the Roboto platform. Each version

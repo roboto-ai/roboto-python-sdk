@@ -25,9 +25,7 @@ def import_external_file(args, context: CLIContext, parser: argparse.ArgumentPar
 
 
 def import_external_file_setup_parser(parser):
-    parser.add_argument(
-        "-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP
-    )
+    parser.add_argument("-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP)
     parser.add_argument(
         "-p",
         "--path",
@@ -51,7 +49,6 @@ import_external_file_command = RobotoCommand(
     logic=import_external_file,
     setup_parser=import_external_file_setup_parser,
     command_kwargs={
-        "help": "Import a file from an external storage location "
-        "(e.g. a pre-registered S3 bucket) into a dataset."
+        "help": "Import a file from an external storage location (e.g. a pre-registered S3 bucket) into a dataset."
     },
 )

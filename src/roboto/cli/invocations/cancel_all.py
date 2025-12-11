@@ -13,9 +13,7 @@ from ..common_args import add_org_arg
 from ..context import CLIContext
 
 
-def cancel_all(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def cancel_all(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     """
     Iteratively cancel active invocations until the response returns False for has_more
     or the configured timeout is reached.
@@ -47,10 +45,7 @@ def cancel_all(
             has_more = response.has_more
 
             if has_more:
-                print(
-                    f"Progress: cancelled {response.success_count} invocations, "
-                    f"{response.failure_count} failures."
-                )
+                print(f"Progress: cancelled {response.success_count} invocations, {response.failure_count} failures.")
 
     except KeyboardInterrupt:
         pass
@@ -81,7 +76,5 @@ cancel_all_command = RobotoCommand(
     name="cancel-all",
     logic=cancel_all,
     setup_parser=cancel_all_parser,
-    command_kwargs={
-        "help": "Cancel all queued and running invocations in your organization"
-    },
+    command_kwargs={"help": "Cancel all queued and running invocations in your organization"},
 )

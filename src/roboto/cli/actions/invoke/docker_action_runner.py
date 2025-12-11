@@ -158,15 +158,9 @@ class DockerActionRunner:
             RobotoEnvKey.RobotoServiceEndpoint.value: self.roboto_config.endpoint,
             RobotoEnvKey.ApiKey.value: self.roboto_config.api_key,
             RobotoEnvKey.ActionRuntimeConfigDir.value: str(self.workspace.config_dir),
-            RobotoEnvKey.ActionInputsManifest.value: str(
-                self.workspace.input_data_manifest_file
-            ),
-            RobotoEnvKey.ActionParametersFile.value: str(
-                self.workspace.parameters_file
-            ),
-            RobotoEnvKey.DatasetMetadataChangesetFile.value: str(
-                self.workspace.dataset_metadata_changeset_file
-            ),
+            RobotoEnvKey.ActionInputsManifest.value: str(self.workspace.input_data_manifest_file),
+            RobotoEnvKey.ActionParametersFile.value: str(self.workspace.parameters_file),
+            RobotoEnvKey.DatasetMetadataChangesetFile.value: str(self.workspace.dataset_metadata_changeset_file),
             RobotoEnvKey.DryRun.value: str(self.dry_run).lower(),
             RobotoEnvKey.RobotoEnv.value: f"LOCAL ({socket.getfqdn()})",
             "HOME": str(self.workspace.root),
@@ -272,17 +266,12 @@ class DockerActionRunner:
 
             result = subprocess.run(build_cmd, capture_output=True, text=True)
             if result.returncode != 0:
-                raise ActionRuntimeException(
-                    f"Failed to build Docker image: {result.stderr}"
-                )
+                raise ActionRuntimeException(f"Failed to build Docker image: {result.stderr}")
 
             return image_name
 
         # Platform action with image_uri
-        if (
-            self.action_source.action_record is not None
-            and self.action_source.action_record.uri
-        ):
+        if self.action_source.action_record is not None and self.action_source.action_record.uri:
             return self.action_source.action_record.uri
 
         raise ActionRuntimeException(

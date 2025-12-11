@@ -17,9 +17,7 @@ from ..context import CLIContext
 from .shared_helpdoc import DATASET_ID_HELP
 
 
-def update(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def update(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     metadata_changeset = MetadataChangeset(
         put_tags=args.put_tags,
         remove_tags=args.remove_tags,
@@ -41,13 +39,9 @@ def update(
 
 
 def update_parser(parser: argparse.ArgumentParser):
-    parser.add_argument(
-        "-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP
-    )
+    parser.add_argument("-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP)
 
-    parser.add_argument(
-        "--description", help="A new description to add to this dataset"
-    )
+    parser.add_argument("--description", help="A new description to add to this dataset")
 
     parser.add_argument(
         "--name",

@@ -36,9 +36,7 @@ class Association(pydantic.BaseModel):
     @staticmethod
     def group_by_type(
         associations: collections.abc.Collection[Association],
-    ) -> collections.abc.Mapping[
-        AssociationType, collections.abc.Sequence[Association]
-    ]:
+    ) -> collections.abc.Mapping[AssociationType, collections.abc.Sequence[Association]]:
         response: dict[AssociationType, list[Association]] = {}
 
         for association in associations:
@@ -65,9 +63,7 @@ class Association(pydantic.BaseModel):
                 association_version=association_version,
             )
         except ValueError:
-            raise RobotoIllegalArgumentException(
-                f"Invalid association type '{association_type}'"
-            ) from None
+            raise RobotoIllegalArgumentException(f"Invalid association type '{association_type}'") from None
 
     @classmethod
     def coalesce(
@@ -97,9 +93,7 @@ class Association(pydantic.BaseModel):
             coalesced.extend(cls.topic(topic_id) for topic_id in topic_ids)
 
         if len(coalesced) == 0 and throw_on_empty:
-            raise RobotoInvalidRequestException(
-                "At least one association must be provided"
-            )
+            raise RobotoInvalidRequestException("At least one association must be provided")
 
         return coalesced
 
@@ -121,9 +115,7 @@ class Association(pydantic.BaseModel):
 
     @classmethod
     def msgpath(cls, msgpath_id: str) -> Association:
-        return cls(
-            association_id=msgpath_id, association_type=AssociationType.MessagePath
-        )
+        return cls(association_id=msgpath_id, association_type=AssociationType.MessagePath)
 
     association_id: str
     """Roboto identifier"""

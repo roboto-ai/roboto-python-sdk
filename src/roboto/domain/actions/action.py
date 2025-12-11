@@ -129,9 +129,7 @@ class Action:
             Create a simple action:
 
             >>> action = Action.create(
-            ...     name="hello_world",
-            ...     uri="ubuntu:latest",
-            ...     description="A simple hello world action"
+            ...     name="hello_world", uri="ubuntu:latest", description="A simple hello world action"
             ... )
 
             Create an action with parameters and compute requirements:
@@ -144,10 +142,10 @@ class Action:
             ...     compute_requirements=ComputeRequirements(vCPU=4096, memory=8192),
             ...     parameters=[
             ...         ActionParameter(name="threshold", required=True, description="Processing threshold"),
-            ...         ActionParameter(name="output_format", default="json", description="Output format")
+            ...         ActionParameter(name="output_format", default="json", description="Output format"),
             ...     ],
             ...     tags=["data-processing", "sensors"],
-            ...     timeout=60
+            ...     timeout=60,
             ... )
 
             Create an action that inherits from another:
@@ -157,7 +155,7 @@ class Action:
             ...     name="custom_processor",
             ...     inherits=base_action.record.reference,
             ...     description="Custom processor based on base_processor",
-            ...     metadata={"version": "2.0", "team": "data-science"}
+            ...     metadata={"version": "2.0", "team": "data-science"},
             ... )
         """
         request = CreateActionRequest(
@@ -231,17 +229,11 @@ class Action:
 
             Load a specific version of an action:
 
-            >>> action = Action.from_name(
-            ...     "data_processor",
-            ...     digest="abc123def456"
-            ... )
+            >>> action = Action.from_name("data_processor", digest="abc123def456")
 
             Load an action from another organization:
 
-            >>> action = Action.from_name(
-            ...     "public_processor",
-            ...     owner_org_id="roboto-public"
-            ... )
+            >>> action = Action.from_name("public_processor", owner_org_id="roboto-public")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         query_params = {"digest": digest} if digest else None
@@ -323,18 +315,10 @@ class Action:
         unknown = actual - known
         if unknown:
             plural = len(unknown) > 1
-            msg = (
-                "are not known attributes of Action"
-                if plural
-                else "is not a known attribute of Action"
-            )
+            msg = "are not known attributes of Action" if plural else "is not a known attribute of Action"
             raise ValueError(f"{unknown} {msg}. Known attributes: {known}")
 
-        url_path = (
-            "v1/actions/query"
-            if accessibility == Accessibility.Organization
-            else "v1/actions/query/actionhub"
-        )
+        url_path = "v1/actions/query" if accessibility == Accessibility.Organization else "v1/actions/query/actionhub"
 
         while True:
             response = roboto_client.post(
@@ -401,11 +385,7 @@ class Action:
     @property
     def digest(self) -> str:
         """The unique digest identifying this specific version of the action."""
-        return (
-            self.__record.digest
-            if self.__record.digest
-            else self.__record.compute_digest()
-        )
+        return self.__record.digest if self.__record.digest else self.__record.compute_digest()
 
     @property
     def inherits_from(self) -> typing.Optional[ActionReference]:
@@ -558,7 +538,7 @@ class Action:
             ...     data_source_id="ds_12345",
             ...     data_source_type=InvocationDataSourceType.Dataset,
             ...     input_data=["**/*.bag"],
-            ...     upload_destination=InvocationUploadDestination.dataset("ds_12345")
+            ...     upload_destination=InvocationUploadDestination.dataset("ds_12345"),
             ... )
             >>> iv.wait_for_terminal_status()
 
@@ -570,7 +550,7 @@ class Action:
             >>> iv = action.invoke(
             ...     invocation_source=InvocationSource.Manual,
             ...     compute_requirement_overrides=compute_reqs,
-            ...     parameter_values={"threshold": 0.75}
+            ...     parameter_values={"threshold": 0.75},
             ... )
             >>> status = iv.wait_for_terminal_status()
             >>> print(status)
@@ -594,12 +574,8 @@ class Action:
             )
 
         request = CreateInvocationRequest(
-            data_source_id=(
-                data_source_id or InvocationDataSource.unspecified().data_source_id
-            ),
-            data_source_type=(
-                data_source_type or InvocationDataSource.unspecified().data_source_type
-            ),
+            data_source_id=(data_source_id or InvocationDataSource.unspecified().data_source_id),
+            data_source_type=(data_source_type or InvocationDataSource.unspecified().data_source_type),
             input_data=file_paths,
             rich_input_data=resolved_input_data,
             invocation_source=invocation_source,
@@ -681,18 +657,12 @@ class Action:
 
     def update(
         self,
-        compute_requirements: typing.Optional[
-            typing.Union[ComputeRequirements, NotSetType]
-        ] = NotSet,
-        container_parameters: typing.Optional[
-            typing.Union[ContainerParameters, NotSetType]
-        ] = NotSet,
+        compute_requirements: typing.Optional[typing.Union[ComputeRequirements, NotSetType]] = NotSet,
+        container_parameters: typing.Optional[typing.Union[ContainerParameters, NotSetType]] = NotSet,
         description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         inherits: typing.Optional[typing.Union[ActionReference, NotSetType]] = NotSet,
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
-        parameter_changeset: typing.Union[
-            ActionParameterChangeset, NotSetType
-        ] = NotSet,
+        parameter_changeset: typing.Union[ActionParameterChangeset, NotSetType] = NotSet,
         short_description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         timeout: typing.Optional[typing.Union[int, NotSetType]] = NotSet,
         uri: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
@@ -728,17 +698,12 @@ class Action:
             Update action description and timeout:
 
             >>> action = Action.from_name("my_action")
-            >>> action.update(
-            ...     description="Updated description of what this action does",
-            ...     timeout=45
-            ... )
+            >>> action.update(description="Updated description of what this action does", timeout=45)
 
             Update compute requirements:
 
             >>> from roboto.domain.actions import ComputeRequirements
-            >>> action.update(
-            ...     compute_requirements=ComputeRequirements(vCPU=4096, memory=8192)
-            ... )
+            >>> action.update(compute_requirements=ComputeRequirements(vCPU=4096, memory=8192))
 
             Add metadata using changeset:
 

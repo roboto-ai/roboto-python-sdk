@@ -39,10 +39,7 @@ def is_timestamp_like(arrow_type: "pyarrow.DataType") -> bool:
 def is_timezone_aware(arrow_type: "pyarrow.DataType") -> bool:
     pa = import_optional_dependency("pyarrow", "ingestion")
 
-    return (
-        pa.types.is_timestamp(arrow_type)
-        and typing.cast("pyarrow.TimestampType", arrow_type).tz is not None
-    )
+    return pa.types.is_timestamp(arrow_type) and typing.cast("pyarrow.TimestampType", arrow_type).tz is not None
 
 
 def time_unit_from_timestamp_type(timestamp_type: "pyarrow.TimestampType") -> TimeUnit:
@@ -75,9 +72,7 @@ class Timestamp:
         return self.__unit_from_message_path_metadata()
 
     def __unit_from_message_path_metadata(self) -> TimeUnit:
-        unit = self.message_path.metadata.get(
-            MessagePathMetadataWellKnown.Unit.value, None
-        )
+        unit = self.message_path.metadata.get(MessagePathMetadataWellKnown.Unit.value, None)
         if unit is None:
             raise Exception(
                 f"Unable to determine timestamp unit of data in field '{self.message_path.source_path}'. "

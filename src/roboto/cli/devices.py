@@ -36,9 +36,7 @@ def __add_device_arg(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def delete_device(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def delete_device(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     org_id = get_defaulted_org_id(args.org)
 
     device = devices.Device.from_id(
@@ -55,9 +53,7 @@ def delete_device_setup_parser(parser: argparse.ArgumentParser) -> None:
     add_org_arg(parser)
 
 
-def disable_device_access(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def disable_device_access(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     org_id = get_defaulted_org_id(args.org)
 
     device = devices.Device.from_id(
@@ -75,9 +71,7 @@ def disable_device_access_setup_parser(parser: argparse.ArgumentParser) -> None:
     add_org_arg(parser)
 
 
-def enable_device_access(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def enable_device_access(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     org_id = get_defaulted_org_id(args.org)
 
     device = devices.Device.from_id(
@@ -95,9 +89,7 @@ def enable_device_access_setup_parser(parser: argparse.ArgumentParser) -> None:
     add_org_arg(parser)
 
 
-def generate_device_creds(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def generate_device_creds(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     config_file: pathlib.Path = args.config_file
     if config_file.is_file():
         parser.error(
@@ -135,9 +127,7 @@ def generate_device_creds_common_logic(
         endpoint=context.roboto_client.endpoint,
     )
 
-    config_file_content = RobotoConfigFileV1(
-        version="v1", profiles=profiles, default_profile=default_profile
-    )
+    config_file_content = RobotoConfigFileV1(version="v1", profiles=profiles, default_profile=default_profile)
 
     config_file.write_text(config_file_content.model_dump_json())
 
@@ -167,9 +157,7 @@ def generate_device_creds_setup_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def list_devices(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def list_devices(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     org_id = get_defaulted_org_id(args.org)
     for device in devices.Device.for_org(org_id):
         print(device)
@@ -179,9 +167,7 @@ def list_devices_setup_parser(parser: argparse.ArgumentParser) -> None:
     add_org_arg(parser)
 
 
-def register_device(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def register_device(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     config_file: pathlib.Path = args.config_file
     if config_file.is_file():
         parser.error(
@@ -225,9 +211,7 @@ def register_device_setup_parser(parser: argparse.ArgumentParser) -> None:
     add_org_arg(parser)
 
 
-def show_device(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def show_device(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     org_id = get_defaulted_org_id(args.org)
 
     print(
@@ -276,18 +260,14 @@ generate_creds_command = RobotoCommand(
     name="generate-creds",
     logic=generate_device_creds,
     setup_parser=generate_device_creds_setup_parser,
-    command_kwargs={
-        "help": "Generates a new access credentials file for an existing device."
-    },
+    command_kwargs={"help": "Generates a new access credentials file for an existing device."},
 )
 
 list_command = RobotoCommand(
     name="list",
     logic=list_devices,
     setup_parser=list_devices_setup_parser,
-    command_kwargs={
-        "help": "Lists devices which have been registered for a given org."
-    },
+    command_kwargs={"help": "Lists devices which have been registered for a given org."},
 )
 
 register_command = RobotoCommand(

@@ -5,15 +5,16 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-import enum
 import typing
 
 import pydantic
 
 from roboto import RobotoClient
 
+from ...compat import StrEnum
 
-class WebhookProvider(str, enum.Enum):
+
+class WebhookProvider(StrEnum):
     Foxglove = "foxglove"
 
 

@@ -26,14 +26,10 @@ class InputTopicResolver:
     ):
         self.roboto_client = RobotoClient.defaulted(roboto_client)
         self.roboto_search = (
-            roboto_search
-            if roboto_search is not None
-            else RobotoSearch.for_roboto_client(self.roboto_client)
+            roboto_search if roboto_search is not None else RobotoSearch.for_roboto_client(self.roboto_client)
         )
 
-    def resolve_all(
-        self, topic_selectors: collections.abc.Sequence[DataSelector]
-    ) -> list[Topic]:
+    def resolve_all(self, topic_selectors: collections.abc.Sequence[DataSelector]) -> list[Topic]:
         topic_ids: set[str] = set()
         all_topics: list[Topic] = []
 
@@ -67,13 +63,9 @@ class InputTopicResolver:
     def _resolve_from_query(self, query: str) -> list[Topic]:
         return list(self.roboto_search.find_topics(query))
 
-    def _resolve_from_names(
-        self, topic_names: collections.abc.Sequence[str]
-    ) -> list[Topic]:
+    def _resolve_from_names(self, topic_names: collections.abc.Sequence[str]) -> list[Topic]:
         query = " OR ".join(f'name = "{name}"' for name in topic_names)
         return self._resolve_from_query(query)
 
-    def _resolve_from_ids(
-        self, topic_ids: collections.abc.Sequence[str]
-    ) -> list[Topic]:
+    def _resolve_from_ids(self, topic_ids: collections.abc.Sequence[str]) -> list[Topic]:
         return [Topic.from_id(topic_id, self.roboto_client) for topic_id in topic_ids]

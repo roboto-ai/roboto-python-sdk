@@ -41,11 +41,7 @@ class ActionInputResolver:
         roboto_search: typing.Optional[RobotoSearch] = None,
     ) -> ActionInputResolver:
         roboto_client = RobotoClient.defaulted(roboto_client)
-        roboto_search = (
-            roboto_search
-            if roboto_search is not None
-            else RobotoSearch.for_roboto_client(roboto_client)
-        )
+        roboto_search = roboto_search if roboto_search is not None else RobotoSearch.for_roboto_client(roboto_client)
 
         return cls(
             file_resolver=InputFileResolver(roboto_client, roboto_search),
@@ -106,7 +102,7 @@ class ActionInputResolver:
 
             >>> input_spec = InvocationInput(
             ...     files=FileSelector(query='dataset_id = "ds_abc123" AND path LIKE "%.mcap"'),
-            ...     topics=DataSelector(names=["battery_status", "gps"])
+            ...     topics=DataSelector(names=["battery_status", "gps"]),
             ... )
             >>> result = resolver.resolve_input_spec(input_spec)
             >>> # result.files contains file records
@@ -125,9 +121,7 @@ class ActionInputResolver:
             if not topics:
                 log.warning("No topics matched the provided input specification.")
 
-        resolved_files: collections.abc.Sequence[OptionallyDownloadedFile] = [
-            (file, None) for file in files
-        ]
+        resolved_files: collections.abc.Sequence[OptionallyDownloadedFile] = [(file, None) for file in files]
         if download:
             if download_path is None:
                 download_path = pathlib.Path(tempfile.mkdtemp())

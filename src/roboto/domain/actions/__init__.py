@@ -23,10 +23,7 @@ Examples:
 
     >>> from roboto.domain.actions import Action, InvocationSource
     >>> action = Action.from_name("my_action", owner_org_id="my-org")
-    >>> invocation = action.invoke(
-    ...     invocation_source=InvocationSource.Manual,
-    ...     parameter_values={"param1": "value1"}
-    ... )
+    >>> invocation = action.invoke(invocation_source=InvocationSource.Manual, parameter_values={"param1": "value1"})
     >>> invocation.wait_for_terminal_status()
 
     Creating a trigger:
@@ -36,7 +33,7 @@ Examples:
     ...     name="auto_process",
     ...     action_name="my_action",
     ...     required_inputs=["**/*.bag"],
-    ...     for_each=TriggerForEachPrimitive.Dataset
+    ...     for_each=TriggerForEachPrimitive.Dataset,
     ... )
 """
 

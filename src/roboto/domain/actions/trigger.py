@@ -198,7 +198,7 @@ class Trigger:
             ...     name="auto_process_bags",
             ...     action_name="ros_ingestion",
             ...     required_inputs=["**/*.bag"],
-            ...     for_each=TriggerForEachPrimitive.Dataset
+            ...     for_each=TriggerForEachPrimitive.Dataset,
             ... )
 
             Create a conditional trigger with parameters:
@@ -211,7 +211,7 @@ class Trigger:
             ...     required_inputs=["**/*.pcd"],
             ...     for_each=TriggerForEachPrimitive.Dataset,
             ...     condition=condition,
-            ...     parameter_values={"resolution": "high", "filter": "statistical"}
+            ...     parameter_values={"resolution": "high", "filter": "statistical"},
             ... )
 
             Create a trigger with compute overrides:
@@ -222,7 +222,7 @@ class Trigger:
             ...     action_name="ml_inference",
             ...     required_inputs=["**/*.jpg", "**/*.png"],
             ...     for_each=TriggerForEachPrimitive.DatasetFile,
-            ...     compute_requirement_overrides=ComputeRequirements(vCPU=8192, memory=16384)
+            ...     compute_requirement_overrides=ComputeRequirements(vCPU=8192, memory=16384),
             ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -449,22 +449,14 @@ class Trigger:
         action_name: typing.Union[str, NotSetType] = NotSet,
         action_owner_id: typing.Union[str, NotSetType] = NotSet,
         action_digest: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
-        additional_inputs: typing.Optional[
-            typing.Union[list[str], NotSetType]
-        ] = NotSet,
+        additional_inputs: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet,
         causes: typing.Union[list[TriggerEvaluationCause], NotSetType] = NotSet,
-        compute_requirement_overrides: typing.Optional[
-            typing.Union[ComputeRequirements, NotSetType]
-        ] = NotSet,
-        container_parameter_overrides: typing.Optional[
-            typing.Union[ContainerParameters, NotSetType]
-        ] = NotSet,
+        compute_requirement_overrides: typing.Optional[typing.Union[ComputeRequirements, NotSetType]] = NotSet,
+        container_parameter_overrides: typing.Optional[typing.Union[ContainerParameters, NotSetType]] = NotSet,
         condition: typing.Optional[typing.Union[ConditionType, NotSetType]] = NotSet,
         enabled: typing.Union[bool, NotSetType] = NotSet,
         for_each: typing.Union[TriggerForEachPrimitive, NotSetType] = NotSet,
-        parameter_values: typing.Optional[
-            typing.Union[dict[str, typing.Any], NotSetType]
-        ] = NotSet,
+        parameter_values: typing.Optional[typing.Union[dict[str, typing.Any], NotSetType]] = NotSet,
         required_inputs: typing.Union[list[str], NotSetType] = NotSet,
         timeout: typing.Optional[typing.Union[int, NotSetType]] = NotSet,
     ) -> "Trigger":
@@ -511,10 +503,7 @@ class Trigger:
         """
         wait_for(
             lambda: all(
-                [
-                    evaluation.status != TriggerEvaluationStatus.Pending
-                    for evaluation in self.get_evaluations()
-                ]
+                [evaluation.status != TriggerEvaluationStatus.Pending for evaluation in self.get_evaluations()]
             ),
             timeout=timeout,
             interval=poll_interval,

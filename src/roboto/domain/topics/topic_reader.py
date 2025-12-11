@@ -30,37 +30,27 @@ class TopicReader(abc.ABC):
     @staticmethod
     @abc.abstractmethod
     def accepts(
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
     ) -> bool: ...
 
     @abc.abstractmethod
     def get_data(
         self,
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
         log_time_attr_name: str,
         log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
-        timestamp_message_path_representation_mapping: typing.Optional[
-            MessagePathRepresentationMapping
-        ] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]: ...
 
     @abc.abstractmethod
     def get_data_as_df(
         self,
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
         log_time_attr_name: str,
         log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
-        timestamp_message_path_representation_mapping: typing.Optional[
-            MessagePathRepresentationMapping
-        ] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
     ) -> "pandas.DataFrame": ...

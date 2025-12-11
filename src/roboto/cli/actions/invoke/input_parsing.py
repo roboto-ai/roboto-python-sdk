@@ -37,16 +37,8 @@ def parse_input_spec(
     # Query-based input
     if file_query is not None or topic_query is not None:
         return actions.InvocationInput(
-            files=(
-                actions.FileSelector(query=file_query)
-                if file_query is not None
-                else None
-            ),
-            topics=(
-                actions.DataSelector(query=topic_query)
-                if topic_query is not None
-                else None
-            ),
+            files=(actions.FileSelector(query=file_query) if file_query is not None else None),
+            topics=(actions.DataSelector(query=topic_query) if topic_query is not None else None),
         )
 
     # Dataset + paths input
@@ -57,22 +49,14 @@ def parse_input_spec(
     return None
 
 
-def validate_input_specification(
-    args: argparse.Namespace, parser: argparse.ArgumentParser
-) -> None:
+def validate_input_specification(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     """Validate mutual exclusivity of input specification methods.
 
     Query-based input (--file-query, --topic-query) is mutually exclusive with
     dataset+paths input (--dataset + --file-path).
     """
-    has_query_input = (
-        getattr(args, "file_query", None) is not None
-        or getattr(args, "topic_query", None) is not None
-    )
-    has_dataset_input = (
-        getattr(args, "dataset_id", None) is not None
-        or getattr(args, "file_paths", None) is not None
-    )
+    has_query_input = getattr(args, "file_query", None) is not None or getattr(args, "topic_query", None) is not None
+    has_dataset_input = getattr(args, "dataset_id", None) is not None or getattr(args, "file_paths", None) is not None
 
     if has_query_input and has_dataset_input:
         parser.error(

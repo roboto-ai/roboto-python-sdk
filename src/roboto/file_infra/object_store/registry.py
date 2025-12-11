@@ -27,18 +27,14 @@ class StoreRegistry:
 
         def wrapper(store_cls: typing.Type[ObjectStore]):
             if scheme in cls._registry:
-                raise ValueError(
-                    f"Scheme '{scheme}' is already registered to {cls._registry[scheme]}"
-                )
+                raise ValueError(f"Scheme '{scheme}' is already registered to {cls._registry[scheme]}")
             cls._registry[scheme] = store_cls
             return store_cls
 
         return wrapper
 
     @classmethod
-    def get_store_for_uri(
-        cls, uri: str, credential_provider: CredentialProvider, **kwargs
-    ) -> ObjectStore:
+    def get_store_for_uri(cls, uri: str, credential_provider: CredentialProvider, **kwargs) -> ObjectStore:
         """
         Parses URI -> Finds Class -> Calls Class.create() -> Returns Instance
         """
@@ -46,9 +42,7 @@ class StoreRegistry:
         scheme = parsed.scheme
 
         if scheme not in cls._registry:
-            raise ValueError(
-                f"No ObjectStore class registered for scheme: '{scheme}://'"
-            )
+            raise ValueError(f"No ObjectStore class registered for scheme: '{scheme}://'")
 
         store_class = cls._registry[scheme]
 

@@ -8,6 +8,7 @@ import json
 import pathlib
 import typing
 
+import platformdirs
 import pydantic
 
 from .env import RobotoEnv
@@ -37,18 +38,25 @@ class RobotoConfig(pydantic.BaseModel):
     """
 
     api_key: str
+    cache_dir: typing.Optional[pathlib.Path] = None
     endpoint: str = ROBOTO_API_ENDPOINT
 
     @classmethod
     def from_env(cls, profile_override: typing.Optional[str] = None) -> "RobotoConfig":
         default_env = RobotoEnv.default()
 
+        cache_dir_from_env = pathlib.Path(default_env.cache_dir) if default_env.cache_dir else None
+
         # If ROBOTO_API_KEY or ROBOTO_BEARER_TOKEN are provided, use that api_key, and either get the endpoint
         # from the environment, or use the default endpoint
         if default_env.api_key:
             endpoint = default_env.roboto_service_endpoint or ROBOTO_API_ENDPOINT
 
-            return RobotoConfig(api_key=default_env.api_key, endpoint=endpoint)
+            return RobotoConfig(
+                api_key=default_env.api_key,
+                cache_dir=cache_dir_from_env,
+                endpoint=endpoint,
+            )
 
         # Try to read a Roboto config file, either from an env variable specified location, or the default location
         # ~/.roboto/config.json
@@ -68,10 +76,7 @@ class RobotoConfig(pydantic.BaseModel):
         try:
             config_file_dict = json.loads(config_file.read_text())
         except json.JSONDecodeError:
-            raise ValueError(
-                f"Roboto config file at path '{config_file}' is not valid JSON. "
-                + _CONFIG_ERROR_SUFFIX
-            )
+            raise ValueError(f"Roboto config file at path '{config_file}' is not valid JSON. " + _CONFIG_ERROR_SUFFIX)
 
         profile_name: typing.Optional[str] = default_env.profile
         profiles: dict[str, RobotoConfig] = {}
@@ -88,19 +93,14 @@ class RobotoConfig(pydantic.BaseModel):
             for config_profile_name, config_profile in config_file_dict.items():
                 if type(config_profile) is dict:
                     try:
-                        profiles[config_profile_name] = (
-                            RobotoConfigFileProfileV0.model_validate(
-                                config_profile
-                            ).to_config()
-                        )
+                        profiles[config_profile_name] = RobotoConfigFileProfileV0.model_validate(
+                            config_profile
+                        ).to_config()
                     except pydantic.ValidationError:
                         pass
 
         if len(profiles) == 0:
-            raise ValueError(
-                f"No user profiles found in config file '{config_file}'. "
-                + _CONFIG_ERROR_SUFFIX
-            )
+            raise ValueError(f"No user profiles found in config file '{config_file}'. " + _CONFIG_ERROR_SUFFIX)
 
         # If a profile name was explicitly passed to this function (for example when called in the CLI's entry.py),
         # that blows over anything else we've seen. Otherwise, use the profile name extracted from either
@@ -111,11 +111,24 @@ class RobotoConfig(pydantic.BaseModel):
 
         if profile_name not in profiles.keys():
             raise ValueError(
-                f"User profile '{profile_name}' was not found in config file '{config_file}'. "
-                + _CONFIG_ERROR_SUFFIX
+                f"User profile '{profile_name}' was not found in config file '{config_file}'. " + _CONFIG_ERROR_SUFFIX
             )
 
         return profiles[profile_name]
+
+    def get_cache_dir(self) -> pathlib.Path:
+        if self.cache_dir is None:
+            default_env = RobotoEnv.default()
+            cache_dir_from_env = pathlib.Path(default_env.cache_dir) if default_env.cache_dir else None
+            if cache_dir_from_env:
+                self.cache_dir = cache_dir_from_env
+            else:
+                self.cache_dir = platformdirs.user_cache_path(
+                    appname="roboto",
+                    ensure_exists=True,
+                )
+
+        return self.cache_dir
 
 
 class RobotoConfigFileProfileV0(pydantic.BaseModel):
@@ -132,6 +145,7 @@ class RobotoConfigFileV1(pydantic.BaseModel):
     """V1 Roboto configuration file"""
 
     version: typing.Literal["v1"]
+    cache_dir: typing.Optional[str] = None
     profiles: dict[str, RobotoConfig]
     default_profile: typing.Optional[str] = DEFAULT_ROBOTO_PROFILE_NAME
 
@@ -140,11 +154,7 @@ class RobotoConfigFileV1(pydantic.BaseModel):
         if len(self.profiles) == 0:
             raise ValueError("No profiles found in config file.")
 
-        if (
-            self.default_profile or DEFAULT_ROBOTO_PROFILE_NAME
-        ) not in self.profiles.keys():
-            raise ValueError(
-                f"Default profile '{self.default_profile}' was not found in config file."
-            )
+        if (self.default_profile or DEFAULT_ROBOTO_PROFILE_NAME) not in self.profiles.keys():
+            raise ValueError(f"Default profile '{self.default_profile}' was not found in config file.")
 
         return self

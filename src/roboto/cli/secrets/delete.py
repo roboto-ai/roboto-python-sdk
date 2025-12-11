@@ -39,7 +39,5 @@ delete_command = RobotoCommand(
     name="delete",
     logic=delete_logic,
     setup_parser=delete_setup_parser,
-    command_kwargs={
-        "help": "Deletes a secret from the Roboto platform. This operation cannot be undone."
-    },
+    command_kwargs={"help": "Deletes a secret from the Roboto platform. This operation cannot be undone."},
 )

@@ -25,9 +25,7 @@ from ..context import CLIContext
 GENERIC_ORG_ONLY_SETUP_PARSER_DEFAULT_HELP = "perform some action"
 
 
-def generic_org_add_argument(
-    parser, action_to_perform: str = GENERIC_ORG_ONLY_SETUP_PARSER_DEFAULT_HELP
-):
+def generic_org_add_argument(parser, action_to_perform: str = GENERIC_ORG_ONLY_SETUP_PARSER_DEFAULT_HELP):
     parser.add_argument(
         "--org",
         type=str,
@@ -56,9 +54,7 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 
 def create_setup_parser(parser):
-    parser.add_argument(
-        "--name", type=str, required=True, help="A human readable name for this org"
-    )
+    parser.add_argument("--name", type=str, required=True, help="A human readable name for this org")
     parser.add_argument(
         "--bind-email-domain",
         action="store_true",
@@ -221,9 +217,9 @@ def add_role_setup_parser(parser):
 
 
 def remove_role(args, context: CLIContext, parser: argparse.ArgumentParser):
-    Org.from_id(
-        org_id=args.org, roboto_client=context.roboto_client
-    ).remove_role_from_user(user_id=args.user, role=args.role)
+    Org.from_id(org_id=args.org, roboto_client=context.roboto_client).remove_role_from_user(
+        user_id=args.user, role=args.role
+    )
     print("Removed!")
 
 
@@ -250,9 +246,7 @@ def remove_role_setup_parser(parser):
 
 
 def bind_email_domain(args, context: CLIContext, parser: argparse.ArgumentParser):
-    Org.from_id(org_id=args.org, roboto_client=context.roboto_client).bind_email_domain(
-        args.email_domain
-    )
+    Org.from_id(org_id=args.org, roboto_client=context.roboto_client).bind_email_domain(args.email_domain)
     print(f"Successfully bound domain {args.email_domain}")
 
 
@@ -267,9 +261,7 @@ def bind_email_domain_setup_parser(parser):
 
 
 def unbind_email_domain(args, context: CLIContext, parser: argparse.ArgumentParser):
-    Org.from_id(
-        org_id=args.org, roboto_client=context.roboto_client
-    ).unbind_email_domain(args.email_domain)
+    Org.from_id(org_id=args.org, roboto_client=context.roboto_client).unbind_email_domain(args.email_domain)
     print(f"Successfully unbound domain {args.email_domain}")
 
 
@@ -284,15 +276,11 @@ def unbind_email_domain_setup_parser(parser):
 
 
 def list_email_domains(args, context: CLIContext, parser: argparse.ArgumentParser):
-    for domain in Org.from_id(
-        org_id=args.org, roboto_client=context.roboto_client
-    ).email_domains():
+    for domain in Org.from_id(org_id=args.org, roboto_client=context.roboto_client).email_domains():
         print(domain)
 
 
-def register_bucket(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def register_bucket(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     service = S3IntegrationService(context.roboto_client)
     org_id = get_defaulted_org_id(args.org)
 
@@ -302,9 +290,7 @@ def register_bucket(
         account_id=args.aws_account,
     )
 
-    print(
-        "Bucket registered successfully! It will be used to store files for all new datasets."
-    )
+    print("Bucket registered successfully! It will be used to store files for all new datasets.")
 
 
 def register_bucket_setup_parser(parser: argparse.ArgumentParser) -> None:
@@ -401,12 +387,8 @@ unbind_email_domain_command = RobotoCommand(
 list_email_domains_command = RobotoCommand(
     name="list-email-domains",
     logic=list_email_domains,
-    setup_parser=generic_org_only_setup_parser(
-        action_to_perform="list bound email domains"
-    ),
-    command_kwargs={
-        "help": "Lists the email domains associated with a particular org."
-    },
+    setup_parser=generic_org_only_setup_parser(action_to_perform="list bound email domains"),
+    command_kwargs={"help": "Lists the email domains associated with a particular org."},
 )
 
 add_role_command = RobotoCommand(
@@ -427,9 +409,7 @@ register_bucket_command = RobotoCommand(
     name="register-bucket",
     logic=register_bucket,
     setup_parser=register_bucket_setup_parser,
-    command_kwargs={
-        "help": "Registers an S3 bring-your-own-bucket with Roboto. Only available to premium tier orgs."
-    },
+    command_kwargs={"help": "Registers an S3 bring-your-own-bucket with Roboto. Only available to premium tier orgs."},
 )
 
 commands = [

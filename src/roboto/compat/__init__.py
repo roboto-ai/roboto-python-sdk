@@ -8,8 +8,10 @@ from ._optional import (
     IMPORT_ERROR_MSG_TEMPLATE,
     import_optional_dependency,
 )
+from ._strenum import StrEnum
 
 __all__ = (
     "IMPORT_ERROR_MSG_TEMPLATE",
     "import_optional_dependency",
+    "StrEnum",
 )

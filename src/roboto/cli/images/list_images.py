@@ -13,13 +13,9 @@ from ..common_args import add_org_arg
 from ..context import CLIContext
 
 
-def list_images(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def list_images(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     image_registry = ImageRegistry(context.roboto_client)
-    paginated_results = image_registry.list_images(
-        repository_name=args.repository_name, org_id=args.org
-    )
+    paginated_results = image_registry.list_images(repository_name=args.repository_name, org_id=args.org)
     while True:
         for image in paginated_results.items:
             print(json.dumps(image.model_dump(), indent=2))

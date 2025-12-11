@@ -22,9 +22,7 @@ DEFAULT_ORG_ID = os.getenv("ROBOTO_ORG_ID")
 
 
 def add_org_arg(parser: argparse.ArgumentParser, arg_help: str = ORG_ARG_HELP):
-    parser.add_argument(
-        "--org", required=False, type=str, help=arg_help, default=DEFAULT_ORG_ID
-    )
+    parser.add_argument("--org", required=False, type=str, help=arg_help, default=DEFAULT_ORG_ID)
 
 
 def get_defaulted_org_id(org_id: typing.Optional[str]) -> str:
@@ -33,9 +31,7 @@ def get_defaulted_org_id(org_id: typing.Optional[str]) -> str:
 
     user_orgs = orgs.Org.for_self()
     if len(user_orgs) == 0:
-        raise RobotoNoOrgProvidedException(
-            "Current user is not a member of any orgs, and did not provide a --org"
-        )
+        raise RobotoNoOrgProvidedException("Current user is not a member of any orgs, and did not provide a --org")
     elif len(user_orgs) > 1:
         raise RobotoNoOrgProvidedException(
             f"Current user is a member of {len(user_orgs)} orgs, and must specify one with --org"

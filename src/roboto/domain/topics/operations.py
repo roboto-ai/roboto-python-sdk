@@ -145,10 +145,7 @@ class UpdateMessagePathRequest(pydantic.BaseModel):
         return (
             is_set(self.data_type)
             or is_set(self.canonical_data_type)
-            or (
-                is_set(self.metadata_changeset)
-                and self.metadata_changeset.has_changes()
-            )
+            or (is_set(self.metadata_changeset) and self.metadata_changeset.has_changes())
         )
 
 
@@ -173,19 +170,13 @@ class MessagePathChangeset(pydantic.BaseModel):
     making multiple schema changes efficiently.
     """
 
-    message_paths_to_add: typing.Union[
-        collections.abc.Sequence[AddMessagePathRequest], None
-    ] = None
+    message_paths_to_add: typing.Union[collections.abc.Sequence[AddMessagePathRequest], None] = None
     """Message paths to add to a topic."""
 
-    message_paths_to_delete: typing.Union[
-        collections.abc.Sequence[DeleteMessagePathRequest], None
-    ] = None
+    message_paths_to_delete: typing.Union[collections.abc.Sequence[DeleteMessagePathRequest], None] = None
     """Message paths to delete from a topic."""
 
-    message_paths_to_update: typing.Union[
-        collections.abc.Sequence[UpdateMessagePathRequest], None
-    ] = None
+    message_paths_to_update: typing.Union[collections.abc.Sequence[UpdateMessagePathRequest], None] = None
     """Message paths to update on a topic."""
 
     replace_all: bool = False
@@ -199,10 +190,7 @@ class MessagePathChangeset(pydantic.BaseModel):
     def check_replace_all_correctness(self) -> MessagePathChangeset:
         if self.replace_all and (
             self.message_paths_to_add is None
-            or not (
-                self.message_paths_to_update is None
-                and self.message_paths_to_delete is None
-            )
+            or not (self.message_paths_to_update is None and self.message_paths_to_delete is None)
         ):
             raise ValueError("replace_all must only be used with message_paths_to_add")
 
@@ -228,9 +216,7 @@ class MessagePathChangeset(pydantic.BaseModel):
             >>> from roboto.domain.topics import AddMessagePathRequest, CanonicalDataType
             >>> new_paths = [
             ...     AddMessagePathRequest(
-            ...         message_path="velocity.x",
-            ...         data_type="float32",
-            ...         canonical_data_type=CanonicalDataType.Number
+            ...         message_path="velocity.x", data_type="float32", canonical_data_type=CanonicalDataType.Number
             ...     )
             ... ]
             >>> changeset = MessagePathChangeset.from_replacement_message_paths(new_paths)
@@ -246,12 +232,8 @@ class MessagePathChangeset(pydantic.BaseModel):
 
         return self.replace_all or not (
             (self.message_paths_to_add is None or not self.message_paths_to_add)
-            and (
-                self.message_paths_to_update is None or not self.message_paths_to_update
-            )
-            and (
-                self.message_paths_to_delete is None or not self.message_paths_to_delete
-            )
+            and (self.message_paths_to_update is None or not self.message_paths_to_update)
+            and (self.message_paths_to_delete is None or not self.message_paths_to_delete)
         )
 
 
@@ -273,9 +255,7 @@ class CreateTopicRequest(pydantic.BaseModel):
     schema_checksum: typing.Optional[str] = None
     schema_name: typing.Optional[str] = None
     start_time: typing.Optional[int] = None
-    message_paths: typing.Optional[collections.abc.Sequence[AddMessagePathRequest]] = (
-        None
-    )
+    message_paths: typing.Optional[collections.abc.Sequence[AddMessagePathRequest]] = None
 
     # 'ignore' used to avoid backwards incompatible change to remove `org_id`
     # Should be changed back to 'forbid' for SDK v1.0
@@ -297,6 +277,4 @@ class UpdateTopicRequest(pydantic.BaseModel):
     metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
     message_path_changeset: typing.Union[MessagePathChangeset, NotSetType] = NotSet
 
-    model_config = pydantic.ConfigDict(
-        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
-    )
+    model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)

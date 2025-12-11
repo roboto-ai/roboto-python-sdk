@@ -4,12 +4,12 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import enum
 import typing
 
 import pydantic
 from pydantic import ConfigDict
 
+from ..compat import StrEnum
 from .conditions import Condition, ConditionGroup
 
 MAX_PAGE_SIZE: int = 1000
@@ -19,7 +19,7 @@ DEFAULT_PAGE_SIZE: int = 100
 """Default page size for search."""
 
 
-class SortDirection(str, enum.Enum):
+class SortDirection(StrEnum):
     """The direction to sort the results of a query."""
 
     Ascending = "ASC"
@@ -36,6 +36,9 @@ class SortDirection(str, enum.Enum):
         else:
             raise ValueError(f"Unrecognized sort direction '{value}'")
 
+    def __str__(self) -> str:
+        return self.value
+
 
 class QuerySpecification(pydantic.BaseModel):
     """
@@ -45,11 +48,7 @@ class QuerySpecification(pydantic.BaseModel):
         Specify a query with a single condition:
             >>> from roboto import query
             >>> query_spec = query.QuerySpecification(
-            ...     condition=query.Condition(
-            ...         field="name",
-            ...         comparator=query.Comparator.Equals,
-            ...         value="Roboto"
-            ...     )
+            ...     condition=query.Condition(field="name", comparator=query.Comparator.Equals, value="Roboto")
             ... )
 
         Specify a query with multiple conditions:
@@ -58,17 +57,9 @@ class QuerySpecification(pydantic.BaseModel):
             ...     condition=query.ConditionGroup(
             ...         operator=query.ConditionOperator.And,
             ...         conditions=[
-            ...             query.Condition(
-            ...                 field="name",
-            ...                 comparator=query.Comparator.Equals,
-            ...                 value="Roboto"
-            ...             ),
-            ...             query.Condition(
-            ...                 field="age",
-            ...                 comparator=query.Comparator.GreaterThan,
-            ...                 value=18
-            ...             )
-            ...         ]
+            ...             query.Condition(field="name", comparator=query.Comparator.Equals, value="Roboto"),
+            ...             query.Condition(field="age", comparator=query.Comparator.GreaterThan, value=18),
+            ...         ],
             ...     )
             ... )
 
@@ -78,27 +69,15 @@ class QuerySpecification(pydantic.BaseModel):
             ...     condition=query.ConditionGroup(
             ...         operator=query.ConditionOperator.And,
             ...         conditions=[
-            ...             query.Condition(
-            ...                 field="name",
-            ...                 comparator=query.Comparator.Equals,
-            ...                 value="Roboto"
-            ...             ),
+            ...             query.Condition(field="name", comparator=query.Comparator.Equals, value="Roboto"),
             ...             query.ConditionGroup(
             ...                 operator=query.ConditionOperator.Or,
             ...                 conditions=[
-            ...                     query.Condition(
-            ...                         field="age",
-            ...                         comparator=query.Comparator.GreaterThan,
-            ...                         value=18
-            ...                     ),
-            ...                     query.Condition(
-            ...                         field="age",
-            ...                         comparator=query.Comparator.LessThan,
-            ...                         value=30
-            ...                     )
-            ...                 ]
-            ...             )
-            ...         ]
+            ...                     query.Condition(field="age", comparator=query.Comparator.GreaterThan, value=18),
+            ...                     query.Condition(field="age", comparator=query.Comparator.LessThan, value=30),
+            ...                 ],
+            ...             ),
+            ...         ],
             ...     )
             ... )
     """
@@ -135,7 +114,7 @@ class QuerySpecification(pydantic.BaseModel):
         fields = set()
 
         def _iterconditions(
-            condition: typing.Optional[typing.Union[Condition, ConditionGroup]]
+            condition: typing.Optional[typing.Union[Condition, ConditionGroup]],
         ):
             if condition is None:
                 return

@@ -47,7 +47,7 @@ class defaultlist(list[T], typing.Generic[T]):
     Examples:
         >>> dl = defaultlist[int](factory=lambda: 0)
         >>> dl[5] += 1  # Automatically extends list with 0s up to index 5
-        >>> print(dl)   # [0, 0, 0, 0, 0, 1]
+        >>> print(dl)  # [0, 0, 0, 0, 0, 1]
     """
 
     def __init__(self, factory: typing.Callable[[], T]):
@@ -60,9 +60,7 @@ class defaultlist(list[T], typing.Generic[T]):
     @typing.overload
     def __getitem__(self, idx: slice) -> list[T]: ...
 
-    def __getitem__(
-        self, idx: typing.Union[typing.SupportsIndex, slice]
-    ) -> typing.Union[T, list[T]]:
+    def __getitem__(self, idx: typing.Union[typing.SupportsIndex, slice]) -> typing.Union[T, list[T]]:
         if isinstance(idx, slice):
             return super().__getitem__(idx)
         # Convert SupportsIndex to int for comparison
@@ -363,16 +361,13 @@ class DecodedMessage:
                     path_components[index_of_sec] = "nanosec"
             except ValueError:
                 pass
-        elif isinstance(value, collections.abc.Sequence) and not isinstance(
-            value, (str, bytes)
-        ):
+        elif isinstance(value, collections.abc.Sequence) and not isinstance(value, (str, bytes)):
             # Map over the list and extract from each element
             sub_path = path_components[path_index + 1 :]
             # Merge with existing list results
             list_accum = (
                 accumulator[current_attr]
-                if current_attr in accumulator
-                and isinstance(accumulator[current_attr], list)
+                if current_attr in accumulator and isinstance(accumulator[current_attr], list)
                 else defaultlist[dict](factory=dict)
             )
             for i, item in enumerate(value):

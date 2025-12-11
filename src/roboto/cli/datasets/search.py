@@ -54,9 +54,7 @@ def search(args, context: CLIContext, parser: argparse.ArgumentParser):
         if len(conditions) == 1:
             query_args["condition"] = conditions[0]
         else:
-            query_args["condition"] = ConditionGroup(
-                conditions=conditions, operator=ConditionOperator.And
-            )
+            query_args["condition"] = ConditionGroup(conditions=conditions, operator=ConditionOperator.And)
 
     query = QuerySpecification(**query_args)
     results = Dataset.query(

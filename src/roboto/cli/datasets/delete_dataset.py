@@ -19,9 +19,7 @@ def delete_dataset(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 
 def delete_dataset_setup_parser(parser):
-    parser.add_argument(
-        "-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP
-    )
+    parser.add_argument("-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP)
 
 
 delete_dataset_command = RobotoCommand(

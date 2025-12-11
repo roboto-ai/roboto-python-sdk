@@ -52,9 +52,7 @@ class EventDisplayOptionsChangeset(pydantic.BaseModel):
     def apply_to(self, display_options: EventDisplayOptions) -> EventDisplayOptions:
         """Applies this changeset to some existing display options."""
 
-        color: typing.Optional[str] = value_or_default_if_unset(
-            self.color, display_options.color
-        )
+        color: typing.Optional[str] = value_or_default_if_unset(self.color, display_options.color)
 
         return EventDisplayOptions(color=color)
 
@@ -159,14 +157,10 @@ class UpdateEventRequest(pydantic.BaseModel):
     the event is discrete, but can never be less than start_time.
     """
 
-    display_options_changeset: typing.Union[
-        EventDisplayOptionsChangeset, NotSetType
-    ] = NotSet
+    display_options_changeset: typing.Union[EventDisplayOptionsChangeset, NotSetType] = NotSet
     """
     Display options changes to apply to this event.
     """
 
     # This is required to get NotSet/NotSetType to serialize appropriately.
-    model_config = pydantic.ConfigDict(
-        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
-    )
+    model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)

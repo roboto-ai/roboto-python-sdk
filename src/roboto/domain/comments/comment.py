@@ -84,7 +84,7 @@ class Comment:
             >>> comment = comments.Comment.create(
             ...     comment_text="This dataset looks good!",
             ...     entity_id="ds_1234567890abcdef",
-            ...     entity_type=comments.CommentEntityType.Dataset
+            ...     entity_type=comments.CommentEntityType.Dataset,
             ... )
             >>> print(comment.comment_id)
             cm_abcdef1234567890
@@ -93,7 +93,7 @@ class Comment:
             >>> comment = comments.Comment.create(
             ...     comment_text="@[John Doe](john.doe@example.com) please review this",
             ...     entity_id="fl_9876543210fedcba",
-            ...     entity_type=comments.CommentEntityType.File
+            ...     entity_type=comments.CommentEntityType.File,
             ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -104,9 +104,7 @@ class Comment:
             comment_text=comment_text,
         )
 
-        record = roboto_client.post(
-            "v1/comments", data=request, caller_org_id=caller_org_id
-        ).to_record(CommentRecord)
+        record = roboto_client.post("v1/comments", data=request, caller_org_id=caller_org_id).to_record(CommentRecord)
 
         return cls(record, roboto_client)
 
@@ -146,15 +144,10 @@ class Comment:
             This is the comment text
 
             >>> # Retrieve a comment from a specific organization
-            >>> comment = comments.Comment.from_id(
-            ...     comment_id="cm_abcdef1234567890",
-            ...     owner_org_id="og_fedcba0987654321"
-            ... )
+            >>> comment = comments.Comment.from_id(comment_id="cm_abcdef1234567890", owner_org_id="og_fedcba0987654321")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        record = roboto_client.get(
-            f"v1/comments/{comment_id}", owner_org_id=owner_org_id
-        ).to_record(CommentRecord)
+        record = roboto_client.get(f"v1/comments/{comment_id}", owner_org_id=owner_org_id).to_record(CommentRecord)
         return cls(record, roboto_client)
 
     @classmethod
@@ -197,8 +190,7 @@ class Comment:
             >>> from roboto.domain import comments
             >>> # Get all comments for a dataset
             >>> comments_list, next_token = comments.Comment.for_entity(
-            ...     entity_type=comments.CommentEntityType.Dataset,
-            ...     entity_id="ds_1234567890abcdef"
+            ...     entity_type=comments.CommentEntityType.Dataset, entity_id="ds_1234567890abcdef"
             ... )
             >>> print(f"Found {len(comments_list)} comments")
             Found 5 comments
@@ -210,7 +202,7 @@ class Comment:
             ...     comments_page, page_token = comments.Comment.for_entity(
             ...         entity_type=comments.CommentEntityType.File,
             ...         entity_id="fl_9876543210fedcba",
-            ...         page_token=page_token
+            ...         page_token=page_token,
             ...     )
             ...     all_comments.extend(comments_page)
             ...     if page_token is None:
@@ -228,9 +220,7 @@ class Comment:
             owner_org_id=owner_org_id,
         ).to_paginated_list(CommentRecord)
 
-        return [
-            cls(record, roboto_client) for record in response_page.items
-        ], response_page.next_token
+        return [cls(record, roboto_client) for record in response_page.items], response_page.next_token
 
     @classmethod
     def for_entity_type(
@@ -277,8 +267,7 @@ class Comment:
 
             >>> # Get all comments on action invocations
             >>> invocation_comments, _ = comments.Comment.for_entity_type(
-            ...     entity_type=comments.CommentEntityType.Invocation,
-            ...     owner_org_id="og_1234567890abcdef"
+            ...     entity_type=comments.CommentEntityType.Invocation, owner_org_id="og_1234567890abcdef"
             ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -293,9 +282,7 @@ class Comment:
             owner_org_id=owner_org_id,
         ).to_paginated_list(CommentRecord)
 
-        return [
-            cls(record, roboto_client) for record in response_page.items
-        ], response_page.next_token
+        return [cls(record, roboto_client) for record in response_page.items], response_page.next_token
 
     @classmethod
     def for_user(
@@ -332,16 +319,13 @@ class Comment:
         Examples:
             >>> from roboto.domain import comments
             >>> # Get all comments by a specific user
-            >>> user_comments, next_token = comments.Comment.for_user(
-            ...     user_id="john.doe@example.com"
-            ... )
+            >>> user_comments, next_token = comments.Comment.for_user(user_id="john.doe@example.com")
             >>> print(f"User has created {len(user_comments)} comments")
             User has created 8 comments
 
             >>> # Get comments by user in a specific organization
             >>> org_user_comments, _ = comments.Comment.for_user(
-            ...     user_id="jane.smith@example.com",
-            ...     owner_org_id="og_1234567890abcdef"
+            ...     user_id="jane.smith@example.com", owner_org_id="og_1234567890abcdef"
             ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -357,9 +341,7 @@ class Comment:
             owner_org_id=owner_org_id,
         ).to_paginated_list(CommentRecord)
 
-        return [
-            cls(record, roboto_client) for record in response_page.items
-        ], response_page.next_token
+        return [cls(record, roboto_client) for record in response_page.items], response_page.next_token
 
     @classmethod
     def recent_for_org(
@@ -400,9 +382,7 @@ class Comment:
             Found 10 recent comments
 
             >>> # Get recent comments for a specific organization
-            >>> org_comments, _ = comments.Comment.recent_for_org(
-            ...     owner_org_id="og_1234567890abcdef"
-            ... )
+            >>> org_comments, _ = comments.Comment.recent_for_org(owner_org_id="og_1234567890abcdef")
             >>> if org_comments:
             ...     print(f"Most recent comment: {org_comments[0].record.comment_text}")
         """
@@ -416,13 +396,9 @@ class Comment:
             "v1/comments/recent", query=query_params, owner_org_id=owner_org_id
         ).to_paginated_list(CommentRecord)
 
-        return [
-            cls(record, roboto_client) for record in response_page.items
-        ], response_page.next_token
+        return [cls(record, roboto_client) for record in response_page.items], response_page.next_token
 
-    def __init__(
-        self, record: CommentRecord, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> None:
+    def __init__(self, record: CommentRecord, roboto_client: typing.Optional[RobotoClient] = None) -> None:
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__record = record
 

@@ -47,9 +47,7 @@ class UploadAgent:
     ):
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__agent_config = agent_config
-        self.__default_roboto_upload_file = (
-            default_roboto_upload_file or DEFAULT_ROBOTO_UPLOAD_FILE
-        )
+        self.__default_roboto_upload_file = default_roboto_upload_file or DEFAULT_ROBOTO_UPLOAD_FILE
 
     def create_upload_configs(self):
         directories_to_consider: list[pathlib.Path] = []
@@ -58,9 +56,7 @@ class UploadAgent:
             if not search_path.is_dir():
                 continue
 
-            directories_to_consider.extend(
-                [subdir for subdir in search_path.iterdir() if subdir.is_dir()]
-            )
+            directories_to_consider.extend([subdir for subdir in search_path.iterdir() if subdir.is_dir()])
 
         upload_config_file_contents = UploadConfigFile()
         if self.__default_roboto_upload_file.is_file():
@@ -90,33 +86,23 @@ class UploadAgent:
 
             upload_config_file = subdir / self.__agent_config.upload_config_filename
             if upload_config_file.is_file():
-                logger.info(
-                    "Directory %s already has an upload config file, skipping", subdir
-                )
+                logger.info("Directory %s already has an upload config file, skipping", subdir)
                 continue
 
             upload_in_progress_file = subdir / UPLOAD_IN_PROGRESS_FILENAME
             if upload_in_progress_file.is_file():
-                logger.info(
-                    "Directory %s has an upload in progress file, skipping", subdir
-                )
+                logger.info("Directory %s has an upload in progress file, skipping", subdir)
                 continue
 
             upload_complete_file = subdir / UPLOAD_COMPLETE_FILENAME
             if upload_complete_file.is_file():
-                logger.info(
-                    "Directory %s has an upload completed file, skipping", subdir
-                )
+                logger.info("Directory %s has an upload completed file, skipping", subdir)
                 continue
 
-            upload_config_file.write_text(
-                upload_config_file_contents.model_dump_json(indent=2)
-            )
+            upload_config_file.write_text(upload_config_file_contents.model_dump_json(indent=2))
             logger.info("Wrote upload config file to %s", upload_config_file)
 
-    def process_uploads(
-        self, merge_uploads: bool = False
-    ) -> collections.abc.Sequence[datasets.Dataset]:
+    def process_uploads(self, merge_uploads: bool = False) -> collections.abc.Sequence[datasets.Dataset]:
         """
         If merge is true, everything will be combined into a single dataset. Otherwise, each directory will be uploaded
         to a separate dataset.
@@ -124,9 +110,7 @@ class UploadAgent:
 
         upload_config_files = self.__get_upload_config_files()
         if len(upload_config_files) == 0:
-            logger.info(
-                "No upload config files found under any search path, nothing to do."
-            )
+            logger.info("No upload config files found under any search path, nothing to do.")
             return []
         else:
             logger.info(
@@ -156,9 +140,7 @@ class UploadAgent:
                 if upload_config_file.dataset.add_to_collections is not None:
                     for collection_id in upload_config_file.dataset.add_to_collections:
                         try:
-                            collection = Collection.from_id(
-                                collection_id, roboto_client=self.__roboto_client
-                            )
+                            collection = Collection.from_id(collection_id, roboto_client=self.__roboto_client)
                             collection.add_dataset(uploaded_dataset.dataset_id)
                             logger.info(
                                 "Added dataset %s to collection %s",
@@ -187,13 +169,9 @@ class UploadAgent:
             found = 0
 
             logger.info("Scanning '%s' for upload config files", search_path)
-            for upload_config_file in search_path.rglob(
-                self.__agent_config.upload_config_filename
-            ):
+            for upload_config_file in search_path.rglob(self.__agent_config.upload_config_filename):
                 try:
-                    parsed_file = UploadConfigFile.model_validate_json(
-                        upload_config_file.read_text()
-                    )
+                    parsed_file = UploadConfigFile.model_validate_json(upload_config_file.read_text())
 
                     logger.info("Found upload config file: %s", upload_config_file)
                     upload_config_files.append((parsed_file, upload_config_file))
@@ -206,9 +184,7 @@ class UploadAgent:
                     )
 
             if found == 0:
-                logger.info(
-                    "No upload config files found for search path: %s", search_path
-                )
+                logger.info("No upload config files found for search path: %s", search_path)
             else:
                 logger.info(
                     "Found %d upload config files under search path: %s",
@@ -257,9 +233,7 @@ class UploadAgent:
 
         if upload_complete_file.is_file():
             try:
-                parsed_complete_file = UploadCompleteFile.model_validate_json(
-                    upload_complete_file.read_text()
-                )
+                parsed_complete_file = UploadCompleteFile.model_validate_json(upload_complete_file.read_text())
                 logger.info(
                     "Found upload-complete file for dataset %s at path %s, skipping upload",
                     parsed_complete_file.dataset_id,
@@ -278,12 +252,8 @@ class UploadAgent:
 
         if upload_in_progress_file.is_file():
             try:
-                parsed_in_progress_file = UploadInProgressFile.model_validate_json(
-                    upload_in_progress_file.read_text()
-                )
-                in_progress_dataset = datasets.Dataset.from_id(
-                    parsed_in_progress_file.dataset_id
-                )
+                parsed_in_progress_file = UploadInProgressFile.model_validate_json(upload_in_progress_file.read_text())
+                in_progress_dataset = datasets.Dataset.from_id(parsed_in_progress_file.dataset_id)
                 logger.warning(
                     "Found upload-in-progress file for dataset %s at path %s, resuming upload",
                     in_progress_dataset.dataset_id,
@@ -337,9 +307,7 @@ class UploadAgent:
             should_write_in_progress_file = True
 
         if should_write_in_progress_file:
-            logger.debug(
-                "Writing in progress file to %s", upload_in_progress_file.resolve()
-            )
+            logger.debug("Writing in progress file to %s", upload_in_progress_file.resolve())
             upload_in_progress_file.write_text(
                 UploadInProgressFile(
                     version="v1",
@@ -376,13 +344,11 @@ class UploadAgent:
             logger.info("Deleting marker file %s", path)
             path.unlink(missing_ok=True)
 
-        logger.debug(
-            "Writing upload complete file to %s", upload_complete_file.resolve()
-        )
+        logger.debug("Writing upload complete file to %s", upload_complete_file.resolve())
         upload_complete_file.write_text(
-            UploadCompleteFile(
-                version="v1", dataset_id=dataset.dataset_id, completed=utcnow()
-            ).model_dump_json(indent=2)
+            UploadCompleteFile(version="v1", dataset_id=dataset.dataset_id, completed=utcnow()).model_dump_json(
+                indent=2
+            )
         )
 
         # Delete the in progress file after writing the complete file, because that's when we know for sure that
@@ -393,9 +359,7 @@ class UploadAgent:
         # as well as a diagnostic aid.
         dataset.upload_file(upload_complete_file, UPLOAD_COMPLETE_FILENAME)
 
-        logger.info(
-            f"Upload completed, view at {self.__roboto_client.frontend_endpoint}/datasets/{dataset.dataset_id}"
-        )
+        logger.info(f"Upload completed, view at {self.__roboto_client.frontend_endpoint}/datasets/{dataset.dataset_id}")
 
         if self.__agent_config.delete_empty_directories:
             self.__delete_uploaded_dir_if_safe(dir_to_upload)

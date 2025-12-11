@@ -162,7 +162,7 @@ class Dataset:
             ...     name="Highway Test Session",
             ...     description="Autonomous vehicle highway driving test data",
             ...     tags=["highway", "autonomous", "test"],
-            ...     metadata={"vehicle_id": "vehicle_001", "test_type": "highway"}
+            ...     metadata={"vehicle_id": "vehicle_001", "test_type": "highway"},
             ... )
             >>> print(dataset.dataset_id)
             ds_abc123
@@ -181,9 +181,9 @@ class Dataset:
         )
 
         try:
-            record = roboto_client.post(
-                "v1/datasets", data=request, caller_org_id=caller_org_id
-            ).to_record(DatasetRecord)
+            record = roboto_client.post("v1/datasets", data=request, caller_org_id=caller_org_id).to_record(
+                DatasetRecord
+            )
         except RobotoDeviceNotFoundException as exc:
             if not create_device_if_missing or device_id is None:
                 raise exc
@@ -193,9 +193,9 @@ class Dataset:
                 caller_org_id=caller_org_id,
                 roboto_client=roboto_client,
             )
-            record = roboto_client.post(
-                "v1/datasets", data=request, caller_org_id=caller_org_id
-            ).to_record(DatasetRecord)
+            record = roboto_client.post("v1/datasets", data=request, caller_org_id=caller_org_id).to_record(
+                DatasetRecord
+            )
 
         return cls(record=record, roboto_client=roboto_client)
 
@@ -251,7 +251,7 @@ class Dataset:
             ...     name="Vehicle 001 Test Session",
             ...     description="Test data for vehicle 001",
             ...     metadata={"vehicle_id": "vehicle_001", "test_type": "highway"},
-            ...     tags=["vehicle_001", "highway"]
+            ...     tags=["vehicle_001", "highway"],
             ... )
             >>> print(dataset.dataset_id)
             ds_abc123
@@ -261,7 +261,7 @@ class Dataset:
             >>> dataset = Dataset.create_if_not_exists(
             ...     match_roboql_query="dataset.tags CONTAINS 'unique_session_id_xyz'",
             ...     name="Unique Test Session",
-            ...     tags=["unique_session_id_xyz", "test"]
+            ...     tags=["unique_session_id_xyz", "test"],
             ... )
             >>> # If a dataset with tag 'unique_session_id_xyz' already exists,
             >>> # that dataset is returned instead of creating a new one
@@ -302,9 +302,7 @@ class Dataset:
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
-    def from_id(
-        cls, dataset_id: str, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> Dataset:
+    def from_id(cls, dataset_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> Dataset:
         """Create a Dataset instance from a dataset ID.
 
         Retrieves dataset information from the Roboto platform using the provided
@@ -361,11 +359,8 @@ class Dataset:
         Examples:
             >>> from roboto.query import Comparator, Condition, QuerySpecification
             >>> spec = QuerySpecification(
-            ...     condition=Condition(
-            ...         field="name",
-            ...         comparator=Comparator.Contains,
-            ...         value="Roboto"
-            ...     ))
+            ...     condition=Condition(field="name", comparator=Comparator.Contains, value="Roboto")
+            ... )
             >>> for dataset in Dataset.query(spec):
             ...     print(f"Found dataset: {dataset.name}")
             Found dataset: Roboto Test
@@ -386,11 +381,7 @@ class Dataset:
         unknown = actual - known
         if unknown:
             plural = len(unknown) > 1
-            msg = (
-                "are not known attributes of Dataset"
-                if plural
-                else "is not a known attribute of Dataset"
-            )
+            msg = "are not known attributes of Dataset" if plural else "is not a known attribute of Dataset"
             raise ValueError(f"{unknown} {msg}. Known attributes: {known}")
 
         while True:
@@ -414,9 +405,7 @@ class Dataset:
             return False
         return self.record == other.record
 
-    def __init__(
-        self, record: DatasetRecord, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> None:
+    def __init__(self, record: DatasetRecord, roboto_client: typing.Optional[RobotoClient] = None) -> None:
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__file_service = FileService(self.__roboto_client)
         self.__file_creds_helper = FileCredentialsHelper(self.__roboto_client)
@@ -578,9 +567,7 @@ class Dataset:
             Create a directory with intermediate directories:
 
             >>> directory = dataset.create_directory(
-            ...     name="final",
-            ...     parent_path="path/to/deep",
-            ...     create_intermediate_dirs=True
+            ...     name="final", parent_path="path/to/deep", create_intermediate_dirs=True
             ... )
             >>> print(directory.relative_path)
             path/to/deep/final
@@ -598,9 +585,9 @@ class Dataset:
             origination=origination,
             create_intermediate_dirs=create_intermediate_dirs,
         )
-        return self.__roboto_client.put(
-            f"v1/datasets/{self.dataset_id}/directory", data=request
-        ).to_record(DirectoryRecord)
+        return self.__roboto_client.put(f"v1/datasets/{self.dataset_id}/directory", data=request).to_record(
+            DirectoryRecord
+        )
 
     def delete(self) -> None:
         """Delete this dataset from the Roboto platform.
@@ -650,10 +637,7 @@ class Dataset:
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> # Delete all PNG files except those in back_camera directory
-            >>> dataset.delete_files(
-            ...     include_patterns=["**/*.png"],
-            ...     exclude_patterns=["**/back_camera/**"]
-            ... )
+            >>> dataset.delete_files(include_patterns=["**/*.png"], exclude_patterns=["**/back_camera/**"])
 
             >>> # Delete all log files
             >>> dataset.delete_files(include_patterns=["**/*.log"])
@@ -696,7 +680,7 @@ class Dataset:
             >>> downloaded = dataset.download_files(
             ...     pathlib.Path("/tmp/dataset_download"),
             ...     include_patterns=["**/*.bag"],
-            ...     exclude_patterns=["**/test/**"]
+            ...     exclude_patterns=["**/test/**"],
             ... )
             >>> print(f"Downloaded {len(downloaded)} files")
             Downloaded 5 files
@@ -709,13 +693,9 @@ class Dataset:
 
         all_files = list(self.list_files(include_patterns, exclude_patterns))
 
-        files_by_bucket: dict[str, list[tuple[FileRecord, pathlib.Path]]] = (
-            collections.defaultdict(list)
-        )
+        files_by_bucket: dict[str, list[tuple[FileRecord, pathlib.Path]]] = collections.defaultdict(list)
         for file in all_files:
-            files_by_bucket[file.record.bucket].append(
-                (file.record, out_path / file.relative_path)
-            )
+            files_by_bucket[file.record.bucket].append((file.record, out_path / file.relative_path))
 
         for bucket_name, bucket_files in files_by_bucket.items():
             self.__file_service.download_files(
@@ -804,7 +784,7 @@ class Dataset:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> summary = dataset.generate_summary()
             >>> for text_chunk in summary.text_stream():
-            ...     print(text_chunk, end='', flush=True)
+            ...     print(text_chunk, end="", flush=True)
 
             Check summary status without blocking:
 
@@ -813,9 +793,7 @@ class Dataset:
             >>> if summary.current and summary.current.status == AISummaryStatus.Complete:
             ...     print("Summary is ready!")
         """
-        initial_summary = self.__roboto_client.post(
-            f"v1/datasets/{self.dataset_id}/summary"
-        ).to_record(AISummary)
+        initial_summary = self.__roboto_client.post(f"v1/datasets/{self.dataset_id}/summary").to_record(AISummary)
 
         return PollingStreamingAISummary(
             poll_fn=self.__get_latest_summary,
@@ -861,11 +839,9 @@ class Dataset:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> summary = dataset.get_summary()
             >>> for text_chunk in summary.text_stream():
-            ...     print(text_chunk, end='', flush=True)
+            ...     print(text_chunk, end="", flush=True)
         """
-        return PollingStreamingAISummary(
-            poll_fn=self.__get_latest_summary, poll_on_init=True
-        )
+        return PollingStreamingAISummary(poll_fn=self.__get_latest_summary, poll_on_init=True)
 
     def get_topics(
         self,
@@ -1002,8 +978,7 @@ class Dataset:
 
             >>> # List only image files, excluding back camera
             >>> for file in dataset.list_files(
-            ...     include_patterns=["**/*.png", "**/*.jpg"],
-            ...     exclude_patterns=["**/back_camera/**"]
+            ...     include_patterns=["**/*.png", "**/*.jpg"], exclude_patterns=["**/back_camera/**"]
             ... ):
             ...     print(file.relative_path)
             images/front_camera_001.jpg
@@ -1043,12 +1018,14 @@ class Dataset:
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
-            >>> dataset.put_metadata({
-            ...     "vehicle_id": "vehicle_001",
-            ...     "test_type": "highway_driving",
-            ...     "weather.condition": "sunny",
-            ...     "weather.temperature": 25
-            ... })
+            >>> dataset.put_metadata(
+            ...     {
+            ...         "vehicle_id": "vehicle_001",
+            ...         "test_type": "highway_driving",
+            ...         "weather.condition": "sunny",
+            ...         "weather.temperature": 25,
+            ...     }
+            ... )
             >>> print(dataset.metadata["vehicle_id"])
             'vehicle_001'
             >>> print(dataset.metadata["weather"]["condition"])
@@ -1102,9 +1079,7 @@ class Dataset:
             >>> refreshed_dataset = dataset.refresh()
             >>> print(f"Current file count: {len(list(refreshed_dataset.list_files()))}")
         """
-        self.__record = self.__roboto_client.get(
-            f"v1/datasets/{self.dataset_id}"
-        ).to_record(DatasetRecord)
+        self.__record = self.__roboto_client.get(f"v1/datasets/{self.dataset_id}").to_record(DatasetRecord)
         return self
 
     def remove_metadata(
@@ -1129,9 +1104,7 @@ class Dataset:
         """Remove each tag in this sequence if it exists"""
         self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
-    def set_device_id(
-        self, device_id: str, create_device_if_missing: bool = False
-    ) -> Dataset:
+    def set_device_id(self, device_id: str, create_device_if_missing: bool = False) -> Dataset:
         """
         Set the device ID for this dataset.
 
@@ -1234,8 +1207,7 @@ class Dataset:
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> updated_dataset = dataset.update(
-            ...     name="Updated Highway Test Session",
-            ...     description="Updated description with more details"
+            ...     name="Updated Highway Test Session", description="Updated description with more details"
             ... )
             >>> print(updated_dataset.name)
             'Updated Highway Test Session'
@@ -1320,22 +1292,12 @@ class Dataset:
             - If both `include_patterns` and `exclude_patterns` are provided, files matching
               `exclude_patterns` will be excluded even if they match `include_patterns`.
         """
-        include_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(
-            include_patterns
-        )
-        exclude_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(
-            exclude_patterns
-        )
-        all_files = self.__list_directory_files(
-            directory_path, include_spec=include_spec, exclude_spec=exclude_spec
-        )
-        file_destination_paths = {
-            path: os.path.relpath(path, directory_path) for path in all_files
-        }
+        include_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(include_patterns)
+        exclude_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(exclude_patterns)
+        all_files = self.__list_directory_files(directory_path, include_spec=include_spec, exclude_spec=exclude_spec)
+        file_destination_paths = {path: os.path.relpath(path, directory_path) for path in all_files}
 
-        self.upload_files(
-            all_files, file_destination_paths, max_batch_size, print_progress, device_id
-        )
+        self.upload_files(all_files, file_destination_paths, max_batch_size, print_progress, device_id)
 
         if delete_after_upload:
             for file in all_files:
@@ -1395,10 +1357,7 @@ class Dataset:
             >>> from roboto.domain import datasets
             >>> dataset = datasets.Dataset(...)
             >>> dataset.upload_files(
-            ...     [
-            ...         pathlib.Path("/path/to/file.txt"),
-            ...         ...
-            ...     ],
+            ...     [pathlib.Path("/path/to/file.txt"), ...],
             ...     file_destination_paths={
             ...         pathlib.Path("/path/to/file.txt"): "foo/bar.txt",
             ...     },
@@ -1410,15 +1369,11 @@ class Dataset:
             working_set.append(file)
 
             if len(working_set) >= max_batch_size:
-                self.__upload_files_batch(
-                    working_set, file_destination_paths, print_progress, device_id
-                )
+                self.__upload_files_batch(working_set, file_destination_paths, print_progress, device_id)
                 working_set = []
 
         if len(working_set) > 0:
-            self.__upload_files_batch(
-                working_set, file_destination_paths, print_progress, device_id
-            )
+            self.__upload_files_batch(working_set, file_destination_paths, print_progress, device_id)
 
     def _complete_manifest_transaction(self, transaction_id: str) -> None:
         """
@@ -1429,9 +1384,7 @@ class Dataset:
 
         It is loosely exposed (single underscore instead of double) because of a niche, administrative use-case.
         """
-        self.__roboto_client.put(
-            f"v2/datasets/{self.dataset_id}/batch_uploads/{transaction_id}/complete"
-        )
+        self.__roboto_client.put(f"v2/datasets/{self.dataset_id}/batch_uploads/{transaction_id}/complete")
 
     def _create_manifest_transaction(
         self,
@@ -1476,9 +1429,7 @@ class Dataset:
         )
 
     def __get_latest_summary(self) -> AISummary:
-        return self.__roboto_client.get(
-            f"v1/datasets/{self.dataset_id}/summary"
-        ).to_record(AISummary)
+        return self.__roboto_client.get(f"v1/datasets/{self.dataset_id}/summary").to_record(AISummary)
 
     def __list_directory_files(
         self,
@@ -1491,9 +1442,7 @@ class Dataset:
         for root, _, files in os.walk(directory_path):
             for file in files:
                 should_include = include_spec is None or include_spec.match_file(file)
-                should_exclude = exclude_spec is not None and exclude_spec.match_file(
-                    file
-                )
+                should_exclude = exclude_spec is not None and exclude_spec.match_file(file)
 
                 if should_include and not should_exclude:
                     all_files.add(pathlib.Path(root, file))
@@ -1545,21 +1494,13 @@ class Dataset:
             if transaction_id not in self.__transaction_completed_unreported_items:
                 self.__transaction_completed_unreported_items[transaction_id] = set()
 
-            self.__transaction_completed_unreported_items[transaction_id].add(
-                manifest_item_identifier
-            )
+            self.__transaction_completed_unreported_items[transaction_id].add(manifest_item_identifier)
 
-            completion_count = len(
-                self.__transaction_completed_unreported_items[transaction_id]
-            )
-            if self.__sufficient_uploads_completed_to_report_progress(
-                completion_count, total_file_count
-            ):
+            completion_count = len(self.__transaction_completed_unreported_items[transaction_id])
+            if self.__sufficient_uploads_completed_to_report_progress(completion_count, total_file_count):
                 self._flush_manifest_item_completions(
                     transaction_id=transaction_id,
-                    manifest_items=list(
-                        self.__transaction_completed_unreported_items[transaction_id]
-                    ),
+                    manifest_items=list(self.__transaction_completed_unreported_items[transaction_id]),
                 )
                 self.__transaction_completed_unreported_items[transaction_id] = set()
 
@@ -1569,9 +1510,7 @@ class Dataset:
         except importlib.metadata.PackageNotFoundError:
             return "version_not_found"
 
-    def __sufficient_uploads_completed_to_report_progress(
-        self, completion_count: int, total_file_count: int
-    ):
+    def __sufficient_uploads_completed_to_report_progress(self, completion_count: int, total_file_count: int):
         """
         Determine if there are a sufficient number of files that have already been uploaded
         to S3 to report progress to the Roboto Platform.
@@ -1582,10 +1521,7 @@ class Dataset:
         See, e.g., :py:meth:`~roboto.domain.datasets.dataset.Dataset._complete_manifest_transaction`
         """
         batch_size = math.ceil(total_file_count / Dataset.UPLOAD_REPORTING_BATCH_COUNT)
-        return (
-            completion_count >= batch_size
-            and completion_count >= Dataset.UPLOAD_REPORTING_MIN_BATCH_SIZE
-        )
+        return completion_count >= batch_size and completion_count >= Dataset.UPLOAD_REPORTING_MIN_BATCH_SIZE
 
     def __upload_files_batch(
         self,
@@ -1597,10 +1533,7 @@ class Dataset:
         package_version = self.__retrieve_roboto_version()
 
         origination = RobotoEnv.default().roboto_env or f"roboto {package_version}"
-        file_manifest = {
-            file_destination_paths.get(path, path.name): path.stat().st_size
-            for path in files
-        }
+        file_manifest = {file_destination_paths.get(path, path.name): path.stat().st_size for path in files}
 
         total_file_count = len(file_manifest)
         total_file_size = sum(file_manifest.values())
@@ -1611,12 +1544,9 @@ class Dataset:
             device_id=device_id,
         )
 
-        file_path_to_manifest_mappings = {
-            file_destination_paths.get(path, path.name): path for path in files
-        }
+        file_path_to_manifest_mappings = {file_destination_paths.get(path, path.name): path for path in files}
         upload_mappings = {
-            file_path_to_manifest_mappings[src_path]: dest_uri
-            for src_path, dest_uri in create_upload_mappings.items()
+            file_path_to_manifest_mappings[src_path]: dest_uri for src_path, dest_uri in create_upload_mappings.items()
         }
 
         progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory()

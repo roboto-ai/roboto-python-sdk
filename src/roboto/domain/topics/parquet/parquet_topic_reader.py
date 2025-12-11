@@ -54,15 +54,10 @@ class ParquetTopicReader(TopicReader):
 
     @staticmethod
     def accepts(
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
     ) -> bool:
         for mapping in message_paths_to_representations:
-            if (
-                mapping.representation.storage_format
-                != RepresentationStorageFormat.PARQUET
-            ):
+            if mapping.representation.storage_format != RepresentationStorageFormat.PARQUET:
                 return False
         return True
 
@@ -71,16 +66,12 @@ class ParquetTopicReader(TopicReader):
 
     def get_data(
         self,
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
         log_time_attr_name: str,
         log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
-        timestamp_message_path_representation_mapping: typing.Optional[
-            MessagePathRepresentationMapping
-        ] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         if timestamp_message_path_representation_mapping is None:
             raise NotImplementedError(
@@ -99,15 +90,9 @@ class ParquetTopicReader(TopicReader):
         if mapping is None:
             return
 
-        parquet_file = self.__representation_record_to_parquet_file(
-            mapping.representation
-        )
-        timestamp_message_path = self.__timestamp_message_path(
-            timestamp_message_path_representation_mapping
-        )
-        timestamp = extract_timestamp_field(
-            parquet_file.schema_arrow, timestamp_message_path
-        )
+        parquet_file = self.__representation_record_to_parquet_file(mapping.representation)
+        timestamp_message_path = self.__timestamp_message_path(timestamp_message_path_representation_mapping)
+        timestamp = extract_timestamp_field(parquet_file.schema_arrow, timestamp_message_path)
 
         columns = [
             # Always use `MessagePathRecord::source_path`,
@@ -137,9 +122,7 @@ class ParquetTopicReader(TopicReader):
                 row_group_idx,
                 columns=columns,
             )
-            row_group_table = enrich_with_logtime_ns(
-                row_group_table, log_time_attr_name, timestamp
-            )
+            row_group_table = enrich_with_logtime_ns(row_group_table, log_time_attr_name, timestamp)
 
             if not include_timestamp_message_path:
                 # The timestamp column was not included in the column projection list.
@@ -155,25 +138,19 @@ class ParquetTopicReader(TopicReader):
                 end_time,
             )
 
-            row_group_table = scale_logtime(
-                row_group_table, log_time_attr_name, log_time_unit
-            )
+            row_group_table = scale_logtime(row_group_table, log_time_attr_name, log_time_unit)
 
             for row in row_group_table.to_pylist():
                 yield row
 
     def get_data_as_df(
         self,
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
         log_time_attr_name: str,
         log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
-        timestamp_message_path_representation_mapping: typing.Optional[
-            MessagePathRepresentationMapping
-        ] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
     ) -> "pandas.DataFrame":
         pd = import_optional_dependency("pandas", "analytics")
         pa = import_optional_dependency("pyarrow", "analytics")
@@ -195,15 +172,9 @@ class ParquetTopicReader(TopicReader):
         if mapping is None:
             return pd.DataFrame()
 
-        parquet_file = self.__representation_record_to_parquet_file(
-            mapping.representation
-        )
-        timestamp_message_path = self.__timestamp_message_path(
-            timestamp_message_path_representation_mapping
-        )
-        timestamp = extract_timestamp_field(
-            parquet_file.schema_arrow, timestamp_message_path
-        )
+        parquet_file = self.__representation_record_to_parquet_file(mapping.representation)
+        timestamp_message_path = self.__timestamp_message_path(timestamp_message_path_representation_mapping)
+        timestamp = extract_timestamp_field(parquet_file.schema_arrow, timestamp_message_path)
 
         tables = []
         columns = [
@@ -235,9 +206,7 @@ class ParquetTopicReader(TopicReader):
                 columns=columns,
             )
 
-            row_group_table = enrich_with_logtime_ns(
-                row_group_table, log_time_attr_name, timestamp
-            )
+            row_group_table = enrich_with_logtime_ns(row_group_table, log_time_attr_name, timestamp)
 
             if not include_timestamp_message_path:
                 # The timestamp column was not included in the column projection list.
@@ -253,9 +222,7 @@ class ParquetTopicReader(TopicReader):
                 end_time,
             )
 
-            row_group_table = scale_logtime(
-                row_group_table, log_time_attr_name, log_time_unit
-            )
+            row_group_table = scale_logtime(row_group_table, log_time_attr_name, log_time_unit)
 
             tables.append(row_group_table)
 
@@ -267,9 +234,7 @@ class ParquetTopicReader(TopicReader):
 
     def __ensure_single_parquet_file_per_topic(
         self,
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
     ):
         """
         Support pulling data out of a single Parquet file per Topic.
@@ -277,10 +242,7 @@ class ParquetTopicReader(TopicReader):
         This class can and should be extended to support splitting a Topic's MessagePaths
         across multiple underlying files.
         """
-        repr_ids = {
-            mapping.representation.representation_id
-            for mapping in message_paths_to_representations
-        }
+        repr_ids = {mapping.representation.representation_id for mapping in message_paths_to_representations}
         if len(repr_ids) > 1:
             raise NotImplementedError(
                 "Support for reading data for topics whose data is split across multiple Parquet files  "
@@ -288,9 +250,7 @@ class ParquetTopicReader(TopicReader):
                 "This is likely an issue with data ingestion. Please reach out to Roboto support."
             )
 
-    def __get_signed_url_for_representation_file(
-        self, representation: RepresentationRecord
-    ) -> str:
+    def __get_signed_url_for_representation_file(self, representation: RepresentationRecord) -> str:
         association = representation.association
         if association.association_type != AssociationType.File:
             raise NotImplementedError(
@@ -308,16 +268,12 @@ class ParquetTopicReader(TopicReader):
         self, representation: RepresentationRecord
     ) -> "pyarrow.parquet.ParquetFile":
         fs = import_optional_dependency("pyarrow.fs", "analytics")
-        fsspec_http = import_optional_dependency(
-            "fsspec.implementations.http", "analytics"
-        )
+        fsspec_http = import_optional_dependency("fsspec.implementations.http", "analytics")
         pq = import_optional_dependency("pyarrow.parquet", "analytics")
 
         http_fs = fsspec_http.HTTPFileSystem()
         signed_url = self.__get_signed_url_for_representation_file(representation)
-        return pq.ParquetFile(
-            signed_url, filesystem=fs.PyFileSystem(fs.FSSpecHandler(http_fs))
-        )
+        return pq.ParquetFile(signed_url, filesystem=fs.PyFileSystem(fs.FSSpecHandler(http_fs)))
 
     def __timestamp_message_path(
         self, message_path_representation_mapping: MessagePathRepresentationMapping

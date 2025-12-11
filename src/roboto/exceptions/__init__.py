@@ -7,6 +7,7 @@
 from .domain import (
     RobotoConditionException,
     RobotoConflictException,
+    RobotoContextTooLongException,
     RobotoDatasetNotFoundException,
     RobotoDeprecatedException,
     RobotoDeviceNotFoundException,
@@ -46,6 +47,7 @@ __all__ = [
     "TimestampFieldNotFoundException",
     "RobotoConditionException",
     "RobotoConflictException",
+    "RobotoContextTooLongException",
     "RobotoDatasetNotFoundException",
     "RobotoDeviceNotFoundException",
     "RobotoDeprecatedException",

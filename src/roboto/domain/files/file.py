@@ -98,9 +98,7 @@ class File:
         return f"arn:{partition}:s3:::{bucket}/{key}"
 
     @staticmethod
-    def construct_s3_obj_uri(
-        bucket: str, key: str, version: typing.Optional[str] = None
-    ) -> str:
+    def construct_s3_obj_uri(bucket: str, key: str, version: typing.Optional[str] = None) -> str:
         """Construct an S3 object URI from bucket, key, and optional version.
 
         Args:
@@ -126,9 +124,7 @@ class File:
         return base_uri
 
     @staticmethod
-    def generate_s3_client(
-        credential_provider: CredentialProvider, tcp_keepalive: bool = True
-    ):
+    def generate_s3_client(credential_provider: CredentialProvider, tcp_keepalive: bool = True):
         """Generate a configured S3 client using Roboto credentials.
 
         Creates an S3 client with refreshable credentials obtained from the provided
@@ -149,21 +145,17 @@ class File:
             >>> s3_client = File.generate_s3_client(cred_provider)
         """
         creds = credential_provider()
-        refreshable_credentials = (
-            botocore.credentials.RefreshableCredentials.create_from_metadata(
-                metadata=creds,
-                refresh_using=credential_provider,
-                method="roboto-api",
-            )
+        refreshable_credentials = botocore.credentials.RefreshableCredentials.create_from_metadata(
+            metadata=creds,
+            refresh_using=credential_provider,
+            method="roboto-api",
         )
         botocore_session = botocore.session.get_session()
         botocore_session._credentials = refreshable_credentials
         botocore_session.set_config_variable("region", creds["region"])
         session = boto3.Session(botocore_session=botocore_session)
 
-        return session.client(
-            "s3", config=botocore.config.Config(tcp_keepalive=tcp_keepalive)
-        )
+        return session.client("s3", config=botocore.config.Config(tcp_keepalive=tcp_keepalive))
 
     @classmethod
     def from_id(
@@ -293,14 +285,14 @@ class File:
             ...         dataset_id="ds_abc123",
             ...         relative_path="logs/session1.bag",
             ...         uri="s3://my-bucket/data/session1.bag",
-            ...         size=1024000
+            ...         size=1024000,
             ...     ),
             ...     ImportFileRequest(
             ...         dataset_id="ds_abc123",
             ...         relative_path="logs/session2.bag",
             ...         uri="s3://my-bucket/data/session2.bag",
-            ...         size=2048000
-            ...     )
+            ...         size=2048000,
+            ...     ),
             ... ]
             >>> files = File.import_batch(requests)
             >>> print(f"Imported {len(files)} files")
@@ -376,9 +368,7 @@ class File:
 
             >>> from roboto.domain.files import File
             >>> file = File.import_one(
-            ...     dataset_id="ds_abc123",
-            ...     relative_path="logs/session1.bag",
-            ...     uri="s3://my-bucket/data/session1.bag"
+            ...     dataset_id="ds_abc123", relative_path="logs/session1.bag", uri="s3://my-bucket/data/session1.bag"
             ... )
             >>> print(f"Imported file: {file.relative_path}")
             Imported file: logs/session1.bag
@@ -391,7 +381,7 @@ class File:
             ...     uri="s3://my-bucket/sensors/lidar_data.pcd",
             ...     description="LiDAR point cloud from highway test",
             ...     tags=["lidar", "highway", "test"],
-            ...     metadata={"sensor_type": "Velodyne", "resolution": "high"}
+            ...     metadata={"sensor_type": "Velodyne", "resolution": "high"},
             ... )
             >>> print(f"File size: {file.size} bytes")
         """
@@ -405,9 +395,7 @@ class File:
             metadata=metadata,
             device_id=device_id,
         )
-        record = roboto_client.post("v1/files/import", data=request).to_record(
-            FileRecord
-        )
+        record = roboto_client.post("v1/files/import", data=request).to_record(FileRecord)
         return cls(record, roboto_client)
 
     @classmethod
@@ -439,11 +427,8 @@ class File:
         Examples:
             >>> from roboto.query import Comparator, Condition, QuerySpecification
             >>> spec = QuerySpecification(
-            ...     condition=Condition(
-            ...         field="tags",
-            ...         comparator=Comparator.Contains,
-            ...         value="sensor-data"
-            ...     ))
+            ...     condition=Condition(field="tags", comparator=Comparator.Contains, value="sensor-data")
+            ... )
             >>> for file in File.query(spec):
             ...     print(f"Found file: {file.relative_path}")
             Found file: logs/sensors_2024_01_01.bag
@@ -451,11 +436,8 @@ class File:
 
             >>> # Query with metadata filter
             >>> spec = QuerySpecification(
-            ...     condition=Condition(
-            ...         field="metadata.vehicle_id",
-            ...         comparator=Comparator.Equals,
-            ...         value="vehicle_001"
-            ...     ))
+            ...     condition=Condition(field="metadata.vehicle_id", comparator=Comparator.Equals, value="vehicle_001")
+            ... )
             >>> files = list(File.query(spec))
             >>> print(f"Found {len(files)} files for vehicle_001")
         """
@@ -474,11 +456,7 @@ class File:
         unknown = actual - known
         if unknown:
             plural = len(unknown) > 1
-            msg = (
-                "are not known attributes of File"
-                if plural
-                else "is not a known attribute of File"
-            )
+            msg = "are not known attributes of File" if plural else "is not a known attribute of File"
             raise ValueError(f"{unknown} {msg}. Known attributes: {known}")
 
         while True:
@@ -494,9 +472,7 @@ class File:
             else:
                 break
 
-    def __init__(
-        self, record: FileRecord, roboto_client: typing.Optional[RobotoClient] = None
-    ):
+    def __init__(self, record: FileRecord, roboto_client: typing.Optional[RobotoClient] = None):
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__record = record
 
@@ -701,16 +677,15 @@ class File:
             >>> import pandas as pd
             >>> from roboto import File
             >>> file = File.from_id("file_abc123")
-            >>> df = pd.DataFrame({
-            ...     "timestamp": [1763947309.4198897, 1763947316.7686195, 1763947335.0095527],
-            ...     "temperature": [20.5, 21.0, 20.8],
-            ...     "humidity": [45.2, 46.1, 45.8]
-            ... })
+            >>> df = pd.DataFrame(
+            ...     {
+            ...         "timestamp": [1763947309.4198897, 1763947316.7686195, 1763947335.0095527],
+            ...         "temperature": [20.5, 21.0, 20.8],
+            ...         "humidity": [45.2, 46.1, 45.8],
+            ...     }
+            ... )
             >>> topic = file.add_topic(
-            ...     topic_name="sensor_data",
-            ...     df=df,
-            ...     timestamp_column="timestamp",
-            ...     timestamp_unit="s"
+            ...     topic_name="sensor_data", df=df, timestamp_column="timestamp", timestamp_unit="s"
             ... )
             >>> print(f"Created topic: {topic.name}")
             Created topic: sensor_data
@@ -720,11 +695,13 @@ class File:
             >>> import pandas as pd
             >>> from roboto import File
             >>> file = File.from_id("file_abc123")
-            >>> df = pd.DataFrame({
-            ...     "ts": pd.date_range("2025-11-24", periods=3, freq="1s", tz="UTC"),
-            ...     "velocity": [10.5, 11.2, 10.8],
-            ...     "acceleration": [0.5, 0.3, -0.2]
-            ... })
+            >>> df = pd.DataFrame(
+            ...     {
+            ...         "ts": pd.date_range("2025-11-24", periods=3, freq="1s", tz="UTC"),
+            ...         "velocity": [10.5, 11.2, 10.8],
+            ...         "acceleration": [0.5, 0.3, -0.2],
+            ...     }
+            ... )
             >>> topic = file.add_topic("motion_data", df)
 
             Retrieve the data back
@@ -742,12 +719,12 @@ class File:
             >>> original_topic = file.get_topic("sensor_data")
             >>> original_df = original_topic.get_data_as_df().reset_index(drop=True)
             >>> # Create derived data
-            >>> derived_df = pd.DataFrame({
-            ...     "timestamp": original_df["ts"],
-            ...     "temp_category": original_df["temperature"].apply(
-            ...         lambda x: "hot" if x > 25 else "not_hot"
-            ...     )
-            ... })
+            >>> derived_df = pd.DataFrame(
+            ...     {
+            ...         "timestamp": original_df["ts"],
+            ...         "temp_category": original_df["temperature"].apply(lambda x: "hot" if x > 25 else "not_hot"),
+            ...     }
+            ... )
             >>> derived_topic = file.add_topic(
             ...     "temperature_categories",
             ...     derived_df,
@@ -836,9 +813,7 @@ class File:
 
         source = self.record.key.replace(f"{self.record.org_id}/datasets/", "")
 
-        progress_monitor = progress_monitor_factory.download_monitor(
-            source=source, size=download_bytes
-        )
+        progress_monitor = progress_monitor_factory.download_monitor(source=source, size=download_bytes)
         try:
             s3_client.download_file(
                 Bucket=self.record.bucket,
@@ -879,7 +854,7 @@ class File:
             >>> file = File.from_id("file_abc123")
             >>> summary = file.generate_summary()
             >>> for text_chunk in summary.text_stream():
-            ...     print(text_chunk, end='', flush=True)
+            ...     print(text_chunk, end="", flush=True)
 
             Check summary status without blocking:
 
@@ -888,9 +863,7 @@ class File:
             >>> if summary.current and summary.current.status == AISummaryStatus.Complete:
             ...     print("Summary is ready!")
         """
-        initial_summary = self.__roboto_client.post(
-            f"v1/files/{self.file_id}/summary"
-        ).to_record(AISummary)
+        initial_summary = self.__roboto_client.post(f"v1/files/{self.file_id}/summary").to_record(AISummary)
 
         return PollingStreamingAISummary(
             poll_fn=self.__get_latest_summary,
@@ -926,9 +899,7 @@ class File:
             >>> print(f"Direct access URL: {url}")
 
             >>> # Force download with custom filename
-            >>> download_url = file.get_signed_url(
-            ...     override_content_disposition="attachment; filename=data.bag"
-            ... )
+            >>> download_url = file.get_signed_url(override_content_disposition="attachment; filename=data.bag")
         """
         query_params: dict[str, str] = {}
 
@@ -983,7 +954,7 @@ class File:
             >>> file = File.from_id("file_abc123")
             >>> summary = file.get_summary()
             >>> for text_chunk in summary.text_stream():
-            ...     print(text_chunk, end='', flush=True)
+            ...     print(text_chunk, end="", flush=True)
         """
         return PollingStreamingAISummary(
             poll_fn=self.__get_latest_summary,
@@ -1112,11 +1083,9 @@ class File:
 
         Examples:
             >>> file = File.from_id("file_abc123")
-            >>> updated_file = file.put_metadata({
-            ...     "vehicle_id": "vehicle_001",
-            ...     "session_type": "highway_driving",
-            ...     "weather": "sunny"
-            ... })
+            >>> updated_file = file.put_metadata(
+            ...     {"vehicle_id": "vehicle_001", "session_type": "highway_driving", "weather": "sunny"}
+            ... )
             >>> print(updated_file.metadata["vehicle_id"])
             'vehicle_001'
         """
@@ -1165,9 +1134,7 @@ class File:
             >>> refreshed_file = file.refresh()
             >>> print(f"Current version: {refreshed_file.version}")
         """
-        self.__record = self.__roboto_client.get(
-            f"v1/files/record/{self.file_id}"
-        ).to_record(FileRecord)
+        self.__record = self.__roboto_client.get(f"v1/files/record/{self.file_id}").to_record(FileRecord)
         return self
 
     def rename_file(self, file_id: str, new_path: str) -> FileRecord:
@@ -1317,10 +1284,7 @@ class File:
             >>> # Update metadata and mark as ingested
             >>> from roboto.updates import MetadataChangeset
             >>> changeset = MetadataChangeset(put_fields={"processed": True})
-            >>> updated_file = file.update(
-            ...     metadata_changeset=changeset,
-            ...     ingestion_complete=True
-            ... )
+            >>> updated_file = file.update(metadata_changeset=changeset, ingestion_complete=True)
         """
         request = remove_not_set(
             UpdateFileRecordRequest(
@@ -1330,12 +1294,8 @@ class File:
                 device_id=device_id,
             )
         )
-        self.__record = self.__roboto_client.put(
-            f"v1/files/record/{self.file_id}", data=request
-        ).to_record(FileRecord)
+        self.__record = self.__roboto_client.put(f"v1/files/record/{self.file_id}", data=request).to_record(FileRecord)
         return self
 
     def __get_latest_summary(self) -> AISummary:
-        return self.__roboto_client.get(f"v1/files/{self.file_id}/summary").to_record(
-            AISummary
-        )
+        return self.__roboto_client.get(f"v1/files/{self.file_id}/summary").to_record(AISummary)

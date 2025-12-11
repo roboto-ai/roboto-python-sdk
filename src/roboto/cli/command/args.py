@@ -25,9 +25,7 @@ def JsonFileOrStrType(arg):
     try:
         return json.loads(payload)
     except ValueError:
-        raise argparse.ArgumentTypeError(
-            "Could not interpret payload {} '{}' as JSON".format(arg_type, arg)
-        )
+        raise argparse.ArgumentTypeError("Could not interpret payload {} '{}' as JSON".format(arg_type, arg))
 
 
 class KeyValuePairsAction(argparse.Action):
@@ -56,8 +54,7 @@ class KeyValuePairsAction(argparse.Action):
                 parts = pair.split("=", 1)
                 if len(parts) != 2:
                     raise ValueError(
-                        f"Expected format 'KEY=VALUE', got '{pair}'. "
-                        f"Make sure the argument contains an '=' sign."
+                        f"Expected format 'KEY=VALUE', got '{pair}'. Make sure the argument contains an '=' sign."
                     )
                 key, value = parts
 
@@ -73,9 +70,7 @@ class KeyValuePairsAction(argparse.Action):
 
             setattr(namespace, self.dest, self.value_dict)
         except Exception as e:
-            raise parser.error(
-                f"Failed to parse '{self.dest}' argument '{values}': {e}"
-            )
+            raise parser.error(f"Failed to parse '{self.dest}' argument '{values}': {e}")
 
 
 def ExistingPathlibPath(arg):

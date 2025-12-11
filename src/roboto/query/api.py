@@ -10,10 +10,11 @@ import typing
 
 import pydantic
 
+from ..compat import StrEnum
 from .specification import QuerySpecification
 
 
-class QueryTarget(str, enum.Enum):
+class QueryTarget(StrEnum):
     """
     The type of resource a specific query is requesting.
     """
@@ -50,7 +51,7 @@ class QueryStatus(enum.Enum):
     """
 
 
-class QueryScheme(str, enum.Enum):
+class QueryScheme(StrEnum):
     """
     A specific query format/schema which can be used in combination with some context JSON to provide all information
     required to execute a query.
@@ -71,7 +72,7 @@ class QueryContext(pydantic.BaseModel):
     query: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
 
 
-class QueryStorageScheme(str, enum.Enum):
+class QueryStorageScheme(StrEnum):
     """
     A specific query result storage format/schema which can be used in combination with some context JSON to provide all
     information required to vend query results
@@ -100,29 +101,17 @@ class QueryRecord(pydantic.BaseModel):
     modified: datetime.datetime = pydantic.Field(
         description="The last time the database record for a query was modified."
     )
-    org_id: str = pydantic.Field(
-        description="The org on behalf of whom a query was run."
-    )
-    query_id: str = pydantic.Field(
-        description="Unique identifier for an individual query."
-    )
-    query_ctx: QueryContext = pydantic.Field(
-        description="The actual query being run and resolved."
-    )
+    org_id: str = pydantic.Field(description="The org on behalf of whom a query was run.")
+    query_id: str = pydantic.Field(description="Unique identifier for an individual query.")
+    query_ctx: QueryContext = pydantic.Field(description="The actual query being run and resolved.")
     result_count: int = pydantic.Field(
         description="The number of records matched by this query. Defaults to 0 for incomplete queries.",
         default=0,
     )
-    status: QueryStatus = pydantic.Field(
-        description="The query lifecycle status of this query."
-    )
-    submitted: datetime.datetime = pydantic.Field(
-        description="The time at which this query was first created."
-    )
+    status: QueryStatus = pydantic.Field(description="The query lifecycle status of this query.")
+    submitted: datetime.datetime = pydantic.Field(description="The time at which this query was first created.")
     submitted_by: str = pydantic.Field(description="The user who scheduled this query.")
-    target: QueryTarget = pydantic.Field(
-        description="The type of data being requested, e.g. 'Datasets' or 'Topics'."
-    )
+    target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
 
 
 class QualifiedRoboqlQuery(pydantic.BaseModel):
@@ -130,12 +119,8 @@ class QualifiedRoboqlQuery(pydantic.BaseModel):
     A RoboQL query which has been qualified with a target.
     """
 
-    query: str = pydantic.Field(
-        description="The conditions, sorting behavior, and limit of this query."
-    )
-    target: QueryTarget = pydantic.Field(
-        description="The type of data being requested, e.g. 'Datasets' or 'Topics'."
-    )
+    query: str = pydantic.Field(description="The conditions, sorting behavior, and limit of this query.")
+    target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
 
 
 class SubmitStructuredQueryRequest(pydantic.BaseModel):
@@ -143,12 +128,8 @@ class SubmitStructuredQueryRequest(pydantic.BaseModel):
     Request payload to submit a structured query
     """
 
-    query: QuerySpecification = pydantic.Field(
-        description="The conditions, sorting behavior, and limit of this query."
-    )
-    target: QueryTarget = pydantic.Field(
-        description="The type of data being requested, e.g. 'Datasets' or 'Topics'."
-    )
+    query: QuerySpecification = pydantic.Field(description="The conditions, sorting behavior, and limit of this query.")
+    target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
 
 
 class SubmitRoboqlQueryRequest(pydantic.BaseModel):
@@ -159,9 +140,7 @@ class SubmitRoboqlQueryRequest(pydantic.BaseModel):
     query: typing.Optional[str] = pydantic.Field(
         description="The conditions, sorting behavior, and limit of this query."
     )
-    target: QueryTarget = pydantic.Field(
-        description="The type of data being requested, e.g. 'Datasets' or 'Topics'."
-    )
+    target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
 
 
 class SubmitTermQueryRequest(pydantic.BaseModel):
@@ -173,6 +152,4 @@ class SubmitTermQueryRequest(pydantic.BaseModel):
         default="",
         description="A string search term which this query will attempt to match across any appropriate fields.",
     )
-    target: QueryTarget = pydantic.Field(
-        description="The type of data being requested, e.g. 'Datasets' or 'Topics'."
-    )
+    target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")

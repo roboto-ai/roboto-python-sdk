@@ -18,9 +18,7 @@ class UrlBuilder:
         return UrlBuilder.url(endpoint=self.__endpoint, path=path, query=query)
 
     @staticmethod
-    def url(
-        endpoint: str, path: str, query: typing.Optional[dict[str, typing.Any]] = None
-    ) -> str:
+    def url(endpoint: str, path: str, query: typing.Optional[dict[str, typing.Any]] = None) -> str:
         normalized_path = path.lstrip("/")
 
         if query is None:

@@ -88,9 +88,7 @@ class DatasetRecord(pydantic.BaseModel):
     administrator: str = "Roboto"
     """Deprecated field maintained for backwards compatibility. Always defaults to 'Roboto'."""
 
-    storage_ctx: dict[str, Any] = pydantic.Field(
-        default_factory=make_backwards_compatible_placeholder_storage_ctx
-    )
+    storage_ctx: dict[str, Any] = pydantic.Field(default_factory=make_backwards_compatible_placeholder_storage_ctx)
     """Deprecated storage context field maintained for backwards compatibility with SDK versions prior to 0.10.0."""
 
     storage_location: str = "S3"

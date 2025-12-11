@@ -76,9 +76,7 @@ class FilesChangesetFileManager:
         """
         self.__append_update(
             relative_path,
-            files.UpdateFileRecordRequest(
-                metadata_changeset=MetadataChangeset(put_tags=tags)
-            ),
+            files.UpdateFileRecordRequest(metadata_changeset=MetadataChangeset(put_tags=tags)),
         )
 
     def remove_tags(self, relative_path: str, tags: list[str]):
@@ -103,9 +101,7 @@ class FilesChangesetFileManager:
         """
         self.__append_update(
             relative_path,
-            files.UpdateFileRecordRequest(
-                metadata_changeset=MetadataChangeset(remove_tags=tags)
-            ),
+            files.UpdateFileRecordRequest(metadata_changeset=MetadataChangeset(remove_tags=tags)),
         )
 
     def put_fields(self, relative_path: str, metadata: dict[str, typing.Any]):
@@ -129,9 +125,7 @@ class FilesChangesetFileManager:
         """
         self.__append_update(
             relative_path,
-            files.UpdateFileRecordRequest(
-                metadata_changeset=MetadataChangeset(put_fields=metadata)
-            ),
+            files.UpdateFileRecordRequest(metadata_changeset=MetadataChangeset(put_fields=metadata)),
         )
 
     def remove_fields(self, relative_path: str, keys: list[str]):
@@ -156,9 +150,7 @@ class FilesChangesetFileManager:
         """
         self.__append_update(
             relative_path,
-            files.UpdateFileRecordRequest(
-                metadata_changeset=MetadataChangeset(remove_fields=keys)
-            ),
+            files.UpdateFileRecordRequest(metadata_changeset=MetadataChangeset(remove_fields=keys)),
         )
 
     def set_description(self, relative_path: str, description: typing.Optional[str]):
@@ -174,9 +166,7 @@ class FilesChangesetFileManager:
             >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
             >>> file_changeset_manager.set_description("images/front0_raw_000734.jpg", "This image was over-exposed")
         """
-        self.__append_update(
-            relative_path, files.UpdateFileRecordRequest(description=description)
-        )
+        self.__append_update(relative_path, files.UpdateFileRecordRequest(description=description))
 
     def _apply_to_dataset(self, dataset: datasets.Dataset):
         """
@@ -185,8 +175,7 @@ class FilesChangesetFileManager:
         """
         if RobotoEnv.default().output_dir is None:
             raise ValueError(
-                "Couldn't apply changes with no specified output dir via env var "
-                + RobotoEnvKey.OutputDir
+                "Couldn't apply changes with no specified output dir via env var " + RobotoEnvKey.OutputDir
             )
 
         with open(self.__path, "r") as f:
@@ -195,9 +184,7 @@ class FilesChangesetFileManager:
         try:
             items = [FilesChangesetItem.model_validate_json(line) for line in lines]
         except pydantic.ValidationError as ve:
-            logger.error(
-                "Got malformed files metadata changeset file, ignoring.", exc_info=ve
-            )
+            logger.error("Got malformed files metadata changeset file, ignoring.", exc_info=ve)
             return
 
         updates_by_path: dict[str, files.UpdateFileRecordRequest] = {}
@@ -212,13 +199,11 @@ class FilesChangesetFileManager:
 
                 if sentinels.is_set(item.update.description):
                     new_update.description = item.update.description
-                if sentinels.is_set(
-                    existing_update.metadata_changeset
-                ) and sentinels.is_set(item.update.metadata_changeset):
-                    new_update.metadata_changeset = (
-                        existing_update.metadata_changeset.combine(
-                            item.update.metadata_changeset
-                        )
+                if sentinels.is_set(existing_update.metadata_changeset) and sentinels.is_set(
+                    item.update.metadata_changeset
+                ):
+                    new_update.metadata_changeset = existing_update.metadata_changeset.combine(
+                        item.update.metadata_changeset
                     )
 
                 updates_by_path[item.relative_path] = new_update
@@ -232,9 +217,7 @@ class FilesChangesetFileManager:
         if len(relevant_files) == 0:
             logger.info("No file metadata update requests")
         else:
-            logger.info(
-                f"Attempting to update metadata for {len(relevant_files)} files"
-            )
+            logger.info(f"Attempting to update metadata for {len(relevant_files)} files")
 
         for relevant_file in relevant_files:
             update_by_path = updates_by_path[relevant_file.relative_path]
@@ -243,14 +226,10 @@ class FilesChangesetFileManager:
                 metadata_changeset=update_by_path.metadata_changeset,
             )
 
-    def __append_update(
-        self, relative_path: str, update: files.UpdateFileRecordRequest
-    ):
+    def __append_update(self, relative_path: str, update: files.UpdateFileRecordRequest):
         # Duplicates are OK, as we'll ignore them at upload time
         with open(self.__path, "a") as f:
             print(
-                FilesChangesetItem(
-                    relative_path=relative_path, update=update
-                ).model_dump_json(),
+                FilesChangesetItem(relative_path=relative_path, update=update).model_dump_json(),
                 file=f,
             )

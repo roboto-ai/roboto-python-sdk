@@ -39,9 +39,7 @@ class RobotoSpinner:
     def __init__(self, console: Console, text: str, transient: bool = False):
         spinner = Spinner("dots", text=text, style="cyan")
         self._text = text
-        self._live = Live(
-            spinner, console=console, refresh_per_second=10, transient=transient
-        )
+        self._live = Live(spinner, console=console, refresh_per_second=10, transient=transient)
 
     def start(self):
         self._live.start()
@@ -84,18 +82,10 @@ class RobotoMultiToolSpinner:
         grid.add_column()
 
         for tool_id in self._completed_tools:
-            grid.add_row(
-                Text.from_markup(
-                    f"[bold green]✓ {self._tool_id_to_name[tool_id]}[/bold green]"
-                )
-            )
+            grid.add_row(Text.from_markup(f"[bold green]✓ {self._tool_id_to_name[tool_id]}[/bold green]"))
 
         for tool_id in self._failed_tools:
-            grid.add_row(
-                Text.from_markup(
-                    f"[bold red]✗ {self._tool_id_to_name[tool_id]}[/bold red]"
-                )
-            )
+            grid.add_row(Text.from_markup(f"[bold red]✗ {self._tool_id_to_name[tool_id]}[/bold red]"))
 
         for tool_id in self._in_progress_tools:
             grid.add_row(
@@ -138,9 +128,7 @@ class RobotoMarkdown:
             self._live.update(Markdown(original_content))
             self._live.stop()
             self._content = new_content
-            self._live = Live(
-                Markdown(self._content), console=self._console, refresh_per_second=4
-            )
+            self._live = Live(Markdown(self._content), console=self._console, refresh_per_second=4)
             self._live.start()
 
         md = Markdown(self._content)
@@ -191,8 +179,7 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
     _print_welcome_banner(console)
 
     console.print(
-        "[dim]What do you want to chat about? "
-        f"(Enter [cyan]{'/'.join(VALID_EXIT_COMMANDS)}[/cyan] to exit)[/dim]"
+        f"[dim]What do you want to chat about? (Enter [cyan]{'/'.join(VALID_EXIT_COMMANDS)}[/cyan] to exit)[/dim]"
     )
     console.print()
 
@@ -216,9 +203,7 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
             continue
 
         console.print()
-        thinking_spinner = RobotoSpinner(
-            console=console, text="Thinking...", transient=True
-        )
+        thinking_spinner = RobotoSpinner(console=console, text="Thinking...", transient=True)
         thinking_spinner.start()
 
         if chat is None:
@@ -268,9 +253,7 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
                         multi_tool_spinner = None
                         console.print()
 
-                        thinking_spinner = RobotoSpinner(
-                            console=console, text="Thinking...", transient=True
-                        )
+                        thinking_spinner = RobotoSpinner(console=console, text="Thinking...", transient=True)
                         thinking_spinner.start()
 
         if thinking_spinner is not None:

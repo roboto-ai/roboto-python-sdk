@@ -52,20 +52,11 @@ class QueryClient:
     def roboto_client(self) -> RobotoClient:
         return self.__roboto_client
 
-    def are_query_results_available(
-        self, query_id: str, owner_org_id: typing.Optional[str] = None
-    ) -> bool:
-        return (
-            self.get_query_record(query_id, owner_org_id).status
-            == QueryStatus.ResultsAvailable
-        )
+    def are_query_results_available(self, query_id: str, owner_org_id: typing.Optional[str] = None) -> bool:
+        return self.get_query_record(query_id, owner_org_id).status == QueryStatus.ResultsAvailable
 
-    def get_query_record(
-        self, query_id: str, owner_org_id: typing.Optional[str] = None
-    ) -> QueryRecord:
-        response = self.__roboto_client.get(
-            f"v1/query/id/{query_id}", owner_org_id=owner_org_id or self.__owner_org_id
-        )
+    def get_query_record(self, query_id: str, owner_org_id: typing.Optional[str] = None) -> QueryRecord:
+        response = self.__roboto_client.get(f"v1/query/id/{query_id}", owner_org_id=owner_org_id or self.__owner_org_id)
         return response.to_record(QueryRecord)
 
     def get_query_results(
@@ -168,9 +159,7 @@ class QueryClient:
 
         yield from self.get_query_results(query.query_id)
 
-    def submit_term(
-        self, request: SubmitTermQueryRequest, owner_org_id: typing.Optional[str] = None
-    ) -> QueryRecord:
+    def submit_term(self, request: SubmitTermQueryRequest, owner_org_id: typing.Optional[str] = None) -> QueryRecord:
         response = self.__roboto_client.post(
             "v1/query/submit/term",
             data=request,

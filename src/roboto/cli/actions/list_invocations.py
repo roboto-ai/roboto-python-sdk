@@ -38,9 +38,7 @@ def invocation_serializer(obj: typing.Any) -> typing.Any:
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
-def list_invocations(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def list_invocations(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     conditions = [
         Condition(
             field="provenance.action.name",

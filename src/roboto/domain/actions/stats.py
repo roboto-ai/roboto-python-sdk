@@ -86,9 +86,7 @@ def get_action_stats(
     }
 
     return (
-        roboto_client.get(
-            "/v1/actions/invocations/org-stats", query=query, caller_org_id=org_id
-        )
+        roboto_client.get("/v1/actions/invocations/org-stats", query=query, caller_org_id=org_id)
         .to_paginated_list(ActionStatsRecord)
         .items
     )

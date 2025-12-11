@@ -37,7 +37,5 @@ read_command = RobotoCommand(
     name="read",
     logic=read_logic,
     setup_parser=read_setup_parser,
-    command_kwargs={
-        "help": "Retrieve a secret's value from secure storage, and reveal it to the user."
-    },
+    command_kwargs={"help": "Retrieve a secret's value from secure storage, and reveal it to the user."},
 )

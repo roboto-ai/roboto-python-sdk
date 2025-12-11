@@ -58,9 +58,7 @@ class RobotoDomainException(Exception):
         )
 
     @staticmethod
-    def from_json(
-        contents: dict[str, Any], headers: dict[str, str] = {}
-    ) -> "RobotoDomainException":
+    def from_json(contents: dict[str, Any], headers: dict[str, str] = {}) -> "RobotoDomainException":
         error_code = get_by_path(contents, ["error", "error_code"])
         inner_message = get_by_path(contents, ["error", "message"])
         kwargs: dict[str, Any] = {}
@@ -104,22 +102,16 @@ class RobotoDomainException(Exception):
         if error.status is None:
             raise RobotoDomainException(error.msg, headers=error.headers)
         if error.status == 400:
-            if (
-                message is not None
-                and "did not provide a org for single-org operation" in message
-            ):
+            if message is not None and "did not provide a org for single-org operation" in message:
                 return RobotoNoOrgProvidedException(error.msg, headers=error.headers)
             else:
                 return RobotoInvalidRequestException(error.msg, headers=error.headers)
         if error.status in (401, 403):
             if (
                 message is not None
-                and "User is not authorized to access this resource with an explicit deny"
-                in message
+                and "User is not authorized to access this resource with an explicit deny" in message
             ):
-                return RobotoAuthenticationFailureException(
-                    AUTHENTICATION_FAILURE_MESSAGE, headers=error.headers
-                )
+                return RobotoAuthenticationFailureException(AUTHENTICATION_FAILURE_MESSAGE, headers=error.headers)
             else:
                 return RobotoUnauthorizedException(error.msg, headers=error.headers)
         if error.status == 404:
@@ -436,6 +428,48 @@ class RobotoServiceTimeoutException(RobotoDomainException):
     @property
     def http_status_code(self) -> int:
         return 504
+
+
+class RobotoContextTooLongException(RobotoDomainException):
+    """
+    Thrown when the conversation context (messages, system prompt, tool results) exceeds
+    the model's context window limit.
+    """
+
+    __estimated_tokens: int
+    __max_tokens: int
+
+    def __init__(
+        self,
+        message: str,
+        stack_trace: list[str] = [],
+        headers: dict[str, str] = {},
+        estimated_tokens: int = 0,
+        max_tokens: int = 0,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(message, stack_trace, headers, *args, **kwargs)
+        self.__estimated_tokens = estimated_tokens
+        self.__max_tokens = max_tokens
+
+    @property
+    def http_status_code(self) -> int:
+        return 400
+
+    @property
+    def estimated_tokens(self) -> int:
+        return self.__estimated_tokens
+
+    @property
+    def max_tokens(self) -> int:
+        return self.__max_tokens
+
+    def to_dict(self) -> dict[str, Any]:
+        as_dict = super().to_dict()
+        as_dict["error"]["estimated_tokens"] = self.estimated_tokens
+        as_dict["error"]["max_tokens"] = self.max_tokens
+        return as_dict
 
 
 class RobotoHttpExceptionParse(object):

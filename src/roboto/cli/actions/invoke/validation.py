@@ -33,9 +33,7 @@ def validate_parameters(
     unknown_params = provided_param_names - known_params
 
     if unknown_params:
-        raise ValueError(
-            f"The following parameter(s) are not defined in action: {', '.join(sorted(unknown_params))}"
-        )
+        raise ValueError(f"The following parameter(s) are not defined in action: {', '.join(sorted(unknown_params))}")
 
 
 def resolve_organization(org_id: typing.Optional[str], roboto_client) -> str:
@@ -66,10 +64,7 @@ def resolve_organization(org_id: typing.Optional[str], roboto_client) -> str:
     if len(member_orgs) == 1:
         return member_orgs[0].org_id
 
-    formatted_org_list = "".join(
-        f"  - {org.name} ({org.org_id})\n" for org in member_orgs
-    )
+    formatted_org_list = "".join(f"  - {org.name} ({org.org_id})\n" for org in member_orgs)
     raise Exception(
-        f"You belong to multiple Roboto organizations:\n{formatted_org_list}"
-        "Please specify the --org argument."
+        f"You belong to multiple Roboto organizations:\n{formatted_org_list}Please specify the --org argument."
     )

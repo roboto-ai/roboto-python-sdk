@@ -110,9 +110,7 @@ class UploadTransaction:
 
         self.__association = association
         if not self.__association.is_dataset:
-            raise ValueError(
-                "Roboto currently only supports uploading files to datasets."
-            )
+            raise ValueError("Roboto currently only supports uploading files to datasets.")
 
         self.__device_id = device_id
 
@@ -131,9 +129,7 @@ class UploadTransaction:
         self.__completed_upload_node_ids: list[str] = []
 
     def __enter__(self) -> UploadTransaction:
-        resource_manifest = {
-            file["destination_path"]: file["file_size"] for file in self.__items
-        }
+        resource_manifest = {file["destination_path"]: file["file_size"] for file in self.__items}
         request = BeginManifestTransactionRequest(
             origination=self.__origination,
             resource_manifest=resource_manifest,
@@ -193,9 +189,7 @@ class UploadTransaction:
             ).to_record_list(RobotoCredentials)
 
             if len(response) == 0:
-                raise RobotoInternalException(
-                    f"Unable to get upload credentials for {self.__association!r}"
-                )
+                raise RobotoInternalException(f"Unable to get upload credentials for {self.__association!r}")
 
             creds = response[0]
             return creds.to_upload_credentials()
@@ -220,15 +214,11 @@ class UploadTransaction:
     def __dataset_id(self) -> str:
         dataset_id = self.__association.dataset_id
         if dataset_id is None:
-            raise ValueError(
-                "Roboto currently only supports uploading files to datasets."
-            )
+            raise ValueError("Roboto currently only supports uploading files to datasets.")
         return dataset_id
 
     def __finalize(self):
-        self.__roboto_client.put(
-            f"v2/datasets/{self.__dataset_id}/batch_uploads/{self.transaction_id}/complete"
-        )
+        self.__roboto_client.put(f"v2/datasets/{self.__dataset_id}/batch_uploads/{self.transaction_id}/complete")
 
     def __flush(self, batch: list[UploadableFile]):
         manifest_items = [file["upload_uri"] for file in batch]

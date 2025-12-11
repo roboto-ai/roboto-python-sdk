@@ -23,6 +23,9 @@ from .actions import (
     command_set as actions_command_set,
 )
 from .argparse import SortingHelpFormatter
+from .cache import (
+    command_set as cache_command_set,
+)
 from .chat import command_set as chat_command_set
 from .collections import (
     command_set as collections_command_set,
@@ -61,6 +64,7 @@ from .users import (
 
 COMMAND_SETS = [
     actions_command_set,
+    cache_command_set,
     chat_command_set,
     collections_command_set,
     datasets_command_set,
@@ -153,6 +157,17 @@ def construct_parser(
     )
 
     parser.add_argument(
+        "--cache-dir",
+        help=(
+            "Override default location of the cache directory used by Roboto internally. "
+            "Default is platform-dependent. "
+            "Run `roboto cache where` to see the current cache directory."
+        ),
+        type=pathlib.Path,
+        required=False,
+    )
+
+    parser.add_argument(
         "--config-file",
         help="Overrides the location of the Roboto config.json file. Defaults to ~/.roboto/config.json.",
         type=pathlib.Path,
@@ -222,7 +237,10 @@ def entry():
             print(__version__)
         elif "func" in args:
             __populate_context(
-                context=context, parser=parser, profile_override=args.profile
+                context=context,
+                parser=parser,
+                profile_override=args.profile,
+                cache_dir_override=args.cache_dir,
             )
             apply_roboto_cli_context_extensions(base_context=context)
 
@@ -239,6 +257,7 @@ def __populate_context(
     context: CLIContext,
     parser: argparse.ArgumentParser,
     profile_override: typing.Optional[str] = None,
+    cache_dir_override: typing.Optional[pathlib.Path] = None,
 ):
     try:
         config = RobotoConfig.from_env(profile_override=profile_override)
@@ -246,6 +265,9 @@ def __populate_context(
         parser.error(str(exc))
 
     auth_decorator = BearerTokenDecorator(config.api_key)
+
+    if cache_dir_override:
+        config.cache_dir = cache_dir_override
 
     context.roboto_config = config
     context.roboto_client = RobotoClient(

@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import datetime
 import decimal
-import enum
 import typing
 
+from .compat import StrEnum
 from .logging import default_logger
 
 log = default_logger()
@@ -22,12 +22,10 @@ NSEC_PER_MS = 1_000_000
 NSEC_PER_US = 1_000
 
 
-Time: typing.TypeAlias = typing.Union[
-    int, float, decimal.Decimal, str, datetime.datetime
-]
+Time: typing.TypeAlias = typing.Union[int, float, decimal.Decimal, str, datetime.datetime]
 
 
-class TimeUnit(str, enum.Enum):
+class TimeUnit(StrEnum):
     """
     Well-known time units supported for timestamps in recording data.
     """
@@ -76,15 +74,9 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
               Datetimes are always converted from seconds to nanoseconds.
     """
     if isinstance(value, int):
-        nano_multiplier = (
-            unit.nano_multiplier()
-            if unit is not None
-            else TimeUnit.Nanoseconds.nano_multiplier()
-        )
+        nano_multiplier = unit.nano_multiplier() if unit is not None else TimeUnit.Nanoseconds.nano_multiplier()
         if value < 0:
-            raise ValueError(
-                f"Cannot convert a negative number to epoch nanoseconds, got {value}"
-            )
+            raise ValueError(f"Cannot convert a negative number to epoch nanoseconds, got {value}")
         else:
             return value * nano_multiplier
 
@@ -96,28 +88,19 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
 
     elif isinstance(value, decimal.Decimal):
         # E.g., a ROS formatted timestamp, `<sec>.<nsec>`
-        nano_multiplier = (
-            unit.nano_multiplier()
-            if unit is not None
-            else TimeUnit.Seconds.nano_multiplier()
-        )
+        nano_multiplier = unit.nano_multiplier() if unit is not None else TimeUnit.Seconds.nano_multiplier()
         return int(value * nano_multiplier)
 
     elif isinstance(value, str):
         # E.g., a ROS formatted timestamp `<sec>.<nsec>`
-        nano_multiplier = (
-            unit.nano_multiplier()
-            if unit is not None
-            else TimeUnit.Seconds.nano_multiplier()
-        )
+        nano_multiplier = unit.nano_multiplier() if unit is not None else TimeUnit.Seconds.nano_multiplier()
         return int(decimal.Decimal(value) * nano_multiplier)
 
     elif isinstance(value, datetime.datetime):
         timezone_aware = _ensure_timezone_aware(value)
         return int(
             # datetime::timestamp is always seconds
-            timezone_aware.timestamp()
-            * TimeUnit.Seconds.nano_multiplier()
+            timezone_aware.timestamp() * TimeUnit.Seconds.nano_multiplier()
         )
 
     else:

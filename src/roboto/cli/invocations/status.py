@@ -13,9 +13,7 @@ from ..command import RobotoCommand
 from ..context import CLIContext
 
 
-def status(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def status(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     if not args.tail:
         invocation = actions.Invocation.from_id(
             args.invocation_id,
@@ -23,10 +21,7 @@ def status(
         )
         print(
             json.dumps(
-                [
-                    status_record.to_presentable_dict()
-                    for status_record in invocation.status_log
-                ],
+                [status_record.to_presentable_dict() for status_record in invocation.status_log],
                 indent=2,
             )
         )
@@ -40,9 +35,7 @@ def status(
     try:
         while True:
             status_records_to_print = [
-                status_record
-                for status_record in invocation.status_log
-                if status_record.status not in printed
+                status_record for status_record in invocation.status_log if status_record.status not in printed
             ]
             if status_records_to_print:
                 for status_record in status_records_to_print:

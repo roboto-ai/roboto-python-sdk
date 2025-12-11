@@ -42,9 +42,7 @@ class HttpRequest:
         self.method = method
         self.headers = headers if headers is not None else {}
         self.data = data
-        self.retry_wait = (
-            retry_wait if retry_wait is not None else default_retry_wait_ms
-        )
+        self.retry_wait = retry_wait if retry_wait is not None else default_retry_wait_ms
         self.idempotent = idempotent
 
         if isinstance(self.data, pydantic.BaseModel) or isinstance(self.data, dict):
@@ -80,11 +78,7 @@ class HttpRequest:
     @property
     def hostname(self) -> str:
         parsed_url = urllib.parse.urlparse(self.url)
-        return (
-            parsed_url.hostname
-            if parsed_url.hostname is not None
-            else parsed_url.netloc
-        )
+        return parsed_url.hostname if parsed_url.hostname is not None else parsed_url.netloc
 
     def append_headers(self, headers: dict[str, str]) -> None:
         self.headers.update(headers)

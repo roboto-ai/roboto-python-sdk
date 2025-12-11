@@ -5,13 +5,14 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-from enum import Enum
 import typing
 
 import pydantic
 
+from ...compat import StrEnum
 
-class LayoutAccessibility(str, Enum):
+
+class LayoutAccessibility(StrEnum):
     """
     Controls who can view a layout.
     """

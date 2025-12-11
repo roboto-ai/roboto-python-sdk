@@ -54,9 +54,7 @@ class UpdateOrgUserRequest(pydantic.BaseModel):
     @pydantic.model_validator(mode="after")
     def check_some_updates_present(self) -> "UpdateOrgUserRequest":
         if len(self.add_roles or []) == 0 and len(self.remove_roles or []) == 0:
-            raise ValueError(
-                "At least one role should be included in add_roles or remove_roles"
-            )
+            raise ValueError("At least one role should be included in add_roles or remove_roles")
 
         return self
 

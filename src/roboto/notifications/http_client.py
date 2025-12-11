@@ -67,9 +67,7 @@ class NotificationsClient:
 
             return response.to_dict(json_path=["data"])
 
-    def batch_update_notifications(
-        self, updates: list[UpdateNotificationRequest]
-    ) -> dict[str, Any]:
+    def batch_update_notifications(self, updates: list[UpdateNotificationRequest]) -> dict[str, Any]:
         url = self.__http_client.url("v1/notifications/batch")
 
         dict_updates = []

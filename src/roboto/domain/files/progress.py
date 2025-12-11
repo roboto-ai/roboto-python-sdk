@@ -41,15 +41,11 @@ class ProgressMonitorFactory(abc.ABC):
         self.__ctx = ctx or {}
 
     @abc.abstractmethod
-    def upload_monitor(
-        self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None
-    ) -> ProgressMonitor:
+    def upload_monitor(self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None) -> ProgressMonitor:
         raise NotImplementedError("upload_monitor")
 
     @abc.abstractmethod
-    def download_monitor(
-        self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None
-    ) -> ProgressMonitor:
+    def download_monitor(self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None) -> ProgressMonitor:
         raise NotImplementedError("download_monitor")
 
     def get_context(self) -> dict[str, Any]:
@@ -72,14 +68,10 @@ class NoopProgressMonitor(ProgressMonitor):
 class NoopProgressMonitorFactory(ProgressMonitorFactory):
     """A Noop Progress Monitor Factory"""
 
-    def upload_monitor(
-        self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None
-    ) -> ProgressMonitor:
+    def upload_monitor(self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None) -> ProgressMonitor:
         return NoopProgressMonitor()
 
-    def download_monitor(
-        self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None
-    ) -> ProgressMonitor:
+    def download_monitor(self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None) -> ProgressMonitor:
         return NoopProgressMonitor()
 
 
@@ -149,9 +141,7 @@ class TqdmProgressMonitorFactory(ProgressMonitorFactory):
 
         return None
 
-    def __any_monitor(
-        self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None
-    ) -> ProgressMonitor:
+    def __any_monitor(self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None) -> ProgressMonitor:
         # This for sure is not fully threadsafe, but it 100% works for single threading and
         # _mostly_ works for multithreading.
         slot = self.__first_available_slot()
@@ -174,12 +164,8 @@ class TqdmProgressMonitorFactory(ProgressMonitorFactory):
 
         return monitor
 
-    def upload_monitor(
-        self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None
-    ) -> ProgressMonitor:
+    def upload_monitor(self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None) -> ProgressMonitor:
         return self.__any_monitor(source=source, size=size, kwargs=kwargs)
 
-    def download_monitor(
-        self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None
-    ) -> ProgressMonitor:
+    def download_monitor(self, source: str, size: int, kwargs: Optional[dict[str, Any]] = None) -> ProgressMonitor:
         return self.__any_monitor(source=source, size=size, kwargs=kwargs)

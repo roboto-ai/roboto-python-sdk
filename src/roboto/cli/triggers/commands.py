@@ -40,14 +40,10 @@ from ..common_args import (
 from ..context import CLIContext
 
 NAME_PARAM_HELP = "The unique name used to reference a trigger."
-ACTION_PARAM_HELP = (
-    "Partially or fully qualified reference to the action to be triggered."
-)
+ACTION_PARAM_HELP = "Partially or fully qualified reference to the action to be triggered."
 
 
-def parse_condition(
-    args, context: CLIContext, parser: argparse.ArgumentParser
-) -> Optional[ConditionType]:
+def parse_condition(args, context: CLIContext, parser: argparse.ArgumentParser) -> Optional[ConditionType]:
     if args.condition_json and (args.required_tag or args.required_metadata):
         parser.error(
             "Can only specify '--condition-json' or a combination of '--required-tag' and "
@@ -61,17 +57,13 @@ def parse_condition(
         elif "comparator" in condition_json.keys():
             return Condition.model_validate(condition_json)
         else:
-            parser.error(
-                "Provided '--condition-json' could not be parsed as a Condition or a ConditionGroup."
-            )
+            parser.error("Provided '--condition-json' could not be parsed as a Condition or a ConditionGroup.")
 
     if args.required_tag or args.required_metadata:
         conditions = []
         if args.required_tag:
             for tag in args.required_tag:
-                conditions.append(
-                    Condition(field="tags", comparator=Comparator.Contains, value=tag)
-                )
+                conditions.append(Condition(field="tags", comparator=Comparator.Contains, value=tag))
 
         if args.required_metadata:
             for key, value in args.required_metadata.items():
@@ -90,9 +82,7 @@ def parse_condition(
 
 def parse_overrides(
     args, context: CLIContext, parser: argparse.ArgumentParser
-) -> tuple[
-    Optional[actions.ComputeRequirements], Optional[actions.ContainerParameters]
-]:
+) -> tuple[Optional[actions.ComputeRequirements], Optional[actions.ContainerParameters]]:
     if args.action is None:
         return None, None
 
@@ -104,9 +94,7 @@ def parse_overrides(
         roboto_client=context.roboto_client,
     )
 
-    compute_requirement_overrides = parse_compute_requirements(
-        args, action.compute_requirements
-    )
+    compute_requirement_overrides = parse_compute_requirements(args, action.compute_requirements)
 
     container_overrides = parse_container_overrides(args, action.container_parameters)
 
@@ -116,9 +104,7 @@ def parse_overrides(
 def create(args, context: CLIContext, parser: argparse.ArgumentParser):
     condition = parse_condition(args, context, parser)
 
-    compute_requirement_overrides, container_overrides = parse_overrides(
-        args, context, parser
-    )
+    compute_requirement_overrides, container_overrides = parse_overrides(args, context, parser)
 
     trigger = actions.Trigger.create(
         name=args.name,
@@ -229,9 +215,7 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
     if args.enabled and args.disabled:
         parser.error("Cannot set both --enabled and --disabled!")
 
-    if (
-        args.condition_json or args.required_tag or args.required_metadata
-    ) and args.clear_condition:
+    if (args.condition_json or args.required_tag or args.required_metadata) and args.clear_condition:
         parser.error(
             "Cannot specify a condition via '--required-tag', '--required-metadata', or '--condition-json', and "
             + "also clear the condition with '--clear-condition'."
@@ -239,9 +223,7 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
 
     condition = parse_condition(args, context, parser)
 
-    compute_requirement_overrides, container_overrides = parse_overrides(
-        args, context, parser
-    )
+    compute_requirement_overrides, container_overrides = parse_overrides(args, context, parser)
 
     trigger = actions.Trigger.from_name(
         name=args.trigger_name,
@@ -260,9 +242,7 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
         "condition": None if args.clear_condition else value_or_not_set(condition),
         "additional_inputs": value_or_not_set(args.additional_inputs),
         "parameter_values": value_or_not_set(args.parameter_value),
-        "compute_requirement_overrides": value_or_not_set(
-            compute_requirement_overrides
-        ),
+        "compute_requirement_overrides": value_or_not_set(compute_requirement_overrides),
         "container_parameter_overrides": value_or_not_set(container_overrides),
         "for_each": value_or_not_set(args.for_each),
         "timeout": args.timeout,
@@ -276,9 +256,7 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
         updates["enabled"] = NotSet
 
     compacted_updates: dict[str, Any] = {k: v for k, v in updates.items() if is_set(v)}
-    update_trigger_request = actions.UpdateTriggerRequest.model_validate(
-        compacted_updates
-    )
+    update_trigger_request = actions.UpdateTriggerRequest.model_validate(compacted_updates)
     trigger.update(**update_trigger_request.model_dump(exclude_unset=True))
     print(json.dumps(trigger.to_dict(), indent=2))
 
@@ -360,9 +338,7 @@ def update_setup_parser(parser):
     )
     parser.add_argument("--enabled", action="store_true", help="Enables this trigger")
     parser.add_argument("--disabled", action="store_true", help="Disables this trigger")
-    parser.add_argument(
-        "--clear-condition", action="store_true", help="Sets the condition to None"
-    )
+    parser.add_argument("--clear-condition", action="store_true", help="Sets the condition to None")
     parser.add_argument(
         "--parameter-value",
         required=False,
@@ -509,9 +485,7 @@ search_command = RobotoCommand(
     name="search",
     logic=search,
     setup_parser=search_setup_parser,
-    command_kwargs={
-        "help": "Searches for triggers that match a given condition. Constrained to a single org."
-    },
+    command_kwargs={"help": "Searches for triggers that match a given condition. Constrained to a single org."},
 )
 
 update_command = RobotoCommand(

@@ -4,11 +4,12 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import enum
 import platform
 import typing
 
 import pydantic
+
+from ..compat import StrEnum
 
 try:
     from ..version import (
@@ -18,7 +19,7 @@ except ModuleNotFoundError:
     roboto_version = "0.0.0"
 
 
-class RobotoTool(str, enum.Enum):
+class RobotoTool(StrEnum):
     """Tool used to access Roboto"""
 
     Cli = "cli"

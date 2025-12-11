@@ -22,17 +22,11 @@ class DeprecationAction(argparse.Action):
         deprecation_msg: typing.Optional[str] = None,
         **kwargs,
     ):
-        super(DeprecationAction, self).__init__(
-            option_strings, dest, nargs=0, help=help, **kwargs
-        )
+        super(DeprecationAction, self).__init__(option_strings, dest, nargs=0, help=help, **kwargs)
         self.__deprecation_msg = deprecation_msg
 
     def __call__(self, parser, namespace, values, option_string=None):
-        deprecation_msg = (
-            self.__deprecation_msg
-            if self.__deprecation_msg
-            else f"Deprecated option: {option_string}"
-        )
+        deprecation_msg = self.__deprecation_msg if self.__deprecation_msg else f"Deprecated option: {option_string}"
         parser.error(deprecation_msg)
 
 

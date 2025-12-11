@@ -22,9 +22,7 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
     if args.dataset_id is not None:
         resources.extend(
             [
-                CollectionResourceRef(
-                    resource_type=CollectionResourceType.Dataset, resource_id=dataset_id
-                )
+                CollectionResourceRef(resource_type=CollectionResourceType.Dataset, resource_id=dataset_id)
                 for dataset_id in args.dataset_id
             ]
         )
@@ -32,9 +30,7 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
     if args.file_id is not None:
         resources.extend(
             [
-                CollectionResourceRef(
-                    resource_type=CollectionResourceType.File, resource_id=file_id
-                )
+                CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=file_id)
                 for file_id in args.file_id
             ]
         )
@@ -54,12 +50,9 @@ def create_setup_parser(parser):
     parser.add_argument(
         "--name",
         type=str,
-        help="A human-readable name for this collection. "
-        + "Does not need to be unique.",
+        help="A human-readable name for this collection. " + "Does not need to be unique.",
     )
-    parser.add_argument(
-        "--description", type=str, help="Information about what's in this collection"
-    )
+    parser.add_argument("--description", type=str, help="Information about what's in this collection")
     parser.add_argument(
         "--dataset-id",
         nargs="*",

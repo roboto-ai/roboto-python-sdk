@@ -34,9 +34,7 @@ from ..validation import (
 )
 
 
-def determine_updates(
-    action_config: actions.ActionConfig, existing_action: actions.Action
-) -> collections.abc.Mapping:
+def determine_updates(action_config: actions.ActionConfig, existing_action: actions.Action) -> collections.abc.Mapping:
     """Create an updates dict matching Action::update kwargs from an ActionConfig and an existing Action."""
 
     updates: dict[str, typing.Any] = dict()
@@ -57,8 +55,7 @@ def determine_updates(
 
     if (
         action_config.requires_downloaded_inputs is not None
-        and action_config.requires_downloaded_inputs
-        != existing_action.record.requires_downloaded_inputs
+        and action_config.requires_downloaded_inputs != existing_action.record.requires_downloaded_inputs
     ):
         updates["requires_downloaded_inputs"] = action_config.requires_downloaded_inputs
 
@@ -118,25 +115,17 @@ def determine_updates(
     return updates
 
 
-def create(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def create(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     config: typing.Optional[actions.ActionConfig] = None
     if args.action_config_file:
         with pydantic_validation_handler("Action config file"):
             config = actions.ActionConfig.from_file(args.action_config_file)
 
     default_compute_reqs_from_file = config.compute_requirements if config else None
-    compute_requirements = parse_compute_requirements(
-        args, defaults=default_compute_reqs_from_file
-    )
+    compute_requirements = parse_compute_requirements(args, defaults=default_compute_reqs_from_file)
 
-    default_container_parameters_from_file = (
-        config.container_parameters if config else None
-    )
-    container_parameters = parse_container_overrides(
-        args, defaults=default_container_parameters_from_file
-    )
+    default_container_parameters_from_file = config.container_parameters if config else None
+    container_parameters = parse_container_overrides(args, defaults=default_container_parameters_from_file)
 
     metadata = config.metadata if config else dict()
     if args.metadata:
@@ -150,9 +139,7 @@ def create(
     if args.parameter:
         cli_param_names = {param.name for param in args.parameter}
         # replace any existing parameters with the same name
-        parameters = [
-            param for param in parameters if param.name not in cli_param_names
-        ]
+        parameters = [param for param in parameters if param.name not in cli_param_names]
         parameters.extend(args.parameter)
 
     if not args.name and not config:
@@ -227,9 +214,7 @@ def create(
         )
 
         if not args.yes:
-            print(
-                f"Action '{action.name}' already exists. Do you want to update it? [y/n]"
-            )
+            print(f"Action '{action.name}' already exists. Do you want to update it? [y/n]")
             choice = input().lower()
             if choice not in ["y", "yes"]:
                 return

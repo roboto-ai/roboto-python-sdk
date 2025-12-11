@@ -17,9 +17,7 @@ def show(args, context: CLIContext, parser: argparse.ArgumentParser):
         collection_id=args.collection_id,
         roboto_client=context.roboto_client,
     )
-    for change in collection.changes(
-        from_version=args.from_version, to_version=args.to_version
-    ):
+    for change in collection.changes(from_version=args.from_version, to_version=args.to_version):
         print(change.model_dump_json(indent=2))
 
 

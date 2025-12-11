@@ -58,15 +58,13 @@ class OrgInvite:
             >>> invite = OrgInvite.create("alice@example.com", "org_12345")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        record = roboto_client.post(
-            f"v1/orgs/id/{org_id}/users/id/{invited_user_id}/invites"
-        ).to_record(OrgInviteRecord)
+        record = roboto_client.post(f"v1/orgs/id/{org_id}/users/id/{invited_user_id}/invites").to_record(
+            OrgInviteRecord
+        )
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
-    def from_id(
-        cls, invite_id: str, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> "OrgInvite":
+    def from_id(cls, invite_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> "OrgInvite":
         """Load an existing invitation by its unique ID.
 
         Args:
@@ -89,9 +87,7 @@ class OrgInvite:
             >>> print(f"Invited user: {invite.invited_user_id}")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        record = roboto_client.get(f"v1/orgs/invites/id/{invite_id}").to_record(
-            OrgInviteRecord
-        )
+        record = roboto_client.get(f"v1/orgs/invites/id/{invite_id}").to_record(OrgInviteRecord)
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
@@ -121,9 +117,7 @@ class OrgInvite:
             ...     print(f"Pending invite for: {invite.invited_user_id}")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        records = roboto_client.get(f"v1/orgs/id/{org_id}/invites").to_record_list(
-            OrgInviteRecord
-        )
+        records = roboto_client.get(f"v1/orgs/id/{org_id}/invites").to_record_list(OrgInviteRecord)
         return [cls(record=record, roboto_client=roboto_client) for record in records]
 
     def __init__(

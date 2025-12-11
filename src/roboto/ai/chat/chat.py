@@ -96,9 +96,7 @@ class Chat:
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         query_params = {"load_messages": load_messages}
-        record = roboto_client.get(
-            f"v1/ai/chats/{chat_id}", query=query_params
-        ).to_record(ChatRecord)
+        record = roboto_client.get(f"v1/ai/chats/{chat_id}", query=query_params).to_record(ChatRecord)
 
         return Chat(record=record, roboto_client=roboto_client)
 
@@ -157,18 +155,14 @@ class Chat:
             system_prompt=system_prompt,
         )
 
-        record = roboto_client.post(
-            "v1/ai/chats", caller_org_id=org_id, data=request
-        ).to_record(ChatRecord)
+        record = roboto_client.post("v1/ai/chats", caller_org_id=org_id, data=request).to_record(ChatRecord)
 
         return Chat(
             record=record,
             roboto_client=roboto_client,
         )
 
-    def __init__(
-        self, record: ChatRecord, roboto_client: Optional[RobotoClient] = None
-    ):
+    def __init__(self, record: ChatRecord, roboto_client: Optional[RobotoClient] = None):
         """Initialize a Chat instance with a chat record.
 
         Note:
@@ -211,9 +205,7 @@ class Chat:
         Returns a formatted string containing all messages in the conversation,
         with role indicators and message content clearly separated.
         """
-        return f"=== {self.__record.chat_id} ===\n" + "\n".join(
-            str(message) for message in self.messages
-        )
+        return f"=== {self.__record.chat_id} ===\n" + "\n".join(str(message) for message in self.messages)
 
     def __get_delta_and_update(self) -> ChatRecordDelta:
         delta = self.__roboto_client.get(
@@ -226,9 +218,7 @@ class Chat:
         for idx in sorted(delta.messages_by_idx.keys()):
             if idx < len(self.__record.messages):
                 self.__record.messages[idx].status = delta.messages_by_idx[idx].status
-                self.__record.messages[idx].content.extend(
-                    delta.messages_by_idx[idx].content
-                )
+                self.__record.messages[idx].content.extend(delta.messages_by_idx[idx].content)
             else:
                 self.__record.messages.append(delta.messages_by_idx[idx])
 
@@ -237,9 +227,7 @@ class Chat:
 
         return delta
 
-    def await_user_turn(
-        self, tick: float = 0.2, timeout: Optional[float] = None
-    ) -> Chat:
+    def await_user_turn(self, tick: float = 0.2, timeout: Optional[float] = None) -> Chat:
         """Wait for the conversation to reach a state where user input is expected.
 
         Polls the chat session until the AI assistant has finished generating its response
@@ -275,7 +263,7 @@ class Chat:
             >>> while True:
             ...     chat.await_user_turn()
             ...     user_input = input("You: ")
-            ...     if user_input.lower() == 'quit':
+            ...     if user_input.lower() == "quit":
             ...         break
             ...     chat.send_text(user_input)
         """
@@ -336,9 +324,7 @@ class Chat:
         self.__get_delta_and_update()
         return self
 
-    def send(
-        self, message: ChatMessage, context: typing.Optional[RobotoLLMContext] = None
-    ) -> Chat:
+    def send(self, message: ChatMessage, context: typing.Optional[RobotoLLMContext] = None) -> Chat:
         """Send a structured message to the chat session.
 
         Sends a ChatMessage object to the conversation. The message will be processed by the AI assistant, and a
@@ -374,9 +360,7 @@ class Chat:
         self.__record.messages.append(message)
         return self
 
-    def send_text(
-        self, text: str, context: typing.Optional[RobotoLLMContext] = None
-    ) -> Chat:
+    def send_text(self, text: str, context: typing.Optional[RobotoLLMContext] = None) -> Chat:
         """Send a text message to the chat session.
 
         Convenience method for sending a simple text message without needing to construct a ChatMessage object. The
@@ -402,9 +386,7 @@ class Chat:
             >>> for response in chat.stream():
             ...     print(response, end="", flush=True)
         """
-        return self.send(
-            ChatMessage.text(text=text, role=ChatRole.USER), context=context
-        )
+        return self.send(ChatMessage.text(text=text, role=ChatRole.USER), context=context)
 
     def stream_events(
         self,
@@ -456,9 +438,7 @@ class Chat:
                             text_in_progress = False
 
                     if isinstance(content, ChatToolUseContent):
-                        yield ChatToolUseEvent(
-                            name=content.tool_name, tool_use_id=content.tool_use_id
-                        )
+                        yield ChatToolUseEvent(name=content.tool_name, tool_use_id=content.tool_use_id)
                     elif isinstance(content, ChatToolResultContent):
                         tool_use_id = content.tool_use_id
                         tool_name = content.tool_name
@@ -477,9 +457,7 @@ class Chat:
                 raise TimeoutError("Timeout waiting for results to complete streaming")
             time.sleep(tick)
 
-    def stream(
-        self, tick: float = 0.2, timeout: Optional[float] = None
-    ) -> collections.abc.Generator[str, None, None]:
+    def stream(self, tick: float = 0.2, timeout: Optional[float] = None) -> collections.abc.Generator[str, None, None]:
         """Stream the AI assistant's response in real-time.
 
         Continuously polls the chat session and yields text content as it becomes available from the AI assistant.

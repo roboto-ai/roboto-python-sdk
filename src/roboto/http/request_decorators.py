@@ -76,9 +76,7 @@ class SigV4AuthDecorator:
         credentials: Optional[ReadOnlyCredentials] = None,
         region: Optional[str] = None,
     ):
-        self.__credentials = (
-            credentials if credentials else SigV4AuthDecorator.lookup_credentials()
-        )
+        self.__credentials = credentials if credentials else SigV4AuthDecorator.lookup_credentials()
         self.__region = region if region else SigV4AuthDecorator.lookup_region()
         self.__service = service
 
@@ -86,12 +84,8 @@ class SigV4AuthDecorator:
         if "Host" not in request.headers:
             request.append_headers({"Host": request.hostname})
 
-        aws_request = AWSRequest(
-            method=request.method.upper(), url=request.url, data=request.body
-        )
+        aws_request = AWSRequest(method=request.method.upper(), url=request.url, data=request.body)
         aws_request.context["payload_signing_enabled"] = True
-        SigV4Auth(self.__credentials, self.__service, self.__region).add_auth(
-            aws_request
-        )
+        SigV4Auth(self.__credentials, self.__service, self.__region).add_auth(aws_request)
         request.append_headers(dict(aws_request.headers.items()))
         return request

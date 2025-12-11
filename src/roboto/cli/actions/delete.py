@@ -12,9 +12,7 @@ from ..common_args import add_org_arg
 from ..context import CLIContext
 
 
-def delete(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def delete(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     action = actions.Action.from_name(
         name=args.action,
         owner_org_id=args.org,

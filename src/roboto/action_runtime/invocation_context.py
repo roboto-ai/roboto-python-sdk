@@ -121,9 +121,7 @@ class InvocationContext:
         input_dir = pathlib.Path(env.input_dir)
 
         if not input_dir.is_dir():
-            raise ActionRuntimeException(
-                f"Input directory '{input_dir}' does not exist."
-            )
+            raise ActionRuntimeException(f"Input directory '{input_dir}' does not exist.")
 
         if not env.output_dir:
             _raise_for_missing_env_var("output directory", RobotoEnvKey.OutputDir)
@@ -131,16 +129,10 @@ class InvocationContext:
         output_dir = pathlib.Path(env.output_dir)
 
         if not output_dir.is_dir():
-            raise ActionRuntimeException(
-                f"Output directory '{output_dir}' does not exist."
-            )
+            raise ActionRuntimeException(f"Output directory '{output_dir}' does not exist.")
 
         # Resolve file paths from environment
-        parameters_file = (
-            pathlib.Path(env.action_parameters_file)
-            if env.action_parameters_file
-            else None
-        )
+        parameters_file = pathlib.Path(env.action_parameters_file) if env.action_parameters_file else None
 
         secrets_file = None
         if env.action_runtime_config_dir:
@@ -223,9 +215,7 @@ class InvocationContext:
             >>> context.dataset.put_metadata({"voltage_spikes_seen": 693})
         """
         if self.__dataset is None:
-            UNSPECIFIED_DATASET_ID = (
-                actions.InvocationDataSource.unspecified().data_source_id
-            )
+            UNSPECIFIED_DATASET_ID = actions.InvocationDataSource.unspecified().data_source_id
             if self.dataset_id == UNSPECIFIED_DATASET_ID:
                 raise ActionRuntimeException(
                     "No dataset is associated with this invocation. "
@@ -233,9 +223,7 @@ class InvocationContext:
                     "or invoking via CLI with query-based input data."
                 )
 
-            self.__dataset = datasets.Dataset.from_id(
-                self.__dataset_id, roboto_client=self.__roboto_client
-            )
+            self.__dataset = datasets.Dataset.from_id(self.__dataset_id, roboto_client=self.__roboto_client)
         return self.__dataset
 
     @property
@@ -251,7 +239,7 @@ class InvocationContext:
         >>> my_output_file.write_text("Hello World")
         >>> context.file_changeset_manager.put_tags(my_output_file.name, ["tagged_by_action"])
         >>> context.file_changeset_manager.put_fields(
-        ... my_output_file.name, {"roboto_proficiency": "extreme - I can annotate output files!"}
+        ...     my_output_file.name, {"roboto_proficiency": "extreme - I can annotate output files!"}
         ... )
 
         This only works for files that have not yet been uploaded to Roboto.
@@ -293,9 +281,7 @@ class InvocationContext:
         After the first call, the invocation will be cached.
         """
         if self.__invocation is None:
-            self.__invocation = actions.Invocation.from_id(
-                self.__invocation_id, roboto_client=self.__roboto_client
-            )
+            self.__invocation = actions.Invocation.from_id(self.__invocation_id, roboto_client=self.__roboto_client)
         return self.__invocation
 
     @property
@@ -343,9 +329,7 @@ class InvocationContext:
         After the first call, the org will be cached.
         """
         if self.__org is None:
-            self.__org = orgs.Org.from_id(
-                self.__org_id, roboto_client=self.__roboto_client
-            )
+            self.__org = orgs.Org.from_id(self.__org_id, roboto_client=self.__roboto_client)
         return self.__org
 
     @property
@@ -374,15 +358,11 @@ class InvocationContext:
         if self.__input_data_manifest_file.stat().st_size == 0:
             return ActionInput()
 
-        input_record = ActionInputRecord.model_validate_json(
-            self.__input_data_manifest_file.read_text()
-        )
+        input_record = ActionInputRecord.model_validate_json(self.__input_data_manifest_file.read_text())
 
         return ActionInput.from_record(input_record, self.__roboto_client)
 
-    def get_optional_parameter(
-        self, name: str, default_value: typing.Optional[str] = None
-    ) -> typing.Optional[str]:
+    def get_optional_parameter(self, name: str, default_value: typing.Optional[str] = None) -> typing.Optional[str]:
         """
         Retrieve the value of the action parameter with the given name,
         defaulting to `default_value` if the parameter is not set.
@@ -452,9 +432,7 @@ class InvocationContext:
             if self.__parameters_file is None:
                 _raise_for_missing_file("parameters")
 
-            self.__parameters_cache = self.__load_runtime_data_from_file(
-                self.__parameters_file
-            )
+            self.__parameters_cache = self.__load_runtime_data_from_file(self.__parameters_file)
         return self.__parameters_cache
 
     @property
@@ -464,14 +442,10 @@ class InvocationContext:
             if self.__secrets_file is None:
                 _raise_for_missing_file("secrets")
 
-            self.__secrets_cache = self.__load_runtime_data_from_file(
-                self.__secrets_file
-            )
+            self.__secrets_cache = self.__load_runtime_data_from_file(self.__secrets_file)
         return self.__secrets_cache
 
-    def __load_runtime_data_from_file(
-        self, file_path: pathlib.Path
-    ) -> dict[str, typing.Any]:
+    def __load_runtime_data_from_file(self, file_path: pathlib.Path) -> dict[str, typing.Any]:
         """Load runtime data (supplied parameter values, secrets, etc)
         from a file. Assumes the file is JSON with an object at its root."""
         result: dict[str, typing.Any] = {}
@@ -485,8 +459,7 @@ class InvocationContext:
                 result = loaded_data
             else:
                 raise ActionRuntimeException(
-                    f"Expected {file_path} to contain JSON with an object at its root, "
-                    f"found: {type(loaded_data)}"
+                    f"Expected {file_path} to contain JSON with an object at its root, found: {type(loaded_data)}"
                 )
 
         return result

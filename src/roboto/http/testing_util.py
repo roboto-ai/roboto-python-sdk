@@ -23,9 +23,7 @@ class FakeHttpResponseFactory:
         >>> from roboto.http import HttpClient, FakeHttpResponseFactory
         >>> mock_http_client = unittest.mock.create_autospec(HttpClient, instance=True)
         >>> with contextlib.ExitStack() as stack:
-        ...     http_get_mock = stack.enter_context(
-        ...         unittest.mock.patch.object(mock_http_client, "get")
-        ...     )
+        ...     http_get_mock = stack.enter_context(unittest.mock.patch.object(mock_http_client, "get"))
         ...     http_get_mock.side_effect = FakeHttpResponseFactory(
         ...         "https://example.com",
         ...         {"foo": "bar"},
@@ -57,7 +55,5 @@ class FakeHttpResponseFactory:
         for k, v in self.__headers.items():
             headers.add_header(k, v)
         data = io.BytesIO(json.dumps(self.__response_data).encode())
-        urllib_response = urllib.response.addinfourl(
-            data, headers, self.__url, self.__status_code
-        )
+        urllib_response = urllib.response.addinfourl(data, headers, self.__url, self.__status_code)
         return HttpResponse(urllib_response)

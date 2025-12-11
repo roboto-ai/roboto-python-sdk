@@ -33,8 +33,6 @@ commands = [
 
 command_set = RobotoCommandSet(
     name="actions",
-    help=(
-        "Create, edit and invoke reusable actions that run containerized code on your datasets."
-    ),
+    help=("Create, edit and invoke reusable actions that run containerized code on your datasets."),
     commands=commands,
 )

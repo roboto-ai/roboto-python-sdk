@@ -33,17 +33,10 @@ def arrow_type_to_canonical_type(
     if pa.types.is_boolean(arrow_type):
         return CanonicalDataType.Boolean
 
-    if (
-        pa.types.is_integer(arrow_type)
-        or pa.types.is_decimal(arrow_type)
-        or pa.types.is_floating(arrow_type)
-    ):
+    if pa.types.is_integer(arrow_type) or pa.types.is_decimal(arrow_type) or pa.types.is_floating(arrow_type):
         return CanonicalDataType.Number
 
-    if (
-        pa.types.is_timestamp(arrow_type)
-        and typing.cast("pyarrow.TimestampType", arrow_type).tz == "UTC"
-    ):
+    if pa.types.is_timestamp(arrow_type) and typing.cast("pyarrow.TimestampType", arrow_type).tz == "UTC":
         return CanonicalDataType.Timestamp
 
     if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):

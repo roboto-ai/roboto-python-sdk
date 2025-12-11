@@ -4,12 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import enum
 import sys
 import typing
 
+from ..compat import StrEnum
 
-class AnsiColor(str, enum.Enum):
+
+class AnsiColor(StrEnum):
     RED = "\033[0;31m"
     GREEN = "\033[0;32m"
     BLUE = "\033[0;34m"

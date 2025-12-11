@@ -65,11 +65,7 @@ class User:
             Create a new service user:
 
             >>> from roboto import CreateUserRequest, User
-            >>> request = CreateUserRequest(
-            ...     user_id="service@example.com",
-            ...     name="Service User",
-            ...     is_service_user=True
-            ... )
+            >>> request = CreateUserRequest(user_id="service@example.com", name="Service User", is_service_user=True)
             >>> user = User.create(request)  # Only works for platform itself
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -105,9 +101,7 @@ class User:
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
-    def from_id(
-        cls, user_id: str, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> "User":
+    def from_id(cls, user_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> "User":
         """Load an existing user by their unique user ID.
 
         User IDs are globally unique across the Roboto platform and typically
@@ -133,14 +127,10 @@ class User:
             >>> print(f"User name: {user.name}")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        record = roboto_client.get(
-            f"v1/users/id/{urllib.parse.quote_plus(user_id)}"
-        ).to_record(UserRecord)
+        record = roboto_client.get(f"v1/users/id/{urllib.parse.quote_plus(user_id)}").to_record(UserRecord)
         return cls(record=record, roboto_client=roboto_client)
 
-    def __init__(
-        self, record: UserRecord, roboto_client: typing.Optional[RobotoClient] = None
-    ):
+    def __init__(self, record: UserRecord, roboto_client: typing.Optional[RobotoClient] = None):
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -197,9 +187,7 @@ class User:
             >>> user = User.for_self()
             >>> user.delete()  # Permanently removes the user
         """
-        self.__roboto_client.delete(
-            "v1/users", headers=roboto_headers(user_id=self.user_id)
-        )
+        self.__roboto_client.delete("v1/users", headers=roboto_headers(user_id=self.user_id))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert this user to a dictionary representation.

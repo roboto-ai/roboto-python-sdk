@@ -112,9 +112,7 @@ class HttpClient:
         default_endpoint: typing.Optional[str] = None,
         default_auth: typing.Optional[HttpRequestDecorator] = None,
         requester: typing.Optional[RobotoRequester] = None,
-        extra_headers_provider: typing.Optional[
-            typing.Callable[[], dict[str, str]]
-        ] = None,
+        extra_headers_provider: typing.Optional[typing.Callable[[], dict[str, str]]] = None,
     ):
         self.__base_headers = base_headers if base_headers is not None else {}
         self.__extra_headers_provider = extra_headers_provider
@@ -214,15 +212,11 @@ class HttpClient:
         return self.__request(request)
 
     def set_requester(self, requester: RobotoRequester):
-        self.__base_headers[ROBOTO_REQUESTER_HEADER] = requester.model_dump_json(
-            exclude_none=True
-        )
+        self.__base_headers[ROBOTO_REQUESTER_HEADER] = requester.model_dump_json(exclude_none=True)
 
     def url(self, path: str) -> str:
         if self.__default_endpoint is None:
-            raise ValueError(
-                "HttpClient.url called for client with no default endpoint."
-            )
+            raise ValueError("HttpClient.url called for client with no default endpoint.")
         return f"{self.__default_endpoint}/{path}"
 
     @property
@@ -250,17 +244,13 @@ class HttpClient:
 
         try:
             for attempt in tenacity.Retrying(
-                retry=tenacity.retry_if_exception(
-                    is_expected_to_be_transient(request_ctx)
-                ),
+                retry=tenacity.retry_if_exception(is_expected_to_be_transient(request_ctx)),
                 stop=tenacity.stop_after_attempt(10),
                 reraise=True,
                 wait=self._wait(request_ctx.retry_wait),
             ):
                 with attempt:
-                    request = urllib.request.Request(
-                        request_ctx.url, method=request_ctx.method
-                    )
+                    request = urllib.request.Request(request_ctx.url, method=request_ctx.method)
 
                     req_body = request_ctx.body
                     if req_body is not None:
@@ -283,13 +273,8 @@ class HttpClient:
                 raise HttpError(exc) from None
         except urllib.error.URLError as exc:
             logger.debug("URLError: %s", exc, exc_info=True)
-            if (
-                isinstance(exc.reason, OSError)
-                and exc.reason.errno == errno.ECONNREFUSED
-            ):
-                raise ConnectionRefusedError(
-                    f"Couldn't connect to endpoint {request_ctx.url}"
-                ) from None
+            if isinstance(exc.reason, OSError) and exc.reason.errno == errno.ECONNREFUSED:
+                raise ConnectionRefusedError(f"Couldn't connect to endpoint {request_ctx.url}") from None
             else:
                 raise
         except Exception:

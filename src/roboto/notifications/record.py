@@ -27,9 +27,7 @@ class NotificationRecord(pydantic.BaseModel, LifecycleStatusValidator):
     notifier_id: str
     notification_type: NotificationType
     channels: list[NotificationChannel] = pydantic.Field(default_factory=list)
-    lifecycle_status: dict[NotificationChannel, str] = pydantic.Field(
-        default_factory=dict
-    )
+    lifecycle_status: dict[NotificationChannel, str] = pydantic.Field(default_factory=dict)
     read_status: ReadStatus = ReadStatus.Unread
     created: datetime.datetime
     modified: datetime.datetime

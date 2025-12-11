@@ -5,12 +5,13 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-from enum import Enum
 
 import pydantic
 
+from ...compat import StrEnum
 
-class CommentEntityType(str, Enum):
+
+class CommentEntityType(StrEnum):
     """Enumeration of Roboto platform entities that support comments.
 
     This enum defines the types of resources in the Roboto platform that can

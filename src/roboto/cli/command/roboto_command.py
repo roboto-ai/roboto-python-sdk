@@ -18,9 +18,7 @@ from ..terminal import print_error_and_exit
 
 class RobotoCommand(object):
     _name: str
-    _logic: Callable[
-        [Any, CLIContext, argparse.ArgumentParser], None
-    ]  # Args, CLIContext
+    _logic: Callable[[Any, CLIContext, argparse.ArgumentParser], None]  # Args, CLIContext
     _inner_setup_parser: Optional[Callable[[Any], None]]  # Parser
     _command_kwargs: Optional[dict[str, Any]]
 
@@ -46,9 +44,7 @@ class RobotoCommand(object):
             return self._command_kwargs
         return {}
 
-    def setup_parser(
-        self, parser: argparse.ArgumentParser, context: Optional[CLIContext]
-    ):
+    def setup_parser(self, parser: argparse.ArgumentParser, context: Optional[CLIContext]):
         def context_aware_logic(args):
             if not context:
                 raise ValueError(

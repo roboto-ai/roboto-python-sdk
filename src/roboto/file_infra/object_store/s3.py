@@ -38,12 +38,10 @@ class S3Store(ObjectStore):
         creds = credential_provider()
 
         # 2. Build the RefreshableCredentials object
-        refreshable_creds = (
-            botocore.credentials.RefreshableCredentials.create_from_metadata(
-                metadata=creds,
-                refresh_using=credential_provider,
-                method="roboto-api",
-            )
+        refreshable_creds = botocore.credentials.RefreshableCredentials.create_from_metadata(
+            metadata=creds,
+            refresh_using=credential_provider,
+            method="roboto-api",
         )
 
         # 3. Attach to a Botocore Session
@@ -55,9 +53,7 @@ class S3Store(ObjectStore):
         boto_session = boto3.Session(botocore_session=session)
 
         # 5. Create the Client and TransferConfig
-        s3_client = boto_session.client(
-            "s3", config=botocore.config.Config(tcp_keepalive=True)
-        )
+        s3_client = boto_session.client("s3", config=botocore.config.Config(tcp_keepalive=True))
 
         transfer_config = boto3.s3.transfer.TransferConfig(
             use_threads=True, max_concurrency=multiprocessing.cpu_count() * 2
@@ -72,9 +68,7 @@ class S3Store(ObjectStore):
         transfer_config: typing.Optional[boto3.s3.transfer.TransferConfig] = None,
     ):
         config = transfer_config or boto3.s3.transfer.TransferConfig()
-        self.__transfer_manager = boto3.s3.transfer.create_transfer_manager(
-            s3_client, config
-        )
+        self.__transfer_manager = boto3.s3.transfer.create_transfer_manager(s3_client, config)
 
     def __enter__(self):
         return self

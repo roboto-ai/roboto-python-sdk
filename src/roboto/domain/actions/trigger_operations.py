@@ -13,14 +13,14 @@ from pydantic import ConfigDict
 
 from roboto.sentinels import NotSet, NotSetType
 
-from . import (
-    ComputeRequirements,
-    ContainerParameters,
-)
 from ...pydantic import (
     validate_nonzero_gitpath_specs,
 )
 from ...query import ConditionType
+from . import (
+    ComputeRequirements,
+    ContainerParameters,
+)
 from .trigger_record import (
     TriggerEvaluationCause,
     TriggerForEachPrimitive,
@@ -85,9 +85,7 @@ class CreateTriggerRequest(pydantic.BaseModel):
         return validate_nonzero_gitpath_specs(value)
 
     @pydantic.field_validator("additional_inputs")
-    def validate_additional_inputs(
-        cls, value: typing.Optional[list[str]]
-    ) -> typing.Optional[list[str]]:
+    def validate_additional_inputs(cls, value: typing.Optional[list[str]]) -> typing.Optional[list[str]]:
         return None if value is None else validate_nonzero_gitpath_specs(value)
 
 
@@ -155,14 +153,10 @@ class UpdateTriggerRequest(pydantic.BaseModel):
 
     causes: typing.Union[list[TriggerEvaluationCause], NotSetType] = NotSet
     """New list of events that can cause trigger evaluation."""
-    compute_requirement_overrides: typing.Optional[
-        typing.Union[ComputeRequirements, NotSetType]
-    ] = NotSet
+    compute_requirement_overrides: typing.Optional[typing.Union[ComputeRequirements, NotSetType]] = NotSet
     """New compute requirement overrides."""
 
-    container_parameter_overrides: typing.Optional[
-        typing.Union[ContainerParameters, NotSetType]
-    ] = NotSet
+    container_parameter_overrides: typing.Optional[typing.Union[ContainerParameters, NotSetType]] = NotSet
     """New container parameter overrides."""
 
     condition: typing.Optional[typing.Union[ConditionType, NotSetType]] = NotSet
@@ -174,9 +168,7 @@ class UpdateTriggerRequest(pydantic.BaseModel):
     for_each: typing.Union[TriggerForEachPrimitive, NotSetType] = NotSet
     """New execution granularity (Dataset or DatasetFile)."""
 
-    parameter_values: typing.Optional[
-        typing.Union[dict[str, typing.Any], NotSetType]
-    ] = NotSet
+    parameter_values: typing.Optional[typing.Union[dict[str, typing.Any], NotSetType]] = NotSet
     """New parameter values to pass to the action."""
 
     required_inputs: typing.Union[list[str], NotSetType] = NotSet
@@ -185,6 +177,4 @@ class UpdateTriggerRequest(pydantic.BaseModel):
     timeout: typing.Optional[typing.Union[int, NotSetType]] = NotSet
     """New timeout override for action invocations."""
 
-    model_config = ConfigDict(
-        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
-    )
+    model_config = ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)

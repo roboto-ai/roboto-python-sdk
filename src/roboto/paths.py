@@ -32,11 +32,7 @@ def excludespec_from_patterns(
     """
     Transform a list of Git wildmatch patterns into a pathspec.PathSpec.
     """
-    return (
-        None
-        if exclude_patterns is None
-        else pathspec.GitIgnoreSpec.from_lines(exclude_patterns)
-    )
+    return None if exclude_patterns is None else pathspec.GitIgnoreSpec.from_lines(exclude_patterns)
 
 
 def pathspec_from_patterns(

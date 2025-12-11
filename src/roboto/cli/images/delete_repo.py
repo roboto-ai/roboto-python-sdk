@@ -12,13 +12,9 @@ from ..common_args import add_org_arg
 from ..context import CLIContext
 
 
-def delete_repository(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def delete_repository(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     image_registry = ImageRegistry(context.roboto_client)
-    image_registry.delete_repository(
-        args.repository_name, org_id=args.org, force=args.force
-    )
+    image_registry.delete_repository(args.repository_name, org_id=args.org, force=args.force)
 
 
 def delete_repository_parser(parser: argparse.ArgumentParser) -> None:
@@ -41,10 +37,5 @@ delete_repo_command = RobotoCommand(
     name="delete-repository",
     logic=delete_repository,
     setup_parser=delete_repository_parser,
-    command_kwargs={
-        "help": (
-            "Delete an image repository hosted in Roboto's image registry. "
-            "Requires Docker CLI."
-        )
-    },
+    command_kwargs={"help": ("Delete an image repository hosted in Roboto's image registry. Requires Docker CLI.")},
 )

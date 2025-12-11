@@ -150,11 +150,7 @@ class Invocation:
         unknown = actual - known
         if unknown:
             plural = len(unknown) > 1
-            msg = (
-                "are not known attributes of Invocation"
-                if plural
-                else "is not a known attribute of Invocation"
-            )
+            msg = "are not known attributes of Invocation" if plural else "is not a known attribute of Invocation"
             raise ValueError(f"{unknown} {msg}. Known attributes: {known}")
 
         while True:
@@ -314,9 +310,7 @@ class Invocation:
             owner_org_id=self.org_id,
         )
 
-    def get_logs(
-        self, page_token: typing.Optional[str] = None
-    ) -> collections.abc.Generator[LogRecord, None, None]:
+    def get_logs(self, page_token: typing.Optional[str] = None) -> collections.abc.Generator[LogRecord, None, None]:
         """Retrieve runtime STDOUT/STDERR logs generated during this invocation's execution.
 
         Fetches log records from the invocation's container execution, with support
@@ -356,10 +350,7 @@ class Invocation:
         if self.current_status != InvocationStatus.Queued:
             return False
 
-        return not any(
-            status_record.status == InvocationStatus.Deadly
-            for status_record in self.__record.status
-        )
+        return not any(status_record.status == InvocationStatus.Deadly for status_record in self.__record.status)
 
     def refresh(self) -> "Invocation":
         self.__record = Invocation.from_id(self.id, self.__roboto_client).record
@@ -411,10 +402,7 @@ class Invocation:
 
             response_data = response.to_dict(json_path=["data"])
             streamed_results = StreamedList(
-                items=[
-                    LogRecord.model_validate(record)
-                    for record in response_data["items"]
-                ],
+                items=[LogRecord.model_validate(record) for record in response_data["items"]],
                 has_next=response_data["has_next"],
                 last_read=response_data["last_read"],
             )
@@ -431,9 +419,7 @@ class Invocation:
     def to_dict(self) -> dict[str, typing.Any]:
         return self.__record.model_dump(mode="json")
 
-    def update_status(
-        self, next_status: InvocationStatus, detail: typing.Optional[str] = None
-    ) -> "Invocation":
+    def update_status(self, next_status: InvocationStatus, detail: typing.Optional[str] = None) -> "Invocation":
         if next_status == InvocationStatus.Failed:
             # Heuristic: if this is the third time the invocation has failed, it is Deadly
             num_failures = len(

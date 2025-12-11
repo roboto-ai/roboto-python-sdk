@@ -87,8 +87,7 @@ class ParquetParser:
 
         # avg row group sizes, omitting the final row group from the avg (not expected to be full)
         row_group_counts = [
-            self.__file.metadata.row_group(i).num_rows
-            for i in range(self.__file.metadata.num_row_groups - 1)
+            self.__file.metadata.row_group(i).num_rows for i in range(self.__file.metadata.num_row_groups - 1)
         ]
         return round(statistics.mean(row_group_counts))
 
@@ -129,11 +128,7 @@ class ParquetParser:
         if timestamp_unit is not None:
             unit = TimeUnit(timestamp_unit)
 
-        inferred_unit = (
-            time_unit_from_timestamp_type(field.type)
-            if pa.types.is_timestamp(field.type)
-            else None
-        )
+        inferred_unit = time_unit_from_timestamp_type(field.type) if pa.types.is_timestamp(field.type) else None
 
         if unit is None:
             unit = inferred_unit
@@ -222,9 +217,7 @@ class ParquetParser:
 
         # Selecting slices of files depends on row group filtering based on timestamp statistics.
         # Rewrite the file if the timestamp column is missing statistics.
-        missing_row_group_stats = self.__is_timestamp_column_missing_stats(
-            timestamp.field
-        )
+        missing_row_group_stats = self.__is_timestamp_column_missing_stats(timestamp.field)
         if missing_row_group_stats:
             logger.warning(
                 "This file must be rewritten because it has missing row group statistics for the timestamp column, "
@@ -260,9 +253,7 @@ class ParquetParser:
             else 1000
         )
 
-        row_group_size = max(
-            int(target_row_group_size_bytes / max_bytes_per_row), 100_000
-        )
+        row_group_size = max(int(target_row_group_size_bytes / max_bytes_per_row), 100_000)
 
         logger.info(
             "Using row group size of %d rows based on an estimated %d bytes per row",
@@ -286,9 +277,7 @@ class ParquetParser:
             for batch in self.__file.iter_batches(batch_size=row_group_size):
                 writer.write_batch(batch)
 
-    def __is_timestamp_column_missing_stats(
-        self, timestamp_field: "pyarrow.Field"
-    ) -> bool:
+    def __is_timestamp_column_missing_stats(self, timestamp_field: "pyarrow.Field") -> bool:
         for row_group_idx in range(self.__file.metadata.num_row_groups):
             row_group = self.__file.metadata.row_group(row_group_idx)
             for col_idx in range(self.__file.metadata.num_columns):

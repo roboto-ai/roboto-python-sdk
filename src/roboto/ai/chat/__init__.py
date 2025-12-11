@@ -7,6 +7,7 @@
 from .chat import Chat
 from .record import (
     ChatContent,
+    ChatErrorContent,
     ChatMessage,
     ChatMessageStatus,
     ChatRecord,
@@ -19,13 +20,14 @@ from .record import (
 
 __all__ = [
     "Chat",
-    "ChatMessage",
-    "ChatRecord",
     "ChatContent",
+    "ChatErrorContent",
+    "ChatMessage",
     "ChatMessageStatus",
-    "ChatTextContent",
+    "ChatRecord",
     "ChatRole",
     "ChatStatus",
+    "ChatTextContent",
     "SendMessageRequest",
     "StartChatRequest",
 ]

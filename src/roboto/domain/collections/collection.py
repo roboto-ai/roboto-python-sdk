@@ -60,9 +60,7 @@ class Collection:
         if version is not None:
             query["version"] = version
 
-        record = roboto_client.get(
-            f"v1/collections/id/{collection_id}", query=query
-        ).to_record(CollectionRecord)
+        record = roboto_client.get(f"v1/collections/id/{collection_id}", query=query).to_record(CollectionRecord)
 
         return cls(record=record, roboto_client=roboto_client)
 
@@ -95,9 +93,7 @@ class Collection:
         if file_ids:
             normalized_resources.extend(
                 [
-                    CollectionResourceRef(
-                        resource_type=CollectionResourceType.File, resource_id=file_id
-                    )
+                    CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=file_id)
                     for file_id in file_ids
                 ]
             )
@@ -109,9 +105,9 @@ class Collection:
             tags=tags,
         )
 
-        record = roboto_client.post(
-            "v1/collections/create", data=request, caller_org_id=caller_org_id
-        ).to_record(CollectionRecord)
+        record = roboto_client.post("v1/collections/create", data=request, caller_org_id=caller_org_id).to_record(
+            CollectionRecord
+        )
 
         return cls(record=record, roboto_client=roboto_client)
 
@@ -182,9 +178,7 @@ class Collection:
     def datasets(self) -> list[str]:
         return [
             resource.get("resource_id", resource.get("dataset_id"))
-            for resource in self.__record.resources.get(
-                CollectionResourceType.Dataset, []
-            )
+            for resource in self.__record.resources.get(CollectionResourceType.Dataset, [])
         ]
 
     @property
@@ -208,20 +202,12 @@ class Collection:
 
     def add_dataset(self, dataset_id: str) -> "Collection":
         return self.update(
-            add_resources=[
-                CollectionResourceRef(
-                    resource_id=dataset_id, resource_type=CollectionResourceType.Dataset
-                )
-            ]
+            add_resources=[CollectionResourceRef(resource_id=dataset_id, resource_type=CollectionResourceType.Dataset)]
         )
 
     def add_file(self, file_id: str) -> "Collection":
         return self.update(
-            add_resources=[
-                CollectionResourceRef(
-                    resource_id=file_id, resource_type=CollectionResourceType.File
-                )
-            ]
+            add_resources=[CollectionResourceRef(resource_id=file_id, resource_type=CollectionResourceType.File)]
         )
 
     def changes(
@@ -247,31 +233,23 @@ class Collection:
         self.__roboto_client.delete(f"v1/collections/id/{self.collection_id}")
 
     def get_access(self) -> GetAccessResponse:
-        return self.__roboto_client.get(
-            f"v1/collections/{self.collection_id}/access"
-        ).to_record(GetAccessResponse)
+        return self.__roboto_client.get(f"v1/collections/{self.collection_id}/access").to_record(GetAccessResponse)
 
     def edit_access(self, edit: EditAccessRequest) -> GetAccessResponse:
-        return self.__roboto_client.put(
-            f"v1/collections/{self.collection_id}/access", data=edit
-        ).to_record(GetAccessResponse)
+        return self.__roboto_client.put(f"v1/collections/{self.collection_id}/access", data=edit).to_record(
+            GetAccessResponse
+        )
 
     def remove_dataset(self, dataset_id: str) -> "Collection":
         return self.update(
             remove_resources=[
-                CollectionResourceRef(
-                    resource_id=dataset_id, resource_type=CollectionResourceType.Dataset
-                )
+                CollectionResourceRef(resource_id=dataset_id, resource_type=CollectionResourceType.Dataset)
             ]
         )
 
     def remove_file(self, file_id: str) -> "Collection":
         return self.update(
-            remove_resources=[
-                CollectionResourceRef(
-                    resource_id=file_id, resource_type=CollectionResourceType.File
-                )
-            ]
+            remove_resources=[CollectionResourceRef(resource_id=file_id, resource_type=CollectionResourceType.File)]
         )
 
     def update(
@@ -294,8 +272,8 @@ class Collection:
             )
         )
 
-        self.__record = self.__roboto_client.put(
-            f"v1/collections/id/{self.collection_id}", data=request
-        ).to_record(CollectionRecord)
+        self.__record = self.__roboto_client.put(f"v1/collections/id/{self.collection_id}", data=request).to_record(
+            CollectionRecord
+        )
 
         return self

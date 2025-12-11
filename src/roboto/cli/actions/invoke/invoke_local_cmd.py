@@ -11,7 +11,9 @@ import os
 import pathlib
 
 from ....action_runtime import (
-    prepare_invocation_environment,
+    prepare_invocation_input_data,
+    prepare_invocation_parameters,
+    prepare_metadata_changeset_manifest,
 )
 from ....domain import actions
 from ....roboto_search import RobotoSearch
@@ -41,12 +43,10 @@ from .workspace import (
     resolve_workspace,
 )
 
-SECTION_TEMPLATE = f"{'#'*10} {{SECTION_NAME}} {'#'*10}"
+SECTION_TEMPLATE = f"{'#' * 10} {{SECTION_NAME}} {'#' * 10}"
 
 
-def invoke_local(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def invoke_local(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     """Invoke an action locally using Docker.
 
     Supports four scenarios:
@@ -75,8 +75,7 @@ def invoke_local(
     workdir, is_temp_workdir = resolve_workspace(action_source, args.workspace_dir)
 
     # 4. Setup workspace
-    preserve_workspace = getattr(args, "preserve_workspace", False)
-    workspace = Workspace.setup_within(workdir, clear=preserve_workspace is False)
+    workspace = Workspace.setup_within(workdir)
 
     # 5. Resolve organization
     org_id = resolve_organization(args.org, context.roboto_client)
@@ -89,26 +88,35 @@ def invoke_local(
     invocation_input = parse_input_spec(args)
 
     # 8. Prepare invocation environment
-    prepare_invocation_environment(
+    prepare_invocation_parameters(
         action_parameters=action_source.action_params,
         provided_parameter_values=provided_params,
         parameters_values_file=workspace.parameters_file,
         secrets_file=workspace.secrets_file,
+        org_id=org_id,
+        roboto_client=context.roboto_client,
+    )
+
+    roboto_cache_dir = context.roboto_config.get_cache_dir()
+    cache_download_path = roboto_cache_dir / "files"
+    prepare_invocation_input_data(
         requires_downloaded_inputs=action_source.requires_downloaded_inputs,
         input_data=invocation_input,
-        input_download_dir=workspace.input_dir,
+        # If downloading input data, download to persistent cache dir
+        # then hardlink from cache dir into workspace
+        target_directory=workspace.input_dir,
+        download_directory=cache_download_path,
         inputs_data_manifest_file=workspace.input_data_manifest_file,
-        dataset_metadata_changeset_path=workspace.dataset_metadata_changeset_file,
-        org_id=org_id,
         roboto_client=context.roboto_client,
         roboto_search=RobotoSearch.for_roboto_client(context.roboto_client, org_id),
     )
 
-    # 9. Run action
-    dataset_id = (
-        getattr(args, "dataset_id", None)
-        or actions.InvocationDataSource.unspecified().data_source_id
+    prepare_metadata_changeset_manifest(
+        dataset_metadata_changeset_path=workspace.dataset_metadata_changeset_file,
     )
+
+    # 9. Run action
+    dataset_id = getattr(args, "dataset_id", None) or actions.InvocationDataSource.unspecified().data_source_id
 
     runner = DockerActionRunner(
         workspace=workspace,
@@ -170,19 +178,6 @@ def invoke_local_parser(parser: argparse.ArgumentParser) -> None:
             "Run in dry-run mode. "
             "Actions should use this flag to gate side effects such as uploading files, "
             "modifying metadata, or making non-idempotent API calls."
-        ),
-    )
-    parser.add_argument(
-        "--preserve-workspace",
-        dest="preserve_workspace",
-        action="store_true",
-        default=False,
-        help=(
-            "Preserve existing workspace contents before execution. "
-            "By default, the workspace is cleared to ensure a clean state. "
-            "Use this flag to keep existing workspace contents, which can be useful "
-            "when iterating on action development with the same file-based input data "
-            "to avoid re-downloading data on each invocation."
         ),
     )
 

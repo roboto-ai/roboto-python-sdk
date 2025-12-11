@@ -52,16 +52,12 @@ class RobotoClient:
 
             # We know we're in the SDK right now, the CLI or Upload Agent will explicitly re-call set_requester
             # after this is returned if they're the more correct value for tool.
-            cls.__from_env_instance.http_client.set_requester(
-                RobotoRequester.for_tool(RobotoTool.Sdk)
-            )
+            cls.__from_env_instance.http_client.set_requester(RobotoRequester.for_tool(RobotoTool.Sdk))
 
         return cls.__from_env_instance
 
     @classmethod
-    def defaulted(
-        cls, client: typing.Optional["RobotoClient"] = None
-    ) -> "RobotoClient":
+    def defaulted(cls, client: typing.Optional["RobotoClient"] = None) -> "RobotoClient":
         return client or RobotoClient.from_env()
 
     def __init__(
@@ -223,6 +219,4 @@ class RobotoClient:
         if not query:
             return f"{self.__endpoint}/{normalized_path}"
         else:
-            return (
-                f"{self.__endpoint}/{normalized_path}?{urllib.parse.urlencode(query)}"
-            )
+            return f"{self.__endpoint}/{normalized_path}?{urllib.parse.urlencode(query)}"

@@ -19,13 +19,9 @@ from ..context import CLIContext
 from ..terminal import print_error_and_exit
 
 
-def push(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def push(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     inspect_format_string = "{{ .Architecture }}"
-    inspect_cmd = (
-        f"docker image inspect --format '{inspect_format_string}' {args.local_image}"
-    )
+    inspect_cmd = f"docker image inspect --format '{inspect_format_string}' {args.local_image}"
     try:
         inspect_completed_process = subprocess.run(
             shlex.split(inspect_cmd),
@@ -120,13 +116,9 @@ def push(
             interval=lambda iteration: min((2**iteration) / 2, 32),
         )
         if not args.quiet:
-            print(
-                f"Image pushed successfully! You can now use '{image_uri}' in your Roboto Actions."
-            )
+            print(f"Image pushed successfully! You can now use '{image_uri}' in your Roboto Actions.")
     except TimeoutError:
-        print_error_and_exit(
-            "Image could not be confirmed as successfully pushed. Try pushing again in a few minutes."
-        )
+        print_error_and_exit("Image could not be confirmed as successfully pushed. Try pushing again in a few minutes.")
     except KeyboardInterrupt:
         print("")
         sys.exit(128 + signal.SIGINT.value)
@@ -158,10 +150,5 @@ push_command = RobotoCommand(
     name="push",
     logic=push,
     setup_parser=push_parser,
-    command_kwargs={
-        "help": (
-            "Push a local container image into Roboto's image registry. "
-            "Requires Docker CLI."
-        )
-    },
+    command_kwargs={"help": ("Push a local container image into Roboto's image registry. Requires Docker CLI.")},
 )

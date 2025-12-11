@@ -12,6 +12,7 @@ import typing
 import pydantic
 
 from ...association import Association
+from ...compat import StrEnum
 
 
 class RepresentationStorageFormat(enum.Enum):
@@ -141,7 +142,7 @@ class MessagePathStatistic(enum.Enum):
     Min = "min"
 
 
-class MessagePathMetadataWellKnown(str, enum.Enum):
+class MessagePathMetadataWellKnown(StrEnum):
     """
     Well-known metadata key names (with well-known semantics) that may be set in
     :py:attr:`~roboto.domain.topics.MessagePathRecord.metadata`.
@@ -236,9 +237,7 @@ class MessagePathRecord(pydantic.BaseModel):
     This is expected to be the split representation of :py:attr:`source_path`.
     """
 
-    representations: collections.abc.MutableSequence[RepresentationRecord] = (
-        pydantic.Field(default_factory=list)
-    )
+    representations: collections.abc.MutableSequence[RepresentationRecord] = pydantic.Field(default_factory=list)
     """
     Zero to many Representations of this MessagePath.
     """
@@ -263,15 +262,12 @@ class MessagePathRecord(pydantic.BaseModel):
             Given a deeply nested field ``root.sub_obj_1.sub_obj_2.leaf_field``:
 
             >>> field = "root.sub_obj_1.sub_obj_2.leaf_field"
-            >>> record = MessagePathRecord(message_path=field) # other fields omitted for brevity
+            >>> record = MessagePathRecord(message_path=field)  # other fields omitted for brevity
             >>> print(record.parents())
             ['root.sub_obj_1.sub_obj_2', 'root.sub_obj_1', 'root']
         """
         parent_path_parts = self.path_in_schema[:-1]
-        return [
-            delimiter.join(parent_path_parts[:i])
-            for i in range(len(parent_path_parts), 0, -1)
-        ]
+        return [delimiter.join(parent_path_parts[:i]) for i in range(len(parent_path_parts), 0, -1)]
 
 
 class TopicRecord(pydantic.BaseModel):
@@ -314,16 +310,12 @@ class TopicRecord(pydantic.BaseModel):
 
     message_count: typing.Optional[int] = None
 
-    message_paths: collections.abc.MutableSequence[MessagePathRecord] = pydantic.Field(
-        default_factory=list
-    )
+    message_paths: collections.abc.MutableSequence[MessagePathRecord] = pydantic.Field(default_factory=list)
     """
     Zero to many MessagePathRecords associated with this TopicSource.
     """
 
-    metadata: collections.abc.Mapping[str, typing.Any] = pydantic.Field(
-        default_factory=dict
-    )
+    metadata: collections.abc.Mapping[str, typing.Any] = pydantic.Field(default_factory=dict)
     """
     Arbitrary metadata.
     """

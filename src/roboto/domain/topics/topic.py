@@ -100,9 +100,7 @@ class Topic:
         schema_checksum: typing.Optional[str] = None,
         schema_name: typing.Optional[str] = None,
         start_time: typing.Optional[int] = None,
-        message_paths: typing.Optional[
-            collections.abc.Sequence[AddMessagePathRequest]
-        ] = (None),
+        message_paths: typing.Optional[collections.abc.Sequence[AddMessagePathRequest]] = (None),
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Topic":
@@ -148,7 +146,7 @@ class Topic:
             ...     schema_name="sensor_msgs/Image",
             ...     start_time=1722870127699468923,
             ...     end_time=1722870127799468923,
-            ...     message_count=100
+            ...     message_count=100,
             ... )
             >>> print(topic.topic_id)
             topic_xyz789
@@ -160,7 +158,7 @@ class Topic:
             ...     AddMessagePathRequest(
             ...         message_path="header.stamp.sec",
             ...         data_type="uint32",
-            ...         canonical_data_type=CanonicalDataType.Timestamp
+            ...         canonical_data_type=CanonicalDataType.Timestamp,
             ...     )
             ... ]
             >>> topic = Topic.create(
@@ -168,7 +166,7 @@ class Topic:
             ...     topic_name="/imu/data",
             ...     schema_name="sensor_msgs/Imu",
             ...     metadata={"sensor_type": "IMU", "frequency": 100},
-            ...     message_paths=message_paths
+            ...     message_paths=message_paths,
             ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -244,18 +242,20 @@ class Topic:
 
             >>> import pandas as pd
             >>> from roboto.domain.topics import Topic
-            >>> df = pd.DataFrame({
-            ...     "timestamp": [1763947309.4198897, 1763947316.7686195, 1763947335.0095527],
-            ...     "temperature": [20.5, 21.0, 20.8],
-            ...     "humidity": [45.2, 46.1, 45.8]
-            ... })
+            >>> df = pd.DataFrame(
+            ...     {
+            ...         "timestamp": [1763947309.4198897, 1763947316.7686195, 1763947335.0095527],
+            ...         "temperature": [20.5, 21.0, 20.8],
+            ...         "humidity": [45.2, 46.1, 45.8],
+            ...     }
+            ... )
             >>> topic = Topic.create_from_df(
             ...     file_id="file_abc123",
             ...     dataset_id="ds_xyz789",
             ...     topic_name="sensor_data",
             ...     df=df,
             ...     timestamp_column="timestamp",
-            ...     timestamp_unit="s"
+            ...     timestamp_unit="s",
             ... )
             >>> print(f"Created topic: {topic.name}")
             Created topic: sensor_data
@@ -264,12 +264,7 @@ class Topic:
 
             >>> from roboto import File
             >>> file = File.from_id("file_abc123")
-            >>> topic = file.add_topic(
-            ...     "sensor_data",
-            ...     df,
-            ...     timestamp_column="timestamp",
-            ...     timestamp_unit="s"
-            ... )
+            >>> topic = file.add_topic("sensor_data", df, timestamp_column="timestamp", timestamp_unit="s")
         """
         # PyArrow is required by Pandas to serialize to Parquet.
         # Re-use the `import_optional_dependency` code path as an assert
@@ -289,9 +284,7 @@ class Topic:
             timestamp = parser.extract_timestamp_info(timestamp_column, timestamp_unit)
             message_path_requests = []
             for field in parser.fields:
-                message_path_request = field_to_message_path_request(
-                    field, parser, timestamp
-                )
+                message_path_request = field_to_message_path_request(field, parser, timestamp)
                 message_path_requests.append(message_path_request)
 
             # Create or update topic
@@ -318,9 +311,7 @@ class Topic:
                 topic.update(
                     schema_name=topic_name,
                     message_count=parser.row_count,
-                    message_path_changeset=MessagePathChangeset.from_replacement_message_paths(
-                        message_path_requests
-                    ),
+                    message_path_changeset=MessagePathChangeset.from_replacement_message_paths(message_path_requests),
                     start_time=timestamp.start_time_ns(),
                     end_time=timestamp.end_time_ns(),
                 )
@@ -405,10 +396,7 @@ class Topic:
             RobotoUnauthorizedException: Caller lacks permission to access the topic.
 
         Examples:
-            >>> topic = Topic.from_name_and_file(
-            ...     topic_name="/camera/image",
-            ...     file_id="file_abc123"
-            ... )
+            >>> topic = Topic.from_name_and_file(topic_name="/camera/image", file_id="file_abc123")
             >>> print(topic.topic_id)
             topic_xyz789
             >>> print(len(topic.message_paths))
@@ -518,10 +506,7 @@ class Topic:
             Topic: /gps/fix (50 messages)
 
             >>> # Get topics with specific schema
-            >>> camera_topics = [
-            ...     topic for topic in Topic.get_by_file("file_abc123")
-            ...     if "camera" in topic.name
-            ... ]
+            >>> camera_topics = [topic for topic in Topic.get_by_file("file_abc123") if "camera" in topic.name]
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         encoded_association = Association.file(file_id).url_encode()
@@ -549,9 +534,7 @@ class Topic:
     ):
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
-        self.__topic_data_service = topic_data_service or TopicDataService(
-            self.__roboto_client
-        )
+        self.__topic_data_service = topic_data_service or TopicDataService(self.__roboto_client)
 
     def __eq__(self, other: typing.Any):
         if not isinstance(other, Topic):
@@ -585,9 +568,9 @@ class Topic:
 
         if self.association.is_file:
             # This is equivalent to File.from_id(file_id), but without introducing a circular dependency
-            return self.__roboto_client.get(
-                f"v1/files/record/{self.association.association_id}"
-            ).to_dict(json_path=["data", "association_id"])
+            return self.__roboto_client.get(f"v1/files/record/{self.association.association_id}").to_dict(
+                json_path=["data", "association_id"]
+            )
 
         return None
 
@@ -722,7 +705,7 @@ class Topic:
             ...     message_path="pose.position.x",
             ...     data_type="float64",
             ...     canonical_data_type=CanonicalDataType.Number,
-            ...     metadata={"unit": "meters"}
+            ...     metadata={"unit": "meters"},
             ... )
             >>> print(message_path.message_path)
             pose.position.x
@@ -779,7 +762,7 @@ class Topic:
             ...     message_path_id="mp_123",
             ...     association=Association.file("file_repr_456"),
             ...     storage_format=RepresentationStorageFormat.MCAP,
-            ...     version=1
+            ...     version=1,
             ... )
             >>> print(representation.representation_id)
             repr_789
@@ -956,8 +939,7 @@ class Topic:
 
             >>> # Filter specific message paths
             >>> df_filtered = topic.get_data_as_df(
-            ...     message_paths_include=["angular_velocity"],
-            ...     message_paths_exclude=["angular_velocity.z"]
+            ...     message_paths_include=["angular_velocity"], message_paths_exclude=["angular_velocity.z"]
             ... )
             >>> print(df_filtered.columns.tolist())
             ['angular_velocity.x', 'angular_velocity.y']
@@ -1006,9 +988,7 @@ class Topic:
                     topic_data_service=self.__topic_data_service,
                 )
 
-        raise ValueError(
-            f"Topic '{self.name}' does not have a message path matching '{message_path}'"
-        )
+        raise ValueError(f"Topic '{self.name}' does not have a message path matching '{message_path}'")
 
     def refresh(self) -> None:
         """Refresh this topic instance with the latest data from the platform.
@@ -1056,7 +1036,7 @@ class Topic:
             >>> default_repr = topic.set_default_representation(
             ...     association=Association.file("file_repr_456"),
             ...     storage_format=RepresentationStorageFormat.MCAP,
-            ...     version=2
+            ...     version=2,
             ... )
             >>> print(topic.default_representation.representation_id)
             repr_789
@@ -1199,18 +1179,13 @@ class Topic:
             >>>
             >>> # Update metadata for a message path
             >>> changeset = TaglessMetadataChangeset(put_fields={"unit": "meters"})
-            >>> updated_path = topic.update_message_path(
-            ...     message_path="pose.position.x",
-            ...     metadata_changeset=changeset
-            ... )
+            >>> updated_path = topic.update_message_path(message_path="pose.position.x", metadata_changeset=changeset)
             >>> print(updated_path.metadata["unit"])
             meters
 
             >>> # Update data type and canonical type
             >>> updated_path = topic.update_message_path(
-            ...     message_path="velocity",
-            ...     data_type="float64",
-            ...     canonical_data_type=CanonicalDataType.Number
+            ...     message_path="velocity", data_type="float64", canonical_data_type=CanonicalDataType.Number
             ... )
         """
 

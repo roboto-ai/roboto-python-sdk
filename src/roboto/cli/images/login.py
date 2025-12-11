@@ -15,14 +15,10 @@ from ..common_args import add_org_arg
 from ..context import CLIContext
 
 
-def login(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def login(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     image_registry = ImageRegistry(context.roboto_client)
     permissions = Permissions(args.permissions)
-    credentials = image_registry.get_temporary_credentials(
-        args.repository_uri, permissions, org_id=args.org
-    )
+    credentials = image_registry.get_temporary_credentials(args.repository_uri, permissions, org_id=args.org)
     cmd = f"docker login --username {credentials.username} --password-stdin {credentials.registry_url}"
     docker_login_completed_process = subprocess.run(
         shlex.split(cmd),

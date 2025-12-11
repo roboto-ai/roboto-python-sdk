@@ -135,6 +135,4 @@ class UpdateActionRequest(pydantic.BaseModel):
             raise ValueError("uri cannot be empty")
         return stripped
 
-    model_config = ConfigDict(
-        extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier
-    )
+    model_config = ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)

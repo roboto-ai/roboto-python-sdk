@@ -27,9 +27,7 @@ class FutureLike(typing.Protocol[T_co]):
 @typing.runtime_checkable
 class ObjectStore(typing.Protocol):
     @classmethod
-    def create(
-        cls, credential_provider: CredentialProvider, **kwargs
-    ) -> ObjectStore: ...
+    def create(cls, credential_provider: CredentialProvider, **kwargs) -> ObjectStore: ...
 
     def __enter__(self) -> ObjectStore: ...
 

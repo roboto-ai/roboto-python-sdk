@@ -56,15 +56,9 @@ class ActionSource:
     @property
     def requires_downloaded_inputs(self) -> bool:
         """Returns flag from config or record."""
-        if (
-            self.action_config
-            and self.action_config.requires_downloaded_inputs is not None
-        ):
+        if self.action_config and self.action_config.requires_downloaded_inputs is not None:
             return self.action_config.requires_downloaded_inputs
-        elif (
-            self.action_record
-            and self.action_record.requires_downloaded_inputs is not None
-        ):
+        elif self.action_record and self.action_record.requires_downloaded_inputs is not None:
             return self.action_record.requires_downloaded_inputs
         return True
 
@@ -100,9 +94,7 @@ def find_action_root_dir(signal_file_name: str = "action.json") -> pathlib.Path:
             return current_dir
         current_dir = current_dir.parent
 
-    raise FileNotFoundError(
-        f"Could not find '{signal_file_name}' in current directory or any parent directory"
-    )
+    raise FileNotFoundError(f"Could not find '{signal_file_name}' in current directory or any parent directory")
 
 
 def _is_path(value: str) -> bool:
@@ -171,9 +163,7 @@ def _load_local_action_from_path(path: typing.Optional[str]) -> ActionSource:
     )
 
 
-def _fetch_platform_action(
-    action_reference: str, org_id: typing.Optional[str], context: CLIContext
-) -> ActionSource:
+def _fetch_platform_action(action_reference: str, org_id: typing.Optional[str], context: CLIContext) -> ActionSource:
     """Fetch action from Roboto platform.
 
     Args:

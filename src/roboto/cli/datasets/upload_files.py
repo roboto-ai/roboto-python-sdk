@@ -19,9 +19,7 @@ from .shared_helpdoc import DATASET_ID_HELP
 def upload_files(args, context: CLIContext, parser: argparse.ArgumentParser):
     path: pathlib.Path = args.path
     if args.exclude is not None and not path.is_dir():
-        parser.error(
-            "Exclude filters are only supported for directory uploads, not single files."
-        )
+        parser.error("Exclude filters are only supported for directory uploads, not single files.")
 
     dataset = Dataset.from_id(args.dataset_id, context.roboto_client)
 
@@ -37,9 +35,7 @@ def upload_files(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 
 def upload_files_setup_parser(parser):
-    parser.add_argument(
-        "-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP
-    )
+    parser.add_argument("-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP)
     parser.add_argument(
         "-p",
         "--path",

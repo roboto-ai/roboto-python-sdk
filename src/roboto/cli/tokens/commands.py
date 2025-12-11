@@ -23,9 +23,7 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
         roboto_client=context.roboto_client,
     )
 
-    creds_example_json = json.dumps(
-        {"username": "<your email>", "token": secret}, indent=2
-    )
+    creds_example_json = json.dumps({"username": "<your email>", "token": secret}, indent=2)
 
     print(
         "This secret will only be available to you once, so store it somewhere safe!\n"

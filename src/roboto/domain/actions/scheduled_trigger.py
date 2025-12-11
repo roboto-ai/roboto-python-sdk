@@ -130,9 +130,7 @@ class ScheduledTrigger:
         container_parameter_overrides: typing.Optional[ContainerParameters] = None,
         enabled: bool = True,
         invocation_input: typing.Optional[InvocationInput] = None,
-        invocation_upload_destination: typing.Optional[
-            InvocationUploadDestination
-        ] = None,
+        invocation_upload_destination: typing.Optional[InvocationUploadDestination] = None,
         parameter_values: typing.Optional[dict[str, typing.Any]] = None,
         timeout: typing.Optional[int] = None,
         caller_org_id: typing.Optional[str] = None,
@@ -196,7 +194,7 @@ class ScheduledTrigger:
             ...     name="csv_processor_daily_trigger",
             ...     action_name="csv_processor",
             ...     schedule=TriggerSchedule.daily(),
-            ...     invocation_input=InvocationInput.file_query("created > '2025-04-05' AND path LIKE '%.csv'")
+            ...     invocation_input=InvocationInput.file_query("created > '2025-04-05' AND path LIKE '%.csv'"),
             ... )
 
         """
@@ -541,22 +539,12 @@ class ScheduledTrigger:
         self,
         action_name: typing.Union[str, NotSetType] = NotSet,
         action_owner_id: typing.Union[str, NotSetType] = NotSet,
-        compute_requirement_overrides: typing.Union[
-            typing.Optional[ComputeRequirements], NotSetType
-        ] = NotSet,
-        container_parameter_overrides: typing.Union[
-            typing.Optional[ContainerParameters], NotSetType
-        ] = NotSet,
+        compute_requirement_overrides: typing.Union[typing.Optional[ComputeRequirements], NotSetType] = NotSet,
+        container_parameter_overrides: typing.Union[typing.Optional[ContainerParameters], NotSetType] = NotSet,
         enabled: typing.Union[bool, NotSetType] = NotSet,
-        invocation_input: typing.Union[
-            typing.Optional[InvocationInput], NotSetType
-        ] = NotSet,
-        invocation_upload_destination: typing.Union[
-            typing.Optional[InvocationUploadDestination], NotSetType
-        ] = NotSet,
-        parameter_values: typing.Union[
-            typing.Optional[dict[str, typing.Any]], NotSetType
-        ] = NotSet,
+        invocation_input: typing.Union[typing.Optional[InvocationInput], NotSetType] = NotSet,
+        invocation_upload_destination: typing.Union[typing.Optional[InvocationUploadDestination], NotSetType] = NotSet,
+        parameter_values: typing.Union[typing.Optional[dict[str, typing.Any]], NotSetType] = NotSet,
         schedule: typing.Union[str, TriggerSchedule, NotSetType] = NotSet,
         timeout: typing.Union[typing.Optional[int], NotSetType] = NotSet,
     ) -> ScheduledTrigger:

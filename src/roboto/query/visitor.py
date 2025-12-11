@@ -30,9 +30,7 @@ class ConditionVisitor(abc.ABC):
         raise NotImplementedError("visit_condition")
 
     @abc.abstractmethod
-    def visit_condition_group(
-        self, condition_group: ConditionGroup
-    ) -> typing.Optional[ConditionType]:
+    def visit_condition_group(self, condition_group: ConditionGroup) -> typing.Optional[ConditionType]:
         raise NotImplementedError("visit_condition_group")
 
 
@@ -42,9 +40,7 @@ class BaseVisitor(ConditionVisitor):
     def visit_condition(self, condition: Condition) -> typing.Optional[ConditionType]:
         return condition
 
-    def visit_condition_group(
-        self, condition_group: ConditionGroup
-    ) -> typing.Optional[ConditionType]:
+    def visit_condition_group(self, condition_group: ConditionGroup) -> typing.Optional[ConditionType]:
         conditions = []
         for condition in condition_group.conditions:
             visited = self.visit(condition)

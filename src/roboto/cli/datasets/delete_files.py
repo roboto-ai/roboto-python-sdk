@@ -19,9 +19,7 @@ def delete_files(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 
 def delete_files_setup_parser(parser):
-    parser.add_argument(
-        "-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP
-    )
+    parser.add_argument("-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP)
     parser.add_argument(
         "-i",
         "--include",

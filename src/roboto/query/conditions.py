@@ -10,7 +10,6 @@ import collections
 import collections.abc
 import datetime
 import decimal
-import enum
 import json
 import re
 import typing
@@ -19,13 +18,12 @@ import pydantic
 import pydantic_core
 
 from ..collection_utils import get_by_path
+from ..compat import StrEnum
 
-ConditionValue = typing.Optional[
-    typing.Union[str, bool, int, float, decimal.Decimal, datetime.datetime]
-]
+ConditionValue = typing.Optional[typing.Union[str, bool, int, float, decimal.Decimal, datetime.datetime]]
 
 
-class Comparator(str, enum.Enum):
+class Comparator(StrEnum):
     """The comparator to use when comparing a field to a value."""
 
     Equals = "EQUALS"
@@ -114,9 +112,7 @@ class FieldTarget(typing.NamedTuple):
     path: str
     """Field path within the target resource, using dot notation for nested fields."""
 
-    resource: typing.Optional[
-        typing.Literal["dataset", "file", "topic", "message_path"]
-    ]
+    resource: typing.Optional[typing.Literal["dataset", "file", "topic", "message_path"]]
     """Optional resource type hint to disambiguate field path interpretation."""
 
 
@@ -146,24 +142,16 @@ class Field(str):
         'org_id'
     """
 
-    __MESSAGE_PATH_REGEX: typing.ClassVar[re.Pattern] = re.compile(
-        r"msgpath[.](?P<msgpath_property>.+)"
-    )
-    __TOPIC_REGEX: typing.ClassVar[re.Pattern] = re.compile(
-        r"(?:msgpath[.])?topic[.](?P<topic_property>.+)"
-    )
-    __FILE_REGEX: typing.ClassVar[re.Pattern] = re.compile(
-        r"(?:msgpath[.])?(?:topic[.])?file[.](?P<file_property>.+)"
-    )
+    __MESSAGE_PATH_REGEX: typing.ClassVar[re.Pattern] = re.compile(r"msgpath[.](?P<msgpath_property>.+)")
+    __TOPIC_REGEX: typing.ClassVar[re.Pattern] = re.compile(r"(?:msgpath[.])?topic[.](?P<topic_property>.+)")
+    __FILE_REGEX: typing.ClassVar[re.Pattern] = re.compile(r"(?:msgpath[.])?(?:topic[.])?file[.](?P<file_property>.+)")
     __DATASET_REGEX: typing.ClassVar[re.Pattern] = re.compile(
         r"(?:msgpath[.])?(?:topic[.])?(?:file[.])?dataset[.](?P<dataset_property>.+)"
     )
 
     __fully_qualified_path: str
     __target_path: str
-    __target_resource: typing.Optional[
-        typing.Literal["dataset", "file", "topic", "message_path"]
-    ] = None
+    __target_resource: typing.Optional[typing.Literal["dataset", "file", "topic", "message_path"]] = None
 
     @classmethod
     def wrap(cls, field: typing.Union[str, "Field"]) -> Field:
@@ -324,10 +312,10 @@ class Condition(pydantic.BaseModel):
             return value <= self.value
 
         if self.comparator is Comparator.Contains:
-            return isinstance(value, list) and self.value in value
+            return isinstance(value, collections.abc.Collection) and self.value in value
 
         if self.comparator is Comparator.NotContains:
-            return isinstance(value, list) and self.value not in value
+            return isinstance(value, collections.abc.Collection) and self.value not in value
 
         if self.comparator is Comparator.BeginsWith:
             if not isinstance(value, str) or not isinstance(self.value, str):
@@ -358,7 +346,7 @@ class Condition(pydantic.BaseModel):
         return Field.wrap(self.field).target.resource == "message_path"
 
 
-class ConditionOperator(str, enum.Enum):
+class ConditionOperator(StrEnum):
     """The operator to use when combining multiple conditions."""
 
     And = "AND"
@@ -387,9 +375,7 @@ class ConditionGroup(pydantic.BaseModel):
         if callable(target):
             conditions_match = [target(condition) for condition in self.conditions]
         else:
-            conditions_match = [
-                condition.matches(target) for condition in self.conditions
-            ]
+            conditions_match = [condition.matches(target) for condition in self.conditions]
 
         if self.operator is ConditionOperator.And:
             return all(conditions_match)
@@ -413,20 +399,12 @@ class ConditionGroup(pydantic.BaseModel):
     @pydantic.field_validator("conditions")
     def validate_conditions(cls, v: collections.abc.Sequence[ConditionType]):
         if len(v) == 0:
-            raise ValueError(
-                "At least one condition must be provided to a ConditionGroup, got 0!"
-            )
+            raise ValueError("At least one condition must be provided to a ConditionGroup, got 0!")
 
         return v
 
     def __str__(self):
-        return (
-            "("
-            + f" {self.operator.value} ".join(
-                [str(condition) for condition in self.conditions]
-            )
-            + ")"
-        )
+        return "(" + f" {self.operator.value} ".join([str(condition) for condition in self.conditions]) + ")"
 
     def __repr__(self):
         return self.model_dump_json()

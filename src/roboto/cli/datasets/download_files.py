@@ -16,15 +16,11 @@ from .shared_helpdoc import DATASET_ID_HELP
 def download_files(args, context: CLIContext, parser: argparse.ArgumentParser):
     record = Dataset.from_id(args.dataset_id, context.roboto_client)
 
-    record.download_files(
-        out_path=args.path, include_patterns=args.include, exclude_patterns=args.exclude
-    )
+    record.download_files(out_path=args.path, include_patterns=args.include, exclude_patterns=args.exclude)
 
 
 def download_files_setup_parser(parser):
-    parser.add_argument(
-        "-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP
-    )
+    parser.add_argument("-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP)
     parser.add_argument(
         "-p",
         "--path",

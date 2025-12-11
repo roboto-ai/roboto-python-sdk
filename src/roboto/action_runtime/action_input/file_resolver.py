@@ -27,14 +27,10 @@ class InputFileResolver:
     ):
         self.roboto_client = RobotoClient.defaulted(roboto_client)
         self.roboto_search = (
-            roboto_search
-            if roboto_search is not None
-            else RobotoSearch.for_roboto_client(self.roboto_client)
+            roboto_search if roboto_search is not None else RobotoSearch.for_roboto_client(self.roboto_client)
         )
 
-    def resolve_all(
-        self, file_selectors: collections.abc.Sequence[FileSelector]
-    ) -> list[File]:
+    def resolve_all(self, file_selectors: collections.abc.Sequence[FileSelector]) -> list[File]:
         file_ids: set[str] = set()
         all_files: list[File] = []
 
@@ -58,11 +54,7 @@ class InputFileResolver:
                 selector.dataset_id,
             )
 
-            files.extend(
-                self._resolve_from_dataset_file_paths(
-                    selector.dataset_id, selector.paths
-                )
-            )
+            files.extend(self._resolve_from_dataset_file_paths(selector.dataset_id, selector.paths))
 
         if selector.query:
             log.info(f"Looking up files using RoboQL query: {selector.query}")
@@ -81,12 +73,8 @@ class InputFileResolver:
 
         return files
 
-    def _resolve_from_dataset_file_paths(
-        self, dataset_id: str, paths: list[str]
-    ) -> list[File]:
-        dataset = Dataset.from_id(
-            dataset_id=dataset_id, roboto_client=self.roboto_client
-        )
+    def _resolve_from_dataset_file_paths(self, dataset_id: str, paths: list[str]) -> list[File]:
+        dataset = Dataset.from_id(dataset_id=dataset_id, roboto_client=self.roboto_client)
 
         return list(
             dataset.list_files(
@@ -99,10 +87,7 @@ class InputFileResolver:
         )
 
     def _resolve_from_ids(self, file_ids: list[str]) -> list[File]:
-        return [
-            File.from_id(file_id, roboto_client=self.roboto_client)
-            for file_id in file_ids
-        ]
+        return [File.from_id(file_id, roboto_client=self.roboto_client) for file_id in file_ids]
 
     def _resolve_from_query(self, query: str) -> list[File]:
         return list(self.roboto_search.find_files(query))

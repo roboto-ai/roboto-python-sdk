@@ -31,9 +31,7 @@ from ..validation import (
 )
 
 
-def update(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def update(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     action = actions.Action.from_name(
         name=args.action,
         owner_org_id=args.org,
@@ -50,9 +48,7 @@ def update(
     if args.short_description is null:
         updates["short_description"] = None
     elif args.short_description != NotSet:
-        updates["short_description"] = (
-            args.short_description if args.short_description else None
-        )
+        updates["short_description"] = args.short_description if args.short_description else None
 
     if is_set(args.timeout):
         updates["timeout"] = args.timeout
@@ -60,9 +56,7 @@ def update(
     if args.image != NotSet:
         stripped = args.image.strip()
         if not stripped:
-            raise ValueError(
-                "image can neither be unset nor set to an empty (or whitespace-only) string"
-            )
+            raise ValueError("image can neither be unset nor set to an empty (or whitespace-only) string")
         updates["uri"] = stripped
     with pydantic_validation_handler("Action parameter updates"):
         parameter_changeset = actions.ActionParameterChangeset(

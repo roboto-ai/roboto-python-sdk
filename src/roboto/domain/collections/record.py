@@ -5,20 +5,21 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-import enum
 import typing
 
 import pydantic
 
+from ...compat import StrEnum
 
-class CollectionResourceType(str, enum.Enum):
+
+class CollectionResourceType(StrEnum):
     """Type of resource added to a collection"""
 
     Dataset = "dataset"
     File = "file"
 
 
-class CollectionContentMode(str, enum.Enum):
+class CollectionContentMode(StrEnum):
     """Desired content mode for representing a collection"""
 
     SummaryOnly = "summary_only"
@@ -40,12 +41,8 @@ class CollectionRecord(pydantic.BaseModel):
     collection_id: str
     name: typing.Optional[str] = None
     description: typing.Optional[str] = None
-    resources: dict[CollectionResourceType, list[typing.Any]] = pydantic.Field(
-        default_factory=dict
-    )
-    missing: dict[CollectionResourceType, list[CollectionResourceRef]] = pydantic.Field(
-        default_factory=dict
-    )
+    resources: dict[CollectionResourceType, list[typing.Any]] = pydantic.Field(default_factory=dict)
+    missing: dict[CollectionResourceType, list[CollectionResourceRef]] = pydantic.Field(default_factory=dict)
     tags: list[str] = []
     version: int
     created: datetime.datetime
@@ -60,9 +57,7 @@ class CollectionChangeSet(pydantic.BaseModel):
 
     added_resources: list[CollectionResourceRef] = pydantic.Field(default_factory=list)
     added_tags: list[str] = pydantic.Field(default_factory=list)
-    removed_resources: list[CollectionResourceRef] = pydantic.Field(
-        default_factory=list
-    )
+    removed_resources: list[CollectionResourceRef] = pydantic.Field(default_factory=list)
     removed_tags: list[str] = pydantic.Field(default_factory=list)
     field_changes: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
 

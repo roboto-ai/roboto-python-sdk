@@ -31,9 +31,7 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
     if args.add_dataset_id:
         add_resources.extend(
             [
-                CollectionResourceRef(
-                    resource_type=CollectionResourceType.Dataset, resource_id=dataset_id
-                )
+                CollectionResourceRef(resource_type=CollectionResourceType.Dataset, resource_id=dataset_id)
                 for dataset_id in args.add_dataset_id
             ]
         )
@@ -41,9 +39,7 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
     if args.add_file_id:
         add_resources.extend(
             [
-                CollectionResourceRef(
-                    resource_type=CollectionResourceType.File, resource_id=file_id
-                )
+                CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=file_id)
                 for file_id in args.add_file_id
             ]
         )
@@ -52,9 +48,7 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
     if args.remove_dataset_id:
         remove_resources.extend(
             [
-                CollectionResourceRef(
-                    resource_type=CollectionResourceType.Dataset, resource_id=dataset_id
-                )
+                CollectionResourceRef(resource_type=CollectionResourceType.Dataset, resource_id=dataset_id)
                 for dataset_id in args.remove_dataset_id
             ]
         )
@@ -62,9 +56,7 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
     if args.remove_file_id:
         remove_resources.extend(
             [
-                CollectionResourceRef(
-                    resource_type=CollectionResourceType.File, resource_id=file_id
-                )
+                CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=file_id)
                 for file_id in args.remove_file_id
             ]
         )
@@ -86,12 +78,9 @@ def update_setup_parser(parser):
     parser.add_argument(
         "--name",
         type=str,
-        help="A human-readable name for this collection. "
-        + "Does not need to be unique.",
+        help="A human-readable name for this collection. " + "Does not need to be unique.",
     )
-    parser.add_argument(
-        "--description", type=str, help="Information about what's in this collection"
-    )
+    parser.add_argument("--description", type=str, help="Information about what's in this collection")
     parser.add_argument(
         "--add-dataset-id",
         nargs="*",

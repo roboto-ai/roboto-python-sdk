@@ -21,8 +21,6 @@ commands = [
 
 command_set = RobotoCommandSet(
     name="invocations",
-    help=(
-        "Get logs and status history from invoked actions, including the option to cancel them."
-    ),
+    help=("Get logs and status history from invoked actions, including the option to cancel them."),
     commands=commands,
 )

@@ -37,9 +37,7 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
             self.__put_fields = dict()
             self.__remove_fields = []
 
-        def put_field(
-            self, key: str, value: typing.Any
-        ) -> "TaglessMetadataChangeset.Builder":
+        def put_field(self, key: str, value: typing.Any) -> "TaglessMetadataChangeset.Builder":
             self.__put_fields[key] = value
             return self
 
@@ -55,16 +53,12 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
             return TaglessMetadataChangeset(**{k: v for k, v in changeset.items() if v})
 
     @classmethod
-    def from_replacement_metadata(
-        cls, metadata: dict[str, typing.Any]
-    ) -> "TaglessMetadataChangeset":
+    def from_replacement_metadata(cls, metadata: dict[str, typing.Any]) -> "TaglessMetadataChangeset":
         """Creates a changeset to replace any existing metadata with the metadata provided."""
 
         return cls(put_fields=metadata, replace_all=True)
 
-    def apply_field_updates(
-        self, existing_metadata: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def apply_field_updates(self, existing_metadata: dict[str, typing.Any]) -> dict[str, typing.Any]:
         if self.replace_all:
             return self.put_fields or {}
 
@@ -80,13 +74,9 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
     def has_changes(self) -> bool:
         """Checks whether applying this changeset would result in any metadata changes."""
 
-        return self.replace_all or any(
-            [len(self.put_fields or {}), len(self.remove_fields or [])]
-        )
+        return self.replace_all or any([len(self.put_fields or {}), len(self.remove_fields or [])])
 
-    def __set_nested(
-        self, obj: dict[str, typing.Any], key: str, value: typing.Any
-    ) -> None:
+    def __set_nested(self, obj: dict[str, typing.Any], key: str, value: typing.Any) -> None:
         """
         Set nested path to value using dot notation
         """
@@ -111,18 +101,14 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
         Delete a value from nested path using dot notation
         """
 
-        def __key_in_collection(
-            key: typing.Union[str, int], collection: collections.abc.Collection
-        ) -> bool:
+        def __key_in_collection(key: typing.Union[str, int], collection: collections.abc.Collection) -> bool:
             if isinstance(collection, collections.abc.MutableSequence):
                 key = int(key)
                 return key < len(collection)
             else:
                 return key in collection
 
-        def __del_from_collection(
-            key: typing.Union[str, int], collection: collections.abc.Collection
-        ) -> None:
+        def __del_from_collection(key: typing.Union[str, int], collection: collections.abc.Collection) -> None:
             if not __key_in_collection(key, collection):
                 return
 
@@ -135,17 +121,11 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
         path: list[
             tuple[
                 # subobj
-                typing.Union[
-                    collections.abc.MutableMapping, collections.abc.MutableMapping
-                ],
+                typing.Union[collections.abc.MutableMapping, collections.abc.MutableMapping],
                 # key
                 typing.Optional[typing.Union[str, int]],
                 # parent_obj
-                typing.Optional[
-                    typing.Union[
-                        collections.abc.MutableMapping, collections.abc.MutableMapping
-                    ]
-                ],
+                typing.Optional[typing.Union[collections.abc.MutableMapping, collections.abc.MutableMapping]],
             ]
         ] = [(obj, None, None)]
         for key in keys[:-1]:
@@ -233,15 +213,11 @@ class MetadataChangeset(pydantic.BaseModel):
             return MetadataChangeset(**{k: v for k, v in changeset.items() if v})
 
     @classmethod
-    def from_metadata(
-        cls, metadata: typing.Mapping[str, typing.Any]
-    ) -> "MetadataChangeset":
+    def from_metadata(cls, metadata: typing.Mapping[str, typing.Any]) -> "MetadataChangeset":
         """Creates a changeset that will replace any existing metadata with what's provided."""
         return cls(put_fields=dict(metadata), replace_all=True)
 
-    def apply_field_updates(
-        self, existing_metadata: dict[str, typing.Any]
-    ) -> dict[str, typing.Any]:
+    def apply_field_updates(self, existing_metadata: dict[str, typing.Any]) -> dict[str, typing.Any]:
         if self.replace_all:
             return self.put_fields or {}  # should we deep-copy?
 
@@ -288,12 +264,8 @@ class MetadataChangeset(pydantic.BaseModel):
     def combine(self, other: "MetadataChangeset") -> "MetadataChangeset":
         return MetadataChangeset(
             put_tags=self.__combine_strseq_field(self.put_tags, other.put_tags),
-            remove_tags=self.__combine_strseq_field(
-                self.remove_tags, other.remove_tags
-            ),
-            remove_fields=self.__combine_strseq_field(
-                self.remove_fields, other.remove_fields
-            ),
+            remove_tags=self.__combine_strseq_field(self.remove_tags, other.remove_tags),
+            remove_fields=self.__combine_strseq_field(self.remove_fields, other.remove_fields),
             put_fields=self.__combine_dict_field(self.put_fields, other.put_fields),
         )
 
@@ -307,9 +279,7 @@ class MetadataChangeset(pydantic.BaseModel):
             ]
         )
 
-    def __set_nested(
-        self, obj: dict[str, typing.Any], key: str, value: typing.Any
-    ) -> None:
+    def __set_nested(self, obj: dict[str, typing.Any], key: str, value: typing.Any) -> None:
         """
         Set nested path to value using dot notation
         """
@@ -334,18 +304,14 @@ class MetadataChangeset(pydantic.BaseModel):
         Delete a value from nested path using dot notation
         """
 
-        def __key_in_collection(
-            key: typing.Union[str, int], collection: collections.abc.Collection
-        ) -> bool:
+        def __key_in_collection(key: typing.Union[str, int], collection: collections.abc.Collection) -> bool:
             if isinstance(collection, collections.abc.MutableSequence):
                 key = int(key)
                 return key < len(collection)
             else:
                 return key in collection
 
-        def __del_from_collection(
-            key: typing.Union[str, int], collection: collections.abc.Collection
-        ) -> None:
+        def __del_from_collection(key: typing.Union[str, int], collection: collections.abc.Collection) -> None:
             if not __key_in_collection(key, collection):
                 return
 
@@ -358,17 +324,11 @@ class MetadataChangeset(pydantic.BaseModel):
         path: list[
             tuple[
                 # subobj
-                typing.Union[
-                    collections.abc.MutableMapping, collections.abc.MutableMapping
-                ],
+                typing.Union[collections.abc.MutableMapping, collections.abc.MutableMapping],
                 # key
                 typing.Optional[typing.Union[str, int]],
                 # parent_obj
-                typing.Optional[
-                    typing.Union[
-                        collections.abc.MutableMapping, collections.abc.MutableMapping
-                    ]
-                ],
+                typing.Optional[typing.Union[collections.abc.MutableMapping, collections.abc.MutableMapping]],
             ]
         ] = [(obj, None, None)]
         for key in keys[:-1]:

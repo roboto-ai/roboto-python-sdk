@@ -22,9 +22,7 @@ def list_logic(args, context: CLIContext, parser: argparse.ArgumentParser):
         elif len(orgs) == 1:
             org_id = orgs[0].org_id
         else:
-            parser.error(
-                "Multiple organizations found for the current user. Please specify one explicitly with --org."
-            )
+            parser.error("Multiple organizations found for the current user. Please specify one explicitly with --org.")
 
     for secret in Secret.for_org(org_id, context.roboto_client):
         print(secret)

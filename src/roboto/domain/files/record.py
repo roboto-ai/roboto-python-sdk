@@ -11,6 +11,8 @@ import urllib.parse
 
 import pydantic
 
+from ...compat import StrEnum
+
 # Python 3.8/3.9 compatible import of TypeGuard
 try:
     from typing import TypeGuard
@@ -21,7 +23,7 @@ except ImportError:
         pass
 
 
-class FileStatus(str, enum.Enum):
+class FileStatus(StrEnum):
     """Enumeration of possible file status values in the Roboto platform.
 
     File status tracks the lifecycle state of a file from initial upload through
@@ -53,7 +55,7 @@ class FileStatus(str, enum.Enum):
     """
 
 
-class IngestionStatus(str, enum.Enum):
+class IngestionStatus(StrEnum):
     """Enumeration of file ingestion status values in the Roboto platform.
 
     Ingestion status tracks whether a file's data has been processed and extracted
@@ -97,7 +99,7 @@ class IngestionStatus(str, enum.Enum):
     """
 
 
-class FileStorageType(str, enum.Enum):
+class FileStorageType(StrEnum):
     """Enumeration of file storage types in the Roboto platform.
 
     Storage type indicates how the file was added to the platform and affects
@@ -127,7 +129,7 @@ class FileStorageType(str, enum.Enum):
     """
 
 
-class FSType(str, enum.Enum):
+class FSType(StrEnum):
     """
     File system type enum
     """
@@ -149,9 +151,7 @@ class FileRecord(pydantic.BaseModel):
     for file operations.
     """
 
-    association_id: (
-        str  # e.g. dataset_id, collection_id, etc.; GSI PK of "association_id" index.
-    )
+    association_id: str  # e.g. dataset_id, collection_id, etc.; GSI PK of "association_id" index.
     created: datetime.datetime
     created_by: str = ""
     description: typing.Optional[str] = None
@@ -166,9 +166,7 @@ class FileRecord(pydantic.BaseModel):
     org_id: str
     origination: str = ""  # Defaulted for compatibility
     parent_id: typing.Optional[str] = None
-    relative_path: (
-        str  # path relative to some common prefix. Used as local path when downloaded.
-    )
+    relative_path: str  # path relative to some common prefix. Used as local path when downloaded.
     size: int  # bytes
     status: FileStatus = FileStatus.Available
     storage_type: FileStorageType = FileStorageType.S3Uploaded
@@ -220,9 +218,7 @@ class DirectoryRecord(pydantic.BaseModel):
     or when performing directory-based operations like bulk deletion.
     """
 
-    association_id: (
-        str  # e.g. dataset_id, collection_id, etc.; GSI PK of "association_id" index.
-    )
+    association_id: str  # e.g. dataset_id, collection_id, etc.; GSI PK of "association_id" index.
     created: datetime.datetime
     created_by: str
     description: typing.Optional[str] = None
@@ -245,7 +241,7 @@ class DirectoryRecord(pydantic.BaseModel):
 
 
 def is_directory(
-    record: typing.Union[FileRecord, DirectoryRecord]
+    record: typing.Union[FileRecord, DirectoryRecord],
 ) -> TypeGuard[DirectoryRecord]:
     return record.fs_type == FSType.Directory
 

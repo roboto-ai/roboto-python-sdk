@@ -9,10 +9,21 @@ import pathlib
 import typing
 
 from ...http.roboto_client import RobotoClient
+from ...logging import default_logger
 from .file import File
 from .file_creds import FileCredentialsHelper
 from .file_service import FileService
 from .progress import TqdmProgressMonitorFactory
+
+logger = default_logger()
+
+
+class FileDownloadCandidate(typing.NamedTuple):
+    """A file being considered for download, with its target path and download status."""
+
+    file: File
+    path: pathlib.Path
+    requires_download: bool
 
 
 def _pack_key(dataset_id: str, bucket: str) -> str:
@@ -51,8 +62,7 @@ class FileDownloader:
             >>> file_downloader = FileDownloader()
             >>>
             >>> downloaded = file_downloader.download_files(
-            ...     out_path=pathlib.Path("/dest/path"),
-            ...     files=roboto_search.find_files('tags CONTAINS "CSV"')
+            ...     out_path=pathlib.Path("/dest/path"), files=roboto_search.find_files('tags CONTAINS "CSV"')
             ... )
             >>>
             >>> for file, path in downloaded:
@@ -65,39 +75,55 @@ class FileDownloader:
         Returns:
             A list of (``File``, ``Path``) tuples, relating each provided file to its download path.
         """
-
-        if not out_path.is_dir():
-            out_path.mkdir(parents=True)
-
-        grouped_files: dict[str, list[tuple[File, pathlib.Path]]] = (
-            collections.defaultdict(list)
-        )
+        grouped_files: dict[str, list[FileDownloadCandidate]] = collections.defaultdict(list)
 
         for file in files:
             key = _pack_key(file.dataset_id, file.record.bucket)
-            grouped_files[key].append((file, out_path / file.relative_path))
+            local_path = out_path / file.file_id / str(file.version) / pathlib.Path(file.relative_path).name
+            local_path.parent.mkdir(parents=True, exist_ok=True)
 
-        files_per_dataset: dict[str, int] = collections.defaultdict(int)
+            # skip download if file already exists locally
+            # file equivalence heuristics:
+            #   - file_id + version match
+            #   - size matches
+            requires_download = True
+            if local_path.exists():
+                stat = local_path.stat()
+                local_file_size_matches_remote = stat.st_size == file.record.size
+                if local_file_size_matches_remote:
+                    logger.debug(
+                        "%s (%s@v%d) already downloaded to roboto cache.",
+                        file.relative_path,
+                        file.file_id,
+                        file.version,
+                    )
+                    requires_download = False
+
+            grouped_files[key].append(
+                FileDownloadCandidate(file=file, path=local_path, requires_download=requires_download)
+            )
+
+        download_count_per_dataset: dict[str, int] = collections.defaultdict(int)
         for key, out_files in grouped_files.items():
             dataset_id, _ = _unpack_key(key)
-            files_per_dataset[dataset_id] += len(out_files)
+            download_count_per_dataset[dataset_id] += sum(1 for candidate in out_files if candidate.requires_download)
 
         for key, out_files in grouped_files.items():
             dataset_id, bucket = _unpack_key(key)
 
             self.__file_service.download_files(
-                file_generator=((file[0].record, file[1]) for file in out_files),
-                credential_provider=self.__creds_helper.get_dataset_download_creds_provider(
-                    dataset_id, bucket
+                file_generator=(
+                    (candidate.file.record, candidate.path) for candidate in out_files if candidate.requires_download
                 ),
+                credential_provider=self.__creds_helper.get_dataset_download_creds_provider(dataset_id, bucket),
                 progress_monitor_factory=TqdmProgressMonitorFactory(
                     concurrency=1,
                     ctx={
                         "base_path": dataset_id,
-                        "total_file_count": files_per_dataset[dataset_id],
+                        "total_file_count": download_count_per_dataset[dataset_id],
                     },
                 ),
                 max_concurrency=8,
             )
 
-        return [file for files in grouped_files.values() for file in files]
+        return [(candidate.file, candidate.path) for files in grouped_files.values() for candidate in files]

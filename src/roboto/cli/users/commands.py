@@ -66,9 +66,7 @@ def orgs(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 def whoami(args, context: CLIContext, parser: argparse.ArgumentParser):
     with RobotoHttpExceptionParse():
-        contents = context.http_client.get(
-            context.http_client.url("v1/users/whoami")
-        ).to_dict(json_path=["data"])
+        contents = context.http_client.get(context.http_client.url("v1/users/whoami")).to_dict(json_path=["data"])
         print(json.dumps(contents, indent=2))
 
 
@@ -95,9 +93,7 @@ show_command = RobotoCommand(
 whoami_command = RobotoCommand(
     name="whoami",
     logic=whoami,
-    command_kwargs={
-        "help": "Returns the full identity context available to Roboto when you make a request."
-    },
+    command_kwargs={"help": "Returns the full identity context available to Roboto when you make a request."},
 )
 
 commands = [orgs_command, show_command, whoami_command, delete_command]

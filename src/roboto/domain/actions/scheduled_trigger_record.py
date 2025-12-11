@@ -95,6 +95,4 @@ class ScheduledTriggerRecord(pydantic.BaseModel):
     def __selective_model_dump(self) -> dict[str, typing.Any]:
         # Exclude next_occurrence and related fields from equality checks and hashing,
         # since they get updated on the trigger's schedule
-        return self.model_dump(
-            exclude={"next_occurrence", "modified", "modified_by"}, mode="json"
-        )
+        return self.model_dump(exclude={"next_occurrence", "modified", "modified_by"}, mode="json")

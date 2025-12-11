@@ -4,7 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import enum
 import os
 import pathlib
 import re
@@ -12,6 +11,8 @@ import typing
 
 import pydantic
 import pydantic_settings
+
+from .compat import StrEnum
 
 ROBOTO_ENV_VAR_PREFIX = "ROBOTO_"
 
@@ -41,7 +42,7 @@ def resolve_env_variables(value: str):
     return resolved_value
 
 
-class RobotoEnvKey(str, enum.Enum):
+class RobotoEnvKey(StrEnum):
     """Environment variable keys available within an action invocation runtime"""
 
     ActionInputsManifest = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_INPUTS_MANIFEST"
@@ -52,9 +53,8 @@ class RobotoEnvKey(str, enum.Enum):
     BearerToken = f"{ROBOTO_ENV_VAR_PREFIX}BEARER_TOKEN"
     """Interchangable with ApiKey"""
     ConfigFile = f"{ROBOTO_ENV_VAR_PREFIX}CONFIG_FILE"
-    DatasetMetadataChangesetFile = (
-        f"{ROBOTO_ENV_VAR_PREFIX}DATASET_METADATA_CHANGESET_FILE"
-    )
+    CacheDir = f"{ROBOTO_ENV_VAR_PREFIX}CACHE_DIR"
+    DatasetMetadataChangesetFile = f"{ROBOTO_ENV_VAR_PREFIX}DATASET_METADATA_CHANGESET_FILE"
     DatasetId = f"{ROBOTO_ENV_VAR_PREFIX}DATASET_ID"
     DryRun = f"{ROBOTO_ENV_VAR_PREFIX}DRY_RUN"
     FileMetadataChangesetFile = f"{ROBOTO_ENV_VAR_PREFIX}FILE_METADATA_CHANGESET_FILE"
@@ -97,43 +97,35 @@ class RobotoEnv(pydantic_settings.BaseSettings):
         default=None, alias="ROBOTO_ACTION_INPUTS_MANIFEST"
     )
 
-    action_parameters_file: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_ACTION_PARAMETERS_FILE"
-    )
+    action_parameters_file: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_ACTION_PARAMETERS_FILE")
 
     action_runtime_config_dir: typing.Optional[str] = pydantic.Field(
         default=None, alias="ROBOTO_ACTION_RUNTIME_CONFIG_DIR"
     )
 
-    action_timeout: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_ACTION_TIMEOUT"
-    )
+    action_timeout: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_ACTION_TIMEOUT")
 
     api_key: typing.Optional[str] = pydantic.Field(
         default=None,
         validation_alias=pydantic.AliasChoices("ROBOTO_API_KEY", "ROBOTO_BEARER_TOKEN"),
     )
 
-    config_file: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_CONFIG_FILE"
-    )
+    cache_dir: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_CACHE_DIR")
+
+    config_file: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_CONFIG_FILE")
     """
     An override for the location of a roboto config file. If not provided, the default ~/.roboto/config.json will be
     used (subject to RobotoConfig's implementation)
     """
 
-    dataset_id: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_DATASET_ID"
-    )
+    dataset_id: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_DATASET_ID")
 
     dataset_metadata_changeset_file: typing.Optional[str] = pydantic.Field(
         default=None,
         alias="ROBOTO_DATASET_METADATA_CHANGESET_FILE",
     )
 
-    dry_run: typing.Optional[bool] = pydantic.Field(
-        default=False, alias="ROBOTO_DRY_RUN"
-    )
+    dry_run: typing.Optional[bool] = pydantic.Field(default=False, alias="ROBOTO_DRY_RUN")
     """
     Flag that action developers should use to gate side effects during local invocation.
 
@@ -149,23 +141,15 @@ class RobotoEnv(pydantic_settings.BaseSettings):
         default=None, alias="ROBOTO_FILE_METADATA_CHANGESET_FILE"
     )
 
-    input_dir: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_INPUT_DIR"
-    )
+    input_dir: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_INPUT_DIR")
 
-    invocation_id: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_INVOCATION_ID"
-    )
+    invocation_id: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_INVOCATION_ID")
 
-    log_level: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_LOG_LEVEL"
-    )
+    log_level: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_LOG_LEVEL")
 
     org_id: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_ORG_ID")
 
-    output_dir: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_OUTPUT_DIR"
-    )
+    output_dir: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_OUTPUT_DIR")
 
     profile: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_PROFILE")
     """
@@ -174,18 +158,12 @@ class RobotoEnv(pydantic_settings.BaseSettings):
 
     roboto_env: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_ENV")
 
-    roboto_service_url: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_SERVICE_URL"
-    )
+    roboto_service_url: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_SERVICE_URL")
     """Deprecated, use roboto_service_endpoint instead. Left here until 0.3.3 is released so we can migrate
     existing actions to use the new env var."""
 
-    roboto_service_endpoint: typing.Optional[str] = pydantic.Field(
-        default=None, alias="ROBOTO_SERVICE_ENDPOINT"
-    )
+    roboto_service_endpoint: typing.Optional[str] = pydantic.Field(default=None, alias="ROBOTO_SERVICE_ENDPOINT")
     """A Roboto Service API endpoint to send requests to, typically https://api.roboto.ai"""
 
-    def get_env_var(
-        self, var_name: str, default_value: typing.Optional[str] = None
-    ) -> typing.Optional[str]:
+    def get_env_var(self, var_name: str, default_value: typing.Optional[str] = None) -> typing.Optional[str]:
         return os.getenv(var_name, default_value)

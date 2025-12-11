@@ -23,16 +23,10 @@ class CreateLayoutRequest(pydantic.BaseModel):
         description="Controls layout accessibility between organization-wide or user-only.",
         default=LayoutAccessibility.User,
     )
-    layout_definition: dict[str, Any] = pydantic.Field(
-        description="The layout definition as a JSON object."
-    )
+    layout_definition: dict[str, Any] = pydantic.Field(description="The layout definition as a JSON object.")
     name: str = pydantic.Field(description="The name of the layout.", max_length=120)
-    schema_version: int = pydantic.Field(
-        description="The schema version associated with the layout definition."
-    )
-    tags: list[str] = pydantic.Field(
-        description="The tags associated with the layout.", default_factory=list
-    )
+    schema_version: int = pydantic.Field(description="The schema version associated with the layout definition.")
+    tags: list[str] = pydantic.Field(description="The tags associated with the layout.", default_factory=list)
 
 
 class UpdateLayoutRequest(pydantic.BaseModel):
@@ -47,9 +41,7 @@ class UpdateLayoutRequest(pydantic.BaseModel):
     layout_definition: Union[dict[str, Any], NotSetType] = pydantic.Field(
         description="The layout definition as a JSON object.", default=NotSet
     )
-    name: Union[str, NotSetType] = pydantic.Field(
-        description="The name of the layout.", default=NotSet, max_length=120
-    )
+    name: Union[str, NotSetType] = pydantic.Field(description="The name of the layout.", default=NotSet, max_length=120)
     schema_version: Union[int, NotSetType] = pydantic.Field(
         description="The schema version associated with the layout definition.",
         default=NotSet,
@@ -62,10 +54,6 @@ class UpdateLayoutRequest(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def validate_schema_version_with_definition(self) -> "UpdateLayoutRequest":
-        if not isinstance(self.layout_definition, NotSetType) and isinstance(
-            self.schema_version, NotSetType
-        ):
-            raise ValueError(
-                "schema_version must be provided when updating layout_definition"
-            )
+        if not isinstance(self.layout_definition, NotSetType) and isinstance(self.schema_version, NotSetType):
+            raise ValueError("schema_version must be provided when updating layout_definition")
         return self

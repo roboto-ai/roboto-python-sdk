@@ -18,8 +18,10 @@ from roboto.pydantic.serializers import (
 )
 from roboto.types import UserMetadata
 
+from ...compat import StrEnum
 
-class Accessibility(str, enum.Enum):
+
+class Accessibility(StrEnum):
     """Controls who can query for and invoke an action.
 
     Accessibility levels determine the visibility and usability of actions
@@ -101,15 +103,11 @@ class ActionParameterChangeset(pydantic.BaseModel):
             self.__put_parameters = []
             self.__remove_parameters = []
 
-        def put_parameter(
-            self, parameter: ActionParameter
-        ) -> "ActionParameterChangeset.Builder":
+        def put_parameter(self, parameter: ActionParameter) -> "ActionParameterChangeset.Builder":
             self.__put_parameters.append(parameter)
             return self
 
-        def remove_parameter(
-            self, parameter_name: str
-        ) -> "ActionParameterChangeset.Builder":
+        def remove_parameter(self, parameter_name: str) -> "ActionParameterChangeset.Builder":
             self.__remove_parameters.append(parameter_name)
             return self
 
@@ -135,18 +133,10 @@ class ActionReference(pydantic.BaseModel):
         if not isinstance(other, ActionReference):
             return NotImplemented
 
-        return (
-            self.name == other.name
-            and self.digest == other.digest
-            and self.owner == other.owner
-        )
+        return self.name == other.name and self.digest == other.digest and self.owner == other.owner
 
     def __str__(self) -> str:
-        return (
-            f"{self.owner}/{self.name}"
-            if not self.digest
-            else f"{self.owner}/{self.name}@{self.digest}"
-        )
+        return f"{self.owner}/{self.name}" if not self.digest else f"{self.owner}/{self.name}@{self.digest}"
 
 
 class ExecutorContainer(enum.Enum):
@@ -177,9 +167,7 @@ class ComputeRequirements(pydantic.BaseModel):
     Possible values: 256, 512, 1024, 2048, 4096, 8192, 16384.
     """
 
-    memory: int = pydantic.Field(
-        default=1024, validation_alias=pydantic.AliasChoices("memory_MiB", "memory_mib")
-    )
+    memory: int = pydantic.Field(default=1024, validation_alias=pydantic.AliasChoices("memory_MiB", "memory_mib"))
     """Container memory in MiB. Set to 1024 MiB by default.
 
     The possible values depend on the CPU units chosen, with
@@ -189,9 +177,7 @@ class ComputeRequirements(pydantic.BaseModel):
     gpu: typing.Literal[False] = False
     """GPU configuration is not yet supported."""
 
-    storage: int = pydantic.Field(
-        default=21, validation_alias=pydantic.AliasChoices("storage_GiB", "storage_gib")
-    )
+    storage: int = pydantic.Field(default=21, validation_alias=pydantic.AliasChoices("storage_GiB", "storage_gib"))
     """Container storage in GiB. Set to 21 GiB by default.
 
     The minimum allowed value is 21 GiB, and the maximum allowed
@@ -201,9 +187,7 @@ class ComputeRequirements(pydantic.BaseModel):
     @pydantic.model_validator(mode="after")
     def validate_storage_limit(self):
         if self.storage < 21:
-            raise ValueError(
-                f"Unsupported Storage value {self.storage}. Storage must be at least 21 GiB."
-            )
+            raise ValueError(f"Unsupported Storage value {self.storage}. Storage must be at least 21 GiB.")
         return self
 
     @pydantic.model_validator(mode="after")

@@ -93,9 +93,7 @@ def add_action_reference_arg(
 class ActionParameterArg(argparse.Action):
     """Parse an action parameter string an ActionParameter value object."""
 
-    METAVAR: typing.ClassVar[str] = (
-        "'name=<name>|required=<true|false>|default=<value>|description=<description>'"  # noqa: E501
-    )
+    METAVAR: typing.ClassVar[str] = "'name=<name>|required=<true|false>|default=<value>|description=<description>'"  # noqa: E501
 
     def __call__(
         self,
@@ -261,12 +259,7 @@ def parse_container_overrides(
     args: argparse.Namespace,
     defaults: typing.Optional[actions.ContainerParameters] = None,
 ) -> typing.Optional[actions.ContainerParameters]:
-    if (
-        args.entry_point is None
-        and args.command is None
-        and args.workdir is None
-        and args.env is None
-    ):
+    if args.entry_point is None and args.command is None and args.workdir is None and args.env is None:
         return None
 
     defaults = defaults if defaults else actions.ContainerParameters()

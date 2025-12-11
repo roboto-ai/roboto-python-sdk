@@ -46,9 +46,7 @@ def apply_roboto_cli_command_extensions(
     for subclass in RobotoCLIExtension.__subclasses__():
         for command_set in subclass.get_command_sets():
             if command_set.name in command_sets_by_name.keys():
-                raise ValueError(
-                    f"Attempting to add already defined command set '{command_set.name}'"
-                )
+                raise ValueError(f"Attempting to add already defined command set '{command_set.name}'")
             command_sets_by_name[command_set.name] = command_set
 
     # Run this as a 2nd for loop, so we can define all command sets before we attempt to extend them.
@@ -56,8 +54,7 @@ def apply_roboto_cli_command_extensions(
         for command_set_name, command in subclass.get_commands():
             if command_set_name not in command_sets_by_name.keys():
                 raise ValueError(
-                    f"Attempting to add command '{command.name}' to non-existant "
-                    + "command set '{command_set_name}'"
+                    f"Attempting to add command '{command.name}' to non-existant " + "command set '{command_set_name}'"
                 )
 
             command_sets_by_name[command_set_name].commands.append(command)
@@ -67,6 +64,4 @@ def apply_roboto_cli_command_extensions(
 
 def apply_roboto_cli_context_extensions(base_context: CLIContext):
     for subclass in RobotoCLIExtension.__subclasses__():
-        base_context.extensions[subclass.get_name()] = subclass.get_context(
-            base_context
-        )
+        base_context.extensions[subclass.get_name()] = subclass.get_context(base_context)

@@ -38,9 +38,7 @@ class Workspace:
     dataset_metadata_changeset_file: pathlib.Path
 
     @classmethod
-    def setup_within(
-        cls, workspace_root: pathlib.Path, *, clear: bool = False
-    ) -> "Workspace":
+    def setup_within(cls, workspace_root: pathlib.Path) -> "Workspace":
         """Create and initialize workspace directory structure.
 
         Creates all necessary directories and files for local action execution:
@@ -50,12 +48,13 @@ class Workspace:
 
         Args:
             workspace_root: Path to workspace directory.
-            clear: If True, remove all existing contents before setup.
 
         Returns:
             Workspace instance with all paths configured.
         """
-        if clear and workspace_root.exists():
+        # Clear existing contents to ensure a clean fs between local invocations.
+        # (Hosted invocations always run in a clean room).
+        if workspace_root.exists():
             for item in workspace_root.iterdir():
                 if item.is_dir():
                     shutil.rmtree(item)
@@ -63,30 +62,29 @@ class Workspace:
                     item.unlink()
 
         input_dir = workspace_root / "input"
-        input_dir.mkdir(parents=True, exist_ok=True)
-
         output_dir = workspace_root / "output"
-        output_dir.mkdir(parents=True, exist_ok=True)
-
         config_dir = workspace_root / ".roboto"
-        config_dir.mkdir(parents=True, exist_ok=True)
-
         metadata_dir = output_dir / ".metadata"
-        metadata_dir.mkdir(parents=True, exist_ok=True)
+
+        for dir_path in [
+            input_dir,
+            output_dir,
+            config_dir,
+            metadata_dir,
+        ]:
+            dir_path.mkdir(parents=True, exist_ok=True)
 
         parameters_file = config_dir / "action_parameters.json"
-        parameters_file.touch(exist_ok=True)
-
         secrets_file = config_dir / "secrets.json"
-        secrets_file.touch(exist_ok=True)
-
         input_data_manifest_file = input_dir / "action_inputs_manifest.json"
-        input_data_manifest_file.touch(exist_ok=True)
-
-        dataset_metadata_changeset_file = (
-            metadata_dir / "dataset_metadata_changeset.json"
-        )
-        dataset_metadata_changeset_file.touch(exist_ok=True)
+        dataset_metadata_changeset_file = metadata_dir / "dataset_metadata_changeset.json"
+        for file_path in [
+            parameters_file,
+            secrets_file,
+            input_data_manifest_file,
+            dataset_metadata_changeset_file,
+        ]:
+            file_path.touch(exist_ok=True)
 
         return cls(
             root=workspace_root,

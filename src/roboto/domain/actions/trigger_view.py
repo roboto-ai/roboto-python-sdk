@@ -5,11 +5,11 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-import enum
 import typing
 
 import pydantic
 
+from ...compat import StrEnum
 from ...query import ConditionType
 from .action_record import (
     ActionReference,
@@ -30,7 +30,7 @@ from .trigger_record import (
 )
 
 
-class TriggerType(str, enum.Enum):
+class TriggerType(StrEnum):
     """Types of triggers supported by the Roboto platform."""
 
     EventDriven = "event_driven"
@@ -151,11 +151,7 @@ class TriggerView(pydantic.BaseModel):
             action=self.action.model_copy(deep=True),
             enabled=self.enabled,
             required_inputs=self.on_event.required_inputs,
-            additional_inputs=(
-                self.on_event.additional_inputs[:]
-                if self.on_event.additional_inputs
-                else None
-            ),
+            additional_inputs=(self.on_event.additional_inputs[:] if self.on_event.additional_inputs else None),
             for_each=self.on_event.for_each,
             condition=self.on_event.condition,
             causes=self.on_event.causes[:],
@@ -166,19 +162,13 @@ class TriggerView(pydantic.BaseModel):
             org_id=self.org_id,
             service_user_id=self.service_user_id,
             compute_requirement_overrides=(
-                self.compute_requirement_overrides.model_copy(deep=True)
-                if self.compute_requirement_overrides
-                else None
+                self.compute_requirement_overrides.model_copy(deep=True) if self.compute_requirement_overrides else None
             ),
             container_parameter_overrides=(
-                self.container_parameter_overrides.model_copy(deep=True)
-                if self.container_parameter_overrides
-                else None
+                self.container_parameter_overrides.model_copy(deep=True) if self.container_parameter_overrides else None
             ),
             timeout=self.timeout,
-            parameter_values=(
-                dict(self.parameter_values) if self.parameter_values else dict()
-            ),
+            parameter_values=(dict(self.parameter_values) if self.parameter_values else dict()),
         )
 
     def to_scheduled_trigger_record(self) -> typing.Optional[ScheduledTriggerRecord]:
@@ -200,14 +190,10 @@ class TriggerView(pydantic.BaseModel):
             schedule=self.on_schedule.schedule,
             enabled=self.enabled,
             invocation_input=(
-                self.on_schedule.invocation_input.model_copy(deep=True)
-                if self.on_schedule.invocation_input
-                else None
+                self.on_schedule.invocation_input.model_copy(deep=True) if self.on_schedule.invocation_input else None
             ),
             invocation_upload_destination=(
-                self.invocation_upload_destination.model_copy(deep=True)
-                if self.invocation_upload_destination
-                else None
+                self.invocation_upload_destination.model_copy(deep=True) if self.invocation_upload_destination else None
             ),
             next_occurrence=self.on_schedule.next_occurrence,
             created=self.created,
@@ -216,17 +202,11 @@ class TriggerView(pydantic.BaseModel):
             modified_by=self.modified_by,
             org_id=self.org_id,
             compute_requirement_overrides=(
-                self.compute_requirement_overrides.model_copy(deep=True)
-                if self.compute_requirement_overrides
-                else None
+                self.compute_requirement_overrides.model_copy(deep=True) if self.compute_requirement_overrides else None
             ),
             container_parameter_overrides=(
-                self.container_parameter_overrides.model_copy(deep=True)
-                if self.container_parameter_overrides
-                else None
+                self.container_parameter_overrides.model_copy(deep=True) if self.container_parameter_overrides else None
             ),
             timeout=self.timeout,
-            parameter_values=(
-                dict(self.parameter_values) if self.parameter_values else None
-            ),
+            parameter_values=(dict(self.parameter_values) if self.parameter_values else None),
         )

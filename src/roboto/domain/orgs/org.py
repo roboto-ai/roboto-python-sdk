@@ -80,23 +80,15 @@ class Org:
 
             >>> from roboto import RobotoRegion
             >>> from roboto.domain.orgs import Org
-            >>> org = Org.create(
-            ...     name="acme-corp",
-            ...     bind_email_domain=True,
-            ...     data_region=RobotoRegion.EU_CENTRAL
-            ... )
+            >>> org = Org.create(name="acme-corp", bind_email_domain=True, data_region=RobotoRegion.EU_CENTRAL)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        request = CreateOrgRequest(
-            name=name, bind_email_domain=bind_email_domain, data_region=data_region
-        )
+        request = CreateOrgRequest(name=name, bind_email_domain=bind_email_domain, data_region=data_region)
         record = roboto_client.post("v1/orgs", data=request).to_record(OrgRecord)
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
-    def from_id(
-        cls, org_id: str, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> "Org":
+    def from_id(cls, org_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> "Org":
         """Load an existing organization by its unique ID.
 
         Args:
@@ -123,9 +115,7 @@ class Org:
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
-    def for_self(
-        cls, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> collections.abc.Sequence["Org"]:
+    def for_self(cls, roboto_client: typing.Optional[RobotoClient] = None) -> collections.abc.Sequence["Org"]:
         """Retrieve all organizations the current user is a member of.
 
         Args:
@@ -176,14 +166,10 @@ class Org:
             >>> print(f"Alice is in {len(orgs)} organizations")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        records = roboto_client.get(
-            f"v1/users/id/{urllib.parse.quote_plus(user_id)}/orgs"
-        ).to_record_list(OrgRecord)
+        records = roboto_client.get(f"v1/users/id/{urllib.parse.quote_plus(user_id)}/orgs").to_record_list(OrgRecord)
         return [cls(record=record, roboto_client=roboto_client) for record in records]
 
-    def __init__(
-        self, record: OrgRecord, roboto_client: typing.Optional[RobotoClient] = None
-    ):
+    def __init__(self, record: OrgRecord, roboto_client: typing.Optional[RobotoClient] = None):
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -310,9 +296,7 @@ class Org:
             >>> org = Org.from_id("org_12345")
             >>> org.bind_email_domain("acme.com")
         """
-        self.__roboto_client.put(
-            f"v1/orgs/id/{self.org_id}/email_domains/id/{urllib.parse.quote_plus(email_domain)}"
-        )
+        self.__roboto_client.put(f"v1/orgs/id/{self.org_id}/email_domains/id/{urllib.parse.quote_plus(email_domain)}")
         return self
 
     def delete(self) -> None:
@@ -352,9 +336,7 @@ class Org:
             >>> for domain in domains:
             ...     print(f"Bound domain: {domain}")
         """
-        return self.__roboto_client.get(
-            f"v1/orgs/id/{self.org_id}/email_domains"
-        ).to_dict(json_path=["data"])
+        return self.__roboto_client.get(f"v1/orgs/id/{self.org_id}/email_domains").to_dict(json_path=["data"])
 
     def invite_user(
         self,
@@ -430,9 +412,7 @@ class Org:
             >>> org = Org.from_id("org_12345")
             >>> org.refresh()  # Updates with latest data from server
         """
-        self.__record = self.__roboto_client.get(f"v1/orgs/id/{self.org_id}").to_record(
-            OrgRecord
-        )
+        self.__record = self.__roboto_client.get(f"v1/orgs/id/{self.org_id}").to_record(OrgRecord)
         return self
 
     def remove_user(self, user_id: str) -> "Org":
@@ -458,9 +438,7 @@ class Org:
             >>> org = Org.from_id("org_12345")
             >>> org.remove_user("alice@example.com")
         """
-        self.__roboto_client.delete(
-            f"v1/orgs/id/{self.org_id}/users/id/{urllib.parse.quote_plus(user_id)}"
-        )
+        self.__roboto_client.delete(f"v1/orgs/id/{self.org_id}/users/id/{urllib.parse.quote_plus(user_id)}")
         return self
 
     def update(self, update: UpdateOrgRequest) -> "Org":
@@ -484,14 +462,10 @@ class Org:
 
             >>> from roboto.domain.orgs import Org, UpdateOrgRequest, OrgRecordUpdates
             >>> org = Org.from_id("org_12345")
-            >>> request = UpdateOrgRequest(
-            ...     updates=OrgRecordUpdates(name="New Company Name")
-            ... )
+            >>> request = UpdateOrgRequest(updates=OrgRecordUpdates(name="New Company Name"))
             >>> org.update(request)
         """
-        self.__record = self.__roboto_client.put(
-            f"v1/orgs/id/{self.org_id}", data=update
-        ).to_record(OrgRecord)
+        self.__record = self.__roboto_client.put(f"v1/orgs/id/{self.org_id}", data=update).to_record(OrgRecord)
         return self
 
     def users(self) -> collections.abc.Collection[OrgUserRecord]:
@@ -512,9 +486,7 @@ class Org:
             >>> for user_record in users:
             ...     print(f"Member: {user_record.user.name} ({user_record.roles})")
         """
-        return self.__roboto_client.get(
-            f"v1/orgs/id/{self.org_id}/users"
-        ).to_record_list(OrgUserRecord)
+        return self.__roboto_client.get(f"v1/orgs/id/{self.org_id}/users").to_record_list(OrgUserRecord)
 
     def unbind_email_domain(self, email_domain: str) -> "Org":
         """Remove an email domain binding from this organization.

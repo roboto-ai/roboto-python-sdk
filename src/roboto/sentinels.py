@@ -46,9 +46,7 @@ class NotSetType(pydantic.BaseModel):
         super().__init__(**data)
 
     @staticmethod
-    def openapi_schema_modifier(
-        schema: dict[str, typing.Any], model: typing.Any
-    ) -> None:
+    def openapi_schema_modifier(schema: dict[str, typing.Any], model: typing.Any) -> None:
         """
         Replace NotSetType with null in anyOf lists.
 
@@ -65,9 +63,7 @@ class NotSetType(pydantic.BaseModel):
 
                 without_notset = []
                 for sub_prop in any_of:
-                    if isinstance(sub_prop, dict) and "NotSetType" in sub_prop.get(
-                        "$ref", ""
-                    ):
+                    if isinstance(sub_prop, dict) and "NotSetType" in sub_prop.get("$ref", ""):
                         if "default" in prop and prop["default"] == {}:
                             del prop["default"]
                         without_notset.append({"type": "null"})
@@ -111,9 +107,7 @@ def remove_not_set(value: PydanticModel) -> PydanticModel:
     This function round-trips a pydantic model through initialization while ensuring that NotSetType values are not
     explicitly set. This allows value.model_dump(exclude_unset=True) to be used to generate a correct payload.
     """
-    set_args: dict[typing.Any, typing.Any] = {
-        k: v for k, v in dict(value).items() if is_set(v)
-    }
+    set_args: dict[typing.Any, typing.Any] = {k: v for k, v in dict(value).items() if is_set(v)}
     return value.model_validate(set_args)
 
 

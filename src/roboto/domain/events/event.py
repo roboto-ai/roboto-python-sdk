@@ -160,7 +160,7 @@ class Event:
             ...     description="Unusual temperature readings detected",
             ...     topic_ids=["tp_abc123"],
             ...     tags=["anomaly", "temperature"],
-            ...     metadata={"severity": "high", "sensor_id": "temp_01"}
+            ...     metadata={"severity": "high", "sensor_id": "temp_01"},
             ... )
 
             Create an instantaneous event on a file:
@@ -169,7 +169,7 @@ class Event:
             ...     name="System Boot",
             ...     start_time="1722870127.699468923",  # String format also supported
             ...     file_ids=["fl_xyz789"],
-            ...     tags=["system", "boot"]
+            ...     tags=["system", "boot"],
             ... )
 
             Create an event with display options:
@@ -181,7 +181,7 @@ class Event:
             ...     end_time=1722870127799468923,
             ...     dataset_ids=["ds_abc123"],
             ...     display_options=EventDisplayOptions(color="red"),
-            ...     metadata={"alert_type": "critical", "component": "engine"}
+            ...     metadata={"alert_type": "critical", "component": "engine"},
             ... )
         """
 
@@ -206,9 +206,9 @@ class Event:
             name=name,
             display_options=display_options,
         )
-        record = roboto_client.post(
-            "v1/events/create", caller_org_id=caller_org_id, data=request
-        ).to_record(EventRecord)
+        record = roboto_client.post("v1/events/create", caller_org_id=caller_org_id, data=request).to_record(
+            EventRecord
+        )
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
@@ -257,9 +257,7 @@ class Event:
 
         # This will return only events that explicitly have an association with this dataset
         if strict_associations is True:
-            for event in Event.get_by_associations(
-                [Association.dataset(dataset_id)], roboto_client
-            ):
+            for event in Event.get_by_associations([Association.dataset(dataset_id)], roboto_client):
                 yield event
             return
 
@@ -333,14 +331,9 @@ class Event:
             Find events within a time range for a message path:
 
             >>> events = Event.get_by_message_path("mp_abc123")
-            >>> filtered_events = [
-            ...     event for event in events
-            ...     if event.start_time >= 1722870127699468923
-            ... ]
+            >>> filtered_events = [event for event in events if event.start_time >= 1722870127699468923]
         """
-        return Event.get_by_associations(
-            [Association.msgpath(message_path_id)], roboto_client
-        )
+        return Event.get_by_associations([Association.msgpath(message_path_id)], roboto_client)
 
     @classmethod
     def get_by_topic(
@@ -395,29 +388,21 @@ class Event:
             Query events for multiple associations:
 
             >>> from roboto import Association
-            >>> associations = [
-            ...     Association.topic("tp_abc123"),
-            ...     Association.file("fl_xyz789")
-            ... ]
+            >>> associations = [Association.topic("tp_abc123"), Association.file("fl_xyz789")]
             >>> events = list(Event.get_by_associations(associations))
             >>> for event in events:
             ...     print(f"Event: {event.name}")
 
             Query events for a specific dataset and file combination:
 
-            >>> associations = [
-            ...     Association.dataset("ds_abc123"),
-            ...     Association.file("fl_xyz789")
-            ... ]
+            >>> associations = [Association.dataset("ds_abc123"), Association.file("fl_xyz789")]
             >>> events = list(Event.get_by_associations(associations))
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
         next_token: typing.Optional[str] = None
         while True:
-            request = QueryEventsForAssociationsRequest(
-                associations=list(associations), page_token=next_token
-            )
+            request = QueryEventsForAssociationsRequest(associations=list(associations), page_token=next_token)
 
             results = roboto_client.post(
                 "v1/events/query/for_associations",
@@ -432,9 +417,7 @@ class Event:
                 break
 
     @classmethod
-    def from_id(
-        cls, event_id: str, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> "Event":
+    def from_id(cls, event_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> "Event":
         """Load an existing event by its ID.
 
         Args:
@@ -471,9 +454,7 @@ class Event:
 
         return self.__record == other.__record
 
-    def __init__(
-        self, record: EventRecord, roboto_client: typing.Optional[RobotoClient] = None
-    ) -> None:
+    def __init__(self, record: EventRecord, roboto_client: typing.Optional[RobotoClient] = None) -> None:
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__record = record
 
@@ -576,8 +557,7 @@ class Event:
             {
                 association.dataset_id
                 for association in self.__record.associations
-                if (strict_associations is False or association.is_dataset)
-                and association.dataset_id is not None
+                if (strict_associations is False or association.is_dataset) and association.dataset_id is not None
             }
         )
 
@@ -634,8 +614,7 @@ class Event:
             {
                 association.file_id
                 for association in self.__record.associations
-                if (strict_associations is False or association.is_file)
-                and association.file_id is not None
+                if (strict_associations is False or association.is_file) and association.file_id is not None
             }
         )
 
@@ -758,9 +737,7 @@ class Event:
 
             Get specific message paths as DataFrame:
 
-            >>> df = event.get_data_as_df(
-            ...     message_paths_include=["velocity.x", "velocity.y"]
-            ... )
+            >>> df = event.get_data_as_df(message_paths_include=["velocity.x", "velocity.y"])
             >>> print(df.columns.tolist())
 
             Analyze event data:
@@ -820,11 +797,7 @@ class Event:
             Add metadata to an event:
 
             >>> event = Event.from_id("ev_abc123")
-            >>> updated_event = event.put_metadata({
-            ...     "severity": "high",
-            ...     "component": "engine",
-            ...     "alert_id": "alert_001"
-            ... })
+            >>> updated_event = event.put_metadata({"severity": "high", "component": "engine", "alert_id": "alert_001"})
             >>> print(updated_event.metadata["severity"])
             'high'
         """
@@ -866,9 +839,7 @@ class Event:
             >>> refreshed_event = event.refresh()
             >>> print(f"Current description: {refreshed_event.description}")
         """
-        self.__record = self.__roboto_client.get(
-            f"v1/events/id/{self.event_id}"
-        ).to_record(EventRecord)
+        self.__record = self.__roboto_client.get(f"v1/events/id/{self.event_id}").to_record(EventRecord)
         return self
 
     def remove_metadata(
@@ -938,9 +909,7 @@ class Event:
             >>> print(updated_event.color)
             None
         """
-        return self.update(
-            display_options_changeset=EventDisplayOptionsChangeset(color=color)
-        )
+        return self.update(display_options_changeset=EventDisplayOptionsChangeset(color=color))
 
     def set_description(self, description: typing.Optional[str]) -> "Event":
         """Set the description for this event.
@@ -1029,8 +998,7 @@ class Event:
             {
                 association.topic_id
                 for association in self.__record.associations
-                if (strict_associations is False or association.is_topic)
-                and association.topic_id is not None
+                if (strict_associations is False or association.is_topic) and association.topic_id is not None
             }
         )
 
@@ -1041,9 +1009,7 @@ class Event:
         end_time: typing.Union[Time, NotSetType] = NotSet,
         description: typing.Union[str, None, NotSetType] = NotSet,
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
-        display_options_changeset: typing.Union[
-            EventDisplayOptionsChangeset, NotSetType
-        ] = NotSet,
+        display_options_changeset: typing.Union[EventDisplayOptionsChangeset, NotSetType] = NotSet,
     ) -> "Event":
         """Update this event's attributes.
 
@@ -1075,16 +1041,12 @@ class Event:
 
             >>> event = Event.from_id("ev_abc123")
             >>> updated_event = event.update(
-            ...     name="Critical System Alert",
-            ...     description="Updated description with more details"
+            ...     name="Critical System Alert", description="Updated description with more details"
             ... )
 
             Update event time range:
 
-            >>> updated_event = event.update(
-            ...     start_time=1722870127699468923,
-            ...     end_time=1722870127799468923
-            ... )
+            >>> updated_event = event.update(start_time=1722870127699468923, end_time=1722870127799468923)
 
             Update metadata and display options:
 
@@ -1092,16 +1054,15 @@ class Event:
             >>> from roboto.domain.events import EventDisplayOptionsChangeset
             >>> updated_event = event.update(
             ...     metadata_changeset=MetadataChangeset(
-            ...         put_fields={"severity": "high"},
-            ...         put_tags=["critical", "urgent"]
+            ...         put_fields={"severity": "high"}, put_tags=["critical", "urgent"]
             ...     ),
-            ...     display_options_changeset=EventDisplayOptionsChangeset(color="red")
+            ...     display_options_changeset=EventDisplayOptionsChangeset(color="red"),
             ... )
         """
 
         # Normally would've used is_set(), but MyPy has issues with our TypeAlias 'Time'
         def maybe_get_epoch_nanos(
-            time: typing.Union[Time, NotSetType]
+            time: typing.Union[Time, NotSetType],
         ) -> typing.Union[int, NotSetType]:
             if isinstance(time, NotSetType):
                 return NotSet
@@ -1116,16 +1077,12 @@ class Event:
                 start_time=maybe_get_epoch_nanos(start_time),
                 end_time=maybe_get_epoch_nanos(end_time),
                 display_options_changeset=(
-                    remove_not_set(display_options_changeset)
-                    if is_set(display_options_changeset)
-                    else NotSet
+                    remove_not_set(display_options_changeset) if is_set(display_options_changeset) else NotSet
                 ),
             )
         )
 
-        self.__record = self.__roboto_client.put(
-            f"/v1/events/id/{self.event_id}", data=request
-        ).to_record(EventRecord)
+        self.__record = self.__roboto_client.put(f"/v1/events/id/{self.event_id}", data=request).to_record(EventRecord)
 
         return self
 
@@ -1152,9 +1109,7 @@ class Event:
                 )
                 for message_path_id in message_path_ids
             ]
-            unique_topics = set(
-                [message_path.topic_id for message_path in message_paths]
-            )
+            unique_topics = set([message_path.topic_id for message_path in message_paths])
             if len(unique_topics) > 1:
                 raise RobotoInvalidRequestException(
                     "Unable to load event data for events associated with more than one topic"
@@ -1167,9 +1122,7 @@ class Event:
             topic = Topic.from_id(topic_id=topic_id, roboto_client=self.__roboto_client)
             return GetDataArgs(
                 topic=topic,
-                message_paths_include=[
-                    message_path.record.source_path for message_path in message_paths
-                ],
+                message_paths_include=[message_path.record.source_path for message_path in message_paths],
                 start_time=self.start_time,
                 end_time=self.end_time,
                 cache_dir=cache_dir,

@@ -121,16 +121,12 @@ class PaginationToken:
 
     @staticmethod
     def empty() -> "PaginationToken":
-        return PaginationToken(
-            PaginationTokenScheme.V1, PaginationTokenEncoding.Raw, None
-        )
+        return PaginationToken(PaginationTokenScheme.V1, PaginationTokenEncoding.Raw, None)
 
     @staticmethod
     def encode(data: str) -> str:
         """Base64 encode the data and strip all trailing padding ("=")."""
-        return (
-            base64.urlsafe_b64encode(data.encode("utf-8")).decode("utf-8").rstrip("=")
-        )
+        return base64.urlsafe_b64encode(data.encode("utf-8")).decode("utf-8").rstrip("=")
 
     @staticmethod
     def decode(data: str) -> str:
@@ -154,11 +150,7 @@ class PaginationToken:
             return cls(
                 pagination_token_scheme,
                 pagination_token_encoding,
-                (
-                    json.loads(data)
-                    if pagination_token_encoding == PaginationTokenEncoding.Json
-                    else data
-                ),
+                (json.loads(data) if pagination_token_encoding == PaginationTokenEncoding.Json else data),
             )
         except Exception as e:
             logger.error(f"Invalid pagination token {token}", exc_info=e)
@@ -193,14 +185,8 @@ class PaginationToken:
         return self.__data
 
     def to_token(self) -> str:
-        data = (
-            json.dumps(self.__data)
-            if self.__encoding == PaginationTokenEncoding.Json
-            else self.__data
-        )
-        return PaginationToken.encode(
-            f"{self.__scheme.value}:{self.__encoding.value}:{data}"
-        )
+        data = json.dumps(self.__data) if self.__encoding == PaginationTokenEncoding.Json else self.__data
+        return PaginationToken.encode(f"{self.__scheme.value}:{self.__encoding.value}:{data}")
 
 
 class HttpResponse:
@@ -225,9 +211,7 @@ class HttpResponse:
     def headers(self) -> typing.Optional[dict[str, str]]:
         return dict(self.__response.headers.items())
 
-    def to_paginated_list(
-        self, record_type: typing.Type[PydanticModel]
-    ) -> PaginatedList[PydanticModel]:
+    def to_paginated_list(self, record_type: typing.Type[PydanticModel]) -> PaginatedList[PydanticModel]:
         unmarshalled = self.to_dict(json_path=["data"])
         return PaginatedList(
             items=[record_type.model_validate(item) for item in unmarshalled["items"]],
@@ -237,30 +221,21 @@ class HttpResponse:
     def to_record(
         self,
         record_type: typing.Type[PydanticModel],
-        json_path: typing.Optional[
-            collections.abc.Sequence[str]
-        ] = DEFAULT_RESPONSE_JSONPATH,
+        json_path: typing.Optional[collections.abc.Sequence[str]] = DEFAULT_RESPONSE_JSONPATH,
     ) -> PydanticModel:
         return record_type.model_validate(self.to_dict(json_path=json_path))
 
     def to_record_list(
         self,
         record_type: typing.Type[PydanticModel],
-        json_path: typing.Optional[
-            collections.abc.Sequence[str]
-        ] = DEFAULT_RESPONSE_JSONPATH,
+        json_path: typing.Optional[collections.abc.Sequence[str]] = DEFAULT_RESPONSE_JSONPATH,
     ) -> list[PydanticModel]:
-        return [
-            record_type.model_validate(item)
-            for item in self.to_dict(json_path=json_path)
-        ]
+        return [record_type.model_validate(item) for item in self.to_dict(json_path=json_path)]
 
     def to_string_list(self) -> list[str]:
         return [str(item) for item in self.to_dict(json_path=["data"])]
 
-    def to_dict(
-        self, json_path: typing.Optional[collections.abc.Sequence[str]] = None
-    ) -> typing.Any:
+    def to_dict(self, json_path: typing.Optional[collections.abc.Sequence[str]] = None) -> typing.Any:
         with self.__response:
             unmarshalled = json.loads(self.__response.read().decode("utf-8"))
             if json_path is None:

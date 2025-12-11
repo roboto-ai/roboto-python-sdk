@@ -17,8 +17,6 @@ def field_serializer_user_metadata(value: dict[str, typing.Any]) -> UserMetadata
         elif type(v) is decimal.Decimal:
             value[k] = float(v)
         else:
-            raise ValueError(
-                f"Illegal metadata element with key '{k}',  type {type(v)}"
-            )
+            raise ValueError(f"Illegal metadata element with key '{k}',  type {type(v)}")
 
     return value

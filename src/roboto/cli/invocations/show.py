@@ -11,9 +11,7 @@ from ..command import RobotoCommand
 from ..context import CLIContext
 
 
-def show(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def show(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     invocation = actions.Invocation.from_id(
         args.invocation_id,
         roboto_client=context.roboto_client,

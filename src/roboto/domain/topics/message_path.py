@@ -79,10 +79,7 @@ class MessagePath:
             []
         """
         parent_parts = MessagePath.parts(path)[:-1]
-        return [
-            MessagePath.DELIMITER.join(parent_parts[:i])
-            for i in range(len(parent_parts), 0, -1)
-        ]
+        return [MessagePath.DELIMITER.join(parent_parts[:i]) for i in range(len(parent_parts), 0, -1)]
 
     @staticmethod
     def parts(path: str) -> list[str]:
@@ -140,9 +137,7 @@ class MessagePath:
             CanonicalDataType.Number
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        record = roboto_client.get(
-            f"v1/topics/message-path/id/{message_path_id}"
-        ).to_record(MessagePathRecord)
+        record = roboto_client.get(f"v1/topics/message-path/id/{message_path_id}").to_record(MessagePathRecord)
         return cls(record, roboto_client, topic_data_service)
 
     def __init__(
@@ -153,9 +148,7 @@ class MessagePath:
     ):
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
-        self.__topic_data_service = topic_data_service or TopicDataService(
-            self.__roboto_client
-        )
+        self.__topic_data_service = topic_data_service or TopicDataService(self.__roboto_client)
 
     def __eq__(self, other: typing.Any) -> bool:
         if not isinstance(other, MessagePath):
@@ -303,10 +296,7 @@ class MessagePath:
 
             Get data within a time range:
 
-            >>> for record in angular_velocity_x.get_data(
-            ...     start_time=1722870127699468923,
-            ...     end_time=1722870127799468923
-            ... ):
+            >>> for record in angular_velocity_x.get_data(start_time=1722870127699468923, end_time=1722870127799468923):
             ...     print(record)
 
             Collect data into a dataframe (requires installing the ``roboto[analytics]`` extra):

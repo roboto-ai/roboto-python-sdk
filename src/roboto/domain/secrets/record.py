@@ -5,13 +5,14 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-import enum
 import typing
 
 import pydantic
 
+from ...compat import StrEnum
 
-class SecretStoreType(str, enum.Enum):
+
+class SecretStoreType(StrEnum):
     """
     Type of secret store.
     """

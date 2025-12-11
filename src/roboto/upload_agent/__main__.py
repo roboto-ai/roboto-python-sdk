@@ -27,9 +27,7 @@ from .agent import UploadAgent
 from .files import UploadAgentConfig
 
 logger = default_logger()
-logging.basicConfig(
-    format="%(asctime)s [%(levelname)s]: %(message)s", datefmt="%Y-%m-%dT%H:%M:%S%z"
-)
+logging.basicConfig(format="%(asctime)s [%(levelname)s]: %(message)s", datefmt="%Y-%m-%dT%H:%M:%S%z")
 
 agent_config_file = DEFAULT_ROBOTO_DIR / "upload_agent.json"
 agent_config_lockfile = DEFAULT_ROBOTO_DIR / "tmp" / "upload_agent.lock"
@@ -61,9 +59,7 @@ def configure():
     upload_config_filename = upload_config_filename.strip() or ".roboto_upload.json"
 
     print("")
-    choice = input(
-        "Do you want the roboto-agent to locally delete files after they've been uploaded? [y/n]: "
-    ).lower()
+    choice = input("Do you want the roboto-agent to locally delete files after they've been uploaded? [y/n]: ").lower()
     delete_uploaded_files = choice in ["y", "yes"]
 
     search_paths: list[pathlib.Path] = []
@@ -114,9 +110,7 @@ def run(
     default_roboto_upload_file: typing.Optional[pathlib.Path] = None,
 ) -> None:
     if default_roboto_upload_file is not None and not auto_create_upload_configs:
-        logger.error(
-            "--default-upload-config can only be used with --auto-create-upload-configs"
-        )
+        logger.error("--default-upload-config can only be used with --auto-create-upload-configs")
         return
 
     if not agent_config_file.is_file():
@@ -127,9 +121,7 @@ def run(
         return
 
     try:
-        agent_config = UploadAgentConfig.model_validate_json(
-            agent_config_file.read_text()
-        )
+        agent_config = UploadAgentConfig.model_validate_json(agent_config_file.read_text())
     except pydantic.ValidationError:
         logger.error(
             f"Upload agent config file {agent_config_file} could not be parsed, which means it's incorrectly "
@@ -138,9 +130,7 @@ def run(
         return
 
     roboto_client = RobotoClient.from_env()
-    roboto_client.http_client.set_requester(
-        RobotoRequester.for_tool(RobotoTool.UploadAgent)
-    )
+    roboto_client.http_client.set_requester(RobotoRequester.for_tool(RobotoTool.UploadAgent))
 
     upload_agent = UploadAgent(
         agent_config,
@@ -155,9 +145,7 @@ def run(
             if auto_create_upload_configs:
                 upload_agent.create_upload_configs()
 
-            uploaded_datasets = upload_agent.process_uploads(
-                merge_uploads=merge_uploads
-            )
+            uploaded_datasets = upload_agent.process_uploads(merge_uploads=merge_uploads)
     except filelock.Timeout:
         logger.info(
             "Roboto upload agent appears to already be running, nothing to do. If you don't think this is correct, "
@@ -188,9 +176,7 @@ def run_forever(
                 merge_uploads=merge_uploads,
                 default_roboto_upload_file=default_roboto_upload_file,
             )
-            logger.info(
-                f"Run completed, sleeping for {scan_period_seconds} seconds before next attempt."
-            )
+            logger.info(f"Run completed, sleeping for {scan_period_seconds} seconds before next attempt.")
             time.sleep(scan_period_seconds)
     except KeyboardInterrupt:
         pass
@@ -223,15 +209,12 @@ def main():
         "--verbose",
         "-v",
         help=(
-            "Set increasing levels of verbosity. "
-            "-v prints WARNING logs, -vv prints INFO logs, -vvv prints DEBUG logs."
+            "Set increasing levels of verbosity. -v prints WARNING logs, -vv prints INFO logs, -vvv prints DEBUG logs."
         ),
         action="count",
         default=0,
     )
-    verbosity_group.add_argument(
-        "-q", "--quiet", action="store_true", help="Suppress output except for errors"
-    )
+    verbosity_group.add_argument("-q", "--quiet", action="store_true", help="Suppress output except for errors")
 
     subparsers = parser.add_subparsers(dest="command", help="sub-command help")
 
@@ -239,8 +222,7 @@ def main():
     run_parser.add_argument(
         "-f",
         "--forever",
-        help="Attempts to call run every 30 seconds forever, "
-        + "and sleeps between runs.",
+        help="Attempts to call run every 30 seconds forever, " + "and sleeps between runs.",
         action="store_true",
     )
     run_parser.add_argument(

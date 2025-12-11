@@ -13,9 +13,7 @@ from ..command import RobotoCommand
 from ..context import CLIContext
 
 
-def get_logs(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def get_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     invocation = actions.Invocation.from_id(
         args.invocation_id,
         roboto_client=context.roboto_client,
@@ -27,18 +25,13 @@ def get_logs(
         if last_log is None:
             print(f"{process_decorator} {log_record.process.value} {process_decorator}")
         else:
-            if (
-                last_log.partial_id is not None
-                and log_record.partial_id != last_log.partial_id
-            ):
+            if last_log.partial_id is not None and log_record.partial_id != last_log.partial_id:
                 # `last_record` was the last partial message from its group--print it
                 print(last_log.log)
 
             if last_log.process != log_record.process:
                 print()  # Newline separate process output
-                print(
-                    f"{process_decorator} {log_record.process.value} {process_decorator}"
-                )
+                print(f"{process_decorator} {log_record.process.value} {process_decorator}")
 
         if log_record.partial_id is None:
             print(log_record.log)
@@ -46,9 +39,7 @@ def get_logs(
         last_log = log_record
 
 
-def stream_logs(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def stream_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     invocation = actions.Invocation.from_id(
         args.invocation_id,
         roboto_client=context.roboto_client,
@@ -70,22 +61,15 @@ def stream_logs(
                         wait_msg = ""
 
                     if last_log is None:
-                        print(
-                            f"{process_decorator} {log_record.process.value} {process_decorator}"
-                        )
+                        print(f"{process_decorator} {log_record.process.value} {process_decorator}")
                     else:
-                        if (
-                            last_log.partial_id is not None
-                            and log_record.partial_id != last_log.partial_id
-                        ):
+                        if last_log.partial_id is not None and log_record.partial_id != last_log.partial_id:
                             # `last_record` was the last partial message from its group--print it
                             print(last_log.log)
 
                         if last_log.process != log_record.process:
                             print()  # Newline separate process output
-                            print(
-                                f"{process_decorator} {log_record.process.value} {process_decorator}"
-                            )
+                            print(f"{process_decorator} {log_record.process.value} {process_decorator}")
 
                     if log_record.partial_id is None:
                         print(log_record.log)
@@ -109,9 +93,7 @@ def stream_logs(
         print("\r", " " * len(wait_msg), end="\r", flush=True)
 
 
-def main(
-    args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser
-) -> None:
+def main(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     if args.tail:
         stream_logs(args, context, parser)
     else:

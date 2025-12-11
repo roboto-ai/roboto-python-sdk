@@ -32,14 +32,10 @@ class CreateUserRequest(pydantic.BaseModel):
     picture_url: Optional[str] = None
     """URL to the user's profile picture."""
 
-    default_notification_channels: Optional[list[NotificationChannel]] = [
-        NotificationChannel.Email
-    ]
+    default_notification_channels: Optional[list[NotificationChannel]] = [NotificationChannel.Email]
     """Default notification channels to enable for the user."""
 
-    default_notification_types: Optional[list[NotificationType]] = [
-        NotificationType.CommentMention
-    ]
+    default_notification_types: Optional[list[NotificationType]] = [NotificationType.CommentMention]
     """Default notification types to enable for the user."""
 
 

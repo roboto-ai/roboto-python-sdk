@@ -135,9 +135,7 @@ class ImageRegistry:
             owner_org_id=org_id,
         )
 
-    def get_container_image_record(
-        self, org_id: str, image_uri: str
-    ) -> ContainerImageRecord:
+    def get_container_image_record(self, org_id: str, image_uri: str) -> ContainerImageRecord:
         url_safe_image_uri = urllib.parse.quote_plus(image_uri)
         response = self.__roboto_client.get(
             f"v1/images/image/record/{org_id}/{url_safe_image_uri}",

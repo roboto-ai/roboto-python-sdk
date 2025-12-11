@@ -6,12 +6,12 @@
 
 from __future__ import annotations
 
-import enum
-
 import pydantic
 
+from .compat import StrEnum
 
-class RobotoPrincipalType(str, enum.Enum):
+
+class RobotoPrincipalType(StrEnum):
     """Types of principals supported by the Roboto platform."""
 
     Device = "device"
@@ -64,9 +64,7 @@ class RobotoPrincipal(pydantic.BaseModel):
         Returns:
             A RobotoPrincipal instance configured for the specified device.
         """
-        return RobotoPrincipal(
-            ptype=RobotoPrincipalType.Device, id=f"{device_id}@{org_id}"
-        )
+        return RobotoPrincipal(ptype=RobotoPrincipalType.Device, id=f"{device_id}@{org_id}")
 
     @classmethod
     def for_integration(cls, integration_id: str) -> RobotoPrincipal:

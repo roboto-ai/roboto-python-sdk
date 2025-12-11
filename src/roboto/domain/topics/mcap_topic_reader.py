@@ -65,15 +65,10 @@ class McapTopicReader(TopicReader):
 
     @staticmethod
     def accepts(
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
     ) -> bool:
         for mapping in message_paths_to_representations:
-            if (
-                mapping.representation.storage_format
-                != RepresentationStorageFormat.MCAP
-            ):
+            if mapping.representation.storage_format != RepresentationStorageFormat.MCAP:
                 return False
         return True
 
@@ -83,16 +78,12 @@ class McapTopicReader(TopicReader):
 
     def get_data(
         self,
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
         log_time_attr_name: str,
         log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
-        timestamp_message_path_representation_mapping: typing.Optional[
-            MessagePathRepresentationMapping
-        ] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         # Schedule a cleanup of the cache_dir to remove any old assets.
         atexit.register(garbage_collect_old_topic_data, cache_dir=self.__cache_dir)
@@ -109,9 +100,7 @@ class McapTopicReader(TopicReader):
             readers = [
                 McapReader(
                     stream=exit_stack.enter_context(
-                        repr_id_to_outfile_map[
-                            message_path_repr_map.representation.representation_id
-                        ].open(mode="rb")
+                        repr_id_to_outfile_map[message_path_repr_map.representation.representation_id].open(mode="rb")
                     ),
                     message_paths=message_path_repr_map.message_paths,
                     start_time=start_time,
@@ -129,9 +118,7 @@ class McapTopicReader(TopicReader):
 
             while any(reader.has_next for reader in readers):
                 full_record = {}
-                next_earliest_timestamp = min(
-                    reader.next_timestamp for reader in readers
-                )
+                next_earliest_timestamp = min(reader.next_timestamp for reader in readers)
                 full_record[log_time_attr_name] = next_earliest_timestamp
                 for reader in readers:
                     if reader.next_message_is_time_aligned(next_earliest_timestamp):
@@ -144,16 +131,12 @@ class McapTopicReader(TopicReader):
 
     def get_data_as_df(
         self,
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
         log_time_attr_name: str,
         log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
-        timestamp_message_path_representation_mapping: typing.Optional[
-            MessagePathRepresentationMapping
-        ] = None,
+        timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
     ) -> "pandas.DataFrame":
         pd = import_optional_dependency("pandas", "analytics")
 
@@ -171,27 +154,20 @@ class McapTopicReader(TopicReader):
 
     def __ensure_cached(
         self,
-        message_paths_to_representations: collections.abc.Iterable[
-            MessagePathRepresentationMapping
-        ],
+        message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
     ) -> dict[str, pathlib.Path]:
         repr_id_to_outfile_map: dict[str, pathlib.Path] = {}
         download_list: list[MessagePathRepresentationMapping] = []
         for message_path_repr_map in message_paths_to_representations:
             representation = message_path_repr_map.representation
-            outfile = self.__representation_out_file(
-                representation, cache_dir=self.__cache_dir
-            )
+            outfile = self.__representation_out_file(representation, cache_dir=self.__cache_dir)
             repr_id_to_outfile_map[representation.representation_id] = outfile
             if not outfile.exists():
                 association = representation.association
                 if association.association_type != AssociationType.File:
                     logger.warning(
                         "Unable to get data for message paths %r",
-                        [
-                            record.message_path
-                            for record in message_path_repr_map.message_paths
-                        ],
+                        [record.message_path for record in message_path_repr_map.message_paths],
                     )
                     continue
                 download_list.append(message_path_repr_map)
@@ -206,9 +182,7 @@ class McapTopicReader(TopicReader):
 
     def __download_representations(
         self,
-        message_path_repr_mappings: collections.abc.Sequence[
-            MessagePathRepresentationMapping
-        ],
+        message_path_repr_mappings: collections.abc.Sequence[MessagePathRepresentationMapping],
         repr_id_to_outfile_map: collections.abc.Mapping[str, pathlib.Path],
     ) -> None:
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -216,25 +190,18 @@ class McapTopicReader(TopicReader):
                 executor.submit(
                     self.__download_roboto_file,
                     message_path_repr_map.representation,
-                    repr_id_to_outfile_map[
-                        message_path_repr_map.representation.representation_id
-                    ],
+                    repr_id_to_outfile_map[message_path_repr_map.representation.representation_id],
                 ): message_path_repr_map
                 for message_path_repr_map in message_path_repr_mappings
             }
-            for future in concurrent.futures.as_completed(
-                future_to_representation_mapping
-            ):
+            for future in concurrent.futures.as_completed(future_to_representation_mapping):
                 message_path_repr_map = future_to_representation_mapping[future]
                 try:
                     future.result()
                 except Exception:
                     logger.exception(
                         "Unable to get data for message paths %r",
-                        [
-                            record.message_path
-                            for record in message_path_repr_map.message_paths
-                        ],
+                        [record.message_path for record in message_path_repr_map.message_paths],
                     )
 
     def __download_roboto_file(

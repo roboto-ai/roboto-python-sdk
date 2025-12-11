@@ -43,12 +43,8 @@ class UploadConfigFile(pydantic.BaseModel):
 
     version: typing.Literal["v1"] = "v1"
 
-    dataset: UploadConfigFileDatasetSection = pydantic.Field(
-        default_factory=UploadConfigFileDatasetSection
-    )
-    upload: UploadConfigFileUploadSection = pydantic.Field(
-        default_factory=UploadConfigFileUploadSection
-    )
+    dataset: UploadConfigFileDatasetSection = pydantic.Field(default_factory=UploadConfigFileDatasetSection)
+    upload: UploadConfigFileUploadSection = pydantic.Field(default_factory=UploadConfigFileUploadSection)
 
 
 class UploadAgentConfig(pydantic.BaseModel):

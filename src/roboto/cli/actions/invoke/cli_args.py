@@ -26,8 +26,7 @@ def add_input_specification_args(parser: argparse.ArgumentParser) -> None:
     query_group = parser.add_argument_group(
         "Query-Based Input",
         description=(
-            "Specify input data with a RoboQL query. "
-            "Mutually exclusive with 'dataset file path'-based input."
+            "Specify input data with a RoboQL query. Mutually exclusive with 'dataset file path'-based input."
         ),
     )
     query_group.add_argument(
