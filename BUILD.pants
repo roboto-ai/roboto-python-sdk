@@ -7,11 +7,30 @@ python_requirements(
     },
 )
 
-pex_binary(
-    name="roboto-cli",
+resource(
+    name="pyproject.toml",
+    source="pyproject.toml",
+)
+
+python_distribution(
+    name="roboto-dist",
     dependencies=[
         "//src/roboto:roboto-src",
         "//src/roboto:py_typed",
+        "//:pyproject.toml",
+    ],
+    provides=python_artifact(
+        name="roboto",
+    ),
+    generate_setup=False,
+    wheel=True,
+    sdist=False,
+)
+
+pex_binary(
+    name="roboto-cli",
+    dependencies=[
+        "//:roboto-dist",
     ],
     entry_point="roboto.cli.entry:entry",
     execution_mode="venv",
@@ -24,9 +43,9 @@ pex_binary(
 )
 
 pex_binary(
-    name="upload-agent",
+    name="roboto-agent-cli",
     dependencies=[
-        "//src/roboto:roboto-src",
+        "//:roboto-dist",
     ],
     entry_point="roboto.upload_agent.__main__:main",
     execution_mode="venv",
@@ -46,16 +65,18 @@ scie_binary(
         "linux-x86_64",
         "macos-aarch64",
         "macos-x86_64",
-    ]
+    ],
+    lift="roboto-cli-lift.toml"
 )
 
 scie_binary(
     name="roboto-agent",
-    dependencies=[":upload-agent"],
+    dependencies=["//:roboto-agent-cli"],
     platforms=[
         "linux-aarch64",
         "linux-x86_64",
         "macos-aarch64",
         "macos-x86_64",
-    ]
+    ],
+    lift="roboto-agent-lift.toml"
 )

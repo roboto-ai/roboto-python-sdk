@@ -1,0 +1,10 @@
+# Upstream: https://github.com/sureshjoshi/pants-plugins
+# Vendored at commit: 228cd5ec43cfd6923281c7c153d6ad85860626cf
+# On: 2025-12-11
+# Because: 
+#   The science tool (used by this plugin) needs ldd to detect the libc version at module import time on Linux,
+#   (see https://github.com/a-scie/lift/blob/24af473e116eb780350719f61bcdaa01b40ccf19/science/platform.py#L155-L167)
+#   but Pants runs all processes in hermetic sandboxes with env -i (empty environment), which clears PATH.
+#   Without PATH, the ldd command cannot be found, causing the build to fail.
+
+pants_requirements(name="pants")

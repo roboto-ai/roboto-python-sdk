@@ -1,0 +1,18 @@
+[lift]
+name = "roboto"
+description = "Roboto CLI"
+platforms = ["linux-aarch64", "linux-x86_64", "macos-aarch64", "macos-x86_64"]
+
+[[lift.interpreters]]
+id = "cpython"
+provider = "PythonBuildStandalone"
+release = "20251209"
+version = "3.13.11"
+lazy = true
+
+[[lift.files]]
+name = ":roboto-cli"
+
+[[lift.commands]]
+exe = "#{cpython:python}"
+args = ["{:roboto-cli}"]

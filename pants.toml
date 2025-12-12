@@ -1,17 +1,22 @@
 [GLOBAL]
-pants_version = "2.26.0"
+pants_version = "2.30.0"
 
-plugins = [
-    "robotpajamas.pants.scie==0.0.5",
-]
+pythonpath = ["%(buildroot)s/vendor/robotpajamas.pants.sci"]
 
 backend_packages = [
     "experimental.scie",
     "pants.backend.python",
     "pants.backend.python.typecheck.mypy",
+    "pants.backend.plugin_development",
 ]
 
 build_patterns = ["BUILD.pants", "BUILD"]
+
+[source]
+root_patterns = [
+    "/",
+    "vendor/robotpajamas.pants.sci",
+]
 
 [python]
 enable_resolves = true
