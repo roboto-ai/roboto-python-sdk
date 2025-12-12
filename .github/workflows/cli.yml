@@ -61,7 +61,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: *_py313_*
+          pattern: "*_py313_*"
           path: build-support/pex_platforms
           merge-multiple: true
       
