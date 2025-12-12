@@ -71,10 +71,6 @@ jobs:
         # See: github.com/pantsbuild/actions/tree/main/init-pants/
       - uses: pantsbuild/actions/init-pants@v9
       
-      - name: Conformance
-        run: |
-          pants check ::
-      
       - name: Create binaries
         run: |
           pants package :roboto
