@@ -1,19 +1,19 @@
 file(
-    name="macos_py310_aarch64",
-    source="macos_py310_aarch64.json"
+    name="macos_py313_aarch64",
+    source="macos_py313_aarch64.json"
 )
 
 file(
-    name="macos_py310_x86_64",
-    source="macos_py310_x86_64.json"
+    name="macos_py313_x86_64",
+    source="macos_py313_x86_64.json"
 )
 
 file(
-    name="linux_py310_aarch64",
-    source="linux_py310_aarch64.json"
+    name="linux_py313_aarch64",
+    source="linux_py313_aarch64.json"
 )
 
 file(
-    name="linux_py310_x86_64",
-    source="linux_py310_x86_64.json"
+    name="linux_py313_x86_64",
+    source="linux_py313_x86_64.json"
 )

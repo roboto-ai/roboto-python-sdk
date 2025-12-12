@@ -30,18 +30,24 @@ jobs:
     runs-on: ${{ matrix.image }}
     steps:
 
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .python-version
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-python@v6
 
       - name: Determine complete_platforms for pex
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install pex
-          .venv/bin/pex3 interpreter inspect --markers --tags > ${{ matrix.os }}_py310_${{ matrix.arch }}.json
+          .venv/bin/pex3 interpreter inspect --markers --tags > ${{ matrix.os }}_py313_${{ matrix.arch }}.json
       
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ matrix.os }}_py310_${{ matrix.arch }}"
-          path: "${{ matrix.os }}_py310_${{ matrix.arch }}.json"
+          name: "${{ matrix.os }}_py313_${{ matrix.arch }}"
+          path: "${{ matrix.os }}_py313_${{ matrix.arch }}.json"
           overwrite: true
 
   build-bin-artifacts:
@@ -51,17 +57,15 @@ jobs:
     # But the `scie_binary` target does not appear to work on macOS.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v6
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: .*_py310_*
+          pattern: .*_py313_*
           path: build-support/pex_platforms
           merge-multiple: true
       
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         
         # This action bootstraps pants and manages 2-3 GHA caches.
         # See: github.com/pantsbuild/actions/tree/main/init-pants/
@@ -151,11 +155,9 @@ jobs:
     runs-on: windows-latest
     steps:
 
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
 
       - name: Install deps
         run: |
@@ -184,9 +186,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          sparse-checkout: |
+            RELEASE_NOTES.md
+          sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@v4
         with:

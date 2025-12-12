@@ -1,5 +1,5 @@
 [GLOBAL]
-pants_version = "2.23.0"
+pants_version = "2.26.0"
 
 plugins = [
     "robotpajamas.pants.scie==0.0.5",
@@ -16,13 +16,11 @@ build_patterns = ["BUILD.pants", "BUILD"]
 [python]
 enable_resolves = true
 default_resolve = "python-default"
-interpreter_constraints = ["==3.10.*"]
+resolver_manylinux = "manylinux_2_28"
+interpreter_constraints = ["==3.13.*"]
 
 [python.resolves]
 python-default = "build-support/lockfiles/python-default.lock"
-
-[python.resolves_to_constraints_file]
-python-default = "build-support/lockfiles/constraints.txt"
 
 [mypy]
 args = [

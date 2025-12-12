@@ -16,10 +16,10 @@ pex_binary(
     entry_point="roboto.cli.entry:entry",
     execution_mode="venv",
     complete_platforms=[
-        "//build-support/pex_platforms:linux_py310_aarch64",
-        "//build-support/pex_platforms:linux_py310_x86_64",
-        "//build-support/pex_platforms:macos_py310_aarch64",
-        "//build-support/pex_platforms:macos_py310_x86_64",
+        "//build-support/pex_platforms:linux_py313_aarch64",
+        "//build-support/pex_platforms:linux_py313_x86_64",
+        "//build-support/pex_platforms:macos_py313_aarch64",
+        "//build-support/pex_platforms:macos_py313_x86_64",
     ],
 )
 
@@ -31,10 +31,10 @@ pex_binary(
     entry_point="roboto.upload_agent.__main__:main",
     execution_mode="venv",
     complete_platforms=[
-        "//build-support/pex_platforms:linux_py310_aarch64",
-        "//build-support/pex_platforms:linux_py310_x86_64",
-        "//build-support/pex_platforms:macos_py310_aarch64",
-        "//build-support/pex_platforms:macos_py310_x86_64",
+        "//build-support/pex_platforms:linux_py313_aarch64",
+        "//build-support/pex_platforms:linux_py313_x86_64",
+        "//build-support/pex_platforms:macos_py313_aarch64",
+        "//build-support/pex_platforms:macos_py313_x86_64",
     ],
 )
 
