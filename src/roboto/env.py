@@ -13,8 +13,17 @@ import pydantic
 import pydantic_settings
 
 from .compat import StrEnum
+from .sentinels import NotSet, NotSetType
 
 ROBOTO_ENV_VAR_PREFIX = "ROBOTO_"
+
+Timeout: typing.TypeAlias = typing.Optional[typing.Union[float, NotSetType]]
+"""Timeout in seconds.
+
+    NotSet: Use the client's default timeout
+    None: No timeout (wait indefinitely)
+    float: Explicit timeout in seconds
+"""
 
 
 def resolve_env_variables(value: str):
@@ -124,6 +133,13 @@ class RobotoEnv(pydantic_settings.BaseSettings):
         default=None,
         alias="ROBOTO_DATASET_METADATA_CHANGESET_FILE",
     )
+
+    default_http_timeout: Timeout = pydantic.Field(default=NotSet, alias="ROBOTO_DEFAULT_HTTP_TIMEOUT")
+    """
+    Give up on Roboto Platform HTTP requests that take longer than this many seconds to complete.
+    If the request is known to be idempotent, it will be automatically retried.
+    Set to ``None`` to wait indefinitely.
+    """
 
     dry_run: typing.Optional[bool] = pydantic.Field(default=False, alias="ROBOTO_DRY_RUN")
     """

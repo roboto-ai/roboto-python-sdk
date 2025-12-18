@@ -10,8 +10,10 @@ import typing
 import urllib.parse
 
 from ..config import RobotoConfig
+from ..env import Timeout
 from ..exceptions import RobotoHttpExceptionParse
 from ..logging import LOGGER_NAME
+from ..sentinels import NotSet, is_set
 from .headers import roboto_headers
 from .http_client import HttpClient
 from .request import HttpRequestDecorator
@@ -26,14 +28,16 @@ logger = logging.getLogger(LOGGER_NAME)
 
 ApiRelativePath = typing.Union[str, collections.abc.Sequence[str]]
 
+DEFAULT_HTTP_TIMEOUT = 30.0  # seconds
+
 
 class RobotoClient:
     """
     A client for making HTTP requests against Roboto service
     """
 
-    __from_env_instance: typing.ClassVar[typing.Optional["RobotoClient"]] = None
     __endpoint: str
+    __from_env_instance: typing.ClassVar[typing.Optional["RobotoClient"]] = None
     __http_client: HttpClient
 
     @classmethod
@@ -43,7 +47,12 @@ class RobotoClient:
     @classmethod
     def from_config(cls, config: RobotoConfig) -> "RobotoClient":
         auth_decorator = BearerTokenDecorator(token=config.api_key)
-        return RobotoClient(endpoint=config.endpoint, auth_decorator=auth_decorator)
+        default_timeout = config.default_http_timeout if is_set(config.default_http_timeout) else DEFAULT_HTTP_TIMEOUT
+        return RobotoClient(
+            endpoint=config.endpoint,
+            auth_decorator=auth_decorator,
+            http_client_kwargs={"default_timeout": default_timeout},
+        )
 
     @classmethod
     def from_env(cls) -> "RobotoClient":
@@ -96,6 +105,7 @@ class RobotoClient:
         owner_org_id: typing.Optional[str] = None,
         query: typing.Optional[dict[str, typing.Any]] = None,
         retry_wait_fn: typing.Optional[RetryWaitFn] = None,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         with RobotoHttpExceptionParse():
             return self.__http_client.delete(
@@ -108,6 +118,7 @@ class RobotoClient:
                 ),
                 retry_wait=retry_wait_fn,
                 idempotent=idempotent,
+                timeout=timeout,
             )
 
     def get(
@@ -119,6 +130,7 @@ class RobotoClient:
         owner_org_id: typing.Optional[str] = None,
         query: typing.Optional[dict[str, typing.Any]] = None,
         retry_wait_fn: typing.Optional[RetryWaitFn] = None,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         with RobotoHttpExceptionParse():
             return self.__http_client.get(
@@ -130,6 +142,7 @@ class RobotoClient:
                 ),
                 retry_wait=retry_wait_fn,
                 idempotent=idempotent,
+                timeout=timeout,
             )
 
     def patch(
@@ -142,6 +155,7 @@ class RobotoClient:
         owner_org_id: typing.Optional[str] = None,
         query: typing.Optional[dict[str, typing.Any]] = None,
         retry_wait_fn: typing.Optional[RetryWaitFn] = None,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         with RobotoHttpExceptionParse():
             return self.__http_client.patch(
@@ -154,6 +168,7 @@ class RobotoClient:
                 ),
                 retry_wait=retry_wait_fn,
                 idempotent=idempotent,
+                timeout=timeout,
             )
 
     def post(
@@ -166,6 +181,7 @@ class RobotoClient:
         owner_org_id: typing.Optional[str] = None,
         query: typing.Optional[dict[str, typing.Any]] = None,
         retry_wait_fn: typing.Optional[RetryWaitFn] = None,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         with RobotoHttpExceptionParse():
             return self.__http_client.post(
@@ -178,6 +194,7 @@ class RobotoClient:
                 ),
                 retry_wait=retry_wait_fn,
                 idempotent=idempotent,
+                timeout=timeout,
             )
 
     def put(
@@ -190,6 +207,7 @@ class RobotoClient:
         owner_org_id: typing.Optional[str] = None,
         query: typing.Optional[dict[str, typing.Any]] = None,
         retry_wait_fn: typing.Optional[RetryWaitFn] = None,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         with RobotoHttpExceptionParse():
             return self.__http_client.put(
@@ -202,6 +220,7 @@ class RobotoClient:
                 ),
                 retry_wait=retry_wait_fn,
                 idempotent=idempotent,
+                timeout=timeout,
             )
 
     def __build_url(

@@ -8,22 +8,22 @@ import errno
 import http
 import http.client
 import logging
+import socket
 import typing
 import urllib.error
-import urllib.parse
 import urllib.request
-import urllib.response
 
 import tenacity
 import tenacity.wait
 
-from roboto.exceptions import (
+from ..env import Timeout
+from ..exceptions import (
     ClientError,
     HttpError,
     ServerError,
 )
-
 from ..logging import LOGGER_NAME
+from ..sentinels import NotSet, is_set
 from .request import (
     HttpRequest,
     HttpRequestDecorator,
@@ -85,14 +85,23 @@ class is_expected_to_be_transient:
         # which is a subclass of URLError
         if isinstance(exc, urllib.error.URLError):
             # Connection reset by peer, probably transient
-            conn_reset_error = (
+            is_conn_reset_error = (
                 isinstance(exc.reason, OSError) and exc.reason.errno == errno.ECONNRESET
             ) or "Connection reset by peer" in str(exc.reason)
-            if conn_reset_error and self.__request_expected_to_be_idempotent():
+
+            is_timeout_error = isinstance(exc.reason, (TimeoutError, socket.timeout))
+
+            if (is_conn_reset_error or is_timeout_error) and self.__request_expected_to_be_idempotent():
                 return True
 
             # DNS error, probably transient
             return "Temporary failure in name resolution" in str(exc.reason)
+
+        if isinstance(exc, (TimeoutError, socket.timeout)):
+            # socket timed out
+            # we don't know if the request was received and the server is processing (or did process) the request
+            # or if the request failed to establish a connection
+            return self.__request_expected_to_be_idempotent()
 
         return False
 
@@ -105,6 +114,7 @@ class HttpClient:
     __default_auth: typing.Optional[HttpRequestDecorator]
     __default_endpoint: typing.Optional[str]
     __extra_headers_provider: typing.Optional[typing.Callable[[], dict[str, str]]]
+    __default_timeout: typing.Optional[float]
 
     def __init__(
         self,
@@ -113,6 +123,7 @@ class HttpClient:
         default_auth: typing.Optional[HttpRequestDecorator] = None,
         requester: typing.Optional[RobotoRequester] = None,
         extra_headers_provider: typing.Optional[typing.Callable[[], dict[str, str]]] = None,
+        default_timeout: typing.Optional[float] = None,  # None means no timeout
     ):
         self.__base_headers = base_headers if base_headers is not None else {}
         self.__extra_headers_provider = extra_headers_provider
@@ -122,6 +133,7 @@ class HttpClient:
 
         self.__default_auth = default_auth
         self.__default_endpoint = default_endpoint
+        self.__default_timeout = default_timeout
 
     def delete(
         self,
@@ -130,6 +142,7 @@ class HttpClient:
         headers: typing.Optional[dict] = None,
         idempotent: bool = True,
         retry_wait: typing.Optional[RetryWaitFn] = None,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         request = HttpRequest(
             url=url,
@@ -139,7 +152,8 @@ class HttpClient:
             idempotent=idempotent,
             retry_wait=retry_wait,
         )
-        return self.__request(request)
+        timeout = self.__resolve_timeout(timeout)
+        return self.__request(request, timeout=timeout)
 
     def get(
         self,
@@ -147,6 +161,7 @@ class HttpClient:
         headers: typing.Optional[dict] = None,
         retry_wait: typing.Optional[RetryWaitFn] = None,
         idempotent: bool = True,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         request = HttpRequest(
             url=url,
@@ -155,7 +170,8 @@ class HttpClient:
             retry_wait=retry_wait,
             idempotent=idempotent,
         )
-        return self.__request(request)
+        timeout = self.__resolve_timeout(timeout)
+        return self.__request(request, timeout=timeout)
 
     def post(
         self,
@@ -164,6 +180,7 @@ class HttpClient:
         headers: typing.Optional[dict] = None,
         idempotent: bool = False,
         retry_wait: typing.Optional[RetryWaitFn] = None,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         request = HttpRequest(
             url=url,
@@ -173,7 +190,8 @@ class HttpClient:
             idempotent=idempotent,
             retry_wait=retry_wait,
         )
-        return self.__request(request)
+        timeout = self.__resolve_timeout(timeout)
+        return self.__request(request, timeout=timeout)
 
     def patch(
         self,
@@ -182,6 +200,7 @@ class HttpClient:
         headers: typing.Optional[dict] = None,
         idempotent: bool = True,
         retry_wait: typing.Optional[RetryWaitFn] = None,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         request = HttpRequest(
             url=url,
@@ -191,7 +210,8 @@ class HttpClient:
             idempotent=idempotent,
             retry_wait=retry_wait,
         )
-        return self.__request(request)
+        timeout = self.__resolve_timeout(timeout)
+        return self.__request(request, timeout=timeout)
 
     def put(
         self,
@@ -200,6 +220,7 @@ class HttpClient:
         headers: typing.Optional[dict] = None,
         idempotent: bool = True,
         retry_wait: typing.Optional[RetryWaitFn] = None,
+        timeout: Timeout = NotSet,
     ) -> HttpResponse:
         request = HttpRequest(
             url=url,
@@ -209,7 +230,8 @@ class HttpClient:
             idempotent=idempotent,
             retry_wait=retry_wait,
         )
-        return self.__request(request)
+        timeout = self.__resolve_timeout(timeout)
+        return self.__request(request, timeout=timeout)
 
     def set_requester(self, requester: RobotoRequester):
         self.__base_headers[ROBOTO_REQUESTER_HEADER] = requester.model_dump_json(exclude_none=True)
@@ -223,6 +245,9 @@ class HttpClient:
     def auth_decorator(self) -> typing.Optional[HttpRequestDecorator]:
         return self.__default_auth
 
+    def __resolve_timeout(self, timeout: Timeout) -> typing.Optional[float]:
+        return timeout if is_set(timeout) else self.__default_timeout
+
     def __request_headers(self, request_ctx: HttpRequest) -> dict[str, str]:
         if self.__extra_headers_provider is not None:
             self.__base_headers.update(self.__extra_headers_provider())
@@ -234,7 +259,7 @@ class HttpClient:
 
         return headers
 
-    def __request(self, request_ctx: HttpRequest) -> HttpResponse:
+    def __request(self, request_ctx: HttpRequest, timeout: typing.Optional[float]) -> HttpResponse:
         if self.__default_auth is not None:
             request_ctx = self.__default_auth(request_ctx)
 
@@ -259,7 +284,7 @@ class HttpClient:
                     for key, value in headers.items():
                         request.add_header(key, value)
 
-                    response = HttpResponse(urllib.request.urlopen(request))
+                    response = HttpResponse(urllib.request.urlopen(request, timeout=timeout))
                     logger.debug("Response: %s %s", response.status, response.headers)
                     return response
         except urllib.error.HTTPError as exc:

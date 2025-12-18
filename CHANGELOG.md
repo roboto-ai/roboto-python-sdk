@@ -1,5 +1,9 @@
 # Changelog
 
+# 0.33.1
+## Bugs Fixed
+  - Added configurable HTTP timeout (default 30 seconds) with automatic retry for idempotent requests to prevent indefinite blocking on network issues.
+
 # 0.33.0
 ## Features Added
   - Expanded `RobotoLLMContext` to include visualizer state and a misc context block for generic use during experimental feature development.

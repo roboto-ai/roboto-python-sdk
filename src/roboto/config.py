@@ -11,8 +11,9 @@ import typing
 import platformdirs
 import pydantic
 
-from .env import RobotoEnv
+from .env import RobotoEnv, Timeout
 from .logging import default_logger
+from .sentinels import NotSet
 
 logger = default_logger()
 
@@ -39,6 +40,7 @@ class RobotoConfig(pydantic.BaseModel):
 
     api_key: str
     cache_dir: typing.Optional[pathlib.Path] = None
+    default_http_timeout: Timeout = NotSet
     endpoint: str = ROBOTO_API_ENDPOINT
 
     @classmethod
@@ -56,6 +58,7 @@ class RobotoConfig(pydantic.BaseModel):
                 api_key=default_env.api_key,
                 cache_dir=cache_dir_from_env,
                 endpoint=endpoint,
+                default_http_timeout=default_env.default_http_timeout,
             )
 
         # Try to read a Roboto config file, either from an env variable specified location, or the default location
@@ -145,7 +148,6 @@ class RobotoConfigFileV1(pydantic.BaseModel):
     """V1 Roboto configuration file"""
 
     version: typing.Literal["v1"]
-    cache_dir: typing.Optional[str] = None
     profiles: dict[str, RobotoConfig]
     default_profile: typing.Optional[str] = DEFAULT_ROBOTO_PROFILE_NAME
 

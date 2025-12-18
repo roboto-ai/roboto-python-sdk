@@ -42,7 +42,7 @@ from .response import (
     PaginationTokenScheme,
     StreamedList,
 )
-from .roboto_client import RobotoClient
+from .roboto_client import DEFAULT_HTTP_TIMEOUT, RobotoClient
 from .testing_util import FakeHttpResponseFactory
 
 __all__ = (
@@ -53,6 +53,7 @@ __all__ = (
     "BearerTokenDecorator",
     "CONTENT_TYPE_JSON_HEADER",
     "ClientError",
+    "DEFAULT_HTTP_TIMEOUT",
     "FakeHttpResponseFactory",
     "HttpClient",
     "HttpError",
