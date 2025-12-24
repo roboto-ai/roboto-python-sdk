@@ -662,11 +662,6 @@ class Topic:
         """Name of the topic (e.g., '/camera/image', '/imu/data')."""
         return self.__record.topic_name
 
-    @property
-    def url_quoted_name(self) -> str:
-        """URL-encoded version of the topic name for use in API calls."""
-        return urllib.parse.quote_plus(self.name)
-
     def add_message_path(
         self,
         message_path: str,
@@ -718,9 +713,8 @@ class Topic:
             metadata=metadata or {},
         )
 
-        encoded_association = self.association.url_encode()
         response = self.__roboto_client.post(
-            f"v1/topics/association/{encoded_association}/name/{self.url_quoted_name}/message-path",
+            f"v1/topics/id/{self.topic_id}/message-path",
             data=request,
             owner_org_id=self.org_id,
         )
@@ -767,8 +761,6 @@ class Topic:
             >>> print(representation.representation_id)
             repr_789
         """
-        encoded_association = self.association.url_encode()
-
         request = AddMessagePathRepresentationRequest(
             association=association,
             message_path_id=message_path_id,
@@ -777,7 +769,7 @@ class Topic:
         )
 
         response = self.__roboto_client.post(
-            f"v1/topics/association/{encoded_association}/name/{self.url_quoted_name}/message-path/representation",
+            f"v1/topics/id/{self.topic_id}/message-path/representation",
             data=request,
             owner_org_id=self.org_id,
         )
@@ -800,9 +792,8 @@ class Topic:
             >>> topic.delete()
             # Topic and all its data are now permanently deleted
         """
-        encoded_association = self.association.url_encode()
         self.__roboto_client.delete(
-            f"v1/topics/association/{encoded_association}/name/{self.url_quoted_name}",
+            f"v1/topics/id/{self.topic_id}",
             owner_org_id=self.org_id,
         )
 
@@ -1041,14 +1032,13 @@ class Topic:
             >>> print(topic.default_representation.representation_id)
             repr_789
         """
-        encoded_association = self.association.url_encode()
         request = SetDefaultRepresentationRequest(
             association=association,
             storage_format=storage_format,
             version=version,
         )
         response = self.__roboto_client.post(
-            f"v1/topics/association/{encoded_association}/name/{self.url_quoted_name}/representation",
+            f"v1/topics/id/{self.topic_id}/representation",
             data=request,
             owner_org_id=self.org_id,
         )
@@ -1198,9 +1188,8 @@ class Topic:
             )
         )
 
-        encoded_association = self.association.url_encode()
         response = self.__roboto_client.put(
-            f"v1/topics/association/{encoded_association}/name/{self.url_quoted_name}/message-path",
+            f"v1/topics/id/{self.topic_id}/message-path",
             data=request,
             owner_org_id=self.org_id,
         )

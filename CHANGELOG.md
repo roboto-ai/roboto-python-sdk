@@ -1,5 +1,9 @@
 # Changelog
 
+# 0.34.0
+## Features Added
+  - Updated `Topic` methods to use ID-based API endpoints for improved consistency and reliability. Removed now unused `Topic::url_quoted_name` property.
+
 # 0.33.1
 ## Bugs Fixed
   - Added configurable HTTP timeout (default 30 seconds) with automatic retry for idempotent requests to prevent indefinite blocking on network issues.
