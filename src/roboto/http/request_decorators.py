@@ -32,7 +32,7 @@ class BearerTokenDecorator:
         if token.startswith("robo_pat"):
             raise RobotoDeprecatedException(
                 "You're using an auth token created before March 20th, 2024. These are being phased out in favor of a "
-                + "newer token format. Please create a new token via https://app.roboto.ai/settings?tab=2."
+                + "newer token format. Please create a new token via https://app.roboto.ai/settings/tokens."
             )
 
         self.__auth_header = f"Bearer {token}"
