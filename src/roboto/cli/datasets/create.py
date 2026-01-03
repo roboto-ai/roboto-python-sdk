@@ -19,6 +19,7 @@ from ..context import CLIContext
 def create(args, context: CLIContext, parser: argparse.ArgumentParser):
     dataset = datasets.Dataset.create(
         description=args.description,
+        device_id=args.device_id,
         metadata=args.metadata,
         name=args.name,
         tags=args.tag,
@@ -58,6 +59,11 @@ def create_setup_parser(parser):
         "--name",
         type=str,
         help="A human readable name for this dataset.",
+    )
+    parser.add_argument(
+        "--device-id",
+        type=str,
+        help="The device ID to associate with this dataset. The device must already exist in the organization.",
     )
     add_org_arg(parser=parser)
 

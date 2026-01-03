@@ -33,10 +33,15 @@ from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger
 from ...paths import excludespec_from_patterns
 from ...query import QuerySpecification
+from ...sentinels import (
+    NotSet,
+    NotSetType,
+    is_set,
+    remove_not_set,
+)
 from ...updates import (
     MetadataChangeset,
     StrSequence,
-    UpdateCondition,
 )
 from ..devices import Device
 from ..files import (
@@ -1104,12 +1109,12 @@ class Dataset:
         """Remove each tag in this sequence if it exists"""
         self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
-    def set_device_id(self, device_id: str, create_device_if_missing: bool = False) -> Dataset:
+    def set_device_id(self, device_id: typing.Optional[str], create_device_if_missing: bool = False) -> Dataset:
         """
         Set the device ID for this dataset.
 
         Args:
-            device_id: The device ID to set for this dataset.
+            device_id: The device ID to set for this dataset. If None, the device association will be cleared.
             create_device_if_missing: If True, and a device_id is provided that does not
                 exist in the organization, a new device will be created automatically. If False,
                 and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
@@ -1171,25 +1176,22 @@ class Dataset:
 
     def update(
         self,
-        conditions: typing.Optional[list[UpdateCondition]] = None,
-        description: typing.Optional[str] = None,
-        device_id: typing.Optional[str] = None,
-        metadata_changeset: typing.Optional[MetadataChangeset] = None,
-        name: typing.Optional[str] = None,
+        description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
+        device_id: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
+        metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
+        name: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         create_device_if_missing: bool = False,
     ) -> Dataset:
         """Update this dataset's properties.
 
         Updates various properties of the dataset including name, description,
         and metadata. Only specified parameters are updated; others remain unchanged.
-        Optionally supports conditional updates based on current field values.
 
         Args:
-            conditions: Optional list of conditions that must be met for the update to proceed.
-            description: New description for the dataset.
-            device_id: New device ID for the dataset.
+            description: New description for the dataset. Set to None to clear the description.
+            device_id: New device ID for the dataset. Set to None to clear the device association.
             metadata_changeset: Metadata changes to apply (add, update, or remove fields/tags).
-            name: New name for the dataset.
+            name: New name for the dataset. Set to None to clear the name.
             create_device_if_missing: If True, and a device_id is provided that does not
                 exist in the organization, a new device will be created automatically. If False,
                 and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
@@ -1199,7 +1201,6 @@ class Dataset:
             Updated Dataset instance with the new properties.
 
         Raises:
-            RobotoConditionalUpdateFailedException: Update conditions were not met.
             RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
                 a device registered with Roboto for the organization.
             RobotoUnauthorizedException: Caller lacks permission to update the dataset.
@@ -1216,13 +1217,20 @@ class Dataset:
             >>> from roboto.updates import MetadataChangeset
             >>> changeset = MetadataChangeset(put_fields={"processed": True})
             >>> updated_dataset = dataset.update(metadata_changeset=changeset)
+
+            >>> # Clear the device association
+            >>> updated_dataset = dataset.update(device_id=None)
+
+            >>> # Clear the description
+            >>> updated_dataset = dataset.update(description=None)
         """
-        request = UpdateDatasetRequest(
-            conditions=conditions,
-            description=description,
-            device_id=device_id,
-            name=name,
-            metadata_changeset=metadata_changeset,
+        request = remove_not_set(
+            UpdateDatasetRequest(
+                description=description,
+                device_id=device_id,
+                name=name,
+                metadata_changeset=metadata_changeset,
+            )
         )
 
         try:
@@ -1231,7 +1239,7 @@ class Dataset:
                 data=request,
             ).to_record(DatasetRecord)
         except RobotoDeviceNotFoundException as exc:
-            if not create_device_if_missing or device_id is None:
+            if not create_device_if_missing or device_id is None or not is_set(device_id):
                 raise exc
 
             Device.create(

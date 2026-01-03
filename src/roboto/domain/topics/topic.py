@@ -53,6 +53,7 @@ from .record import (
     TopicRecord,
 )
 from .topic_data_service import TopicDataService
+from .topic_reader import Timestamp
 
 if typing.TYPE_CHECKING:
     import pandas  # pants: no-infer-dep
@@ -804,7 +805,7 @@ class Topic:
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
-    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+    ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
         """Return this topic's underlying data.
 
         Retrieves and yields data records from this topic, with optional filtering by
@@ -824,7 +825,7 @@ class Topic:
                 Defaults to :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
 
         Yields:
-            Dictionary records that match this topic's schema, filtered according to the parameters.
+            Timestamp and dictionary records that match this topic's schema, filtered according to the parameters.
 
         Notes:
             For each example below, assume the following is a sample datum record that can be found in this topic:
@@ -849,26 +850,26 @@ class Topic:
             Print all data to stdout:
 
             >>> topic = Topic.from_name_and_file(...)
-            >>> for record in topic.get_data():
-            ...     print(record)
+            >>> for timestamp, record in topic.get_data():
+            ...     print(timestamp, record)
 
             Only include the "angular_velocity" sub-object, but filter out its "y" property:
 
             >>> topic = Topic.from_name_and_file(...)
-            >>> for record in topic.get_data(
+            >>> for timestamp, record in topic.get_data(
             ...     message_paths_include=["angular_velocity"],
             ...     message_paths_exclude=["angular_velocity.y"],
             ... ):
-            ...     print(record)
+            ...     ...
 
             Only include data between two timestamps:
 
             >>> topic = Topic.from_name_and_file(...)
-            >>> for record in topic.get_data(
+            >>> for timestamp, record in topic.get_data(
             ...     start_time=1722870127699468923,
             ...     end_time=1722870127699468924,
             ... ):
-            ...     print(record)
+            ...     ...
 
             Collect all topic data into a dataframe (requires installing the ``roboto[analytics]`` extra):
 

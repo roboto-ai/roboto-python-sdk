@@ -32,6 +32,7 @@ from ...updates import (
 from ..files import File
 from ..topics import (
     MessagePath,
+    Timestamp,
     Topic,
     TopicDataService,
 )
@@ -626,7 +627,7 @@ class Event:
         topic_data_service: typing.Optional[TopicDataService] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
         strict_associations: bool = False,
-    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+    ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
         """
         Iteratively yield records of the underlying topic data this event annotates.
 

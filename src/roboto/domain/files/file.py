@@ -710,20 +710,20 @@ class File:
             >>> print(f"Retrieved {len(retrieved_df)} rows")
             Retrieved 3 rows
 
-            Add derived data as a new topic to the same file:
+            Add derived data as a new topic to the same file, using the original topic's timestamp index:
 
             >>> import pandas as pd
             >>> from roboto import File
             >>> file = File.from_id("file_abc123")
             >>> # Get existing topic data as DataFrame
             >>> original_topic = file.get_topic("sensor_data")
-            >>> original_df = original_topic.get_data_as_df().reset_index(drop=True)
+            >>> original_df = original_topic.get_data_as_df()
             >>> # Create derived data
             >>> derived_df = pd.DataFrame(
             ...     {
-            ...         "timestamp": original_df["ts"],
             ...         "temp_category": original_df["temperature"].apply(lambda x: "hot" if x > 25 else "not_hot"),
-            ...     }
+            ...     },
+            ...     index=original_df.index,
             ... )
             >>> derived_topic = file.add_topic(
             ...     "temperature_categories",

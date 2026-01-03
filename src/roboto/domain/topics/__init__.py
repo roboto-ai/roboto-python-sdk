@@ -27,6 +27,7 @@ from .record import (
 )
 from .topic import Topic
 from .topic_data_service import TopicDataService
+from .topic_reader import Timestamp
 
 __all__ = (
     "AddMessagePathRequest",
@@ -43,6 +44,7 @@ __all__ = (
     "RepresentationRecord",
     "RepresentationStorageFormat",
     "SetDefaultRepresentationRequest",
+    "Timestamp",
     "Topic",
     "TopicDataService",
     "TopicRecord",

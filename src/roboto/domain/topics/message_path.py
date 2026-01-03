@@ -20,6 +20,7 @@ from .record import (
     MessagePathStatistic,
 )
 from .topic_data_service import TopicDataService
+from .topic_reader import Timestamp
 
 if typing.TYPE_CHECKING:
     import pandas  # pants: no-infer-dep
@@ -248,7 +249,7 @@ class MessagePath:
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
-    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+    ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
         """Return data for this specific message path.
 
         Retrieves and yields data records containing only the values for this message path,

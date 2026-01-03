@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
 import typing
 
@@ -11,7 +13,6 @@ from ....association import AssociationType
 from ....compat import import_optional_dependency
 from ....http import RobotoClient
 from ....logging import default_logger
-from ....time import TimeUnit
 from ..operations import (
     MessagePathRepresentationMapping,
 )
@@ -21,13 +22,11 @@ from ..record import (
     RepresentationRecord,
     RepresentationStorageFormat,
 )
-from ..topic_reader import TopicReader
+from ..topic_reader import Timestamp, TopicReader
 from .table_transforms import (
-    drop_column,
-    enrich_with_logtime_ns,
+    compute_time_filter_mask,
     extract_timestamp_field,
-    filter_table_by_logtime_ns,
-    scale_logtime,
+    extract_timestamps,
     should_read_row_group,
 )
 
@@ -67,12 +66,12 @@ class ParquetTopicReader(TopicReader):
     def get_data(
         self,
         message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
-        log_time_attr_name: str,
-        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
         timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
-    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+    ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
+        pc = import_optional_dependency("pyarrow.compute", "analytics")
+
         if timestamp_message_path_representation_mapping is None:
             raise NotImplementedError(
                 "Reading data from a Parquet file requires one column to be marked as a 'CanonicalDataType.Timestamp'. "
@@ -92,7 +91,7 @@ class ParquetTopicReader(TopicReader):
 
         parquet_file = self.__representation_record_to_parquet_file(mapping.representation)
         timestamp_message_path = self.__timestamp_message_path(timestamp_message_path_representation_mapping)
-        timestamp = extract_timestamp_field(parquet_file.schema_arrow, timestamp_message_path)
+        timestamp_field = extract_timestamp_field(parquet_file.schema_arrow, timestamp_message_path)
 
         columns = [
             # Always use `MessagePathRecord::source_path`,
@@ -103,7 +102,6 @@ class ParquetTopicReader(TopicReader):
 
         # Even if the timestamp column wasn't requested in the column projection list,
         # request the data to enable timestamp filtering
-        # and also to include log_time in the yielded dictionaries
         include_timestamp_message_path = timestamp_message_path.source_path in columns
         if not include_timestamp_message_path:
             columns.append(timestamp_message_path.source_path)
@@ -112,7 +110,7 @@ class ParquetTopicReader(TopicReader):
             row_group_metadata = parquet_file.metadata.row_group(row_group_idx)
             if not should_read_row_group(
                 row_group_metadata,
-                timestamp,
+                timestamp_field,
                 start_time,
                 end_time,
             ):
@@ -122,38 +120,37 @@ class ParquetTopicReader(TopicReader):
                 row_group_idx,
                 columns=columns,
             )
-            row_group_table = enrich_with_logtime_ns(row_group_table, log_time_attr_name, timestamp)
 
+            timestamps = extract_timestamps(row_group_table, timestamp_field)
+
+            # Drop the timestamp column if it wasn't originally requested
             if not include_timestamp_message_path:
-                # The timestamp column was not included in the column projection list.
-                row_group_table = drop_column(
-                    row_group_table,
-                    timestamp.field.name,
-                )
+                row_group_table = row_group_table.drop_columns(timestamp_field.field.name)
 
-            row_group_table = filter_table_by_logtime_ns(
-                row_group_table,
-                log_time_attr_name,
-                start_time,
-                end_time,
-            )
+            filter_mask = compute_time_filter_mask(timestamps, start_time, end_time)
+            if filter_mask is not None:
+                row_group_table = pc.filter(row_group_table, filter_mask)
+                timestamps = pc.filter(timestamps, filter_mask)
 
-            row_group_table = scale_logtime(row_group_table, log_time_attr_name, log_time_unit)
+            # Yield tuples of (timestamp, row_dict)
+            for idx, row in enumerate(row_group_table.to_pylist()):
+                timestamp = timestamps[idx]
+                if pc.is_null(timestamp, nan_is_null=True):
+                    logger.warning("Skipping row %d, timestamp is null", idx)
+                    continue
 
-            for row in row_group_table.to_pylist():
-                yield row
+                yield timestamp.as_py(), row
 
     def get_data_as_df(
         self,
         message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
-        log_time_attr_name: str,
-        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
         timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
-    ) -> "pandas.DataFrame":
+    ) -> tuple[pandas.Series, pandas.DataFrame]:
         pd = import_optional_dependency("pandas", "analytics")
         pa = import_optional_dependency("pyarrow", "analytics")
+        pc = import_optional_dependency("pyarrow.compute", "analytics")
 
         if timestamp_message_path_representation_mapping is None:
             raise NotImplementedError(
@@ -170,12 +167,13 @@ class ParquetTopicReader(TopicReader):
 
         mapping = next(iter(message_paths_to_representations), None)
         if mapping is None:
-            return pd.DataFrame()
+            return pd.Series(), pd.DataFrame()
 
         parquet_file = self.__representation_record_to_parquet_file(mapping.representation)
         timestamp_message_path = self.__timestamp_message_path(timestamp_message_path_representation_mapping)
-        timestamp = extract_timestamp_field(parquet_file.schema_arrow, timestamp_message_path)
+        timestamp_field = extract_timestamp_field(parquet_file.schema_arrow, timestamp_message_path)
 
+        timestamps = []
         tables = []
         columns = [
             # Always use `MessagePathRecord::source_path`,
@@ -195,7 +193,7 @@ class ParquetTopicReader(TopicReader):
             row_group_metadata = parquet_file.metadata.row_group(row_group_idx)
             if not should_read_row_group(
                 row_group_metadata,
-                timestamp,
+                timestamp_field,
                 start_time,
                 end_time,
             ):
@@ -206,31 +204,29 @@ class ParquetTopicReader(TopicReader):
                 columns=columns,
             )
 
-            row_group_table = enrich_with_logtime_ns(row_group_table, log_time_attr_name, timestamp)
+            row_group_timestamps = extract_timestamps(row_group_table, timestamp_field)
 
             if not include_timestamp_message_path:
                 # The timestamp column was not included in the column projection list.
-                row_group_table = drop_column(
-                    row_group_table,
-                    timestamp.field.name,
+                row_group_table = row_group_table.drop_columns(
+                    timestamp_field.field.name,
                 )
 
-            row_group_table = filter_table_by_logtime_ns(
-                row_group_table,
-                log_time_attr_name,
-                start_time,
-                end_time,
-            )
+            filter_mask = compute_time_filter_mask(row_group_timestamps, start_time, end_time)
+            if filter_mask is not None:
+                row_group_table = pc.filter(row_group_table, filter_mask)
+                row_group_timestamps = pc.filter(row_group_timestamps, filter_mask)
 
-            row_group_table = scale_logtime(row_group_table, log_time_attr_name, log_time_unit)
-
+            timestamps.append(row_group_timestamps)
             tables.append(row_group_table)
 
         if not tables:
-            return pd.DataFrame()
+            return pd.Series(), pd.DataFrame()
 
-        concatenated: "pyarrow.Table" = pa.concat_tables(tables)
-        return concatenated.to_pandas()
+        combined_timestamps: pyarrow.Array = pa.concat_arrays(timestamps)
+        combined_tables: pyarrow.Table = pa.concat_tables(tables)
+
+        return combined_timestamps.to_pandas(), combined_tables.to_pandas()
 
     def __ensure_single_parquet_file_per_topic(
         self,
@@ -266,7 +262,7 @@ class ParquetTopicReader(TopicReader):
 
     def __representation_record_to_parquet_file(
         self, representation: RepresentationRecord
-    ) -> "pyarrow.parquet.ParquetFile":
+    ) -> pyarrow.parquet.ParquetFile:
         fs = import_optional_dependency("pyarrow.fs", "analytics")
         fsspec_http = import_optional_dependency("fsspec.implementations.http", "analytics")
         pq = import_optional_dependency("pyarrow.parquet", "analytics")

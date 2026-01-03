@@ -12,10 +12,8 @@ from pydantic import ConfigDict
 from ...pydantic import (
     remove_non_noneable_init_args,
 )
-from ...updates import (
-    MetadataChangeset,
-    UpdateCondition,
-)
+from ...sentinels import NotSet, NotSetType
+from ...updates import MetadataChangeset
 
 
 class BeginSingleFileUploadRequest(pydantic.BaseModel):
@@ -159,24 +157,24 @@ class UpdateDatasetRequest(pydantic.BaseModel):
     """Request payload for updating dataset properties.
 
     Used to modify dataset metadata, description, name, and other properties.
-    Supports conditional updates based on current field values to prevent
-    conflicting concurrent modifications.
+    Only specified fields will be updated; others remain unchanged.
     """
 
-    metadata_changeset: typing.Optional[MetadataChangeset] = None
+    metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
     """Metadata changes to apply (add, update, or remove fields/tags)."""
 
-    description: typing.Optional[str] = None
-    """New description for the dataset."""
+    description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
+    """New description for the dataset. Set to None to clear the description."""
 
-    device_id: typing.Optional[str] = None
-    """New device ID for the dataset."""
+    device_id: typing.Optional[typing.Union[str, NotSetType]] = NotSet
+    """New device ID for the dataset. Set to None to clear the device association."""
 
-    name: typing.Optional[str] = pydantic.Field(default=None, max_length=120)
-    """New name for the dataset (max 120 characters)."""
+    name: typing.Optional[
+        typing.Union[typing.Annotated[str, pydantic.StringConstraints(max_length=120)], NotSetType]
+    ] = NotSet
+    """New name for the dataset (max 120 characters). Set to None to clear the name."""
 
-    conditions: typing.Optional[list[UpdateCondition]] = None
-    """Optional list of conditions that must be met for the update to proceed."""
+    model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
 
 
 class BeginTransactionRequest(pydantic.BaseModel):

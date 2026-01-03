@@ -6,8 +6,10 @@
 
 import argparse
 import json
+import typing
 
 from ...domain.datasets import Dataset
+from ...sentinels import NotSet, is_set, maybe_null, null
 from ...updates import MetadataChangeset
 from ..command import (
     KeyValuePairsAction,
@@ -24,15 +26,37 @@ def update(args: argparse.Namespace, context: CLIContext, parser: argparse.Argum
         put_fields=args.put_metadata,
         remove_fields=args.remove_metadata,
     )
-    if metadata_changeset.is_empty() and not args.description and not args.name:
+    if (
+        metadata_changeset.is_empty()
+        and not is_set(args.description)
+        and not is_set(args.name)
+        and not is_set(args.device_id)
+    ):
         parser.error("No dataset changes specified.")
 
     dataset = Dataset.from_id(args.dataset_id, context.roboto_client)
-    dataset.update(
-        metadata_changeset=metadata_changeset,
-        description=args.description,
-        name=args.name,
-    )
+
+    # Build update kwargs, only including fields that were explicitly set.
+    update_kwargs: dict[str, typing.Any] = {
+        "metadata_changeset": metadata_changeset,
+    }
+
+    if args.description is null:
+        update_kwargs["description"] = None
+    elif is_set(args.description):
+        update_kwargs["description"] = args.description
+
+    if args.name is null:
+        update_kwargs["name"] = None
+    elif is_set(args.name):
+        update_kwargs["name"] = args.name
+
+    if args.device_id is null:
+        update_kwargs["device_id"] = None
+    elif is_set(args.device_id):
+        update_kwargs["device_id"] = args.device_id
+
+    dataset.update(**update_kwargs)
 
     print(f"Successfully updated dataset '{dataset.dataset_id}'. Record: ")
     print(json.dumps(dataset.to_dict(), indent=2))
@@ -41,11 +65,18 @@ def update(args: argparse.Namespace, context: CLIContext, parser: argparse.Argum
 def update_parser(parser: argparse.ArgumentParser):
     parser.add_argument("-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP)
 
-    parser.add_argument("--description", help="A new description to add to this dataset")
+    parser.add_argument(
+        "--description",
+        type=maybe_null,
+        default=NotSet,
+        help="A new description to add to this dataset. Specify ``null`` to clear the description.",
+    )
 
     parser.add_argument(
         "--name",
-        help="A new name for this dataset",
+        type=maybe_null,
+        default=NotSet,
+        help="A new name for this dataset. Specify ``null`` to clear the name.",
     )
 
     parser.add_argument(
@@ -85,6 +116,14 @@ def update_parser(parser: argparse.ArgumentParser):
             "Remove each key from dataset metadata if it exists. "
             "Dot notation is supported for nested keys. e.g. ``--remove-metadata key1 key2.subkey3``"
         ),
+    )
+
+    parser.add_argument(
+        "--device-id",
+        type=maybe_null,
+        default=NotSet,
+        help="Set or update the device ID associated with this dataset. "
+        "Specify ``null`` to clear the device association.",
     )
 
 

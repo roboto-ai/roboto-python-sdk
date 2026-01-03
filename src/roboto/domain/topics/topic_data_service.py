@@ -4,15 +4,17 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
 import pathlib
 import typing
 
+from ...compat import import_optional_dependency
 from ...http import RobotoClient
 from ...logging import default_logger
 from ...time import (
     Time,
-    TimeUnit,
     to_epoch_nanoseconds,
 )
 from .mcap_topic_reader import McapTopicReader
@@ -24,7 +26,7 @@ from .record import (
     CanonicalDataType,
     MessagePathRecord,
 )
-from .topic_reader import TopicReader
+from .topic_reader import Timestamp, TopicReader
 
 if typing.TYPE_CHECKING:
     import pandas  # pants: no-infer-dep
@@ -60,7 +62,6 @@ class TopicDataService:
     """
 
     DEFAULT_CACHE_DIR: typing.ClassVar[pathlib.Path] = pathlib.Path.home() / ".cache" / "roboto" / "topic-data"
-    LOG_TIME_ATTR_NAME: typing.ClassVar[str] = "log_time"
 
     __cache_dir: pathlib.Path
     __roboto_client: RobotoClient
@@ -80,13 +81,9 @@ class TopicDataService:
         message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
-        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         cache_dir_override: typing.Union[str, pathlib.Path, None] = None,
-    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+    ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
         """Retrieve data for a specific topic with optional filtering.
-
-        Downloads and processes topic data representations, applying message path and temporal filters as specified.
-        Merges data from multiple representations when necessary.
 
         Args:
             topic_id: Unique identifier of the topic to retrieve data for.
@@ -96,12 +93,10 @@ class TopicDataService:
                 If None, no paths are excluded.
             start_time: Start time (inclusive) for temporal filtering.
             end_time: End time (exclusive) for temporal filtering.
-            log_time_unit: Time unit for the log_time field in the returned records.
             cache_dir_override: Override the default cache directory for downloads.
 
         Yields:
-            Dictionary records containing the filtered topic data, with a 'log_time'
-            field indicating the timestamp of each record.
+            Tuple of (timestamp, record) where timestamp is in nanoseconds since Unix epoch.
         """
         cache_dir = self.__ensure_cache_dir(cache_dir_override)
 
@@ -119,8 +114,6 @@ class TopicDataService:
             reader: TopicReader = McapTopicReader(self.__roboto_client, cache_dir)
             yield from reader.get_data(
                 filtered_message_path_repr_mappings,
-                log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
-                log_time_unit=log_time_unit,
                 start_time=start_time_ns,
                 end_time=end_time_ns,
             )
@@ -129,8 +122,6 @@ class TopicDataService:
             timestamp_mapping = self.__find_timestamp_message_path_mapping(message_path_repr_mappings)
             yield from reader.get_data(
                 filtered_message_path_repr_mappings,
-                log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
-                log_time_unit=log_time_unit,
                 start_time=start_time_ns,
                 end_time=end_time_ns,
                 timestamp_message_path_representation_mapping=timestamp_mapping,
@@ -145,13 +136,9 @@ class TopicDataService:
         message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
-        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         cache_dir_override: typing.Union[str, pathlib.Path, None] = None,
-    ) -> "pandas.DataFrame":
+    ) -> pandas.DataFrame:
         """Retrieve data for a specific topic as a pandas DataFrame with optional filtering.
-
-        Downloads and processes topic data representations, applying message path and temporal filters as specified.
-        Merges data from multiple representations when necessary and returns the result as a pandas DataFrame.
 
         Args:
             topic_id: Unique identifier of the topic to retrieve data for.
@@ -161,13 +148,15 @@ class TopicDataService:
                 If None, no paths are excluded.
             start_time: Start time (inclusive) for temporal filtering.
             end_time: End time (exclusive) for temporal filtering.
-            log_time_unit: Time unit for the log_time field in the returned DataFrame.
             cache_dir_override: Override the default cache directory for downloads.
 
         Returns:
-            pandas.DataFrame containing the filtered topic data,
-            with log_time as the index if available.
+            pandas.DataFrame
+
+            The index of the DataFrame (``df.index``) is a pandas.DateTimeIndex, labeling the timestamp of each row.
         """
+        pd = import_optional_dependency("pandas", "analytics")
+
         cache_dir = self.__ensure_cache_dir(cache_dir_override)
 
         message_path_repr_mappings = self.__get_message_path_mappings(topic_id)
@@ -182,20 +171,16 @@ class TopicDataService:
 
         if McapTopicReader.accepts(filtered_message_path_repr_mappings):
             reader: TopicReader = McapTopicReader(self.__roboto_client, cache_dir)
-            df = reader.get_data_as_df(
+            timestamps, df = reader.get_data_as_df(
                 filtered_message_path_repr_mappings,
-                log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
-                log_time_unit=log_time_unit,
                 start_time=start_time_ns,
                 end_time=end_time_ns,
             )
         elif ParquetTopicReader.accepts(filtered_message_path_repr_mappings):
             reader = ParquetTopicReader(self.__roboto_client)
             timestamp_mapping = self.__find_timestamp_message_path_mapping(message_path_repr_mappings)
-            df = reader.get_data_as_df(
+            timestamps, df = reader.get_data_as_df(
                 filtered_message_path_repr_mappings,
-                log_time_attr_name=TopicDataService.LOG_TIME_ATTR_NAME,
-                log_time_unit=log_time_unit,
                 start_time=start_time_ns,
                 end_time=end_time_ns,
                 timestamp_message_path_representation_mapping=timestamp_mapping,
@@ -203,8 +188,14 @@ class TopicDataService:
         else:
             raise NotImplementedError("No compatible reader found for this data. Please reach out to Roboto support.")
 
-        if TopicDataService.LOG_TIME_ATTR_NAME in df.columns:
-            return df.set_index(TopicDataService.LOG_TIME_ATTR_NAME)
+        timestamps_as_datetimes = pd.to_datetime(timestamps, unit="ns", utc=True)
+        df = df.set_index(timestamps_as_datetimes)
+        # GM(2025-12-31)
+        # When this dataframe is passed to Topic.create_from_df(), the index becomes a Parquet column.
+        # Naming it avoids an even more cryptic, autogenerated MessagePath name like "__index__level_0__".
+        # It's given a leading underscore to signify it is semi-private,
+        # and also in attempt to avoid a name conflict with a column named "index".
+        df.index.name = "_index"
 
         return df
 

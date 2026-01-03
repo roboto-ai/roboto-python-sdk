@@ -4,6 +4,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import atexit
 import collections.abc
 import concurrent.futures
@@ -19,7 +21,6 @@ from ...association import AssociationType
 from ...compat import import_optional_dependency
 from ...http import RobotoClient
 from ...logging import default_logger
-from ...time import TimeUnit
 from .mcap_reader import McapReader
 from .operations import (
     MessagePathRepresentationMapping,
@@ -28,7 +29,7 @@ from .record import (
     RepresentationRecord,
     RepresentationStorageFormat,
 )
-from .topic_reader import TopicReader
+from .topic_reader import Timestamp, TopicReader
 
 if typing.TYPE_CHECKING:
     import pandas  # pants: no-infer-dep
@@ -79,20 +80,12 @@ class McapTopicReader(TopicReader):
     def get_data(
         self,
         message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
-        log_time_attr_name: str,
-        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
         timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
-    ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+    ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
         # Schedule a cleanup of the cache_dir to remove any old assets.
         atexit.register(garbage_collect_old_topic_data, cache_dir=self.__cache_dir)
-
-        if log_time_unit != TimeUnit.Nanoseconds:
-            raise NotImplementedError(
-                "Scaling log_time to units other than nanoseconds since Unix epoch "
-                "on data returned by `get_data` and `get_data_as_df` not yet implemented for this data."
-            )
 
         repr_id_to_outfile_map = self.__ensure_cached(message_paths_to_representations)
 
@@ -118,39 +111,35 @@ class McapTopicReader(TopicReader):
 
             while any(reader.has_next for reader in readers):
                 full_record = {}
-                next_earliest_timestamp = min(reader.next_timestamp for reader in readers)
-                full_record[log_time_attr_name] = next_earliest_timestamp
+                timestamp = min(reader.next_timestamp for reader in readers)
                 for reader in readers:
-                    if reader.next_message_is_time_aligned(next_earliest_timestamp):
+                    if reader.next_message_is_time_aligned(timestamp):
                         decoded_message = reader.next()
                         if decoded_message is None:
                             continue
                         full_record.update(decoded_message.to_dict())
 
-                yield full_record
+                yield timestamp, full_record
 
     def get_data_as_df(
         self,
         message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
-        log_time_attr_name: str,
-        log_time_unit: TimeUnit = TimeUnit.Nanoseconds,
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
         timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
-    ) -> "pandas.DataFrame":
+    ) -> tuple[pandas.Series, pandas.DataFrame]:
         pd = import_optional_dependency("pandas", "analytics")
+        timestamps = []
+        data = []
+        for timestamp, record in self.get_data(
+            message_paths_to_representations=message_paths_to_representations,
+            start_time=start_time,
+            end_time=end_time,
+        ):
+            timestamps.append(timestamp)
+            data.append(record)
 
-        return pd.json_normalize(
-            data=list(
-                self.get_data(
-                    message_paths_to_representations=message_paths_to_representations,
-                    log_time_attr_name=log_time_attr_name,
-                    log_time_unit=log_time_unit,
-                    start_time=start_time,
-                    end_time=end_time,
-                )
-            )
-        )
+        return pd.Series(timestamps), pd.json_normalize(data=data)
 
     def __ensure_cached(
         self,

@@ -32,6 +32,16 @@ class Null:
 null = Null()
 
 
+def maybe_null(value: T) -> typing.Union[T, Null]:
+    """Returns the null sentinel if value is the string "null"
+    (case-insensitive), otherwise returns value unchanged."""
+
+    if isinstance(value, str) and value.lower() == "null":
+        return null
+
+    return value
+
+
 class NotSetType(pydantic.BaseModel):
     """
     A sentinel value for fields (e.g. kwargs) that are not set, useful when 'None' is a meaningful value.
