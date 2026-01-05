@@ -1,5 +1,9 @@
 # Changelog
 
+# 0.35.0.post1
+## Bugs Fixed
+  - Added `RobotoApiVersion.v2026_01_02` to support backwards-compatible handling of null vs. unset semantics in dataset update requests.
+
 # 0.35.0
 ## Breaking Changes
   - `get_data()` now yields `tuple[int | float, dict]` instead of `dict`. The first element of the tuple is the record's timestamp in nanoseconds since Unix epoch, and the record is no longer enriched with a `log_time` field.

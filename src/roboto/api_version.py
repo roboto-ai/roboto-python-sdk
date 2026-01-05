@@ -24,6 +24,9 @@ class RobotoApiVersion(StrEnum):
     v2025_01_01 = "2025-01-01"
     v2025_07_14 = "2025-07-14"
 
+    v2026_01_02 = "2026-01-02"
+    """Release date for v0.35.0 of the Roboto Python SDK"""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the latest available API version.
@@ -31,7 +34,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent API version supported by the platform.
         """
-        return RobotoApiVersion.v2025_07_14
+        return RobotoApiVersion.v2026_01_02
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.
