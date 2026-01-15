@@ -80,15 +80,12 @@ from .domain.comments import (
     UpdateCommentRequest,
 )
 from .domain.datasets import (
-    BeginManifestTransactionRequest,
-    BeginSingleFileUploadRequest,
     CreateDatasetIfNotExistsRequest,
     CreateDatasetRequest,
     Dataset,
     DatasetRecord,
     QueryDatasetFilesRequest,
     QueryDatasetsRequest,
-    ReportTransactionProgressRequest,
     UpdateDatasetRequest,
 )
 from .domain.devices import (
@@ -103,8 +100,6 @@ from .domain.events import (
     EventRecord,
 )
 from .domain.files import (
-    CredentialProvider,
-    DatasetCredentials,
     DeleteFileRequest,
     File,
     FileRecord,
@@ -114,7 +109,6 @@ from .domain.files import (
     ImportFileRequest,
     IngestionStatus,
     QueryFilesRequest,
-    S3Credentials,
     UpdateFileRecordRequest,
 )
 from .domain.topics import (
@@ -142,6 +136,13 @@ from .domain.users import (
     UserRecord,
 )
 from .env import RobotoEnv
+from .fs import (
+    BeginSignedUrlUploadRequest,
+    BeginSignedUrlUploadResponse,
+    BeginUploadRequest,
+    BeginUploadResponse,
+    ReportUploadProgressRequest,
+)
 from .http import BatchRequest, RobotoClient
 from .regionalization import RobotoRegion
 from .roboto_search import RobotoSearch
@@ -164,8 +165,10 @@ __all__ = [
     "Association",
     "AssociationType",
     "BatchRequest",
-    "BeginManifestTransactionRequest",
-    "BeginSingleFileUploadRequest",
+    "BeginSignedUrlUploadRequest",
+    "BeginSignedUrlUploadResponse",
+    "BeginUploadRequest",
+    "BeginUploadResponse",
     "CanonicalDataType",
     "Collection",
     "CollectionChangeRecord",
@@ -189,9 +192,7 @@ __all__ = [
     "CreateTopicRequest",
     "CreateTriggerRequest",
     "CreateUserRequest",
-    "CredentialProvider",
     "Dataset",
-    "DatasetCredentials",
     "DatasetRecord",
     "DeleteFileRequest",
     "DeleteMessagePathRequest",
@@ -232,7 +233,7 @@ __all__ = [
     "QueryDatasetsRequest",
     "QueryFilesRequest",
     "QueryTriggersRequest",
-    "ReportTransactionProgressRequest",
+    "ReportUploadProgressRequest",
     "RepresentationRecord",
     "RepresentationStorageFormat",
     "RobotoClient",
@@ -240,7 +241,6 @@ __all__ = [
     "RobotoEnv",
     "RobotoRegion",
     "RobotoSearch",
-    "S3Credentials",
     "SetActionAccessibilityRequest",
     "SetContainerInfoRequest",
     "SetDefaultRepresentationRequest",

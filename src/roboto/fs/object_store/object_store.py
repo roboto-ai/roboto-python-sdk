@@ -24,6 +24,10 @@ class FutureLike(typing.Protocol[T_co]):
         ...
 
 
+"""Callback which takes a number of bytes transferred to be periodically called."""
+OnProgress: typing.TypeAlias = typing.Callable[[int], None]
+
+
 @typing.runtime_checkable
 class ObjectStore(typing.Protocol):
     @classmethod
@@ -33,13 +37,31 @@ class ObjectStore(typing.Protocol):
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None: ...
 
-    def put(self, source: pathlib.Path, destination_uri: str) -> FutureLike[None]:
+    def put(
+        self, source: pathlib.Path, destination_uri: str, on_progress: typing.Optional[OnProgress] = None
+    ) -> FutureLike[None]:
         """
         Uploads a local file to a specific cloud URI.
 
         Args:
             source: Local path to the file.
             destination_uri: Full URI (e.g., 's3://my-bucket/folder/data.csv')
+            on_progress: Optional callback to be periodically called with the number of bytes uploaded.
+        """
+        ...
+
+    def get(
+        self, source_uri: str, destination: pathlib.Path, on_progress: typing.Optional[OnProgress] = None
+    ) -> FutureLike[None]:
+        """
+        Downloads a file from a cloud URI to a local path.
+
+        Parent directories of the destination path are created automatically if they don't exist.
+
+        Args:
+            source_uri: Full URI (e.g., 's3://my-bucket/folder/data.csv')
+            destination: Local path where the file should be saved.
+            on_progress: Optional callback to be periodically called with the number of bytes downloaded.
         """
         ...
 

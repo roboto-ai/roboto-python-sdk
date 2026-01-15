@@ -58,3 +58,5 @@ class UpdateScheduledTriggerRequest(pydantic.BaseModel):
     parameter_values: Union[Optional[dict[str, Any]], NotSetType] = NotSet
     schedule: Union[str, NotSetType] = NotSet
     timeout: Union[Optional[Annotated[int, pydantic.Field(ge=0)]], NotSetType] = NotSet
+
+    model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)

@@ -10,8 +10,12 @@ import typing
 
 from ..association import Association
 from ..http import RobotoClient
+from .download_session import (
+    DownloadableFile,
+    DownloadSession,
+)
 from .object_store import (
-    FutureLike,
+    OnProgress,
     StoreRegistry,
 )
 from .upload_transaction import (
@@ -44,6 +48,7 @@ class FileService:
         batch_size: int = _DEFAULT_UPLOAD_BATCH_SIZE,
         device_id: typing.Optional[str] = None,
         caller_org_id: typing.Optional[str] = None,
+        on_progress: typing.Optional[OnProgress] = None,
     ) -> list[str]:
         items: list[TransactionFile] = []
         for local_path in files:
@@ -80,19 +85,58 @@ class FileService:
                 roboto_client=self.__roboto_client,
                 caller_org_id=caller_org_id,
             ) as txn:
-                # Heuristic: all files in a transaction are uploaded to the same object store.
+                # Heuristic: all files in a transaction are located in the same object store.
+                # When this no longer holds, this is the place to change it.
                 first_file_uri = list(txn.upload_mappings.values())[0]
 
-                object_store = self.__object_store_registry.get_store_for_uri(first_file_uri, txn.credential_provider)
+                object_store = self.__object_store_registry.get_store_for_uri(
+                    first_file_uri, txn.make_credential_provider()
+                )
                 with object_store:
-                    futures: list[FutureLike[None]] = []
                     for file in txn:
-                        future = object_store.put(file["local_path"], file["upload_uri"])
-                        futures.append(future)
-
-                    for future in futures:
-                        future.result()
+                        future = object_store.put(file["local_path"], file["upload_uri"], on_progress=on_progress)
+                        txn.register_upload(file, future)
 
                 completed_upload_node_ids.extend(txn.completed_upload_node_ids)
 
         return completed_upload_node_ids
+
+    def download(
+        self,
+        files: collections.abc.Sequence[DownloadableFile],
+        association: Association,
+        caller_org_id: typing.Optional[str] = None,
+        on_progress: typing.Optional[OnProgress] = None,
+    ) -> None:
+        """Download files from the Roboto Platform.
+
+        Args:
+            files: Sequence of files to download, each with source_uri and destination_path.
+            association: Association of the files to download.
+            caller_org_id: Optional organization ID for cross-org access.
+            on_progress: Optional callback to be periodically called with the number of bytes downloaded.
+        """
+        if not files:
+            return
+
+        files_grouped_by_bucket = collections.defaultdict(list)
+        for file in files:
+            files_grouped_by_bucket[file["bucket_name"]].append(file)
+
+        for bucket_name, bucket_files in files_grouped_by_bucket.items():
+            download_session = DownloadSession(
+                items=bucket_files,
+                association=association,
+                roboto_client=self.__roboto_client,
+                caller_org_id=caller_org_id,
+            )
+            # Heuristic: all files in the same bucket are located in the same object store
+            first_file_uri = bucket_files[0]["source_uri"]
+            object_store = self.__object_store_registry.get_store_for_uri(
+                first_file_uri, download_session.make_credential_provider(bucket_name)
+            )
+
+            with object_store, download_session:
+                for file in bucket_files:
+                    future = object_store.get(file["source_uri"], file["destination_path"], on_progress=on_progress)
+                    download_session.register_download(file, future)

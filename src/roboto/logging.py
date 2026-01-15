@@ -11,3 +11,7 @@ LOGGER_NAME = "roboto"
 
 def default_logger():
     return logging.getLogger(LOGGER_NAME)
+
+
+def maybe_pluralize(word: str, count: int) -> str:
+    return word if count == 1 else f"{word}s"

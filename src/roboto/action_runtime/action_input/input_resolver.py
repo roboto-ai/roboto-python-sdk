@@ -6,16 +6,20 @@
 
 from __future__ import annotations
 
+import collections
 import collections.abc
 import pathlib
 import tempfile
 import typing
 
+from ...association import Association
 from ...domain.actions import InvocationInput
-from ...domain.files import File, FileDownloader
+from ...domain.files import File
 from ...domain.topics import Topic
+from ...fs import DownloadableFile, FileService
 from ...http import RobotoClient
-from ...logging import default_logger
+from ...logging import default_logger, maybe_pluralize
+from ...progress import NoopProgressMonitor, TqdmProgressMonitor
 from ...roboto_search import RobotoSearch
 from .action_input import ActionInputRecord
 from .file_resolver import InputFileResolver
@@ -46,18 +50,18 @@ class ActionInputResolver:
         return cls(
             file_resolver=InputFileResolver(roboto_client, roboto_search),
             topic_resolver=InputTopicResolver(roboto_client, roboto_search),
-            file_downloader=FileDownloader(roboto_client),
+            file_service=FileService(roboto_client=roboto_client),
         )
 
     def __init__(
         self,
         file_resolver: InputFileResolver,
         topic_resolver: InputTopicResolver,
-        file_downloader: FileDownloader,
+        file_service: FileService,
     ):
-        self.input_file_resolver = file_resolver
-        self.input_topic_resolver = topic_resolver
-        self.file_downloader = file_downloader
+        self.__file_resolver = file_resolver
+        self.__topic_resolver = topic_resolver
+        self.__file_service = file_service
 
     def resolve_input_spec(
         self,
@@ -112,12 +116,12 @@ class ActionInputResolver:
         topics: list[Topic] = []
 
         if input_spec.files:
-            files = self.input_file_resolver.resolve_all(input_spec.safe_files)
+            files = self.__file_resolver.resolve_all(input_spec.safe_files)
             if not files:
                 log.warning("No files matched the provided input specification.")
 
         if input_spec.topics:
-            topics = self.input_topic_resolver.resolve_all(input_spec.safe_topics)
+            topics = self.__topic_resolver.resolve_all(input_spec.safe_topics)
             if not topics:
                 log.warning("No topics matched the provided input specification.")
 
@@ -125,8 +129,8 @@ class ActionInputResolver:
         if download:
             if download_path is None:
                 download_path = pathlib.Path(tempfile.mkdtemp())
-            log.info(f"Downloading {len(files)} file(s) ...")
-            resolved_files = self.file_downloader.download_files(download_path, files)
+            log.info("Downloading {%d} file(s) ...", len(files))
+            resolved_files = self.__download_files(download_path, files)
 
             if topics:
                 log.warning(
@@ -139,3 +143,96 @@ class ActionInputResolver:
             files=[(file.record, path) for file, path in resolved_files],
             topics=[topic.record for topic in topics],
         )
+
+    def __download_files(
+        self,
+        out_path: pathlib.Path,
+        files: collections.abc.Iterable[File],
+    ) -> list[tuple[File, pathlib.Path]]:
+        """
+        Downloads the specified files to the provided local directory.
+
+        Files already present locally with matching size are skipped.
+
+        Args:
+            out_path: Destination directory for the downloaded files.
+            files: Files to download.
+
+        Returns:
+            A list of (File, Path) tuples, relating each provided file to its download path.
+        """
+
+        class DownloadCandidate(typing.NamedTuple):
+            file: File
+            path: pathlib.Path
+            requires_download: bool
+
+        download_candidates_by_association: dict[str, list[DownloadCandidate]] = collections.defaultdict(list)
+
+        for file in files:
+            local_path = out_path / file.file_id / str(file.version) / pathlib.Path(file.relative_path).name
+
+            # Skip download if file already exists locally with matching size
+            requires_download = True
+            if local_path.exists():
+                local_file_size_matches_remote = local_path.stat().st_size == file.record.size
+                if local_file_size_matches_remote:
+                    log.debug(
+                        "%s (%s@v%d) already downloaded.",
+                        file.relative_path,
+                        file.file_id,
+                        file.version,
+                    )
+                    requires_download = False
+
+            download_candidates_by_association[file.dataset_id].append(
+                DownloadCandidate(file=file, path=local_path, requires_download=requires_download)
+            )
+
+        # Calculate total size of files that need downloading
+        total_size = sum(
+            candidate.file.record.size
+            for candidates in download_candidates_by_association.values()
+            for candidate in candidates
+            if candidate.requires_download
+        )
+        file_count = sum(
+            1
+            for candidates in download_candidates_by_association.values()
+            for candidate in candidates
+            if candidate.requires_download
+        )
+
+        progress_monitor = (
+            TqdmProgressMonitor(
+                total=total_size,
+                desc=f"Downloading {file_count} {maybe_pluralize('file', file_count)}",
+            )
+            if file_count > 0
+            else NoopProgressMonitor()
+        )
+
+        with progress_monitor:
+            for association_id, candidates in download_candidates_by_association.items():
+                downloadable: list[DownloadableFile] = [
+                    {
+                        "bucket_name": candidate.file.record.bucket,
+                        "source_uri": candidate.file.record.uri,
+                        "destination_path": candidate.path,
+                    }
+                    for candidate in candidates
+                    if candidate.requires_download
+                ]
+
+                if downloadable:
+                    self.__file_service.download(
+                        files=downloadable,
+                        association=Association.dataset(association_id),
+                        on_progress=progress_monitor.update,
+                    )
+
+        return [
+            (candidate.file, candidate.path)
+            for candidates in download_candidates_by_association.values()
+            for candidate in candidates
+        ]

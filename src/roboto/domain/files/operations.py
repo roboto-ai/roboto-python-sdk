@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections
+import collections.abc
 import typing
 
 import pydantic
@@ -158,15 +159,3 @@ class DirectoryContentsPage(pydantic.BaseModel):
 
     next_token: typing.Optional[str] = None
     """Token for retrieving the next page of results, if any."""
-
-
-class AbortTransactionsRequest(pydantic.BaseModel):
-    """Request payload for aborting file upload transactions.
-
-    Used to cancel ongoing file upload transactions, typically when uploads
-    fail or are no longer needed. This cleans up any reserved resources
-    and marks associated files as no longer pending.
-    """
-
-    transaction_ids: list[str]
-    """List of transaction IDs to abort."""

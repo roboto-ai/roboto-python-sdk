@@ -22,8 +22,22 @@ from .object_store import (
     CredentialProvider,
     FutureLike,
     ObjectStore,
+    OnProgress,
 )
 from .registry import StoreRegistry
+
+
+class ProgressCallbackInvoker(boto3.s3.transfer.BaseSubscriber):
+    """Invoke a provided callback via a subscriber.
+
+    Taken from https://github.com/boto/boto3/blob/develop/boto3/s3/transfer.py#L505C1-L516C42
+    """
+
+    def __init__(self, callback):
+        self._callback = callback
+
+    def on_progress(self, bytes_transferred, **kwargs):
+        self._callback(bytes_transferred)
 
 
 @StoreRegistry.register("s3")
@@ -76,12 +90,40 @@ class S3Store(ObjectStore):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.__transfer_manager.shutdown()
 
-    def put(self, source: pathlib.Path, destination_uri: str) -> FutureLike[None]:
+    def put(
+        self, source: pathlib.Path, destination_uri: str, on_progress: typing.Optional[OnProgress] = None
+    ) -> FutureLike[None]:
         parsed_uri = urllib.parse.urlparse(destination_uri)
         bucket = parsed_uri.netloc
         key = parsed_uri.path.lstrip("/")
+
+        subscribers = []
+        if on_progress is not None:
+            subscribers.append(ProgressCallbackInvoker(on_progress))
+
         return self.__transfer_manager.upload(
             str(source),
             bucket,
             key,
+            subscribers=subscribers,
+        )
+
+    def get(
+        self, source_uri: str, destination: pathlib.Path, on_progress: typing.Optional[OnProgress] = None
+    ) -> FutureLike[None]:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        parsed_uri = urllib.parse.urlparse(source_uri)
+        bucket = parsed_uri.netloc
+        key = parsed_uri.path.lstrip("/")
+
+        subscribers = []
+        if on_progress is not None:
+            subscribers.append(ProgressCallbackInvoker(on_progress))
+
+        return self.__transfer_manager.download(
+            bucket,
+            key,
+            str(destination),
+            subscribers=subscribers,
         )

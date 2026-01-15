@@ -35,12 +35,8 @@ class StoreRegistry:
 
     @classmethod
     def get_store_for_uri(cls, uri: str, credential_provider: CredentialProvider, **kwargs) -> ObjectStore:
-        """
-        Parses URI -> Finds Class -> Calls Class.create() -> Returns Instance
-        """
         parsed = urllib.parse.urlparse(uri)
         scheme = parsed.scheme
-
         if scheme not in cls._registry:
             raise ValueError(f"No ObjectStore class registered for scheme: '{scheme}://'")
 

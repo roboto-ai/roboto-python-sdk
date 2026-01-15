@@ -8,12 +8,9 @@ from __future__ import annotations
 
 import collections.abc
 import datetime
-import functools
 import importlib.metadata
-import math
 import os
 import pathlib
-import threading
 import typing
 
 import pathspec
@@ -29,9 +26,14 @@ from ...env import RobotoEnv
 from ...exceptions import (
     RobotoDeviceNotFoundException,
 )
+from ...fs import DownloadableFile, FileService
 from ...http import PaginatedList, RobotoClient
-from ...logging import default_logger
+from ...logging import default_logger, maybe_pluralize
 from ...paths import excludespec_from_patterns
+from ...progress import (
+    NoopProgressMonitor,
+    TqdmProgressMonitor,
+)
 from ...query import QuerySpecification
 from ...sentinels import (
     NotSet,
@@ -50,25 +52,13 @@ from ..files import (
     FileRecord,
     LazyLookupFile,
 )
-from ..files.file_creds import (
-    FileCredentialsHelper,
-)
-from ..files.file_service import FileService
-from ..files.progress import (
-    NoopProgressMonitorFactory,
-    ProgressMonitorFactory,
-    TqdmProgressMonitorFactory,
-)
 from ..topics import Topic
 from .operations import (
-    BeginManifestTransactionRequest,
-    BeginManifestTransactionResponse,
     CreateDatasetIfNotExistsRequest,
     CreateDatasetRequest,
     CreateDirectoryRequest,
     QueryDatasetFilesRequest,
     RenameDirectoryRequest,
-    ReportTransactionProgressRequest,
     UpdateDatasetRequest,
 )
 from .record import DatasetRecord
@@ -106,21 +96,9 @@ class Dataset:
     content analysis.
     """
 
-    UPLOAD_REPORTING_BATCH_COUNT: typing.ClassVar[int] = 10
-    """
-    Number of batches to break a large upload into for the purpose of reporting progress.
-    """
-    UPLOAD_REPORTING_MIN_BATCH_SIZE: typing.ClassVar[int] = 10
-    """
-    Minimum number of files that must be uploaded before reporting progress.
-    """
-
     __roboto_client: RobotoClient
     __record: DatasetRecord
     __file_service: FileService
-    __file_creds_helper: FileCredentialsHelper
-    __transaction_completed_unreported_items: dict[str, set[str]]
-    __transaction_completed_mutex: threading.Lock
 
     @classmethod
     def create(
@@ -410,13 +388,15 @@ class Dataset:
             return False
         return self.record == other.record
 
-    def __init__(self, record: DatasetRecord, roboto_client: typing.Optional[RobotoClient] = None) -> None:
+    def __init__(
+        self,
+        record: DatasetRecord,
+        roboto_client: typing.Optional[RobotoClient] = None,
+        file_service: typing.Optional[FileService] = None,
+    ) -> None:
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
-        self.__file_service = FileService(self.__roboto_client)
-        self.__file_creds_helper = FileCredentialsHelper(self.__roboto_client)
+        self.__file_service = file_service or FileService(self.__roboto_client)
         self.__record = record
-        self.__transaction_completed_unreported_items = {}
-        self.__transaction_completed_mutex = threading.Lock()
 
     def __repr__(self) -> str:
         return self.__record.model_dump_json()
@@ -655,6 +635,7 @@ class Dataset:
         out_path: pathlib.Path,
         include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
+        print_progress: bool = True,
     ) -> list[tuple[FileRecord, pathlib.Path]]:
         """Download files from this dataset to a local directory.
 
@@ -668,6 +649,7 @@ class Dataset:
                 If None, all files are downloaded.
             exclude_patterns: List of gitignore-style patterns for files to exclude
                 from download. Takes precedence over include patterns.
+            print_progress: Whether to show a progress bar during download.
 
         Returns:
             List of tuples containing (FileRecord, local_path) for each downloaded file.
@@ -696,29 +678,37 @@ class Dataset:
         if not out_path.is_dir():
             out_path.mkdir(parents=True)
 
-        all_files = list(self.list_files(include_patterns, exclude_patterns))
+        files = list(self.list_files(include_patterns, exclude_patterns))
+        total_size = sum(file.record.size for file in files)
+        file_count = len(files)
 
-        files_by_bucket: dict[str, list[tuple[FileRecord, pathlib.Path]]] = collections.defaultdict(list)
-        for file in all_files:
-            files_by_bucket[file.record.bucket].append((file.record, out_path / file.relative_path))
+        progress_monitor = (
+            TqdmProgressMonitor(
+                total=total_size,
+                desc=f"Downloading {file_count} {maybe_pluralize('file', file_count)}",
+            )
+            if print_progress
+            else NoopProgressMonitor()
+        )
 
-        for bucket_name, bucket_files in files_by_bucket.items():
-            self.__file_service.download_files(
-                file_generator=(file for file in bucket_files),
-                credential_provider=self.__file_creds_helper.get_dataset_download_creds_provider(
-                    self.dataset_id, bucket_name
-                ),
-                progress_monitor_factory=TqdmProgressMonitorFactory(
-                    concurrency=1,
-                    ctx={
-                        "base_path": self.dataset_id,
-                        "total_file_count": len(all_files),
-                    },
-                ),
-                max_concurrency=8,
+        with progress_monitor:
+            downloadable_files: list[DownloadableFile] = [
+                {
+                    "bucket_name": file.record.bucket,
+                    "source_uri": file.record.uri,
+                    "destination_path": out_path / file.relative_path,
+                }
+                for file in files
+            ]
+
+            self.__file_service.download(
+                files=downloadable_files,
+                association=Association.dataset(self.dataset_id),
+                caller_org_id=self.org_id,
+                on_progress=progress_monitor.update,
             )
 
-        return [item for val in files_by_bucket.values() for item in val]
+        return [(file.record, out_path / file.relative_path) for file in files]
 
     def get_file_by_path(
         self,
@@ -1366,75 +1356,31 @@ class Dataset:
             >>> dataset = datasets.Dataset(...)
             >>> dataset.upload_files(
             ...     [pathlib.Path("/path/to/file.txt"), ...],
-            ...     file_destination_paths={
+            ...     destination_paths={
             ...         pathlib.Path("/path/to/file.txt"): "foo/bar.txt",
             ...     },
             ... )
         """
-        working_set: list[pathlib.Path] = []
 
-        for file in files:
-            working_set.append(file)
-
-            if len(working_set) >= max_batch_size:
-                self.__upload_files_batch(working_set, file_destination_paths, print_progress, device_id)
-                working_set = []
-
-        if len(working_set) > 0:
-            self.__upload_files_batch(working_set, file_destination_paths, print_progress, device_id)
-
-    def _complete_manifest_transaction(self, transaction_id: str) -> None:
-        """
-        Marks a transaction as 'completed', which allows the Roboto Platform to evaluate triggers
-        for automatic action on incoming data. This also aids reporting on partial upload failure cases.
-
-        This should be considered private.
-
-        It is loosely exposed (single underscore instead of double) because of a niche, administrative use-case.
-        """
-        self.__roboto_client.put(f"v2/datasets/{self.dataset_id}/batch_uploads/{transaction_id}/complete")
-
-    def _create_manifest_transaction(
-        self,
-        origination: str,
-        resource_manifest: dict[str, int],
-        device_id: typing.Optional[str] = None,
-    ) -> tuple[str, dict[str, str]]:
-        """
-        This should be considered private.
-
-        It is loosely exposed (single underscore instead of double) because of a niche, administrative use-case.
-        """
-        request = BeginManifestTransactionRequest(
-            origination=origination,
-            resource_manifest=resource_manifest,
-            device_id=device_id,
+        file_count = len(list(files))
+        progress_monitor = (
+            TqdmProgressMonitor(
+                total=sum(file.stat().st_size for file in files),
+                desc=f"Uploading {file_count} {maybe_pluralize('file', file_count)}",
+            )
+            if print_progress
+            else NoopProgressMonitor()
         )
-
-        result = self.__roboto_client.post(
-            f"v2/datasets/{self.dataset_id}/batch_uploads",
-            data=request,
-            caller_org_id=self.org_id,
-        ).to_record(BeginManifestTransactionResponse)
-
-        return result.transaction_id, dict(result.upload_mappings)
-
-    def _flush_manifest_item_completions(
-        self,
-        transaction_id: str,
-        manifest_items: list[str],
-    ) -> None:
-        """
-        This should be considered private.
-
-        It is loosely exposed (single underscore instead of double) because of a niche, administrative use-case.
-        """
-        self.__roboto_client.put(
-            f"v2/datasets/{self.dataset_id}/batch_uploads/{transaction_id}/progress",
-            data=ReportTransactionProgressRequest(
-                manifest_items=manifest_items,
-            ),
-        )
+        with progress_monitor:
+            self.__file_service.upload(
+                files=files,
+                association=Association.dataset(self.dataset_id),
+                destination_paths=file_destination_paths,
+                batch_size=max_batch_size,
+                device_id=device_id,
+                on_progress=progress_monitor.update,
+                caller_org_id=self.org_id,
+            )
 
     def __get_latest_summary(self) -> AISummary:
         return self.__roboto_client.get(f"v1/datasets/{self.dataset_id}/summary").to_record(AISummary)
@@ -1485,106 +1431,8 @@ class Dataset:
             idempotent=True,
         ).to_paginated_list(FileRecord)
 
-    def __on_manifest_item_complete(
-        self,
-        transaction_id: str,
-        total_file_count: int,
-        manifest_item_identifier: str,
-    ) -> None:
-        """
-        This method is used as a callback (a "subscriber") for S3 TransferManager,
-        which is used to upload files to S3.
-
-        TransferManager uses thread-based concurrency under the hood,
-        so any instance state accessed or modified here must be synchronized.
-        """
-        with self.__transaction_completed_mutex:
-            if transaction_id not in self.__transaction_completed_unreported_items:
-                self.__transaction_completed_unreported_items[transaction_id] = set()
-
-            self.__transaction_completed_unreported_items[transaction_id].add(manifest_item_identifier)
-
-            completion_count = len(self.__transaction_completed_unreported_items[transaction_id])
-            if self.__sufficient_uploads_completed_to_report_progress(completion_count, total_file_count):
-                self._flush_manifest_item_completions(
-                    transaction_id=transaction_id,
-                    manifest_items=list(self.__transaction_completed_unreported_items[transaction_id]),
-                )
-                self.__transaction_completed_unreported_items[transaction_id] = set()
-
     def __retrieve_roboto_version(self) -> str:
         try:
             return importlib.metadata.version("roboto")
         except importlib.metadata.PackageNotFoundError:
             return "version_not_found"
-
-    def __sufficient_uploads_completed_to_report_progress(self, completion_count: int, total_file_count: int):
-        """
-        Determine if there are a sufficient number of files that have already been uploaded
-        to S3 to report progress to the Roboto Platform.
-
-        If the total count of files to upload is below the reporting threshold,
-        or if for whatever other reason a batch is not large enough to report progress,
-        file records will still be finalized as part of the upload finalization routine.
-        See, e.g., :py:meth:`~roboto.domain.datasets.dataset.Dataset._complete_manifest_transaction`
-        """
-        batch_size = math.ceil(total_file_count / Dataset.UPLOAD_REPORTING_BATCH_COUNT)
-        return completion_count >= batch_size and completion_count >= Dataset.UPLOAD_REPORTING_MIN_BATCH_SIZE
-
-    def __upload_files_batch(
-        self,
-        files: collections.abc.Iterable[pathlib.Path],
-        file_destination_paths: collections.abc.Mapping[pathlib.Path, str] = {},
-        print_progress: bool = True,
-        device_id: typing.Optional[str] = None,
-    ):
-        package_version = self.__retrieve_roboto_version()
-
-        origination = RobotoEnv.default().roboto_env or f"roboto {package_version}"
-        file_manifest = {file_destination_paths.get(path, path.name): path.stat().st_size for path in files}
-
-        total_file_count = len(file_manifest)
-        total_file_size = sum(file_manifest.values())
-
-        transaction_id, create_upload_mappings = self._create_manifest_transaction(
-            origination=origination,
-            resource_manifest=file_manifest,
-            device_id=device_id,
-        )
-
-        file_path_to_manifest_mappings = {file_destination_paths.get(path, path.name): path for path in files}
-        upload_mappings = {
-            file_path_to_manifest_mappings[src_path]: dest_uri for src_path, dest_uri in create_upload_mappings.items()
-        }
-
-        progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory()
-        if print_progress:
-            progress_monitor_factory = TqdmProgressMonitorFactory(
-                concurrency=1,
-                ctx={
-                    "expected_file_count": total_file_count,
-                    "expected_file_size": total_file_size,
-                },
-            )
-
-        with progress_monitor_factory.upload_monitor(
-            source=f"{total_file_count} file" + ("s" if total_file_count != 1 else ""),
-            size=total_file_size,
-        ) as progress_monitor:
-            self.__file_service.upload_many_files(
-                file_generator=upload_mappings.items(),
-                credential_provider=self.__file_creds_helper.get_dataset_upload_creds_provider(
-                    self.dataset_id, transaction_id
-                ),
-                on_file_complete=functools.partial(
-                    self.__on_manifest_item_complete,
-                    transaction_id,
-                    total_file_count,
-                ),
-                progress_monitor=progress_monitor,
-                max_concurrency=8,
-            )
-
-        self._complete_manifest_transaction(
-            transaction_id,
-        )

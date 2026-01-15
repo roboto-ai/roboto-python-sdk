@@ -10,7 +10,7 @@ import json
 import typing
 import urllib.response
 
-from .http_client import HttpResponse
+from ..http.http_client import HttpResponse
 
 
 class FakeHttpResponseFactory:
@@ -40,7 +40,7 @@ class FakeHttpResponseFactory:
 
     def __init__(
         self,
-        url: str = "https://iamverylazyanddonotseturls.com",
+        url: str = "https://test.roboto.ai",
         response_data: typing.Any = "{}",
         status_code: int = 200,
         headers: typing.Optional[dict[str, str]] = None,

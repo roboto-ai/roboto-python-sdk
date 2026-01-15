@@ -12,7 +12,7 @@ import typing
 
 from ....association import Association
 from ....exceptions import IngestionException
-from ....file_infra import FileService
+from ....fs import FileService
 from ....http import RobotoClient
 from ....logging import default_logger
 

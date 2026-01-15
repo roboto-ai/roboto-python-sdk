@@ -9,6 +9,7 @@ from .object_store import (
     Credentials,
     FutureLike,
     ObjectStore,
+    OnProgress,
 )
 from .registry import StoreRegistry
 from .s3 import S3Store
@@ -18,6 +19,7 @@ __all__ = (
     "CredentialProvider",
     "FutureLike",
     "ObjectStore",
+    "OnProgress",
     "StoreRegistry",
     "S3Store",
 )

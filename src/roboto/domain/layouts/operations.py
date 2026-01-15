@@ -52,6 +52,8 @@ class UpdateLayoutRequest(pydantic.BaseModel):
         description="The tags associated with the layout.", default=NotSet
     )
 
+    model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
+
     @pydantic.model_validator(mode="after")
     def validate_schema_version_with_definition(self) -> "UpdateLayoutRequest":
         if not isinstance(self.layout_definition, NotSetType) and isinstance(self.schema_version, NotSetType):

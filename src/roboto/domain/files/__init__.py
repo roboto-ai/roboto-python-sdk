@@ -5,15 +5,8 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .file import File
-from .file_creds import (
-    CredentialProvider,
-    DatasetCredentials,
-    S3Credentials,
-)
-from .file_downloader import FileDownloader
 from .lazy_lookup_file import LazyLookupFile
 from .operations import (
-    AbortTransactionsRequest,
     DeleteFileRequest,
     DirectoryContentsPage,
     FileRecordRequest,
@@ -36,15 +29,11 @@ from .record import (
 )
 
 __all__ = (
-    "AbortTransactionsRequest",
-    "CredentialProvider",
-    "DatasetCredentials",
     "DeleteFileRequest",
     "DirectoryContentsPage",
     "DirectoryRecord",
     "FSType",
     "File",
-    "FileDownloader",
     "FileRecord",
     "FileRecordRequest",
     "FileStatus",
@@ -55,7 +44,6 @@ __all__ = (
     "LazyLookupFile",
     "QueryFilesRequest",
     "RenameFileRequest",
-    "S3Credentials",
     "SignedUrlResponse",
     "UpdateFileRecordRequest",
     "is_directory",

@@ -1,5 +1,6 @@
 python_sources(
   name="notebook-utils",
+  sources=["notebook_utils/**/*.py"],
   dependencies=[
     # build-support[sdk_examples] extras
     "//build-support:3rdparty-dev-tools#ipython",
@@ -7,6 +8,7 @@ python_sources(
     "//build-support:3rdparty-dev-tools#matplotlib",
     "//build-support:3rdparty-dev-tools#pillow",
   ],
+  skip_mypy=True,  # Example notebook utilities - not production code
 )
 
 resources(

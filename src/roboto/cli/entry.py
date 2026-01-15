@@ -273,6 +273,9 @@ def __populate_context(
     context.roboto_client = RobotoClient(
         endpoint=config.endpoint,
         auth_decorator=auth_decorator,
+        http_client_kwargs={
+            "requester": RobotoRequester.for_tool(RobotoTool.Cli),
+        },
     )
     context.http_client = context.roboto_client.http_client
     context.http_client.set_requester(RobotoRequester.for_tool(RobotoTool.Cli))

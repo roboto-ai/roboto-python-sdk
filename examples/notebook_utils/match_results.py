@@ -15,9 +15,9 @@ import math
 
 from IPython.core.pylabtools import print_figure
 from IPython.display import HTML, display
-import PIL.Image
 import matplotlib.pyplot
 import matplotlib.ticker
+import PIL.Image
 
 import roboto
 import roboto.analytics
@@ -25,9 +25,7 @@ import roboto.analytics
 NANO_SEC_PER_SEC = 1e9
 
 
-def images_frames_to_encoded_gif(
-    image_frames, fps=10, loops=math.inf, resize_factor=0.5
-) -> str:
+def images_frames_to_encoded_gif(image_frames, fps=10, loops=math.inf, resize_factor=0.5) -> str:
     images = [PIL.Image.open(io.BytesIO(frame)) for frame in image_frames]
     resized_images = [
         img.resize(
@@ -66,9 +64,7 @@ def plot_match(match: roboto.analytics.Match) -> matplotlib.pyplot.Figure:
     fig.set_size_inches(5, 3)
     ax.plot(match.subsequence)
     ax.set_xticks([match.start_time, match.end_time])
-    ax.xaxis.set_major_formatter(
-        matplotlib.ticker.FuncFormatter(lambda val, _: format_log_time(val))
-    )
+    ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda val, _: format_log_time(val)))
     matplotlib.pyplot.setp(ax.spines.values(), lw=0.5)
 
     return fig
@@ -80,16 +76,12 @@ def format_match(
     additional_image_context_duration_seconds: float = 1.5,
     roboto_client: roboto.RobotoClient | None = None,
 ) -> str:
-    additional_image_context_duration_ns = int(
-        additional_image_context_duration_seconds * NANO_SEC_PER_SEC
-    )
+    additional_image_context_duration_ns = int(additional_image_context_duration_seconds * NANO_SEC_PER_SEC)
     FALLBACK_GIF = "R0lGODlhAQABAIAAAAUEBA=="  # 1x1 transparent GIF
     gif = FALLBACK_GIF
     if match.context.file_id is not None:
         try:
-            file = roboto.File.from_id(
-                match.context.file_id, roboto_client=roboto_client
-            )
+            file = roboto.File.from_id(match.context.file_id, roboto_client=roboto_client)
             image_topic = file.get_topic(image_topic_name)
             image_topic_data = image_topic.get_data(
                 message_paths_include=["data"],

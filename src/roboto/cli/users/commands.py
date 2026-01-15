@@ -9,7 +9,6 @@ import json
 
 from ...domain.orgs import Org
 from ...domain.users import User
-from ...exceptions import RobotoHttpExceptionParse
 from ..command import (
     RobotoCommand,
     RobotoCommandSet,
@@ -65,9 +64,8 @@ def orgs(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 
 def whoami(args, context: CLIContext, parser: argparse.ArgumentParser):
-    with RobotoHttpExceptionParse():
-        contents = context.http_client.get(context.http_client.url("v1/users/whoami")).to_dict(json_path=["data"])
-        print(json.dumps(contents, indent=2))
+    contents = context.roboto_client.get("v1/users/whoami").to_dict(json_path=["data"])
+    print(json.dumps(contents, indent=2))
 
 
 delete_command = RobotoCommand(

@@ -12,11 +12,6 @@ import pathlib
 import typing
 import urllib.parse
 
-import boto3
-import botocore.config
-import botocore.credentials
-import botocore.session
-
 from ...ai import SetSummaryRequest
 from ...ai.summary import (
     AISummary,
@@ -24,7 +19,12 @@ from ...ai.summary import (
     StreamingAISummary,
 )
 from ...association import Association
+from ...fs import FileService
 from ...http import BatchRequest, RobotoClient
+from ...progress import (
+    NoopProgressMonitor,
+    TqdmProgressMonitor,
+)
 from ...query import QuerySpecification
 from ...sentinels import (
     NotSet,
@@ -34,18 +34,10 @@ from ...sentinels import (
 from ...time import TimeUnit
 from ...updates import MetadataChangeset
 from ..topics import Topic
-from .file_creds import (
-    CredentialProvider,
-    FileCredentialsHelper,
-)
 from .operations import (
     ImportFileRequest,
     RenameFileRequest,
     UpdateFileRecordRequest,
-)
-from .progress import (
-    NoopProgressMonitorFactory,
-    ProgressMonitorFactory,
 )
 from .record import FileRecord, IngestionStatus
 
@@ -75,87 +67,9 @@ class File:
     for file manipulation in the Roboto SDK.
     """
 
+    __file_service: FileService
     __record: FileRecord
     __roboto_client: RobotoClient
-
-    @staticmethod
-    def construct_s3_obj_arn(bucket: str, key: str, partition: str = "aws") -> str:
-        """Construct an S3 object ARN from bucket and key components.
-
-        Args:
-            bucket: S3 bucket name.
-            key: S3 object key (path within the bucket).
-            partition: AWS partition name, defaults to "aws".
-
-        Returns:
-            Complete S3 object ARN string.
-
-        Examples:
-            >>> arn = File.construct_s3_obj_arn("my-bucket", "path/to/file.bag")
-            >>> print(arn)
-            'arn:aws:s3:::my-bucket/path/to/file.bag'
-        """
-        return f"arn:{partition}:s3:::{bucket}/{key}"
-
-    @staticmethod
-    def construct_s3_obj_uri(bucket: str, key: str, version: typing.Optional[str] = None) -> str:
-        """Construct an S3 object URI from bucket, key, and optional version.
-
-        Args:
-            bucket: S3 bucket name.
-            key: S3 object key (path within the bucket).
-            version: Optional S3 object version ID.
-
-        Returns:
-            Complete S3 object URI string.
-
-        Examples:
-            >>> uri = File.construct_s3_obj_uri("my-bucket", "path/to/file.bag")
-            >>> print(uri)
-            's3://my-bucket/path/to/file.bag'
-
-            >>> versioned_uri = File.construct_s3_obj_uri("my-bucket", "path/to/file.bag", "abc123")
-            >>> print(versioned_uri)
-            's3://my-bucket/path/to/file.bag?versionId=abc123'
-        """
-        base_uri = f"s3://{bucket}/{key}"
-        if version:
-            base_uri += f"?versionId={version}"
-        return base_uri
-
-    @staticmethod
-    def generate_s3_client(credential_provider: CredentialProvider, tcp_keepalive: bool = True):
-        """Generate a configured S3 client using Roboto credentials.
-
-        Creates an S3 client with refreshable credentials obtained from the provided
-        credential provider. The client is configured with the appropriate region
-        and connection settings.
-
-        Args:
-            credential_provider: Function that returns AWS credentials for S3 access.
-            tcp_keepalive: Whether to enable TCP keepalive for the S3 connection.
-
-        Returns:
-            Configured boto3 S3 client instance.
-
-        Examples:
-            >>> from roboto.domain.files.file_creds import FileCredentialsHelper
-            >>> helper = FileCredentialsHelper(roboto_client)
-            >>> cred_provider = helper.get_dataset_download_creds_provider("ds_123", "bucket")
-            >>> s3_client = File.generate_s3_client(cred_provider)
-        """
-        creds = credential_provider()
-        refreshable_credentials = botocore.credentials.RefreshableCredentials.create_from_metadata(
-            metadata=creds,
-            refresh_using=credential_provider,
-            method="roboto-api",
-        )
-        botocore_session = botocore.session.get_session()
-        botocore_session._credentials = refreshable_credentials
-        botocore_session.set_config_variable("region", creds["region"])
-        session = boto3.Session(botocore_session=botocore_session)
-
-        return session.client("s3", config=botocore.config.Config(tcp_keepalive=tcp_keepalive))
 
     @classmethod
     def from_id(
@@ -472,8 +386,14 @@ class File:
             else:
                 break
 
-    def __init__(self, record: FileRecord, roboto_client: typing.Optional[RobotoClient] = None):
+    def __init__(
+        self,
+        record: FileRecord,
+        roboto_client: typing.Optional[RobotoClient] = None,
+        file_service: typing.Optional[FileService] = None,
+    ):
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
+        self.__file_service = file_service or FileService(self.__roboto_client)
         self.__record = record
 
     def __repr__(self) -> str:
@@ -765,8 +685,7 @@ class File:
     def download(
         self,
         local_path: pathlib.Path,
-        credential_provider: typing.Optional[CredentialProvider] = None,
-        progress_monitor_factory: ProgressMonitorFactory = NoopProgressMonitorFactory(),
+        print_progress: bool = True,
     ):
         """Download this file to a local path.
 
@@ -775,10 +694,7 @@ class File:
 
         Args:
             local_path: Local filesystem path where the file should be saved.
-            credential_provider: Custom credentials for accessing the file storage.
-                If None, uses default credentials for the file's dataset.
-            progress_monitor_factory: Factory for creating progress monitors to track
-                download progress. Defaults to no progress monitoring.
+            print_progress: Whether to show a progress bar during download.
 
         Raises:
             RobotoUnauthorizedException: Caller lacks permission to download the file.
@@ -790,39 +706,25 @@ class File:
             >>> local_path = pathlib.Path("/tmp/downloaded_file.bag")
             >>> file.download(local_path)
             >>> print(f"Downloaded to {local_path}")
-
-            >>> # Download with progress monitoring
-            >>> from roboto.domain.files.progress import TqdmProgressMonitorFactory
-            >>> progress_factory = TqdmProgressMonitorFactory()
-            >>> file.download(local_path, progress_monitor_factory=progress_factory)
         """
-        local_path.parent.mkdir(parents=True, exist_ok=True)
-
-        defaulted_credential_provider: CredentialProvider
-        if credential_provider is None:
-            defaulted_credential_provider = FileCredentialsHelper(
-                self.__roboto_client
-            ).get_dataset_download_creds_provider(self.dataset_id, self.record.bucket)
-        else:
-            defaulted_credential_provider = credential_provider
-
-        s3_client = File.generate_s3_client(defaulted_credential_provider)
-
-        res = s3_client.head_object(Bucket=self.record.bucket, Key=self.record.key)
-        download_bytes = int(res.get("ContentLength", 0))
-
-        source = self.record.key.replace(f"{self.record.org_id}/datasets/", "")
-
-        progress_monitor = progress_monitor_factory.download_monitor(source=source, size=download_bytes)
-        try:
-            s3_client.download_file(
-                Bucket=self.record.bucket,
-                Key=self.record.key,
-                Filename=str(local_path),
-                Callback=progress_monitor.update,
+        progress_monitor = (
+            TqdmProgressMonitor(
+                total=self.record.size,
+                desc=f"Downloading {self.relative_path}",
             )
-        finally:
-            progress_monitor.close()
+            if print_progress
+            else NoopProgressMonitor()
+        )
+
+        with progress_monitor:
+            self.__file_service.download(
+                files=[
+                    {"bucket_name": self.record.bucket, "source_uri": self.record.uri, "destination_path": local_path}
+                ],
+                association=Association.dataset(self.dataset_id),
+                caller_org_id=self.org_id,
+                on_progress=progress_monitor.update,
+            )
 
     def generate_summary(self) -> StreamingAISummary:
         """Generate a new AI summary for this file.

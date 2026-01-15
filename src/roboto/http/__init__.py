@@ -43,7 +43,6 @@ from .response import (
     StreamedList,
 )
 from .roboto_client import DEFAULT_HTTP_TIMEOUT, RobotoClient
-from .testing_util import FakeHttpResponseFactory
 
 __all__ = (
     "BEARER_TOKEN_HEADER",
@@ -54,7 +53,6 @@ __all__ = (
     "CONTENT_TYPE_JSON_HEADER",
     "ClientError",
     "DEFAULT_HTTP_TIMEOUT",
-    "FakeHttpResponseFactory",
     "HttpClient",
     "HttpError",
     "ORG_OVERRIDE_HEADER",

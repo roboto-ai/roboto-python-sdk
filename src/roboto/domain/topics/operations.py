@@ -133,7 +133,7 @@ class UpdateMessagePathRequest(pydantic.BaseModel):
     ability to interpret and visualize the data.
     """
 
-    model_config = pydantic.ConfigDict(extra="ignore")
+    model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
 
     def has_updates(self) -> bool:
         """Check whether this request would result in any message path modifications.

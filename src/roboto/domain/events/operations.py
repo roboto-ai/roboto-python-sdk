@@ -49,6 +49,8 @@ class EventDisplayOptionsChangeset(pydantic.BaseModel):
     will be displayed using an automatically selected color.
     """
 
+    model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
+
     def apply_to(self, display_options: EventDisplayOptions) -> EventDisplayOptions:
         """Applies this changeset to some existing display options."""
 

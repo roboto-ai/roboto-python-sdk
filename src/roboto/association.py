@@ -98,6 +98,47 @@ class Association(pydantic.BaseModel):
         return coalesced
 
     @classmethod
+    def from_id(cls, association_id: str) -> Association:
+        """Infer the association type from the ID prefix.
+
+        Roboto IDs follow the pattern ``{prefix}_{random_chars}`` where the prefix
+        indicates the entity type:
+
+        - ``ds_`` → Dataset
+        - ``fl_`` → File
+        - ``tp_`` → Topic
+        - ``mp_`` → MessagePath
+
+        Args:
+            association_id: A Roboto entity ID with a recognized prefix.
+
+        Returns:
+            An Association with the inferred type.
+
+        Raises:
+            RobotoIllegalArgumentException: If the ID prefix is not recognized.
+
+        Example:
+            >>> Association.from_id("ds_abc123")
+            Association(association_id='ds_abc123', association_type=AssociationType.Dataset)
+        """
+        prefix_to_type = {
+            "ds_": AssociationType.Dataset,
+            "fl_": AssociationType.File,
+            "tp_": AssociationType.Topic,
+            "mp_": AssociationType.MessagePath,
+        }
+
+        for prefix, assoc_type in prefix_to_type.items():
+            if association_id.startswith(prefix):
+                return cls(association_id=association_id, association_type=assoc_type)
+
+        raise RobotoIllegalArgumentException(
+            f"Cannot infer association type from ID '{association_id}'. "
+            f"Expected ID to start with one of: {', '.join(prefix_to_type.keys())}"
+        )
+
+    @classmethod
     def dataset(cls, dataset_id: str) -> Association:
         return cls(association_id=dataset_id, association_type=AssociationType.Dataset)
 

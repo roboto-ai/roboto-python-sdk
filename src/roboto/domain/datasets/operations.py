@@ -16,55 +16,6 @@ from ...sentinels import NotSet, NotSetType
 from ...updates import MetadataChangeset
 
 
-class BeginSingleFileUploadRequest(pydantic.BaseModel):
-    """
-    Request payload to begin a single file upload
-    """
-
-    origination: typing.Optional[str] = pydantic.Field(
-        description="Additional information about what uploaded the file, e.g. `roboto client v1.0.0`.",
-        default=None,
-    )
-    file_path: str = pydantic.Field(
-        description="The destination path to upload the file to in the dataset, e.g. `recording.bag`"
-        + "or `path/to/metadata.json`.",
-    )
-    file_size: int = pydantic.Field(description="The size of the file in bytes.")
-
-
-class BeginSingleFileUploadResponse(pydantic.BaseModel):
-    """
-    Response to a single file upload
-    """
-
-    upload_id: str
-    upload_url: str
-
-
-class BeginManifestTransactionRequest(pydantic.BaseModel):
-    """
-    Request payload to begin a manifest-based transaction
-    """
-
-    origination: str
-    """Additional information about what uploaded the file, e.g. `roboto client v1.0.0`."""
-
-    device_id: typing.Optional[str] = None
-    """The ID of the device which created this dataset, if applicable."""
-
-    resource_manifest: dict[str, int]
-    """Dictionary mapping destination file paths to file sizes in bytes."""
-
-
-class BeginManifestTransactionResponse(pydantic.BaseModel):
-    """
-    Response to a manifest-based transaction request
-    """
-
-    transaction_id: str
-    upload_mappings: dict[str, str]
-
-
 class CreateDatasetRequest(pydantic.BaseModel):
     """Request payload for creating a new dataset.
 
@@ -141,18 +92,6 @@ class QueryDatasetsRequest(pydantic.BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-class ReportTransactionProgressRequest(pydantic.BaseModel):
-    """Request payload for reporting file upload transaction progress.
-
-    Used to notify the platform about the completion status of individual
-    files within a batch upload transaction. This enables progress tracking
-    and partial completion handling for large file uploads.
-    """
-
-    manifest_items: list[str]
-    """List of manifest item identifiers that have completed upload."""
-
-
 class UpdateDatasetRequest(pydantic.BaseModel):
     """Request payload for updating dataset properties.
 
@@ -175,31 +114,6 @@ class UpdateDatasetRequest(pydantic.BaseModel):
     """New name for the dataset (max 120 characters). Set to None to clear the name."""
 
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
-
-
-class BeginTransactionRequest(pydantic.BaseModel):
-    """Request payload for beginning a file upload transaction.
-
-    Used to initiate a transaction for uploading multiple files to a dataset.
-    Transactions help coordinate batch uploads and provide progress tracking.
-    """
-
-    origination: str
-    """Description of the upload source (e.g., 'roboto client v1.0.0')."""
-
-    expected_resource_count: typing.Optional[int] = None
-    """Optional expected number of resources to be uploaded in this transaction."""
-
-
-class TransactionCompletionResponse(pydantic.BaseModel):
-    """Response indicating the completion status of a transaction.
-
-    Provides information about whether a file upload transaction has been
-    fully completed, including all associated file processing.
-    """
-
-    is_complete: bool
-    """Whether the transaction has been fully completed."""
 
 
 class DeleteDirectoriesRequest(pydantic.BaseModel):
@@ -253,3 +167,29 @@ class CreateDatasetIfNotExistsRequest(pydantic.BaseModel):
 
     match_roboql_query: str
     create_request: CreateDatasetRequest
+
+
+class BeginSingleFileUploadRequest(pydantic.BaseModel):
+    """
+    Request payload to begin a single file upload
+    """
+
+    origination: typing.Optional[str] = pydantic.Field(
+        description="Additional information about what uploaded the file, e.g. `roboto client v1.0.0`.",
+        default=None,
+    )
+    file_path: str = pydantic.Field(
+        description=(
+            "The destination path to upload the file to in the dataset, e.g. `recording.bag`or `path/to/metadata.json`."
+        ),
+    )
+    file_size: int = pydantic.Field(description="The size of the file in bytes.")
+
+
+class BeginSingleFileUploadResponse(pydantic.BaseModel):
+    """
+    Response to a single file upload
+    """
+
+    upload_id: str
+    upload_url: str

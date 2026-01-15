@@ -5,24 +5,83 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
+import logging
 import os
 import pathlib
 import sys
 from typing import Optional
 
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 import pydantic
 
 from ..http import HttpClient
+from ..logging import LOGGER_NAME
 from ..time import utcnow
 from ..version import __version__
 from .terminal import AnsiColor
+
+logger = logging.getLogger(LOGGER_NAME)
+
+
+GITHUB_RELEASES_URL = "https://api.github.com/repos/roboto-ai/roboto-python-sdk/releases/latest"
 
 
 class CLIState(pydantic.BaseModel):
     last_checked_version: Optional[datetime.datetime] = None
     last_version: str = "0.0.0"
     out_of_date: bool = True
+
+
+def _get_latest_version_from_github() -> Optional[str]:
+    """
+    Fetch the latest release version from GitHub Releases API.
+
+    Returns:
+        The latest version string (without 'v' prefix), or None if the request fails.
+    """
+    http = HttpClient()
+
+    try:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"roboto-cli/{__version__} (+https://github.com/roboto-ai)",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+        response = http.get(GITHUB_RELEASES_URL, headers=headers)
+        release_data = response.to_dict()
+
+        tag_name = release_data.get("tag_name")
+        if not tag_name:
+            logger.debug("GitHub release response missing 'tag_name' field")
+            return None
+
+        version = tag_name.lstrip("v")
+
+        return version
+    except Exception as exc:
+        # Version checking should never block CLI usage
+        logger.debug("Failed to fetch latest version from GitHub: %s", exc)
+        return None
+
+
+def is_version_outdated(current: str, latest: str) -> bool:
+    """
+    Check if the current version is older than the latest version.
+
+    Args:
+        current: The current version string (e.g., "1.0.0").
+        latest: The latest available version string (e.g., "1.1.0").
+
+    Returns:
+        True if current version is older than latest, False otherwise.
+        Returns False if either version string is invalid.
+    """
+    try:
+        return Version(current) < Version(latest)
+    except InvalidVersion:
+        logger.debug("Invalid version format: current=%s, latest=%s", current, latest)
+        return False
 
 
 def check_last_update():
@@ -44,16 +103,13 @@ def check_last_update():
         or state.out_of_date is True
         or (utcnow() - datetime.timedelta(hours=1)) > state.last_checked_version
     ):
-        http = HttpClient()
-
-        releases = http.get(url="https://pypi.org/pypi/roboto/json").to_dict(json_path=["releases"])
-        versions = list(releases.keys())
-        versions.sort(key=Version)
-        latest = versions[-1]
+        latest = _get_latest_version_from_github()
+        if latest is None:
+            return
 
         state.last_checked_version = utcnow()
         state.last_version = __version__
-        state.out_of_date = __version__ != latest
+        state.out_of_date = is_version_outdated(__version__, latest)
 
         cli_state_file.write_text(state.model_dump_json())
 
