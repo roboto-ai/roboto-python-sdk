@@ -77,6 +77,15 @@ class QueryDatasetFilesRequest(pydantic.BaseModel):
     exclude_patterns: typing.Optional[list[str]] = None
     """List of gitignore-style patterns for files to exclude from results."""
 
+    limit: typing.Optional[int] = None
+    """Maximum number of files to return per page."""
+
+    sort_by: typing.Optional[str] = None
+    """Field to sort results by. Defaults to 'created'."""
+
+    sort_direction: typing.Optional[str] = None
+    """Sort direction ('ASC' or 'DESC'). Defaults to 'DESC'."""
+
 
 class QueryDatasetsRequest(pydantic.BaseModel):
     """Request payload for querying datasets with filters.

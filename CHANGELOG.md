@@ -1,5 +1,6 @@
 # Changelog
 
+# 0.35.2
 # 0.35.1
 ### Simplified File Transfer API
 
@@ -20,6 +21,7 @@ File upload and download operations have been simplified. The high-level methods
 
 ## Features Added
   - Added generic file upload API endpoints (`/v1/files/upload/*`) that support uploading files to any association type (datasets, topics, etc.), replacing the dataset-specific upload endpoints.
+  - Added limit, sort_by and sort_direction parameters to `v1/datasets/<dataset_id>/files/query`
 
 ## Bugs Fixed
   - CLI version checker now queries GitHub Releases instead of PyPI, ensuring users are only prompted to upgrade to CLI versions that are actually published and available.
