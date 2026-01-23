@@ -23,6 +23,17 @@ class ExitCode(enum.IntEnum):
       >             syntax in a parameter, or whatever.
     """
 
+    DataError = 65
+    """
+    From /usr/include/sysexits.h:
+      > EX_DATAERR -- The input data was incorrect in some way.
+      >               This should only be used for user's data & not system
+      >               files.
+
+    We use this in our own ingestion actions to signify "the ingestion action did the right thing, but the input
+    file was the wrong format, corrupted, a 0-byte file, etc."
+    """
+
     InternalError = 70
     """
     From /usr/include/sysexits.h:
