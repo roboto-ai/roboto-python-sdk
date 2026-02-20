@@ -408,6 +408,18 @@ class RobotoInternalException(RobotoDomainException):
         return 500
 
 
+class RobotoResponseTooLargeException(RobotoDomainException):
+    """
+    Thrown when the server cannot complete the request because the response payload exceeds
+    a storage or transport capacity limit (e.g., Lambda response size).
+    This is NOT expected to be transient and should NOT be retried.
+    """
+
+    @property
+    def http_status_code(self) -> int:
+        return 507
+
+
 class RobotoServiceUnavailableException(RobotoDomainException):
     """
     Thrown when a service is unavailable, such as when it's under heavy load and can't accept new requests.

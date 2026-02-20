@@ -118,7 +118,7 @@ class TopicDataService:
                 end_time=end_time_ns,
             )
         elif ParquetTopicReader.accepts(filtered_message_path_repr_mappings):
-            reader = ParquetTopicReader(self.__roboto_client)
+            reader = ParquetTopicReader(self.__roboto_client, cache_dir=cache_dir)
             timestamp_mapping = self.__find_timestamp_message_path_mapping(message_path_repr_mappings)
             yield from reader.get_data(
                 filtered_message_path_repr_mappings,
@@ -177,7 +177,7 @@ class TopicDataService:
                 end_time=end_time_ns,
             )
         elif ParquetTopicReader.accepts(filtered_message_path_repr_mappings):
-            reader = ParquetTopicReader(self.__roboto_client)
+            reader = ParquetTopicReader(self.__roboto_client, cache_dir=cache_dir)
             timestamp_mapping = self.__find_timestamp_message_path_mapping(message_path_repr_mappings)
             timestamps, df = reader.get_data_as_df(
                 filtered_message_path_repr_mappings,

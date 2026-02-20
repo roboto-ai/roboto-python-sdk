@@ -8,15 +8,16 @@ import argparse
 import json
 import typing
 
-from ...domain.datasets import Dataset
 from ...query import (
     Comparator,
     Condition,
     ConditionGroup,
     ConditionOperator,
+    QueryContentMode,
     QuerySpecification,
     SortDirection,
 )
+from ...roboto_search import RobotoSearch
 from ..command import (
     KeyValuePairsAction,
     RobotoCommand,
@@ -27,6 +28,7 @@ from ..context import CLIContext
 
 def search(args, context: CLIContext, parser: argparse.ArgumentParser):
     conditions: list[typing.Union[Condition, ConditionGroup]] = []
+
     if args.metadata:
         for key, value in args.metadata.items():
             conditions.append(
@@ -50,6 +52,7 @@ def search(args, context: CLIContext, parser: argparse.ArgumentParser):
     query_args: dict[str, typing.Any] = {
         "sort_direction": SortDirection.Descending,
     }
+
     if conditions:
         if len(conditions) == 1:
             query_args["condition"] = conditions[0]
@@ -57,11 +60,11 @@ def search(args, context: CLIContext, parser: argparse.ArgumentParser):
             query_args["condition"] = ConditionGroup(conditions=conditions, operator=ConditionOperator.And)
 
     query = QuerySpecification(**query_args)
-    results = Dataset.query(
-        spec=query,
-        roboto_client=context.roboto_client,
-        owner_org_id=args.org,
-    )
+    searcher = RobotoSearch.for_roboto_client(context.roboto_client, args.org)
+
+    # Fetch dataset metadata, since we want to dump all dataset fields as JSON on the cmdline
+    results = searcher.find_datasets(query, content_mode=QueryContentMode.RecordWithMeta)
+
     print(json.dumps([result.to_dict() for result in results], indent=2))
 
 

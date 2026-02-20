@@ -27,6 +27,12 @@ class RobotoApiVersion(StrEnum):
     v2026_01_02 = "2026-01-02"
     """Release date for v0.35.0 of the Roboto Python SDK"""
 
+    v2026_02_02 = "2026-02-02"
+    """Content mode introduced for query APIs."""
+
+    v2026_02_11 = "2026-02-11"
+    """path_in_schema is now a required field on AddMessagePathRequest"""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the latest available API version.
@@ -34,7 +40,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent API version supported by the platform.
         """
-        return RobotoApiVersion.v2026_01_02
+        return RobotoApiVersion.v2026_02_11
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

@@ -160,9 +160,8 @@ class MessagePathMetadataWellKnown(StrEnum):
         - Use of this metadata field is soft-deprecated as of SDK v0.24.0.
         - Prefer use of :py:attr:`~roboto.domain.topics.MessagePathRecord.source_path` and
           :py:attr:`~roboto.domain.topics.MessagePathRecord.path_in_schema` instead.
-          While those attributes are currently derived from metadata stored in this key,
-          first-class support for specifying those attributes will be added to
-          :py:class:`~MessagePathRecord` creation/update APIs in an upcoming SDK release.
+          Those attributes are now first-class fields on :py:class:`~MessagePathRecord`
+          and can be specified via :py:class:`~roboto.domain.topics.AddMessagePathRequest`.
     """
 
     Categories = "categories"

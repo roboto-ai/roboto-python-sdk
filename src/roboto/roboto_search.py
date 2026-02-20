@@ -21,7 +21,7 @@ from .domain import (
 )
 from .env import RobotoEnv
 from .http import RobotoClient
-from .query import Query, QueryClient, QueryTarget
+from .query import Query, QueryClient, QueryContentMode, QueryTarget
 
 
 class RobotoSearch:
@@ -84,12 +84,16 @@ class RobotoSearch:
     def find_datasets(
         self,
         query: typing.Optional[Query] = None,
+        content_mode: QueryContentMode = QueryContentMode.RecordOnly,
         timeout_seconds: float = math.inf,
     ) -> collections.abc.Generator[datasets.Dataset, None, None]:
-        for result in self.__query_client.submit_query(query, QueryTarget.Datasets, timeout_seconds):
+        for result in self.__query_client.submit_query(
+            query, QueryTarget.Datasets, timeout_seconds, content_mode=content_mode
+        ):
             yield datasets.Dataset(
                 datasets.DatasetRecord.model_validate(result),
                 self.__query_client.roboto_client,
+                content_mode=content_mode,
             )
 
     def find_files(

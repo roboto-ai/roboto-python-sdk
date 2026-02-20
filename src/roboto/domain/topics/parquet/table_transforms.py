@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import collections.abc
 import math
 import typing
 
@@ -146,3 +147,77 @@ def should_read_row_group(
 
     # Couldn't figure out the answer by looking at file metadata, so read the row group
     return True
+
+
+def _list_ancestor_column(
+    schema: "pyarrow.Schema",
+    path_in_schema: list[str],
+) -> typing.Optional[str]:
+    """Return the column path of the nearest list ancestor, or ``None``.
+
+    Walks *path_in_schema* through the Arrow *schema*, checking each intermediate
+    field.  If any intermediate field is a list (or large-list) type, returns the
+    dot-joined path up to and including that list field — which is the column name
+    that should be passed to ``read_row_group(columns=...)`` instead of the full
+    leaf path.
+
+    Top-level fields (single-element paths) are never considered nested inside a
+    list, so this always returns ``None`` for them.
+
+    Examples::
+
+        # points: list<item: struct<x: int64, y: int64>>
+        _list_ancestor_column(schema, ["points", "x"])  # → "points"
+
+        # outer: struct<inner: list<item: struct<x: int64>>>
+        _list_ancestor_column(schema, ["outer", "inner", "x"])  # → "outer.inner"
+
+        # position: struct<x: float64, y: float64>
+        _list_ancestor_column(schema, ["position", "x"])  # → None
+    """
+    pa = import_optional_dependency("pyarrow", "analytics")
+
+    if len(path_in_schema) <= 1:
+        return None
+
+    current_type = schema.field(path_in_schema[0]).type
+    for idx, part in enumerate(path_in_schema[1:], start=1):
+        if pa.types.is_list(current_type) or pa.types.is_large_list(current_type):
+            return ".".join(path_in_schema[:idx])
+        if pa.types.is_struct(current_type):
+            current_type = current_type.field(part).type
+        else:
+            break
+    return None
+
+
+def resolve_columns(
+    schema: "pyarrow.Schema",
+    message_paths: collections.abc.Iterable[MessagePathRecord],
+) -> list[str]:
+    """Build a deduplicated list of column names safe for ``read_row_group(columns=...)``.
+
+    Children of list-type columns are replaced by their list ancestor's column name
+    because PyArrow's prefix-based nested column selection does not work through list
+    wrapper nodes in the physical Parquet schema.  Selecting the parent list column
+    already returns its full nested structure.
+
+    This is important because the message-path-to-representation mappings returned by
+    the server contain only *leaf* message paths.  For a column like
+    ``points: list<struct<x, y>>``, only ``points.x`` and ``points.y`` appear in the
+    mapping — the parent ``points`` record is absent.  This function derives the
+    correct parent column name from the child's ``path_in_schema``.
+
+    Children of struct-type columns are preserved because PyArrow can resolve them via
+    dot-separated prefix matching (e.g. ``"position.x"`` selects the ``x`` child of
+    the ``position`` struct).
+    """
+    columns: list[str] = []
+    seen: set[str] = set()
+    for mp in message_paths:
+        ancestor = _list_ancestor_column(schema, mp.path_in_schema)
+        col = ancestor if ancestor is not None else mp.source_path
+        if col not in seen:
+            columns.append(col)
+            seen.add(col)
+    return columns

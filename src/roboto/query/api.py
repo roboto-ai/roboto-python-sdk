@@ -51,6 +51,34 @@ class QueryStatus(enum.Enum):
     """
 
 
+class QueryContentMode(StrEnum):
+    """
+    Hint to query APIs on whether to return Roboto entities with custom metadata.
+
+    In ``RecordOnly`` mode, Roboto entities are returned without custom metadata,
+    ensuring a smaller and more predictable response size. Use this mode when you
+    need lower query latency, larger result page sizes, or both.
+
+    In ``RecordWithMeta`` mode, Roboto entities are returned with all available
+    custom metadata. Use this mode if you need immediate access to metadata fields.
+
+    Note: content mode support is initially available for dataset queries, and will
+    be added incrementally for other entity types.
+    """
+
+    RecordOnly = "record_only"
+    """Query results are returned with core Roboto data attributes only.
+
+    Those attributes establish the identity and function of Roboto entities.
+    """
+
+    RecordWithMeta = "record_with_meta"
+    """Query results are returned with all available entity attributes.
+
+    This includes core Roboto data attributes as well as custom metadata.
+    """
+
+
 class QueryScheme(StrEnum):
     """
     A specific query format/schema which can be used in combination with some context JSON to provide all information
@@ -128,6 +156,9 @@ class SubmitStructuredQueryRequest(pydantic.BaseModel):
     Request payload to submit a structured query
     """
 
+    content_mode: QueryContentMode = pydantic.Field(
+        default=QueryContentMode.RecordWithMeta, description="The content mode for query results."
+    )
     query: QuerySpecification = pydantic.Field(description="The conditions, sorting behavior, and limit of this query.")
     target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
 
@@ -137,6 +168,9 @@ class SubmitRoboqlQueryRequest(pydantic.BaseModel):
     Request payload to submit a RoboQL query
     """
 
+    content_mode: QueryContentMode = pydantic.Field(
+        default=QueryContentMode.RecordWithMeta, description="The content mode for query results."
+    )
     query: typing.Optional[str] = pydantic.Field(
         description="The conditions, sorting behavior, and limit of this query."
     )
@@ -148,6 +182,9 @@ class SubmitTermQueryRequest(pydantic.BaseModel):
     Request payload to submit a simple term query
     """
 
+    content_mode: QueryContentMode = pydantic.Field(
+        default=QueryContentMode.RecordWithMeta, description="The content mode for query results."
+    )
     term: str = pydantic.Field(
         default="",
         description="A string search term which this query will attempt to match across any appropriate fields.",

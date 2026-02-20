@@ -74,10 +74,16 @@ class PaginatedList(pydantic.BaseModel, typing.Generic[Model]):
     """
 
     items: list[Model]
-    # Opaque token that can be used to fetch the next page of results.
+    """Roboto entities in this page of results."""
+
     next_token: typing.Optional[str] = None
-    # Total number of items in the result set.
+    """Opaque token to fetch the next page of results.
+
+    If ``None``, then this is the last page of results.
+    """
+
     total_count: typing.Optional[int] = None
+    """Total result set size, if available."""
 
 
 class StreamedList(pydantic.BaseModel, typing.Generic[Model]):

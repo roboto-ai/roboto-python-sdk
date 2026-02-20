@@ -58,53 +58,44 @@ class MessagePath:
     __topic_data_service: TopicDataService
 
     @staticmethod
-    def parents(path: str) -> list[str]:
-        """Get parent paths for a message path in dot notation.
+    def parents(path_in_schema: list[str]) -> list[str]:
+        """Get parent paths for a message path.
 
-        Given a message path in dot notation, returns a list of its parent paths
-        ordered from most specific to least specific.
+        Given a path_in_schema (list of path components), returns a list of its
+        parent paths ordered from most specific to least specific.
 
         Args:
-            path: Message path in dot notation (e.g., "pose.pose.position.x").
+            path_in_schema: List of path components (e.g., ["pose", "pose", "position", "x"]).
 
         Returns:
             List of parent paths in dot notation, ordered from most to least specific.
 
+        Raises:
+            TypeError: If a string is passed instead of a list. This method previously
+                accepted a dot-delimited string; passing a string now would silently
+                iterate over its characters and produce wrong results.
+
         Examples:
-            >>> path = "pose.pose.position.x"
-            >>> MessagePath.parents(path)
+            >>> path_in_schema = ["pose", "pose", "position", "x"]
+            >>> MessagePath.parents(path_in_schema)
             ['pose.pose.position', 'pose.pose', 'pose']
 
             >>> # Single level path has no parents
-            >>> MessagePath.parents("velocity")
+            >>> MessagePath.parents(["velocity"])
             []
         """
-        parent_parts = MessagePath.parts(path)[:-1]
+        # Guard against callers using the old str-based signature.
+        # Strings are iterable in Python, so passing one wouldn't raise but would
+        # silently produce nonsense by iterating over individual characters.
+        if isinstance(path_in_schema, str):
+            raise TypeError(
+                "MessagePath.parents() now requires a list[str] (path_in_schema), "
+                "not a dot-delimited string. Use MessagePathRecord.path_in_schema "
+                "or split your path into components."
+            )
+
+        parent_parts = path_in_schema[:-1]
         return [MessagePath.DELIMITER.join(parent_parts[:i]) for i in range(len(parent_parts), 0, -1)]
-
-    @staticmethod
-    def parts(path: str) -> list[str]:
-        """Split message path in dot notation into its constituent parts.
-
-        Splits a message path string into individual components, useful for
-        programmatic manipulation of message path hierarchies.
-
-        Args:
-            path: Message path in dot notation (e.g., "pose.pose.position.x").
-
-        Returns:
-            List of path components in order from root to leaf.
-
-        Examples:
-            >>> path = "pose.pose.position.x"
-            >>> MessagePath.parts(path)
-            ['pose', 'pose', 'position', 'x']
-
-            >>> # Single component path
-            >>> MessagePath.parts("velocity")
-            ['velocity']
-        """
-        return path.split(MessagePath.DELIMITER)
 
     @classmethod
     def from_id(

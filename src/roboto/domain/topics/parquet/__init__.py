@@ -5,7 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .arrow_to_roboto import (
-    field_to_message_path_request,
+    generate_message_path_requests,
 )
 from .ingestion import (
     make_topic_filename_safe,
@@ -17,7 +17,7 @@ from .parquet_topic_reader import (
 )
 
 __all__ = (
-    "field_to_message_path_request",
+    "generate_message_path_requests",
     "make_topic_filename_safe",
     "ParquetParser",
     "ParquetTopicReader",

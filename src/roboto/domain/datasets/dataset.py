@@ -34,7 +34,7 @@ from ...progress import (
     NoopProgressMonitor,
     TqdmProgressMonitor,
 )
-from ...query import QuerySpecification
+from ...query import DEFAULT_PAGE_SIZE, QueryContentMode, QuerySpecification
 from ...sentinels import (
     NotSet,
     NotSetType,
@@ -98,6 +98,7 @@ class Dataset:
 
     __roboto_client: RobotoClient
     __record: DatasetRecord
+    __content_mode: QueryContentMode
     __file_service: FileService
 
     @classmethod
@@ -350,7 +351,7 @@ class Dataset:
             Found dataset: Other Roboto Test
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        spec = spec if spec is not None else QuerySpecification()
+        spec = spec if spec is not None else QuerySpecification(limit=DEFAULT_PAGE_SIZE)
 
         known = set(DatasetRecord.model_fields.keys())
         actual = set()
@@ -386,17 +387,22 @@ class Dataset:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Dataset):
             return False
-        return self.record == other.record
+
+        # Only compare core dataset entity fields
+        exclude_meta: dict[str, typing.Any] = {"metadata": dict()}
+        return self.record.model_copy(update=exclude_meta) == other.record.model_copy(update=exclude_meta)
 
     def __init__(
         self,
         record: DatasetRecord,
         roboto_client: typing.Optional[RobotoClient] = None,
         file_service: typing.Optional[FileService] = None,
+        content_mode: typing.Optional[QueryContentMode] = None,
     ) -> None:
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__file_service = file_service or FileService(self.__roboto_client)
         self.__record = record
+        self.__content_mode = content_mode or QueryContentMode.RecordWithMeta
 
     def __repr__(self) -> str:
         return self.__record.model_dump_json()
@@ -454,7 +460,26 @@ class Dataset:
         Returns a copy of the dataset's metadata dictionary containing arbitrary
         key-value pairs for storing custom information. Supports nested structures
         and dot notation for accessing nested fields.
+
+        Note: this attribute is kept for backward compatibility. Prefer :py:meth:`get_metadata()`,
+        since metadata may need to be loaded on-demand from the server.
         """
+
+        return self.get_metadata()
+
+    def get_metadata(self) -> dict[str, typing.Any]:
+        """Return custom metadata associated with this dataset.
+
+        Returns a copy of the dataset's metadata dictionary containing arbitrary
+        key-value pairs for storing custom information. Supports nested structures
+        and dot notation for accessing nested fields.
+        """
+
+        if self.__content_mode is not QueryContentMode.RecordWithMeta:
+            # Force metadata to be fetched from the DB.
+            self.refresh()
+            self.__content_mode = QueryContentMode.RecordWithMeta
+
         return self.__record.metadata.copy()
 
     @property
@@ -552,7 +577,9 @@ class Dataset:
             Create a directory with intermediate directories:
 
             >>> directory = dataset.create_directory(
-            ...     name="final", parent_path="path/to/deep", create_intermediate_dirs=True
+            ...     name="final",
+            ...     parent_path=pathlib.Path("path/to/deep"),
+            ...     create_intermediate_dirs=True,
             ... )
             >>> print(directory.relative_path)
             path/to/deep/final

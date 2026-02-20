@@ -95,6 +95,10 @@ class AddMessagePathRequest(pydantic.BaseModel):
         canonical_data_type: Normalized Roboto data type that enables specialized
             platform features for maps, images, timestamps, and other data.
         metadata: Initial key-value pairs to associate with the message path.
+        path_in_schema: List of path components representing the field's location
+            in the original data schema. Unlike message_path, which assumes dots
+            separate path parts implying nested data, this preserves the exact path
+            from the source data for accurate attribute access.
     """
 
     message_path: str
@@ -104,6 +108,10 @@ class AddMessagePathRequest(pydantic.BaseModel):
         default_factory=dict,
         description="Initial key-value pairs to associate with this topic message path for discovery and search, e.g. "
         + "`{ 'min': 0.71, 'max': 1.77, 'classification': 'my-custom-classification-tag' }`",
+    )
+    path_in_schema: list[str] = pydantic.Field(
+        description="List of path components representing the field's location in the source data schema. "
+        "For nested fields like 'position.x', this would be ['position', 'x'].",
     )
 
     model_config = pydantic.ConfigDict(extra="ignore")
@@ -133,6 +141,12 @@ class UpdateMessagePathRequest(pydantic.BaseModel):
     ability to interpret and visualize the data.
     """
 
+    path_in_schema: typing.Union[list[str], NotSetType] = NotSet
+    """List of path components representing the field's location in the source data schema (optional).
+
+    For nested fields like 'position.x', this would be ['position', 'x'].
+    """
+
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
 
     def has_updates(self) -> bool:
@@ -145,6 +159,7 @@ class UpdateMessagePathRequest(pydantic.BaseModel):
         return (
             is_set(self.data_type)
             or is_set(self.canonical_data_type)
+            or is_set(self.path_in_schema)
             or (is_set(self.metadata_changeset) and self.metadata_changeset.has_changes())
         )
 

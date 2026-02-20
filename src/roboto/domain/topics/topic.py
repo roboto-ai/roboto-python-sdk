@@ -41,7 +41,7 @@ from .operations import (
 )
 from .parquet import (
     ParquetParser,
-    field_to_message_path_request,
+    generate_message_path_requests,
     make_topic_filename_safe,
     upload_representation_file,
 )
@@ -283,10 +283,7 @@ class Topic:
             # Index as topic and message_paths
             parser = ParquetParser(parquet_path)
             timestamp = parser.extract_timestamp_info(timestamp_column, timestamp_unit)
-            message_path_requests = []
-            for field in parser.fields:
-                message_path_request = field_to_message_path_request(field, parser, timestamp)
-                message_path_requests.append(message_path_request)
+            message_path_requests = list(generate_message_path_requests(parser, timestamp))
 
             # Create or update topic
             try:
@@ -668,6 +665,7 @@ class Topic:
         message_path: str,
         data_type: str,
         canonical_data_type: CanonicalDataType,
+        path_in_schema: typing.Optional[list[str]] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
     ) -> MessagePathRecord:
         """Add a new message path to this topic.
@@ -685,6 +683,10 @@ class Topic:
             canonical_data_type: Normalized Roboto data type that enables specialized
                 platform features for maps, images, timestamps, and other data with
                 special interpretations.
+            path_in_schema: List of path components representing the field's location
+                in the source data schema. Unlike message_path, which assumes dots
+                separate path parts implying nested data, this preserves the exact path
+                from the source data for accurate attribute access.
             metadata: Additional metadata to associate with the message path.
 
         Returns:
@@ -706,9 +708,11 @@ class Topic:
             >>> print(message_path.message_path)
             pose.position.x
         """
+        path_in_schema = path_in_schema or message_path.split(".")
 
         request = AddMessagePathRequest(
             message_path=message_path,
+            path_in_schema=path_in_schema,
             data_type=data_type,
             canonical_data_type=canonical_data_type,
             metadata=metadata or {},
@@ -1143,6 +1147,7 @@ class Topic:
         metadata_changeset: typing.Union[TaglessMetadataChangeset, NotSetType] = NotSet,
         data_type: typing.Union[str, NotSetType] = NotSet,
         canonical_data_type: typing.Union[CanonicalDataType, NotSetType] = NotSet,
+        path_in_schema: typing.Union[list[str], NotSetType] = NotSet,
     ) -> MessagePath:
         """Update the metadata and attributes of a message path.
 
@@ -1186,6 +1191,7 @@ class Topic:
                 metadata_changeset=metadata_changeset,
                 data_type=data_type,
                 canonical_data_type=canonical_data_type,
+                path_in_schema=path_in_schema,
             )
         )
 

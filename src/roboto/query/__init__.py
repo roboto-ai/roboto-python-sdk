@@ -6,6 +6,7 @@
 
 from .api import (
     QualifiedRoboqlQuery,
+    QueryContentMode,
     QueryContext,
     QueryRecord,
     QueryScheme,
@@ -48,6 +49,7 @@ __all__ = (
     "QualifiedRoboqlQuery",
     "Query",
     "QueryClient",
+    "QueryContentMode",
     "QueryContext",
     "QueryRecord",
     "QueryScheme",

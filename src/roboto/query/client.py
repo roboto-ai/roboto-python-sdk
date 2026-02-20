@@ -12,6 +12,7 @@ from ..config import RobotoConfig
 from ..http import RobotoClient
 from ..waiters import wait_for
 from .api import (
+    QueryContentMode,
     QueryRecord,
     QueryStatus,
     QueryTarget,
@@ -83,6 +84,7 @@ class QueryClient:
         query: typing.Optional[Query],
         target: QueryTarget,
         timeout_seconds: float,
+        content_mode: QueryContentMode = QueryContentMode.RecordWithMeta,
         owner_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         if query is None:
@@ -90,13 +92,13 @@ class QueryClient:
 
         if isinstance(query, QuerySpecification):
             return self.submit_structured_and_await_results(
-                request=SubmitStructuredQueryRequest(query=query, target=target),
+                request=SubmitStructuredQueryRequest(query=query, target=target, content_mode=content_mode),
                 timeout_seconds=timeout_seconds,
                 owner_org_id=owner_org_id,
             )
 
         return self.submit_roboql_and_await_results(
-            request=SubmitRoboqlQueryRequest(query=query, target=target),
+            request=SubmitRoboqlQueryRequest(query=query, target=target, content_mode=content_mode),
             timeout_seconds=timeout_seconds,
             owner_org_id=owner_org_id,
         )
