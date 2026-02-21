@@ -1,6 +1,6 @@
 # Changelog
 
-# 0.36.0rc0
+# 0.36.0
 ## Breaking Changes
   - `MessagePath.parents()` now requires a `list[str]` (`path_in_schema`) instead of a dot-delimited `str`. This reflects the shift from ambiguous dot-separated paths to explicit schema path components for correct handling of nested and dot-containing field names. If you were calling `MessagePath.parents("pose.position.x")`, update to `MessagePath.parents(["pose", "position", "x"])`. Passing a string now raises a `TypeError` with guidance on how to migrate.
   - `MessagePath.parts()` has been removed. Use `MessagePathRecord.path_in_schema` directly to obtain path components.
