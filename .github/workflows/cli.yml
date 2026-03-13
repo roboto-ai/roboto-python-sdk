@@ -163,7 +163,7 @@ jobs:
 
       - name: Create binaries
         run: |
-          python -m PyInstaller --name roboto-windows-x86_64 --target-architecture x86_64  --onefile --paths src --collect-data cookiecutter cli_entrypoint.py
+          python -m PyInstaller --name roboto-windows-x86_64 --target-architecture x86_64  --onefile --paths src --collect-data cookiecutter --collect-all binaryornot cli_entrypoint.py
           python -m PyInstaller --name roboto-agent-windows-x86_64 --target-architecture x86_64  --onefile --paths src agent_entrypoint.py
       
       - name: Exercise roboto CLI
