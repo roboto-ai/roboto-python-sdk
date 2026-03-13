@@ -29,6 +29,17 @@ logger = default_logger()
 MIN_QUERY_LENGTH = 3
 
 
+def _coerce_to_numeric(df: pandas.DataFrame) -> pandas.DataFrame:
+    """
+    Coerce the entire pandas DataFrame to numeric types.
+
+    String representations of numbers (e.g., ``"1.0"``) will be converted to float64.
+    Raises an error if any value cannot be converted to a numeric type.
+    """
+    pd = import_optional_dependency("pandas", "analytics")
+    return df.apply(pd.to_numeric)
+
+
 class MatchResult(typing.NamedTuple):
     start_idx: int
     end_idx: int
@@ -174,8 +185,13 @@ def find_similar_signals(
     For example, a query sequence of ``[1., 2., 3.]`` will perfectly match (distance == 0)
     the target ``[1000., 2000., 3000.]`` if ``normalize`` is True,
     but would have a distance of nearly 3800 if ``normalize`` is False.
+
+    DataFrames with string-typed columns are supported as long as all values are
+    convertible to numeric types (e.g., ``"1.0"``). A ``ValueError`` is raised
+    if any value cannot be converted.
     """
     matches: list[Match] = []
+    needle = _coerce_to_numeric(needle)
     _, cols = needle.shape
 
     targets = list(haystack)
@@ -197,6 +213,7 @@ def find_similar_signals(
                 tqdm.auto.tqdm.write(f"Loading data from {match_context!r}")
 
             topic_data = topic.get_data_as_df(message_paths_include=[msg_path])
+            topic_data = _coerce_to_numeric(topic_data)
 
             if logger.isEnabledFor(logging.DEBUG):
                 tqdm.auto.tqdm.write(f"Searching for matches in {match_context!r}")
@@ -213,10 +230,10 @@ def find_similar_signals(
                     Match(
                         context=match_context,
                         end_idx=match_result.end_idx,
-                        end_time=topic_data.index[match_result.end_idx].item(),
+                        end_time=topic_data.index[match_result.end_idx],
                         distance=match_result.distance,
                         start_idx=match_result.start_idx,
-                        start_time=topic_data.index[match_result.start_idx].item(),
+                        start_time=topic_data.index[match_result.start_idx],
                         subsequence=topic_data[match_result.start_idx : match_result.end_idx + 1],
                     )
                 )
@@ -237,6 +254,7 @@ def find_similar_signals(
                 tqdm.auto.tqdm.write(f"Loading data from {match_context!r}")
 
             target_signal = topic.get_data_as_df(message_paths_include=message_paths)
+            target_signal = _coerce_to_numeric(target_signal)
 
             if logger.isEnabledFor(logging.DEBUG):
                 tqdm.auto.tqdm.write(f"Searching for matches in {match_context!r}")
@@ -252,10 +270,10 @@ def find_similar_signals(
                     Match(
                         context=match_context,
                         end_idx=match_result.end_idx,
-                        end_time=target_signal.index[match_result.end_idx].item(),
+                        end_time=target_signal.index[match_result.end_idx],
                         distance=match_result.distance,
                         start_idx=match_result.start_idx,
-                        start_time=target_signal.index[match_result.start_idx].item(),
+                        start_time=target_signal.index[match_result.start_idx],
                         subsequence=target_signal[match_result.start_idx : match_result.end_idx + 1],
                     )
                 )

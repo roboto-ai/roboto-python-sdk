@@ -20,6 +20,7 @@ resources(
 # pants run packages/roboto/examples:jupyter
 pex_binary(
   name="jupyter",
+  tags=["local-only"],  # Local dev tool only, not needed for deploy
   dependencies=[
     ":notebooks",
     ":notebook-utils",

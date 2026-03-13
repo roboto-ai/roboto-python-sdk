@@ -12,12 +12,6 @@ import pathlib
 import typing
 import urllib.parse
 
-from ...ai import SetSummaryRequest
-from ...ai.summary import (
-    AISummary,
-    PollingStreamingAISummary,
-    StreamingAISummary,
-)
 from ...association import Association
 from ...fs import FileService
 from ...http import BatchRequest, RobotoClient
@@ -726,53 +720,6 @@ class File:
                 on_progress=progress_monitor.update,
             )
 
-    def generate_summary(self) -> StreamingAISummary:
-        """Generate a new AI summary for this file.
-
-        Creates a new AI-generated summary that analyzes the file's content,
-        metadata, and structure. The summary generation is asynchronous and can
-        be monitored through the returned StreamingAISummary object.
-
-        Returns:
-            StreamingAISummary object that provides access to the summary as it
-            is being generated. The summary starts in pending status and can be
-            monitored for completion.
-
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to generate summaries
-                for this file.
-
-        Examples:
-            Generate a summary and wait for completion:
-
-            >>> file = File.from_id("file_abc123")
-            >>> summary = file.generate_summary()
-            >>> complete_text = summary.complete_text
-            >>> print(complete_text)
-            'This ROS bag file contains sensor data from a highway driving session...'
-
-            Generate a summary and stream the text as it's generated:
-
-            >>> file = File.from_id("file_abc123")
-            >>> summary = file.generate_summary()
-            >>> for text_chunk in summary.text_stream():
-            ...     print(text_chunk, end="", flush=True)
-
-            Check summary status without blocking:
-
-            >>> file = File.from_id("file_abc123")
-            >>> summary = file.generate_summary()
-            >>> if summary.current and summary.current.status == AISummaryStatus.Complete:
-            ...     print("Summary is ready!")
-        """
-        initial_summary = self.__roboto_client.post(f"v1/files/{self.file_id}/summary").to_record(AISummary)
-
-        return PollingStreamingAISummary(
-            poll_fn=self.__get_latest_summary,
-            poll_on_init=False,
-            initial_summary=initial_summary,
-        )
-
     def get_signed_url(
         self,
         override_content_type: typing.Optional[str] = None,
@@ -817,51 +764,6 @@ class File:
             owner_org_id=self.org_id,
         )
         return res.to_dict(json_path=["data", "url"])
-
-    def get_summary(self) -> StreamingAISummary:
-        """Retrieve the existing AI summary for this file.
-
-        Fetches the current AI summary for this file if one exists, or generates
-        a new one if no summary has been created yet. The summary provides an
-        AI-generated analysis of the file's content, metadata, and structure.
-
-        Returns:
-            StreamingAISummary object that provides access to the existing summary.
-            If no summary exists, a new one will be generated automatically.
-
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to access summaries
-                for this file.
-
-        Examples:
-            Get the current summary:
-
-            >>> file = File.from_id("file_abc123")
-            >>> summary = file.get_summary()
-            >>> print(summary.complete_text)
-            'This ROS bag file contains sensor data from a highway driving session...'
-
-            Check if summary is still being generated:
-
-            >>> file = File.from_id("file_abc123")
-            >>> summary = file.get_summary()
-            >>> if summary.current and summary.current.status == AISummaryStatus.Pending:
-            ...     print("Summary is still being generated...")
-            ...     # Wait for completion
-            ...     final_summary = summary.await_completion()
-            ...     print(final_summary.text)
-
-            Stream summary text as it becomes available:
-
-            >>> file = File.from_id("file_abc123")
-            >>> summary = file.get_summary()
-            >>> for text_chunk in summary.text_stream():
-            ...     print(text_chunk, end="", flush=True)
-        """
-        return PollingStreamingAISummary(
-            poll_fn=self.__get_latest_summary,
-            poll_on_init=True,
-        )
 
     def get_topic(self, topic_name: str) -> Topic:
         """Get a specific topic from this file by name.
@@ -1093,26 +995,6 @@ class File:
         """
         return self.update(device_id=device_id)
 
-    def set_summary(self, summary: str) -> File:
-        """Explicitly set the AI summary text for this file.
-
-        This method is intended to be used in cases where an action or other active component is able to generate
-        a more specialized summary than `File::generate_summary` would, and you want to make that summary
-        canonical from the perspective of the UI and `File::get_summary`.
-
-        Args:
-            summary: The summary text to set for this file. This text will be rendered as Markdown, and can include
-            specialized roboto:// entity links for rich UI linking.
-        Returns:
-            This File instance for method chaining.
-        """
-        self.__roboto_client.put(
-            f"v1/files/{self.file_id}/summary",
-            data=SetSummaryRequest(summary=summary),
-        )
-
-        return self
-
     def to_association(self) -> Association:
         """Convert this file to an Association reference.
 
@@ -1198,6 +1080,3 @@ class File:
         )
         self.__record = self.__roboto_client.put(f"v1/files/record/{self.file_id}", data=request).to_record(FileRecord)
         return self
-
-    def __get_latest_summary(self) -> AISummary:
-        return self.__roboto_client.get(f"v1/files/{self.file_id}/summary").to_record(AISummary)

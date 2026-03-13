@@ -5,17 +5,9 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import typing
+from typing import TypeGuard
 
 import pydantic
-
-# Python 3.8/3.9 compatible import of TypeGuard
-try:
-    from typing import TypeGuard
-except ImportError:
-    try:
-        from typing_extensions import TypeGuard
-    except ImportError:
-        pass
 
 T = typing.TypeVar("T")
 PydanticModel = typing.TypeVar("PydanticModel", bound=pydantic.BaseModel)

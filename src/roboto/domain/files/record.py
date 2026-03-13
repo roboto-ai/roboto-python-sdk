@@ -7,20 +7,12 @@
 import datetime
 import enum
 import typing
+from typing import TypeGuard
 import urllib.parse
 
 import pydantic
 
 from ...compat import StrEnum
-
-# Python 3.8/3.9 compatible import of TypeGuard
-try:
-    from typing import TypeGuard
-except ImportError:
-    try:
-        from typing_extensions import TypeGuard
-    except ImportError:
-        pass
 
 
 class FileStatus(StrEnum):

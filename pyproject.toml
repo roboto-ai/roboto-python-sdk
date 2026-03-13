@@ -23,7 +23,7 @@ dependencies = [
     "rich>=14.2",
     "tenacity>=8.2",
     "tqdm>=4.65",
-    "typing-extensions >=4.8 ; python_version<'3.10'",
+    "urllib3>=2.0",
 ]
 description = "Official Python toolkit for roboto.ai"
 dynamic = ["version"]
@@ -32,7 +32,7 @@ maintainers = [
   { name = "Roboto AI", email = "info@roboto.ai" },
 ]
 readme = "README.md"
-requires-python = ">=3.9,<4"
+requires-python = ">=3.10,<4"
 
 
 [project.optional-dependencies]

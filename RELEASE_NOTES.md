@@ -1,14 +1,14 @@
-# 0.36.0
+# 0.37.0
 ## Breaking Changes
-  - `MessagePath.parents()` now requires a `list[str]` (`path_in_schema`) instead of a dot-delimited `str`. This reflects the shift from ambiguous dot-separated paths to explicit schema path components for correct handling of nested and dot-containing field names. If you were calling `MessagePath.parents("pose.position.x")`, update to `MessagePath.parents(["pose", "position", "x"])`. Passing a string now raises a `TypeError` with guidance on how to migrate.
-  - `MessagePath.parts()` has been removed. Use `MessagePathRecord.path_in_schema` directly to obtain path components.
+ - `File.get_summary()` and `File.generate_summary()` have been removed. `roboto.ai.Chat` should instead be used for the summarization of 1+ files. It offers a superset of the functionality of the old `File`-level summary API.
 
 ## Features Added
-  - Introduced `QueryContentMode`, allowing search endpoints to return Roboto entities with or without custom metadata. Initial support is for dataset queries in particular, since datasets can store large amounts of `metadata`, which is known to affect search latency and response size. More entity types will be supported in the future.
-  - Improved `Topic.get_data` and `Topic.get_data_as_df` performance for Parquet-backed data.
-  - `Topic.create_from_df()` and `File.add_topic()` now support DataFrames containing nested column types (structs, lists, list<struct>). Previously, only top-level primitive columns were fully supported.
-  - `AddMessagePathRequest` now accepts a `path_in_schema` field to explicitly specify the field's location in the source data schema as an ordered list of path components. Relatedly, `Topic.add_message_path()` and `Topic.update_message_path()` now accept an optional `path_in_schema` parameter.
+  - `roboto datasets upload-files` CLI command now accepts an optional `--device-id` flag to associate uploaded files with a specific device.
+  - Improved MCAP topic data access performance for high-latency connections. Time-range queries now use HTTP Range requests to fetch only the required byte ranges instead of downloading entire files.
 
 ## Bugs Fixed
-  - Updated behavior to not retry requests when server response exceeds the maximum safe payload size.
+  - Removed `typing_extensions` dependency as Python 3.9 is EOL. (`typing` is part of the standard library for Python 3.10+.)
+  - `UpdateUserRequest` now rejects empty strings for `name` and `picture_url` fields, returning a validation error instead of causing a server error.
+  - `find_similar_signals` now accepts DataFrames with string-typed numeric columns (e.g. `"1.23"`) for both needle and haystack. Columns are coerced to `float64` before processing; a `ValueError` is raised if any value cannot be converted. DataFrames already containing numeric types are unaffected.
+  - `find_similar_signals` now correctly handles DataFrames indexed by `pandas.Timestamp` values.
 

@@ -47,7 +47,7 @@ class Match:
     The end index in the target signal of this match.
     """
 
-    end_time: int
+    end_time: pandas.Timestamp
     """
     The end time in the target signal of this match.
     """
@@ -64,7 +64,7 @@ class Match:
     The start index in the target signal of this match.
     """
 
-    start_time: int
+    start_time: pandas.Timestamp
     """
     The start time in the target signal of this match.
     """
@@ -86,7 +86,7 @@ class Match:
         """
         return events.Event.create(
             description=f"Match score: {self.distance}",
-            end_time=self.end_time,
+            end_time=self.end_time.as_unit("ns").value,
             name=name,
             metadata={
                 "distance": self.distance,
@@ -94,7 +94,7 @@ class Match:
                 "start_index": self.start_idx,
                 "end_index": self.end_idx,
             },
-            start_time=self.start_time,
+            start_time=self.start_time.as_unit("ns").value,
             topic_ids=[self.context.topic_id],
             caller_org_id=caller_org_id,
             roboto_client=roboto_client,

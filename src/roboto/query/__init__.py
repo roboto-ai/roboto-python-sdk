@@ -5,6 +5,8 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .api import (
+    MetadataValuesRequest,
+    MetadataValuesResponse,
     QualifiedRoboqlQuery,
     QueryContentMode,
     QueryContext,
@@ -46,6 +48,8 @@ __all__ = (
     "ConditionValue",
     "ConditionVisitor",
     "Field",
+    "MetadataValuesRequest",
+    "MetadataValuesResponse",
     "QualifiedRoboqlQuery",
     "Query",
     "QueryClient",

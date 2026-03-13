@@ -111,7 +111,7 @@ class TopicDataService:
         end_time_ns = to_epoch_nanoseconds(end_time) if end_time is not None else None
 
         if McapTopicReader.accepts(filtered_message_path_repr_mappings):
-            reader: TopicReader = McapTopicReader(self.__roboto_client, cache_dir)
+            reader: TopicReader = McapTopicReader(self.__roboto_client)
             yield from reader.get_data(
                 filtered_message_path_repr_mappings,
                 start_time=start_time_ns,
@@ -170,7 +170,7 @@ class TopicDataService:
         end_time_ns = to_epoch_nanoseconds(end_time) if end_time is not None else None
 
         if McapTopicReader.accepts(filtered_message_path_repr_mappings):
-            reader: TopicReader = McapTopicReader(self.__roboto_client, cache_dir)
+            reader: TopicReader = McapTopicReader(self.__roboto_client)
             timestamps, df = reader.get_data_as_df(
                 filtered_message_path_repr_mappings,
                 start_time=start_time_ns,

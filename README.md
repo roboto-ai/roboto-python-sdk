@@ -41,13 +41,53 @@ To use the Roboto SDK and CLI:
 
 ### Python
 
-If you want to interact with Roboto in a Python environment, such as a Jupyter notebook, we recommend installing the Python SDK released via [PyPI](https://pypi.org/project/roboto/):
+The Roboto Python SDK is available on [PyPI](https://pypi.org/project/roboto/).
 
-```bash
+**Requirements:** Python 3.10+
+
+**Installation:**
+
+```shell
 pip install roboto
 ```
 
-This will also install the CLI mentioned below. See the complete [SDK](https://docs.roboto.ai/reference/python-sdk.html) and [CLI](https://docs.roboto.ai/reference/cli.html) documentation.
+> [!TIP]
+> 
+> If `pip install roboto` fails or behaves unexpectedly, the two most common causes are:
+> 
+> * Python version below 3.10
+> * Dependency conflicts from installing into your system Python or an existing environment
+
+Verify your Python version and set up a virtual environment
+Confirm your Python version meets the requirement:
+
+```shell
+python3 -c "import sys; assert sys.version_info >= (3, 10), f'Python 3.10+ required, found {sys.version}'"
+```
+
+Then create and activate a virtual environment:
+
+```shell
+# macOS/Linux
+python3 -m venv .venv && source .venv/bin/activate
+
+# Windows
+python3 -m venv .venv && .venv\Scripts\activate
+```
+
+Then re-run `pip install roboto`.
+
+**Authentication (required):**
+
+Roboto requires credentials to communicate with the platform. If you haven't authenticated yet, see [Setting up programmatic access](https://docs.roboto.ai/getting-started/programmatic-access.html).
+
+Verify your credentials are configured correctly:
+
+```shell
+roboto users whoami
+```
+
+See the complete [SDK documentation](https://docs.roboto.ai/reference/python-sdk.html).
 
 ### CLI
 

@@ -53,3 +53,15 @@ class UpdateUserRequest(pydantic.BaseModel):
 
     notification_types_enabled: Optional[dict[NotificationType, bool]] = None
     """Updated notification type preferences."""
+
+    @pydantic.field_validator("name", "picture_url")
+    @classmethod
+    def validate_non_empty_string(
+        cls,
+        value: Optional[str],
+        info: pydantic.ValidationInfo,
+    ) -> Optional[str]:
+        if value == "":
+            raise ValueError(f"{info.field_name} cannot be empty")
+
+        return value

@@ -9,7 +9,7 @@ from .action_runtime import (
     FilesChangesetFileManager,
     InvocationContext,
 )
-from .ai.summary import AISummary
+from .ai import AISummary, Chat
 from .association import (
     Association,
     AssociationType,
@@ -170,6 +170,7 @@ __all__ = [
     "BeginUploadRequest",
     "BeginUploadResponse",
     "CanonicalDataType",
+    "Chat",
     "Collection",
     "CollectionChangeRecord",
     "CollectionChangeSet",

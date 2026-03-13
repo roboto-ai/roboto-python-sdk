@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from .http_range_reader import HttpRangeReader
 from .message_path import MessagePath
 from .operations import (
     AddMessagePathRepresentationRequest,
@@ -35,6 +36,7 @@ __all__ = (
     "CreateTopicRequest",
     "CanonicalDataType",
     "DeleteMessagePathRequest",
+    "HttpRangeReader",
     "MessagePath",
     "MessagePathChangeset",
     "MessagePathRepresentationMapping",

@@ -27,15 +27,22 @@ def upload_files(args, context: CLIContext, parser: argparse.ArgumentParser):
         dataset.upload_directory(
             directory_path=path,
             exclude_patterns=args.exclude,
+            device_id=args.device_id,
         )
     else:
         dataset.upload_files(
             files=[path],
+            device_id=args.device_id,
         )
 
 
 def upload_files_setup_parser(parser):
     parser.add_argument("-d", "--dataset-id", type=str, required=True, help=DATASET_ID_HELP)
+    parser.add_argument(
+        "--device-id",
+        type=str,
+        help="The device ID to associate with these files. The device must already exist in the organization.",
+    )
     parser.add_argument(
         "-p",
         "--path",
