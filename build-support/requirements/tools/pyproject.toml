@@ -72,14 +72,53 @@ exclude = [
 docstring-code-format = true
 
 [tool.ruff.lint]
-# E = pycodestyle errors, F = pyflakes, W = pycodestyle warnings, I = isort
-select = ["E", "F", "W", "I"]
+# E = pycodestyle errors, F = pyflakes, W = pycodestyle warnings, I = isort, S = security
+select = ["E", "F", "W", "I", "S"]
 ignore = [
-    "E203",  # whitespace before ':' (conflicts with black)
+    "E203", # whitespace before ':' (conflicts with black)
+    "S110", # Allow the try/catch/pass shorthand -- the pass already means we know what we're doing.
+    "S311", # Allow the uses of random.random(). Not appropriate for cryptography, but that's not how we use it.
+    # --- These need to be fixed and re-enabled. --- 
+    "S101", # TODO(ENG-2081): OK for test code, but not for non-test code. Asserts are removed when optimization flags are on.
+    "S324", # TODO(ENG-2083): we use md5 hashes often, but those are now flagged as insecure hashes.
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "test_app_config.py" = ["E501"]
+
+
+"packages/roboto/src/roboto/http/constants.py" = ["S105"] # This file is token names, not token values.
+"packages/roboto/src/roboto/cli/images/*.py" = ["S603"] # We trust the arbitrary shell commands in these files.
+"packages/roboto/src/roboto/cli/actions/invoke/docker_action_runner.py" = ["S603"] # We trust the arbitrary shell commands in these files.
+
+"**/test/**/test_*.py" = [
+    "S101", # Asserts allowed in our test code.
+    "S105", # We can pass plaintext fake passwords in test code.
+    "S106", # We can pass plaintext fake passwords in test code.
+]
+"**/test/**/helpers.py" = [
+    "S112", # Allow try-except-continue in test helper code.
+]
+
+"build-support/src/roboto_build/**/*.py" = [
+    "S603", # We trust the subprocess calls in our build tooling.
+    "S606", # We trust the subprocess calls in our build tooling.
+    "S607", # We trust the partial executable paths in our build tooling.
+]
+
+"scripts/**/*.py" = [
+    "S105", # Secret name constants are not hardcoded secrets.
+]
+
+# TODO: we need to fix and re-enable these lints:
+"packages/roboto/src/roboto/**/*.py" = [
+    "S310" # TODO(ENG-2084): urllib allows arbitrary url prefixes, which includes opening local files.
+]
+
+"packages/roboto_service/src/roboto_service/ai/tools/analyze_topic*.py" = [
+    "S108", # TODO(ENG-2085): tmp files could leave data behind on disk to be accessed by future callers to the same instance.
+    "S608", # TODO(ENG-2086): avoid sql injection
+]
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true

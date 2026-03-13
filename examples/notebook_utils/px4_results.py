@@ -51,7 +51,7 @@ def get_countries_by_reverse_gps(latitude_list, longitude_list):
     for lat, lon in tqdm(zip(latitude_list, longitude_list), total=len(latitude_list), desc="Processing locations"):
         if lat and lon and lat != 0 and lon != 0:
             url = f"https://photon.komoot.io/reverse?lat={lat}&lon={lon}&lang=en"
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
 
             if response.status_code == 200:
                 features = response.json().get("features", [])
