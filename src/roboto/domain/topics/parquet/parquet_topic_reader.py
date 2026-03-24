@@ -278,7 +278,8 @@ class ParquetTopicReader(TopicReader):
         """
         pq = import_optional_dependency("pyarrow.parquet", "analytics")
 
-        assert self.__cache_dir is not None  # guaranteed by __should_use_local_cache
+        if self.__cache_dir is None:  # guaranteed by __should_use_local_cache
+            raise RuntimeError("Expected self.__cache_dir to be set")
 
         outfile = self.__cache_dir / OUTFILE_NAME_PATTERN.format(
             repr_id=representation.representation_id,
@@ -292,7 +293,7 @@ class ParquetTopicReader(TopicReader):
                 representation.representation_id,
                 outfile,
             )
-            urllib.request.urlretrieve(signed_url, str(outfile))
+            urllib.request.urlretrieve(signed_url, str(outfile))  # noqa: S310 — presigned S3 URL from Roboto API
 
         return pq.ParquetFile(outfile)
 

@@ -46,7 +46,8 @@ class RobotoDomainException(Exception):
     def __get_pydantic_core_schema__(
         cls, source: Type[Any], handler: pydantic.GetCoreSchemaHandler
     ) -> pydantic_core.core_schema.CoreSchema:
-        assert source is RobotoDomainException
+        if source is not RobotoDomainException:
+            raise RuntimeError("Expected source to be RobotoDomainException")
         return pydantic_core.core_schema.no_info_after_validator_function(
             cls.from_json_string,
             pydantic_core.core_schema.str_schema(),

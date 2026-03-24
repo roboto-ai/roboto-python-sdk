@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import datetime
 import json
 import typing
 
@@ -18,6 +19,31 @@ from ...http import RobotoClient
 from ...logging import default_logger
 
 logger = default_logger()
+
+
+class S3BucketIntegrationRecord(pydantic.BaseModel):
+    """Record representing an S3 bucket integration with a Roboto organization."""
+
+    bucket_name: str
+    """Name of the integrated S3 bucket."""
+
+    org_id: str
+    """Organization ID this bucket is associated with."""
+
+    aws_region: str
+    """AWS region where the S3 bucket is located."""
+
+    readonly: bool
+    """Whether Roboto has read-only access to the bucket."""
+
+    status: str
+    """Integration status (e.g. 'healthy', 'in_progress', 'unhealthy')."""
+
+    created: datetime.datetime
+    """Timestamp when the integration was created."""
+
+    modified: datetime.datetime
+    """Timestamp when the integration was last modified."""
 
 
 class RegisterS3IntegrationRequest(pydantic.BaseModel):

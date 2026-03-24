@@ -144,7 +144,8 @@ class TriggerView(pydantic.BaseModel):
         if self.trigger_type is not TriggerType.EventDriven:
             return None
 
-        assert self.on_event is not None
+        if self.on_event is None:
+            raise RuntimeError("Expected self.on_event to be set")
         return TriggerRecord(
             trigger_id=self.trigger_id,
             name=self.name,
@@ -182,7 +183,8 @@ class TriggerView(pydantic.BaseModel):
         if self.trigger_type is not TriggerType.Scheduled:
             return None
 
-        assert self.on_schedule is not None
+        if self.on_schedule is None:
+            raise RuntimeError("Expected self.on_schedule to be set")
         return ScheduledTriggerRecord(
             trigger_id=self.trigger_id,
             name=self.name,

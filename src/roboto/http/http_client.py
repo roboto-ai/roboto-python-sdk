@@ -4,7 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import errno
 import http
 import http.client
 import logging
@@ -37,8 +36,6 @@ from .response import HttpResponse
 
 logger = logging.getLogger(LOGGER_NAME)
 
-DEFAULT_HEADERS = object()
-
 
 class is_expected_to_be_transient:
     """Retry predicate that returns True if the exception is expected to be transient."""
@@ -49,61 +46,68 @@ class is_expected_to_be_transient:
         self.__request = request
 
     def __call__(self, exc: typing.Any) -> bool:
-        if isinstance(exc, http.client.RemoteDisconnected):
-            logger.warning("Remote host closed connection", exc_info=exc)
-            if not self.__request_expected_to_be_idempotent():
-                # Request may have be processed, we don't know.
-                return False
+        # HTTP status codes -- must come first since HTTPError is a URLError
+        if isinstance(exc, urllib.error.HTTPError):
+            return self.__is_transient_http_status(exc)
 
+        # Unwrap URLError to get the underlying cause.
+        # URLError wraps OSError subclasses during request sending (see CPython's
+        # urllib.request.do_open), but errors during response reading propagate bare.
+        # By unwrapping here, we classify the underlying error once regardless
+        # of whether urllib wrapped it.
+        # See: https://github.com/python/cpython/blob/3.13/Lib/urllib/request.py
+        if isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, BaseException):
+            exc = exc.reason
+
+        # DNS resolution failures -- safe to retry unconditionally
+        # (request never reached the server).
+        # See: https://docs.python.org/3/library/socket.html#socket.gaierror
+        # Resolves: ENG-2166
+        if isinstance(exc, socket.gaierror):
             return True
 
-        if isinstance(exc, urllib.error.HTTPError):
-            try:
-                status_code = http.HTTPStatus(int(exc.code))
+        # Connection-level errors -- safe to retry only for idempotent requests.
+        # Covers: RemoteDisconnected (a ConnectionResetError subclass),
+        #         ConnectionResetError, ConnectionRefusedError,
+        #         ConnectionAbortedError, BrokenPipeError.
+        # See: https://docs.python.org/3/library/exceptions.html#ConnectionError
+        # See: https://docs.python.org/3/library/http.client.html#http.client.RemoteDisconnected
+        if isinstance(exc, ConnectionError):
+            if isinstance(exc, http.client.RemoteDisconnected):
+                logger.warning("Remote host closed connection", exc_info=exc)
+            return self.__request_expected_to_be_idempotent()
 
-                if not self.__request_expected_to_be_idempotent():
-                    # 500 and 504 are not safe to retry if the request is not idempotent
-                    if status_code in (
-                        http.HTTPStatus.REQUEST_TIMEOUT,
-                        http.HTTPStatus.INTERNAL_SERVER_ERROR,
-                        http.HTTPStatus.GATEWAY_TIMEOUT,
-                    ):
-                        return False
-
-                return status_code in (
-                    http.HTTPStatus.REQUEST_TIMEOUT,
-                    http.HTTPStatus.INTERNAL_SERVER_ERROR,
-                    http.HTTPStatus.TOO_MANY_REQUESTS,
-                    http.HTTPStatus.BAD_GATEWAY,
-                    http.HTTPStatus.SERVICE_UNAVAILABLE,
-                    http.HTTPStatus.GATEWAY_TIMEOUT,
-                )
-            except ValueError:
-                return False
-
-        # Must come after the isinstance check of HTTPError,
-        # which is a subclass of URLError
-        if isinstance(exc, urllib.error.URLError):
-            # Connection reset by peer, probably transient
-            is_conn_reset_error = (
-                isinstance(exc.reason, OSError) and exc.reason.errno == errno.ECONNRESET
-            ) or "Connection reset by peer" in str(exc.reason)
-
-            is_timeout_error = isinstance(exc.reason, (TimeoutError, socket.timeout))
-
-            if (is_conn_reset_error or is_timeout_error) and self.__request_expected_to_be_idempotent():
-                return True
-
-            # DNS error, probably transient
-            return "Temporary failure in name resolution" in str(exc.reason)
-
-        if isinstance(exc, (TimeoutError, socket.timeout)):
-            # socket timed out
-            # we don't know if the request was received and the server is processing (or did process) the request
-            # or if the request failed to establish a connection
+        # Timeouts -- safe to retry only for idempotent requests.
+        # socket.timeout is an alias for TimeoutError since Python 3.3.
+        if isinstance(exc, TimeoutError):
             return self.__request_expected_to_be_idempotent()
 
         return False
+
+    def __is_transient_http_status(self, exc: urllib.error.HTTPError) -> bool:
+        try:
+            status_code = http.HTTPStatus(int(exc.code))
+        except ValueError:
+            return False
+
+        if not self.__request_expected_to_be_idempotent():
+            # 408, 500, and 504 are not safe to retry if the request is not idempotent --
+            # the server may have received and processed the request.
+            if status_code in (
+                http.HTTPStatus.REQUEST_TIMEOUT,
+                http.HTTPStatus.INTERNAL_SERVER_ERROR,
+                http.HTTPStatus.GATEWAY_TIMEOUT,
+            ):
+                return False
+
+        return status_code in (
+            http.HTTPStatus.REQUEST_TIMEOUT,
+            http.HTTPStatus.INTERNAL_SERVER_ERROR,
+            http.HTTPStatus.TOO_MANY_REQUESTS,
+            http.HTTPStatus.BAD_GATEWAY,
+            http.HTTPStatus.SERVICE_UNAVAILABLE,
+            http.HTTPStatus.GATEWAY_TIMEOUT,
+        )
 
     def __request_expected_to_be_idempotent(self) -> bool:
         return self.__request.idempotent is True
@@ -175,7 +179,7 @@ class HttpClient:
 
     def post(
         self,
-        url,
+        url: str,
         data: typing.Any = None,
         headers: typing.Optional[dict] = None,
         idempotent: bool = False,
@@ -195,7 +199,7 @@ class HttpClient:
 
     def patch(
         self,
-        url,
+        url: str,
         data: typing.Any = None,
         headers: typing.Optional[dict] = None,
         idempotent: bool = True,
@@ -215,7 +219,7 @@ class HttpClient:
 
     def put(
         self,
-        url,
+        url: str,
         data: typing.Any = None,
         headers: typing.Optional[dict] = None,
         idempotent: bool = True,
@@ -272,10 +276,11 @@ class HttpClient:
                 retry=tenacity.retry_if_exception(is_expected_to_be_transient(request_ctx)),
                 stop=tenacity.stop_after_attempt(10),
                 reraise=True,
-                wait=self._wait(request_ctx.retry_wait),
+                wait=self.__wait(request_ctx.retry_wait),
             ):
                 with attempt:
-                    request = urllib.request.Request(request_ctx.url, method=request_ctx.method)
+                    # S310: URL is constructed by SDK from a configured endpoint, not from user input
+                    request = urllib.request.Request(request_ctx.url, method=request_ctx.method)  # noqa: S310
 
                     req_body = request_ctx.body
                     if req_body is not None:
@@ -284,21 +289,21 @@ class HttpClient:
                     for key, value in headers.items():
                         request.add_header(key, value)
 
-                    response = HttpResponse(urllib.request.urlopen(request, timeout=timeout))
+                    response = HttpResponse(urllib.request.urlopen(request, timeout=timeout))  # noqa: S310
                     logger.debug("Response: %s %s", response.status, response.headers)
                     return response
         except urllib.error.HTTPError as exc:
             logger.debug("HTTPError: %s", exc, exc_info=True)
             status_code = exc.code
-            if status_code > 399 and status_code < 500:
+            if 400 <= status_code < 500:
                 raise ClientError(exc) from None
-            elif status_code > 499:
+            elif status_code >= 500:
                 raise ServerError(exc) from None
             else:
                 raise HttpError(exc) from None
         except urllib.error.URLError as exc:
             logger.debug("URLError: %s", exc, exc_info=True)
-            if isinstance(exc.reason, OSError) and exc.reason.errno == errno.ECONNREFUSED:
+            if isinstance(exc.reason, ConnectionRefusedError):
                 raise ConnectionRefusedError(f"Couldn't connect to endpoint {request_ctx.url}") from None
             else:
                 raise
@@ -308,7 +313,7 @@ class HttpClient:
 
         raise RuntimeError("Unreachable")
 
-    def _wait(self, waiter: RetryWaitFn) -> tenacity.wait.wait_base:
+    def __wait(self, waiter: RetryWaitFn) -> tenacity.wait.wait_base:
         class Waiter(tenacity.wait.wait_base):
             def __call__(self, retry_state: tenacity.RetryCallState) -> float:
                 return waiter(retry_state, None) / 1000

@@ -73,7 +73,8 @@ def import_optional_dependency(
         is False, or when the package's version is too old and `errors`
         is ``'warn'`` or ``'ignore'``.
     """
-    assert errors in {"raise", "warn", "ignore"}
+    if errors not in {"raise", "warn", "ignore"}:
+        raise ValueError(f"Expected errors to be one of 'raise', 'warn', 'ignore', got '{errors}'")
 
     msg = IMPORT_ERROR_MSG_TEMPLATE.format(module_name=module_name, pip_extra=pip_extra)
     try:

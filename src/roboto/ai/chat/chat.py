@@ -14,22 +14,22 @@ from typing import Optional, Union
 from ...http import RobotoClient
 from ..core import RobotoLLMContext
 from .event import (
-    ChatEvent,
-    ChatStartTextEvent,
-    ChatTextDeltaEvent,
-    ChatTextEndEvent,
-    ChatToolResultEvent,
-    ChatToolUseEvent,
+    AgentEvent,
+    AgentStartTextEvent,
+    AgentTextDeltaEvent,
+    AgentTextEndEvent,
+    AgentToolResultEvent,
+    AgentToolUseEvent,
 )
 from .record import (
-    ChatMessage,
-    ChatRecord,
-    ChatRecordDelta,
-    ChatRole,
-    ChatStatus,
-    ChatTextContent,
-    ChatToolResultContent,
-    ChatToolUseContent,
+    AgentMessage,
+    AgentRole,
+    AgentSession,
+    AgentSessionDelta,
+    AgentSessionStatus,
+    AgentTextContent,
+    AgentToolResultContent,
+    AgentToolUseContent,
     SendMessageRequest,
     StartChatRequest,
 )
@@ -96,16 +96,17 @@ class Chat:
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         query_params = {"load_messages": load_messages}
-        record = roboto_client.get(f"v1/ai/chats/{chat_id}", query=query_params).to_record(ChatRecord)
+        record = roboto_client.get(f"v1/ai/chats/{chat_id}", query=query_params).to_record(AgentSession)
 
         return Chat(record=record, roboto_client=roboto_client)
 
     @classmethod
     def start(
         cls,
-        message: Union[str, ChatMessage, collections.abc.Sequence[ChatMessage]],
+        message: Union[str, AgentMessage, collections.abc.Sequence[AgentMessage]],
         context: Optional[RobotoLLMContext] = None,
         system_prompt: Optional[str] = None,
+        model_profile: Optional[str] = None,
         org_id: Optional[str] = None,
         roboto_client: Optional[RobotoClient] = None,
     ) -> Chat:
@@ -117,10 +118,14 @@ class Chat:
 
         Args:
             message: Initial message to start the conversation. Can be a simple text string,
-                a structured ChatMessage object, or a sequence of ChatMessage objects for
+                a structured AgentMessage object, or a sequence of AgentMessage objects for
                 multi-turn initialization.
+            context: Optional context to scope the AI assistant's knowledge for this
+                conversation (e.g., specific datasets or resources).
             system_prompt: Optional system prompt to customize the AI assistant's behavior
                 and context for this conversation.
+            model_profile: Optional model profile ID (e.g. "standard", "advanced").
+                Determines which underlying model is used. Defaults to the deployment's default profile.
             org_id: Organization ID to create the chat in. If None, uses the caller's
                 default organization.
             roboto_client: HTTP client for API communication. If None, uses the default client.
@@ -142,10 +147,10 @@ class Chat:
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
-        if isinstance(message, ChatMessage):
+        if isinstance(message, AgentMessage):
             messages = [message]
         elif isinstance(message, str):
-            messages = [ChatMessage.text(text=message, role=ChatRole.USER)]
+            messages = [AgentMessage.text(text=message, role=AgentRole.USER)]
         else:
             messages = list(message)
 
@@ -153,16 +158,17 @@ class Chat:
             context=context,
             messages=list(messages),
             system_prompt=system_prompt,
+            model_profile=model_profile,
         )
 
-        record = roboto_client.post("v1/ai/chats", caller_org_id=org_id, data=request).to_record(ChatRecord)
+        record = roboto_client.post("v1/ai/chats", caller_org_id=org_id, data=request).to_record(AgentSession)
 
         return Chat(
             record=record,
             roboto_client=roboto_client,
         )
 
-    def __init__(self, record: ChatRecord, roboto_client: Optional[RobotoClient] = None):
+    def __init__(self, record: AgentSession, roboto_client: Optional[RobotoClient] = None):
         """Initialize a Chat instance with a chat record.
 
         Note:
@@ -170,31 +176,31 @@ class Chat:
             instances using :py:meth:`Chat.start` or :py:meth:`Chat.from_id` instead.
 
         Args:
-            record: ChatRecord containing the chat session data.
+            record: AgentSession containing the chat session data.
             roboto_client: HTTP client for API communication. If None, uses the default client.
         """
-        self.__record: ChatRecord = record
+        self.__record: AgentSession = record
         self.__roboto_client: RobotoClient = RobotoClient.defaulted(roboto_client)
 
     @property
     def chat_id(self) -> str:
         """Unique identifier for this chat session."""
-        return self.__record.chat_id
+        return self.__record.session_id
 
     @property
-    def latest_message(self) -> Optional[ChatMessage]:
+    def latest_message(self) -> Optional[AgentMessage]:
         """The most recent message in the conversation, or None if no messages exist."""
         if len(self.__record.messages) == 0:
             return None
         return self.__record.messages[-1]
 
     @property
-    def messages(self) -> list[ChatMessage]:
+    def messages(self) -> list[AgentMessage]:
         """Complete list of messages in the conversation in chronological order."""
         return self.__record.messages
 
     @property
-    def status(self) -> ChatStatus:
+    def status(self) -> AgentSessionStatus:
         """Current status of the chat session."""
         return self.__record.status
 
@@ -205,13 +211,13 @@ class Chat:
         Returns a formatted string containing all messages in the conversation,
         with role indicators and message content clearly separated.
         """
-        return f"=== {self.__record.chat_id} ===\n" + "\n".join(str(message) for message in self.messages)
+        return f"=== {self.__record.session_id} ===\n" + "\n".join(str(message) for message in self.messages)
 
-    def __get_delta_and_update(self) -> ChatRecordDelta:
+    def __get_delta_and_update(self) -> AgentSessionDelta:
         delta = self.__roboto_client.get(
-            f"v1/ai/chats/{self.__record.chat_id}/delta",
+            f"v1/ai/chats/{self.__record.session_id}/delta",
             query={"next_token": self.__record.continuation_token},
-        ).to_record(ChatRecordDelta)
+        ).to_record(AgentSessionDelta)
 
         self.__record.continuation_token = delta.continuation_token
 
@@ -269,7 +275,7 @@ class Chat:
         """
         start_time = time.time()
 
-        while not self.is_user_turn():
+        while self.is_roboto_turn():
             if timeout is not None and time.time() - start_time > timeout:
                 raise TimeoutError("Timeout waiting for user turn")
             self.__get_delta_and_update()
@@ -303,7 +309,26 @@ class Chat:
             ...     time.sleep(0.1)
             >>> print("Assistant finished responding")
         """
-        return self.status == ChatStatus.USER_TURN
+        return self.status == AgentSessionStatus.USER_TURN
+
+    def is_client_tool_turn(self) -> bool:
+        """Check if the session is waiting for client-side tool execution.
+
+        Returns True when the assistant has completed a message ending with a tool-use
+        block that the client must execute and submit results for.
+
+        Returns:
+            True if the client must execute tools and submit results, False otherwise.
+        """
+        return self.status == AgentSessionStatus.CLIENT_TOOL_TURN
+
+    def is_roboto_turn(self) -> bool:
+        """Check if Roboto is currently generating a response.
+
+        Returns:
+            True if Roboto is actively generating, False otherwise.
+        """
+        return self.status == AgentSessionStatus.ROBOTO_TURN
 
     def refresh(self) -> Chat:
         """Update the chat session with the latest messages and status.
@@ -324,14 +349,14 @@ class Chat:
         self.__get_delta_and_update()
         return self
 
-    def send(self, message: ChatMessage, context: typing.Optional[RobotoLLMContext] = None) -> Chat:
+    def send(self, message: AgentMessage, context: typing.Optional[RobotoLLMContext] = None) -> Chat:
         """Send a structured message to the chat session.
 
-        Sends a ChatMessage object to the conversation. The message will be processed by the AI assistant, and a
+        Sends an AgentMessage object to the conversation. The message will be processed by the AI assistant, and a
         response will be generated.
 
         Args:
-            message: ChatMessage object containing the message content and metadata.
+            message: AgentMessage object containing the message content and metadata.
             context: Optional context to include with the message.
 
         Returns:
@@ -344,8 +369,8 @@ class Chat:
         Examples:
             Send a structured message:
 
-            >>> from roboto.ai.chat import ChatMessage, ChatRole
-            >>> message = ChatMessage.text("What's in my latest dataset?", ChatRole.USER)
+            >>> from roboto.ai.chat import AgentMessage, AgentRole
+            >>> message = AgentMessage.text("What's in my latest dataset?", AgentRole.USER)
             >>> chat.send(message)
             >>> for text in chat.stream():
             ...     print(text, end="", flush=True)
@@ -353,7 +378,7 @@ class Chat:
         request = SendMessageRequest(message=message, context=context)
 
         self.__roboto_client.post(
-            f"v1/ai/chats/{self.__record.chat_id}/messages",
+            f"v1/ai/chats/{self.__record.session_id}/messages",
             data=request,
         )
 
@@ -363,7 +388,7 @@ class Chat:
     def send_text(self, text: str, context: typing.Optional[RobotoLLMContext] = None) -> Chat:
         """Send a text message to the chat session.
 
-        Convenience method for sending a simple text message without needing to construct a ChatMessage object. The
+        Convenience method for sending a simple text message without needing to construct an AgentMessage object. The
         text will be sent as a user message and processed by the AI assistant.
 
         Args:
@@ -386,16 +411,16 @@ class Chat:
             >>> for response in chat.stream():
             ...     print(response, end="", flush=True)
         """
-        return self.send(ChatMessage.text(text=text, role=ChatRole.USER), context=context)
+        return self.send(AgentMessage.text(text=text, role=AgentRole.USER), context=context)
 
     def stream_events(
         self,
         tick: float = 0.2,
         timeout: Optional[float] = None,
-    ) -> collections.abc.Generator[ChatEvent, None, None]:
+    ) -> collections.abc.Generator[AgentEvent, None, None]:
         """Stream events from the chat session in real-time.
 
-        Continuously polls the chat session and yields ChatRecordDelta objects as they become available. This provides
+        Continuously polls the chat session and yields AgentEvent objects as they become available. This provides
         a real-time streaming experience which allows you to get partial content as it is generated by potentially
         long-running conversational AI processing.
 
@@ -404,15 +429,16 @@ class Chat:
             timeout: Maximum time to wait in seconds. If None, waits indefinitely.
 
         Yields:
-            ChatRecordDelta objects containing new messages and updates as they become available.
+            AgentEvent objects (AgentStartTextEvent, AgentTextDeltaEvent, AgentTextEndEvent,
+            AgentToolUseEvent, AgentToolResultEvent) as they become available.
 
         Examples:
-            Stream events and print them in real-time:
+            Stream events and handle them by type:
 
             >>> chat = Chat.start("Hello")
-            >>> for delta in chat.stream_events():
-            ...     for idx in sorted(delta.messages_by_idx.keys()):
-            ...         print(f"Message {idx}: {delta.messages_by_idx[idx]}")
+            >>> for event in chat.stream_events():
+            ...     if isinstance(event, AgentTextDeltaEvent):
+            ...         print(event.text, end="", flush=True)
         """
         start_time = time.time()
 
@@ -423,34 +449,34 @@ class Chat:
 
             for idx in sorted(delta.messages_by_idx.keys()):
                 message = delta.messages_by_idx[idx]
-                if message.role == ChatRole.USER:
+                if message.role == AgentRole.USER:
                     continue
                 for content in message.content:
-                    if isinstance(content, ChatTextContent):
+                    if isinstance(content, AgentTextContent):
                         if not text_in_progress:
-                            yield ChatStartTextEvent()
+                            yield AgentStartTextEvent()
                             text_in_progress = True
 
-                        yield ChatTextDeltaEvent(text=content.text)
+                        yield AgentTextDeltaEvent(text=content.text)
                     else:
                         if text_in_progress:
-                            yield ChatTextEndEvent()
+                            yield AgentTextEndEvent()
                             text_in_progress = False
 
-                    if isinstance(content, ChatToolUseContent):
-                        yield ChatToolUseEvent(name=content.tool_name, tool_use_id=content.tool_use_id)
-                    elif isinstance(content, ChatToolResultContent):
+                    if isinstance(content, AgentToolUseContent):
+                        yield AgentToolUseEvent(name=content.tool_name, tool_use_id=content.tool_use_id)
+                    elif isinstance(content, AgentToolResultContent):
                         tool_use_id = content.tool_use_id
                         tool_name = content.tool_name
-                        yield ChatToolResultEvent(
+                        yield AgentToolResultEvent(
                             name=tool_name,
                             tool_use_id=tool_use_id,
                             success=content.status == "success",
                         )
 
-            if self.is_user_turn():
+            if not self.is_roboto_turn():
                 if text_in_progress:
-                    yield ChatTextEndEvent()
+                    yield AgentTextEndEvent()
                 return
 
             if timeout is not None and time.time() - start_time > timeout:
@@ -500,14 +526,14 @@ class Chat:
             delta = self.__get_delta_and_update()
 
             for idx in sorted(delta.messages_by_idx.keys()):
-                if delta.messages_by_idx[idx].role == ChatRole.USER:
+                if delta.messages_by_idx[idx].role == AgentRole.USER:
                     continue
 
                 for content in delta.messages_by_idx[idx].content:
-                    if isinstance(content, ChatTextContent):
+                    if isinstance(content, AgentTextContent):
                         yield content.text
 
-            if self.is_user_turn():
+            if not self.is_roboto_turn():
                 return
 
             if timeout is not None and time.time() - start_time > timeout:

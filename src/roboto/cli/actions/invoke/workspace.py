@@ -113,7 +113,8 @@ def resolve_workspace(
     """
     if action_source.is_local:
         # Local action: use .workspace in action root
-        assert action_source.action_root is not None
+        if action_source.action_root is None:
+            raise RuntimeError("Expected action_source.action_root to be set")
         workdir = action_source.action_root / ".workspace"
         return (workdir, False)
 

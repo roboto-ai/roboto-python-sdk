@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .chat import Chat
+from .core.record import AgentSession
 from .record import (
     PromptRequest,
     SetSummaryRequest,
@@ -12,6 +13,7 @@ from .record import (
 from .summary import AISummary
 
 __all__ = [
+    "AgentSession",
     "AISummary",
     "Chat",
     "PromptRequest",
