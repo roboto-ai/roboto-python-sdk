@@ -147,6 +147,8 @@ from .http import BatchRequest, RobotoClient
 from .regionalization import RobotoRegion
 from .roboto_search import RobotoSearch
 from .warnings import (
+    ExperimentalWarning,
+    experimental,
     roboto_default_warning_behavior,
 )
 
@@ -200,8 +202,10 @@ __all__ = [
     "Device",
     "DeviceRecord",
     "EvaluateTriggersRequest",
+    "ExperimentalWarning",
     "ExecutableProvenance",
     "ExecutorContainer",
+    "experimental",
     "Event",
     "EventDisplayOptions",
     "EventDisplayOptionsChangeset",

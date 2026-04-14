@@ -6,6 +6,7 @@
 
 from .constants import (
     BEARER_TOKEN_HEADER,
+    CONNECTION_CONSISTENCY_HEADER,
     ORG_OVERRIDE_HEADER,
     ORG_OVERRIDE_QUERY_PARAM,
     RESOURCE_OWNER_OVERRIDE_HEADER,
@@ -51,6 +52,7 @@ __all__ = (
     "BatchResponseElement",
     "BearerTokenDecorator",
     "CONTENT_TYPE_JSON_HEADER",
+    "CONNECTION_CONSISTENCY_HEADER",
     "ClientError",
     "DEFAULT_HTTP_TIMEOUT",
     "HttpClient",

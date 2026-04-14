@@ -73,7 +73,11 @@ class AgentMessageStatus(StrEnum):
         Returns:
             True if the message is in a terminal state, False otherwise.
         """
-        return self in (AgentMessageStatus.COMPLETED, AgentMessageStatus.FAILED, AgentMessageStatus.CANCELLED)
+        return self in (
+            AgentMessageStatus.COMPLETED,
+            AgentMessageStatus.FAILED,
+            AgentMessageStatus.CANCELLED,
+        )
 
 
 class AgentSessionStatus(StrEnum):
@@ -129,8 +133,13 @@ class AgentToolUseContent(pydantic.BaseModel):
 
     content_type: typing.Literal[AgentContentType.TOOL_USE] = AgentContentType.TOOL_USE
     tool_name: str
+    """Name of the tool the LLM is requesting to invoke."""
     tool_use_id: str
+    """Unique identifier for this tool invocation, used to correlate with its result."""
+    input: Optional[dict[str, Any]] = None
+    """Parsed tool input parameters chosen by the LLM (provider-agnostic)."""
     raw_request: Optional[dict[str, Any]] = None
+    """Raw, unparsed request payload for this tool invocation."""
 
 
 class AgentToolResultContent(pydantic.BaseModel):
@@ -138,10 +147,15 @@ class AgentToolResultContent(pydantic.BaseModel):
 
     content_type: typing.Literal[AgentContentType.TOOL_RESULT] = AgentContentType.TOOL_RESULT
     tool_name: str
+    """Name of the tool that was executed."""
     tool_use_id: str
+    """Identifier of the tool invocation this result corresponds to."""
     runtime_ms: int
+    """Wall-clock execution time of the tool in milliseconds."""
     status: str
+    """Outcome of the tool execution (e.g. 'success', 'error')."""
     raw_response: Optional[dict[str, Any]] = None
+    """Raw, unparsed response payload from tool execution."""
 
 
 class AgentErrorContent(pydantic.BaseModel):
@@ -229,43 +243,10 @@ class AgentMessage(pydantic.BaseModel):
         Returns:
             True if the message status is FAILED or CANCELLED, False otherwise.
         """
-        return self.role != AgentRole.USER and self.status in (AgentMessageStatus.FAILED, AgentMessageStatus.CANCELLED)
-
-
-def _derive_session_status(latest_message: AgentMessage) -> AgentSessionStatus:
-    """Derive a session status from the latest message in the conversation.
-
-    Shared logic used by both AgentSession.calculate_new_status and
-    AgentSessionDelta.calculate_new_status.
-    """
-    # Failed or cancelled messages always return control to the user
-    if latest_message.is_unsuccessful():
-        return AgentSessionStatus.USER_TURN
-
-    # Client tool turn: assistant completed a message ending with tool_use content
-    # (no corresponding tool_result yet — the client must execute and submit)
-    is_client_tool_turn = (
-        latest_message.role == AgentRole.ASSISTANT
-        and latest_message.status == AgentMessageStatus.COMPLETED
-        and len(latest_message.content) > 0
-        and isinstance(latest_message.content[-1], AgentToolUseContent)
-    )
-
-    if is_client_tool_turn:
-        return AgentSessionStatus.CLIENT_TOOL_TURN
-
-    # Normal completion: assistant message with text content
-    is_user_turn = (
-        latest_message.role == AgentRole.ASSISTANT
-        and latest_message.status == AgentMessageStatus.COMPLETED
-        and len(latest_message.content) > 0
-        and isinstance(latest_message.content[-1], AgentTextContent)
-    )
-
-    if is_user_turn:
-        return AgentSessionStatus.USER_TURN
-
-    return AgentSessionStatus.ROBOTO_TURN
+        return self.role != AgentRole.USER and self.status in (
+            AgentMessageStatus.FAILED,
+            AgentMessageStatus.CANCELLED,
+        )
 
 
 class AgentSession(pydantic.BaseModel):
@@ -308,12 +289,6 @@ class AgentSession(pydantic.BaseModel):
         """Backwards-compatible alias — serialized as chat_id in API responses."""
         return self.session_id
 
-    def calculate_new_status(self) -> AgentSessionStatus:
-        """Calculate the session status based on the latest message."""
-        if len(self.messages) == 0:
-            return AgentSessionStatus.NOT_STARTED
-        return _derive_session_status(self.messages[-1])
-
 
 class AgentSessionDelta(pydantic.BaseModel):
     """Incremental update to an agent session.
@@ -333,13 +308,6 @@ class AgentSessionDelta(pydantic.BaseModel):
 
     title: Optional[str] = None
     """Updated title of the agent session."""
-
-    def calculate_new_status(self) -> AgentSessionStatus | None:
-        """Calculate the session status based on the latest message in the delta."""
-        if len(self.messages_by_idx) == 0:
-            return None
-        latest_message = self.messages_by_idx[max(self.messages_by_idx.keys())]
-        return _derive_session_status(latest_message)
 
 
 # Backwards-compatible aliases

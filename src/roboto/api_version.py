@@ -33,6 +33,10 @@ class RobotoApiVersion(StrEnum):
     v2026_02_11 = "2026-02-11"
     """path_in_schema is now a required field on AddMessagePathRequest"""
 
+    v2026_03_13 = "2026-03-13"
+    """Query endpoints are now eventually consistent when using v2026_03_13 or later.
+    Clients on older API versions maintain strong consistency for backward compatibility."""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the latest available API version.
@@ -40,7 +44,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent API version supported by the platform.
         """
-        return RobotoApiVersion.v2026_02_11
+        return RobotoApiVersion.v2026_03_13
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

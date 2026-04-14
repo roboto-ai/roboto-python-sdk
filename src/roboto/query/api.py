@@ -190,31 +190,3 @@ class SubmitTermQueryRequest(pydantic.BaseModel):
         description="A string search term which this query will attempt to match across any appropriate fields.",
     )
     target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
-
-
-class MetadataValuesRequest(pydantic.BaseModel):
-    """Request to fetch metadata for Roboto entities."""
-
-    target: QueryTarget
-    """Roboto entity type."""
-
-    metadata_key: str = pydantic.Field(min_length=1, max_length=1000)
-    """Metadata key whose values we wish to retrieve."""
-
-    entity_ids: list[str] = pydantic.Field(min_length=1, max_length=1000)
-    """IDs of Roboto entities for which we wish to retrieve metadata values."""
-
-
-class MetadataValuesResponse(pydantic.BaseModel):
-    """Response datagram containing Roboto entity metadata."""
-
-    metadata_key: str
-    """Metadata key for which values were fetched."""
-
-    metadata_values: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Metadata values retrieved for the given key from a set of Roboto entities.
-
-    The mapping is: ``entity_id -> metadata_value``. Entities that don't have the
-    requested metadata value will be mapped to ``None``. Entities that do not exist,
-    or to which the caller does not have search access, will be omitted from the mapping.
-    """

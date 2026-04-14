@@ -269,59 +269,70 @@ class Condition(pydantic.BaseModel):
 
     def matches(self, target: dict) -> bool:
         field = Field.wrap(self.field)
-        value = get_by_path(target, field.target.path.split("."))
+        target_value = get_by_path(target, field.target.path.split("."))
+        my_value = self.value
 
         if self.comparator in [Comparator.NotExists, Comparator.IsNull]:
-            return value is None
+            return target_value is None
 
         if self.comparator in [Comparator.Exists, Comparator.IsNotNull]:
-            return value is not None
+            return target_value is not None
 
         # We need the value for everything else
-        if value is None:
+        if target_value is None:
             return False
 
-        if isinstance(value, str) and not isinstance(self.value, str):
-            if isinstance(self.value, int):
-                value = int(value)
-            elif isinstance(self.value, float):
-                value = float(value)
-            elif isinstance(self.value, bool):
-                value = value.lower() == "true"
-            elif isinstance(self.value, decimal.Decimal):
-                value = decimal.Decimal.from_float(float(value))
-            elif isinstance(self.value, datetime.datetime):
-                value = datetime.datetime.fromisoformat(value)
+        if isinstance(target_value, str) and not isinstance(my_value, str):
+            if isinstance(my_value, int):
+                target_value = int(target_value)
+            elif isinstance(my_value, float):
+                target_value = float(target_value)
+            elif isinstance(my_value, bool):
+                target_value = target_value.lower() == "true"
+            elif isinstance(my_value, decimal.Decimal):
+                target_value = decimal.Decimal.from_float(float(target_value))
+            elif isinstance(my_value, datetime.datetime):
+                target_value = datetime.datetime.fromisoformat(target_value.replace("Z", "+00:00"))
 
-        if self.comparator is Comparator.Equals:
-            return value == self.value
-
-        if self.comparator is Comparator.NotEquals:
-            return value != self.value
-
-        if self.comparator is Comparator.GreaterThan:
-            return value > self.value
-
-        if self.comparator is Comparator.GreaterThanOrEqual:
-            return value >= self.value
-
-        if self.comparator is Comparator.LessThan:
-            return value < self.value
-
-        if self.comparator is Comparator.LessThanOrEqual:
-            return value <= self.value
-
-        if self.comparator is Comparator.Contains:
-            return isinstance(value, collections.abc.Collection) and self.value in value
-
-        if self.comparator is Comparator.NotContains:
-            return isinstance(value, collections.abc.Collection) and self.value not in value
-
-        if self.comparator is Comparator.BeginsWith:
-            if not isinstance(value, str) or not isinstance(self.value, str):
+        if isinstance(target_value, datetime.datetime) and isinstance(my_value, str):
+            try:
+                my_value = datetime.datetime.fromisoformat(my_value.replace("Z", "+00:00"))
+            except ValueError:
                 return False
 
-            return value.startswith(self.value)
+            # Comparing naive and aware datetimes raises TypeError for ordering ops.
+            if (target_value.tzinfo is None) != (my_value.tzinfo is None):
+                return False
+
+        if self.comparator is Comparator.Equals:
+            return target_value == my_value
+
+        if self.comparator is Comparator.NotEquals:
+            return target_value != my_value
+
+        if self.comparator is Comparator.GreaterThan:
+            return target_value > my_value
+
+        if self.comparator is Comparator.GreaterThanOrEqual:
+            return target_value >= my_value
+
+        if self.comparator is Comparator.LessThan:
+            return target_value < my_value
+
+        if self.comparator is Comparator.LessThanOrEqual:
+            return target_value <= my_value
+
+        if self.comparator is Comparator.Contains:
+            return isinstance(target_value, collections.abc.Collection) and my_value in target_value
+
+        if self.comparator is Comparator.NotContains:
+            return isinstance(target_value, collections.abc.Collection) and my_value not in target_value
+
+        if self.comparator is Comparator.BeginsWith:
+            if not isinstance(target_value, str) or not isinstance(my_value, str):
+                return False
+
+            return target_value.startswith(my_value)
 
         return False
 

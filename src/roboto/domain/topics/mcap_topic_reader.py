@@ -32,6 +32,23 @@ if typing.TYPE_CHECKING:
 logger = default_logger()
 
 
+class SignedUrlResolver(typing.Protocol):
+    """Resolves a file ID to a signed download URL."""
+
+    def __call__(self, file_id: str) -> str: ...
+
+
+class RobotoClientUrlResolver:
+    """A :class:`SignedUrlResolver` that fetches signed URLs via the Roboto API."""
+
+    def __init__(self, roboto_client: RobotoClient):
+        self.__roboto_client = roboto_client
+
+    def __call__(self, file_id: str) -> str:
+        signed_url_response = self.__roboto_client.get(f"v1/files/{file_id}/signed-url")
+        return signed_url_response.to_dict(json_path=["data", "url"])
+
+
 class McapTopicReader(TopicReader):
     """Private interface for retrieving topic data stored in MCAP files.
 
@@ -45,7 +62,7 @@ class McapTopicReader(TopicReader):
         or :py:class:`~roboto.domain.events.Event`.
     """
 
-    __roboto_client: RobotoClient
+    __signed_url_resolver: SignedUrlResolver
 
     @staticmethod
     def accepts(
@@ -56,13 +73,28 @@ class McapTopicReader(TopicReader):
                 return False
         return True
 
-    def __init__(self, roboto_client: RobotoClient):
+    def __init__(
+        self,
+        roboto_client: typing.Optional[RobotoClient] = None,
+        signed_url_resolver: typing.Optional[SignedUrlResolver] = None,
+    ):
         """Initialize the MCAP topic reader.
 
+        Provide either a ``roboto_client`` (which will fetch signed URLs via the Roboto API)
+        or a ``signed_url_resolver`` that maps file IDs to signed download URLs directly.
+
         Args:
-            roboto_client: Client for making Roboto API requests.
+            roboto_client: Client for making Roboto API requests. Used to resolve signed URLs
+                via the ``v1/files/{file_id}/signed-url`` endpoint.
+            signed_url_resolver: A :class:`SignedUrlResolver` that returns a signed download URL
+                for a given file ID. Takes precedence over ``roboto_client``.
         """
-        self.__roboto_client = roboto_client
+        if signed_url_resolver is not None:
+            self.__signed_url_resolver = signed_url_resolver
+        elif roboto_client is not None:
+            self.__signed_url_resolver = RobotoClientUrlResolver(roboto_client)
+        else:
+            raise ValueError("Either roboto_client or signed_url_resolver must be provided")
 
     def get_data(
         self,
@@ -90,8 +122,7 @@ class McapTopicReader(TopicReader):
                     continue
 
                 file_id = association.association_id
-                signed_url_response = self.__roboto_client.get(f"v1/files/{file_id}/signed-url")
-                signed_url = signed_url_response.to_dict(json_path=["data", "url"])
+                signed_url = self.__signed_url_resolver(file_id)
 
                 http_reader = HttpRangeReader(signed_url)
                 http_readers.append(http_reader)

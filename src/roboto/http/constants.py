@@ -28,3 +28,16 @@ BEARER_TOKEN_HEADER = "X-Roboto-Bearer-Token"
 API_VERSION_HEADER = "X-Roboto-Api-Version"
 """Which expected rolling API version this request is being made against. If no value is provided, requests will
 be made against the latest API version."""
+
+CONNECTION_CONSISTENCY_HEADER = "X-Roboto-Connection-Consistency"
+"""Header to control database read consistency for query/search endpoints.
+
+Set to 'strongly_consistent' to force strongly consistent reads,
+or 'eventually_consistent' to force eventually consistent reads. Omission defaults to the API version's default.
+
+Only applies to query and search endpoints (e.g., /v1/query/*, /v1/datasets/query,
+/v1/files/query). Has no effect on other endpoints.
+
+For API versions >= 2026-03-13, query endpoints default to eventually consistent reads.
+For older API versions, they default to strongly consistent reads for backward compatibility.
+"""

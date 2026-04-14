@@ -4,9 +4,9 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from .match import Match, MatchContext
+from .match import Match, MatchContext, Scale
 from .signal_similarity import (
     find_similar_signals,
 )
 
-__all__ = ("Match", "MatchContext", "find_similar_signals")
+__all__ = ("Match", "MatchContext", "Scale", "find_similar_signals")

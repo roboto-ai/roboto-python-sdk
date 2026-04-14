@@ -4,10 +4,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from typing import Optional
+from typing import Any, Optional
 
 import pydantic
 
+from ...compat import StrEnum
 from ..core import RobotoLLMContext
 from ..core.record import (
     AgentContent,
@@ -85,10 +86,37 @@ class StartChatRequest(pydantic.BaseModel):
     """Optional model profile ID for the session (e.g. 'standard', 'advanced')."""
 
 
+class ClientToolResultStatus(StrEnum):
+    """Outcome of executing a client-side tool."""
+
+    SUCCESS = "success"
+    ERROR = "error"
+    DECLINED = "declined"
+
+
+class ClientToolResult(pydantic.BaseModel):
+    """Result of executing a client-side tool."""
+
+    tool_use_id: str
+    """Identifier of the tool invocation this result corresponds to."""
+
+    tool_name: str
+    """Name of the tool that was executed."""
+
+    runtime_ms: int
+    """Wall-clock execution time of the tool in milliseconds."""
+
+    status: ClientToolResultStatus
+    """Outcome of the tool execution."""
+
+    output: Optional[dict[str, Any]] = None
+    """Structured output returned by the tool."""
+
+
 class SubmitToolResultsRequest(pydantic.BaseModel):
     """Request payload for submitting client-side tool execution results."""
 
-    tool_results: list[AgentToolResultContent]
+    tool_results: list[ClientToolResult]
     """Tool results from client-side execution."""
 
     client_tools: Optional[list[ClientToolSpec]] = None
@@ -121,6 +149,8 @@ __all__ = [
     "ChatToolDetailResponse",
     "ChatToolResultContent",
     "ChatToolUseContent",
+    "ClientToolResult",
+    "ClientToolResultStatus",
     "ClientToolSpec",
     "SendMessageRequest",
     "StartChatRequest",

@@ -7,7 +7,8 @@
 from .signal_similarity import (
     Match,
     MatchContext,
+    Scale,
     find_similar_signals,
 )
 
-__all__ = ("Match", "MatchContext", "find_similar_signals")
+__all__ = ("Match", "MatchContext", "Scale", "find_similar_signals")

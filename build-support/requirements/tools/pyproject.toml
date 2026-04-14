@@ -123,6 +123,7 @@ ignore = [
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
 known-first-party = [
+    "database_administration",
     "executor_sidecar",
     "image_management_service",
     "invocation_scheduling_service",
