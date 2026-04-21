@@ -115,6 +115,10 @@ ignore = [
     "S105", # Secret name constants are not hardcoded secrets.
 ]
 
+"scripts/replicate_action.py" = [
+    "S603", # We trust the docker subprocess calls in this script.
+]
+
 "packages/roboto_service/src/roboto_service/ai/tools/analyze_topic*.py" = [
     "S108", # TODO(ENG-2085): tmp files could leave data behind on disk to be accessed by future callers to the same instance.
     "S608", # TODO(ENG-2086): avoid sql injection

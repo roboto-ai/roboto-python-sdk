@@ -5,8 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "roboto"
 dependencies = [
-    "boto3>=1.26",
-    "botocore>=1.29",
+    "boto3>=1.36",
+    "botocore>=1.36",
     "cookiecutter>=2.5.0",
     "cron-converter>=1.2.1",
     "exceptiongroup>=1.0; python_version<'3.11'",

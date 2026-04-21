@@ -169,12 +169,12 @@ class FileRecord(pydantic.BaseModel):
 
     @property
     def bucket(self) -> str:
-        parsed_uri = urllib.parse.urlparse(self.uri)
+        parsed_uri = urllib.parse.urlparse(self.uri, allow_fragments=False)
         return parsed_uri.netloc
 
     @property
     def key(self) -> str:
-        parsed_uri = urllib.parse.urlparse(self.uri)
+        parsed_uri = urllib.parse.urlparse(self.uri, allow_fragments=False)
         return parsed_uri.path.lstrip("/")
 
 

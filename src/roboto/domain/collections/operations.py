@@ -11,7 +11,7 @@ from pydantic import ConfigDict
 
 from roboto.sentinels import NotSet, NotSetType
 
-from .record import CollectionResourceRef
+from .record import CollectionResourceRef, CollectionResourceType
 
 
 class CreateCollectionRequest(pydantic.BaseModel):
@@ -19,6 +19,7 @@ class CreateCollectionRequest(pydantic.BaseModel):
 
     description: Optional[str] = None
     name: Optional[str] = None
+    resource_type: CollectionResourceType = CollectionResourceType.File
     resources: Optional[list[CollectionResourceRef]] = None
     tags: Optional[list[str]] = None
 

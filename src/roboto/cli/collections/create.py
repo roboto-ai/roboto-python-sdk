@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import argparse
+import warnings
 
 from ...domain.collections import (
     Collection,
@@ -17,28 +18,56 @@ from ..context import CLIContext
 
 
 def create(args, context: CLIContext, parser: argparse.ArgumentParser):
-    resources: list[CollectionResourceRef] = []
+    has_datasets = bool(args.dataset_id)
+    has_files = bool(args.file_id)
 
-    if args.dataset_id is not None:
-        resources.extend(
-            [
-                CollectionResourceRef(resource_type=CollectionResourceType.Dataset, resource_id=dataset_id)
-                for dataset_id in args.dataset_id
-            ]
+    # 1. Reject mixed resource types
+    if has_datasets and has_files:
+        parser.error("Cannot mix --dataset-id and --file-id in a single collection.")
+
+    # 2. Infer resource_type from provided IDs
+    if has_datasets:
+        inferred_type: CollectionResourceType | None = CollectionResourceType.Dataset
+    elif has_files:
+        inferred_type = CollectionResourceType.File
+    else:
+        inferred_type = None
+
+    # 3. Resolve explicit --resource-type
+    if args.resource_type is not None:
+        explicit_type = CollectionResourceType(args.resource_type)
+        if inferred_type is not None and explicit_type != inferred_type:
+            parser.error(
+                f"--resource-type '{args.resource_type}' conflicts with the type inferred from "
+                f"the provided IDs ('{inferred_type.value}')."
+            )
+        resource_type = explicit_type
+    elif inferred_type is not None:
+        resource_type = inferred_type
+    else:
+        warnings.warn(
+            "No --resource-type specified and no IDs provided; defaulting to 'file'. "
+            "Pass --resource-type explicitly to suppress this warning.",
+            stacklevel=2,
         )
+        resource_type = CollectionResourceType.File
 
-    if args.file_id is not None:
+    # 4. Build resource refs (only one type can be present at this point)
+    resources: list[CollectionResourceRef] = []
+    if has_datasets:
         resources.extend(
-            [
-                CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=file_id)
-                for file_id in args.file_id
-            ]
+            CollectionResourceRef(resource_type=CollectionResourceType.Dataset, resource_id=d) for d in args.dataset_id
+        )
+    if has_files:
+        resources.extend(
+            CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=f) for f in args.file_id
         )
 
     collection = Collection.create(
         name=args.name,
         description=args.description,
         tags=args.tag,
+        resource_type=resource_type,
         resources=None if len(resources) == 0 else resources,
         caller_org_id=args.org,
         roboto_client=context.roboto_client,
@@ -64,6 +93,15 @@ def create_setup_parser(parser):
         nargs="*",
         help="Initial files to add to this collection.",
         action="extend",
+    )
+    parser.add_argument(
+        "--resource-type",
+        choices=["file", "dataset"],
+        help=(
+            "The type of resources this collection holds. "
+            "Inferred from --file-id or --dataset-id if not provided. "
+            "Defaults to 'file' with a warning when neither is given."
+        ),
     )
     parser.add_argument(
         "--tag",

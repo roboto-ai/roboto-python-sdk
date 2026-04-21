@@ -67,11 +67,18 @@ class S3Store(ObjectStore):
         boto_session = boto3.Session(botocore_session=session)
 
         # 5. Create the Client and TransferConfig
-        s3_client = boto_session.client("s3", config=botocore.config.Config(tcp_keepalive=True))
-
-        transfer_config = boto3.s3.transfer.TransferConfig(
-            use_threads=True, max_concurrency=multiprocessing.cpu_count() * 2
+        max_concurrency = max(10, multiprocessing.cpu_count() * 2)
+        s3_client = boto_session.client(
+            "s3",
+            config=botocore.config.Config(
+                tcp_keepalive=True,
+                max_pool_connections=max_concurrency,
+                request_checksum_calculation="when_supported",
+                response_checksum_validation="when_supported",
+            ),
         )
+
+        transfer_config = boto3.s3.transfer.TransferConfig(use_threads=True, max_concurrency=max_concurrency)
 
         # 6. Inject/instantiate
         return cls(s3_client, transfer_config=transfer_config)
@@ -93,7 +100,7 @@ class S3Store(ObjectStore):
     def put(
         self, source: pathlib.Path, destination_uri: str, on_progress: typing.Optional[OnProgress] = None
     ) -> FutureLike[None]:
-        parsed_uri = urllib.parse.urlparse(destination_uri)
+        parsed_uri = urllib.parse.urlparse(destination_uri, allow_fragments=False)
         bucket = parsed_uri.netloc
         key = parsed_uri.path.lstrip("/")
 
@@ -113,7 +120,7 @@ class S3Store(ObjectStore):
     ) -> FutureLike[None]:
         destination.parent.mkdir(parents=True, exist_ok=True)
 
-        parsed_uri = urllib.parse.urlparse(source_uri)
+        parsed_uri = urllib.parse.urlparse(source_uri, allow_fragments=False)
         bucket = parsed_uri.netloc
         key = parsed_uri.path.lstrip("/")
 

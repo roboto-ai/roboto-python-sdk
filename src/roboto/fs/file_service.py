@@ -6,10 +6,15 @@
 
 import collections.abc
 import pathlib
+import sys
 import typing
+
+if sys.version_info < (3, 11):
+    from exceptiongroup import ExceptionGroup
 
 from ..association import Association
 from ..http import RobotoClient
+from ..logging import default_logger
 from .download_session import (
     DownloadableFile,
     DownloadSession,
@@ -23,7 +28,10 @@ from .upload_transaction import (
     UploadTransaction,
 )
 
+logger = default_logger()
+
 _DEFAULT_UPLOAD_BATCH_SIZE = 500
+_MAX_DOWNLOAD_ATTEMPTS = 3
 
 
 class FileService:
@@ -136,7 +144,28 @@ class FileService:
                 first_file_uri, download_session.make_credential_provider(bucket_name)
             )
 
-            with object_store, download_session:
-                for file in bucket_files:
-                    future = object_store.get(file["source_uri"], file["destination_path"], on_progress=on_progress)
-                    download_session.register_download(file, future)
+            with object_store:
+                pending = list(bucket_files)
+                for attempt in range(1, _MAX_DOWNLOAD_ATTEMPTS + 1):
+                    for file in pending:
+                        future = object_store.get(file["source_uri"], file["destination_path"], on_progress=on_progress)
+                        download_session.register_download(file, future)
+
+                    failed = download_session.await_downloads()
+                    if not failed:
+                        break
+
+                    pending = [file for file, _ in failed]
+                    if attempt < _MAX_DOWNLOAD_ATTEMPTS:
+                        logger.warning(
+                            "Retrying %d failed download(s) (attempt %d/%d)",
+                            len(pending),
+                            attempt + 1,
+                            _MAX_DOWNLOAD_ATTEMPTS,
+                        )
+
+                if failed:
+                    raise ExceptionGroup(
+                        "One or more downloads failed after retries",
+                        [exc for _, exc in failed],
+                    )

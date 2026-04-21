@@ -41,6 +41,7 @@ class CollectionRecord(pydantic.BaseModel):
     collection_id: str
     name: typing.Optional[str] = None
     description: typing.Optional[str] = None
+    resource_type: CollectionResourceType = CollectionResourceType.File
     resources: dict[CollectionResourceType, list[typing.Any]] = pydantic.Field(default_factory=dict)
     missing: dict[CollectionResourceType, list[CollectionResourceRef]] = pydantic.Field(default_factory=dict)
     tags: list[str] = []

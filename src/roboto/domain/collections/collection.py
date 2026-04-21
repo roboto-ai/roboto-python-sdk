@@ -69,6 +69,7 @@ class Collection:
         cls,
         description: Optional[str] = None,
         name: Optional[str] = None,
+        resource_type: CollectionResourceType = CollectionResourceType.File,
         resources: Optional[list[CollectionResourceRef]] = None,
         dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
@@ -101,6 +102,7 @@ class Collection:
         request = CreateCollectionRequest(
             name=name,
             description=description,
+            resource_type=resource_type,
             resources=normalized_resources,
             tags=tags,
         )

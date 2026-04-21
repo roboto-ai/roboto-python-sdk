@@ -93,14 +93,22 @@ class DownloadSession:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.await_downloads()
+        self.__await_downloads_or_raise()
 
     def __iter__(self) -> typing.Generator[DownloadableFile, None, None]:
         """Yield files to download."""
         for item in self.__items:
             yield item
 
-        self.await_downloads()
+        self.__await_downloads_or_raise()
+
+    def __await_downloads_or_raise(self) -> None:
+        failures = self.await_downloads()
+        if failures:
+            raise ExceptionGroup(
+                "One or more downloads failed",
+                [exc for _, exc in failures],
+            )
 
     def make_credential_provider(self, bucket_name: typing.Optional[str] = None) -> CredentialProvider:
         """Return a credential provider for read-only access to the dataset."""
@@ -137,32 +145,31 @@ class DownloadSession:
             raise ValueError("Roboto currently only supports downloading files from datasets.")
         return dataset_id
 
-    def await_downloads(self) -> None:
+    def await_downloads(self) -> list[tuple[DownloadableFile, Exception]]:
         """Wait for all registered downloads to complete.
 
         Must be called while still inside the object_store context manager,
         since the transfer manager may be shut down when that context exits.
 
-        Raises:
-            ExceptionGroup: If any downloads fail, an ExceptionGroup containing all
-                           download errors is raised.
+        Returns:
+            List of (file, exception) tuples for downloads that failed.
+            Empty list if all downloads succeeded.
         """
         if not self.__pending_downloads:
-            return
+            return []
 
-        errors: list[Exception] = []
+        failed: list[tuple[DownloadableFile, Exception]] = []
 
         for file, future in self.__pending_downloads:
             try:
                 future.result()
             except Exception as e:
                 logger.error("Download failed: %s", file["source_uri"], exc_info=e)
-                errors.append(e)
+                failed.append((file, e))
 
         self.__pending_downloads.clear()
 
-        if errors:
-            raise ExceptionGroup("One or more downloads failed", errors)
+        return failed
 
     def register_download(self, file: DownloadableFile, future: FutureLike[None]) -> None:
         """Register a pending download future.
