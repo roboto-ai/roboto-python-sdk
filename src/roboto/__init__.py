@@ -9,7 +9,7 @@ from .action_runtime import (
     FilesChangesetFileManager,
     InvocationContext,
 )
-from .ai import AISummary, Chat
+from .ai import AgentSession, AISummary, ClientTool, ClientToolSpec, client_tool
 from .association import (
     Association,
     AssociationType,
@@ -163,6 +163,7 @@ __all__ = [
     "ActionRuntime",
     "AddMessagePathRepresentationRequest",
     "AddMessagePathRequest",
+    "AgentSession",
     "AISummary",
     "Association",
     "AssociationType",
@@ -172,7 +173,8 @@ __all__ = [
     "BeginUploadRequest",
     "BeginUploadResponse",
     "CanonicalDataType",
-    "Chat",
+    "ClientTool",
+    "ClientToolSpec",
     "Collection",
     "CollectionChangeRecord",
     "CollectionChangeSet",
@@ -275,6 +277,7 @@ __all__ = [
     "UploadDestinationType",
     "User",
     "UserRecord",
+    "client_tool",
 ]
 
 

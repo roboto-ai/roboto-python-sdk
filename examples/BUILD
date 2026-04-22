@@ -11,6 +11,14 @@ python_sources(
   skip_mypy=True,  # Example notebook utilities - not production code
 )
 
+python_sources(
+  name="example-scripts",
+  sources=["*.py"],
+  dependencies=[
+    "//packages/roboto/src/roboto:roboto-src",
+  ],
+)
+
 resources(
     name="notebooks",
     sources=["*.ipynb"],

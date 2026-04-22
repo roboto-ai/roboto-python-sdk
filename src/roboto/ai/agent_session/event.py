@@ -5,32 +5,21 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from ..core.event import (
+    AgentErrorEvent,
     AgentEvent,
     AgentStartTextEvent,
     AgentTextDeltaEvent,
     AgentTextEndEvent,
     AgentToolResultEvent,
     AgentToolUseEvent,
-    # Backwards-compatible aliases
-    ChatEvent,
-    ChatStartTextEvent,
-    ChatTextDeltaEvent,
-    ChatTextEndEvent,
-    ChatToolResultEvent,
-    ChatToolUseEvent,
 )
 
 __all__ = [
+    "AgentErrorEvent",
     "AgentEvent",
     "AgentStartTextEvent",
     "AgentTextDeltaEvent",
     "AgentTextEndEvent",
     "AgentToolResultEvent",
     "AgentToolUseEvent",
-    "ChatEvent",
-    "ChatStartTextEvent",
-    "ChatTextDeltaEvent",
-    "ChatTextEndEvent",
-    "ChatToolResultEvent",
-    "ChatToolUseEvent",
 ]

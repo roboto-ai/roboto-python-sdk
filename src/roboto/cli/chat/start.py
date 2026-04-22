@@ -16,13 +16,13 @@ from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
-from ...ai.chat import Chat
-from ...ai.chat.event import (
-    ChatStartTextEvent,
-    ChatTextDeltaEvent,
-    ChatTextEndEvent,
-    ChatToolResultEvent,
-    ChatToolUseEvent,
+from ...ai.agent_session import AgentSession
+from ...ai.agent_session.event import (
+    AgentStartTextEvent,
+    AgentTextDeltaEvent,
+    AgentTextEndEvent,
+    AgentToolResultEvent,
+    AgentToolUseEvent,
 )
 from ..command import RobotoCommand
 from ..common_args import add_org_arg
@@ -61,12 +61,12 @@ class RobotoMultiToolSpinner:
         self._failed_tools: set[str] = set()
         self._tool_id_to_name: dict[str, str] = {}
 
-    def begin_tool_call(self, event: ChatToolUseEvent):
+    def begin_tool_call(self, event: AgentToolUseEvent):
         self._tool_id_to_name[event.tool_use_id] = event.name
         self._in_progress_tools.add(event.tool_use_id)
         self._render()
 
-    def end_tool_call(self, event: ChatToolResultEvent):
+    def end_tool_call(self, event: AgentToolResultEvent):
         self._in_progress_tools.remove(event.tool_use_id)
         if event.success:
             self._completed_tools.add(event.tool_use_id)
@@ -183,7 +183,7 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
     )
     console.print()
 
-    chat: typing.Union[Chat, None] = None
+    chat: typing.Union[AgentSession, None] = None
     thinking_spinner: RobotoSpinner | None
     multi_tool_spinner: RobotoMultiToolSpinner | None = None
     markdown: RobotoMarkdown | None = None
@@ -207,7 +207,7 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
         thinking_spinner.start()
 
         if chat is None:
-            chat = Chat.start(
+            chat = AgentSession.start(
                 message=prompt,
                 org_id=org_id,
                 roboto_client=context.roboto_client,
@@ -215,12 +215,12 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
         else:
             chat.send_text(prompt)
 
-        for event in chat.stream_events():
+        for event in chat.events():
             if thinking_spinner is not None:
                 thinking_spinner.stop()
                 thinking_spinner = None
 
-            if isinstance(event, ChatStartTextEvent):
+            if isinstance(event, AgentStartTextEvent):
                 if multi_tool_spinner is not None:
                     multi_tool_spinner.stop()
                     multi_tool_spinner = None
@@ -229,23 +229,23 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
                 markdown = RobotoMarkdown(content="", console=console)
                 markdown.start()
 
-            elif isinstance(event, ChatTextDeltaEvent):
+            elif isinstance(event, AgentTextDeltaEvent):
                 if markdown is not None:
                     markdown.add_content(event.text)
 
-            elif isinstance(event, ChatTextEndEvent):
+            elif isinstance(event, AgentTextEndEvent):
                 if markdown is not None:
                     markdown.stop()
                     console.print()
 
-            elif isinstance(event, ChatToolUseEvent):
+            elif isinstance(event, AgentToolUseEvent):
                 if multi_tool_spinner is None:
                     multi_tool_spinner = RobotoMultiToolSpinner(console=console)
                     multi_tool_spinner.start()
 
                 multi_tool_spinner.begin_tool_call(event)
 
-            elif isinstance(event, ChatToolResultEvent):
+            elif isinstance(event, AgentToolResultEvent):
                 if multi_tool_spinner is not None:
                     multi_tool_spinner.end_tool_call(event)
                     if not multi_tool_spinner.has_in_progress_tools():

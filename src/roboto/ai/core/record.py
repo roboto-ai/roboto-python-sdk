@@ -249,7 +249,7 @@ class AgentMessage(pydantic.BaseModel):
         )
 
 
-class AgentSession(pydantic.BaseModel):
+class AgentSessionRecord(pydantic.BaseModel):
     """Complete record of an agent session.
 
     Contains all the persistent data for a session including metadata,
@@ -308,18 +308,3 @@ class AgentSessionDelta(pydantic.BaseModel):
 
     title: Optional[str] = None
     """Updated title of the agent session."""
-
-
-# Backwards-compatible aliases
-ChatRole = AgentRole
-ChatMessageStatus = AgentMessageStatus
-ChatStatus = AgentSessionStatus
-ChatContentType = AgentContentType
-ChatTextContent = AgentTextContent
-ChatToolUseContent = AgentToolUseContent
-ChatToolResultContent = AgentToolResultContent
-ChatErrorContent = AgentErrorContent
-ChatContent = AgentContent
-ChatMessage = AgentMessage
-ChatRecord = AgentSession
-ChatRecordDelta = AgentSessionDelta

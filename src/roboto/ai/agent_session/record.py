@@ -17,38 +17,25 @@ from ..core.record import (
     AgentMessage,
     AgentMessageStatus,
     AgentRole,
-    AgentSession,
     AgentSessionDelta,
+    AgentSessionRecord,
     AgentSessionStatus,
     AgentTextContent,
     AgentToolResultContent,
     AgentToolUseContent,
-    # Backwards-compatible aliases
-    ChatContent,
-    ChatContentType,
-    ChatErrorContent,
-    ChatMessage,
-    ChatMessageStatus,
-    ChatRecord,
-    ChatRecordDelta,
-    ChatRole,
-    ChatStatus,
-    ChatTextContent,
-    ChatToolResultContent,
-    ChatToolUseContent,
     ClientToolSpec,
 )
 
 
-class ChatToolDetailResponse(pydantic.BaseModel):
-    """Unsanitized tool request and response details for a chat tool invocation."""
+class AgentToolDetailResponse(pydantic.BaseModel):
+    """Unsanitized tool request and response details for an agent tool invocation."""
 
     tool_use: AgentToolUseContent
     tool_result: AgentToolResultContent
 
 
 class SendMessageRequest(pydantic.BaseModel):
-    """Request payload for sending a message to a chat session.
+    """Request payload for sending a message to an agent session.
 
     Contains the message content and optional context for the AI assistant.
     """
@@ -63,11 +50,11 @@ class SendMessageRequest(pydantic.BaseModel):
     """Optional client-side tools available for this invocation."""
 
 
-class StartChatRequest(pydantic.BaseModel):
-    """Request payload for starting a new chat session.
+class StartAgentSessionRequest(pydantic.BaseModel):
+    """Request payload for starting a new agent session.
 
     Contains the initial messages and configuration for creating a new
-    chat conversation.
+    conversation.
     """
 
     context: Optional[RobotoLLMContext] = None
@@ -130,29 +117,17 @@ __all__ = [
     "AgentMessage",
     "AgentMessageStatus",
     "AgentRole",
-    "AgentSession",
     "AgentSessionDelta",
+    "AgentSessionRecord",
     "AgentSessionStatus",
     "AgentTextContent",
+    "AgentToolDetailResponse",
     "AgentToolResultContent",
     "AgentToolUseContent",
-    "ChatContent",
-    "ChatContentType",
-    "ChatErrorContent",
-    "ChatMessage",
-    "ChatMessageStatus",
-    "ChatRecord",
-    "ChatRecordDelta",
-    "ChatRole",
-    "ChatStatus",
-    "ChatTextContent",
-    "ChatToolDetailResponse",
-    "ChatToolResultContent",
-    "ChatToolUseContent",
     "ClientToolResult",
     "ClientToolResultStatus",
     "ClientToolSpec",
     "SendMessageRequest",
-    "StartChatRequest",
+    "StartAgentSessionRequest",
     "SubmitToolResultsRequest",
 ]
