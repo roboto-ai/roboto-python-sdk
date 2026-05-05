@@ -8,7 +8,10 @@
 Core AI abstractions usable by any other submodule within module `roboto.ai`.
 """
 
-from .context import RobotoLLMContext
+from .context import (
+    AnalysisScope,
+    RobotoLLMContext,
+)
 from .event import (
     AgentErrorEvent,
     AgentEvent,
@@ -55,6 +58,7 @@ __all__ = [
     "AgentToolResultEvent",
     "AgentToolUseContent",
     "AgentToolUseEvent",
+    "AnalysisScope",
     "ClientToolSpec",
     "ModelProfileResponse",
     "RobotoLLMContext",

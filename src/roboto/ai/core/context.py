@@ -25,3 +25,27 @@ class RobotoLLMContext(pydantic.BaseModel):
 
     misc_context: Optional[dict[str, Any]] = None
     """Miscellaneous context that is relevant to the user's query."""
+
+
+class AnalysisScope(pydantic.BaseModel):
+    """The slice of data an agent is expected to analyze.
+
+    An ``AnalysisScope`` is delivered to every ``AgentTool`` invocation on
+    the server side. Individual tools opt in to honoring the scope as they
+    are adopted; this SDK type carries the configuration, it does not
+    itself enforce anything. Fields set to ``None`` are unconstrained on
+    that dimension; an ``AnalysisScope`` with every field ``None`` is
+    equivalent to no scope at all.
+    """
+
+    start_time: Optional[int] = None
+    """Lower bound (inclusive) of the analysis window, expressed as nanoseconds since the Unix epoch."""
+
+    end_time: Optional[int] = None
+    """Upper bound (inclusive) of the analysis window, expressed as nanoseconds since the Unix epoch."""
+
+    @pydantic.model_validator(mode="after")
+    def _validate_time_window(self) -> "AnalysisScope":
+        if self.start_time is not None and self.end_time is not None and self.start_time > self.end_time:
+            raise ValueError(f"AnalysisScope.start_time ({self.start_time}) must be <= end_time ({self.end_time}).")
+        return self

@@ -201,6 +201,14 @@ class RobotoDeviceNotFoundException(RobotoNotFoundException):
     """
 
 
+class RobotoFeatureNotAvailableException(RobotoDomainException):
+    """Thrown when a route is gated by a feature flag that is not enabled for the caller."""
+
+    @property
+    def http_status_code(self) -> int:
+        return 403
+
+
 class RobotoNotReadyException(RobotoDomainException):
     """
     Throw when a requested resource is resolvable by ID/context but is not fully initialized or ready to be served.

@@ -9,7 +9,10 @@ from typing import Any, Optional
 import pydantic
 
 from ...compat import StrEnum
-from ..core import RobotoLLMContext
+from ..core import (
+    AnalysisScope,
+    RobotoLLMContext,
+)
 from ..core.record import (
     AgentContent,
     AgentContentType,
@@ -49,6 +52,11 @@ class SendMessageRequest(pydantic.BaseModel):
     client_tools: Optional[list[ClientToolSpec]] = None
     """Optional client-side tools available for this invocation."""
 
+    analysis_scope: Optional[AnalysisScope] = None
+    """Optional replacement analysis scope. When provided, overwrites the session's current analysis scope; the new
+    scope takes effect for this turn's tool invocations and every turn thereafter. When ``None``, the session's
+    existing analysis scope is left untouched (there is currently no wire-format way to clear a scope via ``send``)."""
+
 
 class StartAgentSessionRequest(pydantic.BaseModel):
     """Request payload for starting a new agent session.
@@ -71,6 +79,10 @@ class StartAgentSessionRequest(pydantic.BaseModel):
 
     model_profile: Optional[str] = None
     """Optional model profile ID for the session (e.g. 'standard', 'advanced')."""
+
+    analysis_scope: Optional[AnalysisScope] = None
+    """Optional analysis scope for the session. Delivered to every tool invocation on the server side; individual
+    tools opt in to honoring it. ``None`` means no scope."""
 
 
 class ClientToolResultStatus(StrEnum):

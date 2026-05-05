@@ -13,7 +13,7 @@ import typing
 from typing import Optional, Union
 
 from ...http import RobotoClient
-from ..core import RobotoLLMContext
+from ..core import AnalysisScope, RobotoLLMContext
 from .client_tool import ClientTool
 from .event import (
     AgentErrorEvent,
@@ -119,11 +119,13 @@ class AgentSession:
     def start(
         cls,
         message: Union[str, AgentMessage, collections.abc.Sequence[AgentMessage]],
+        *,
         context: Optional[RobotoLLMContext] = None,
         system_prompt: Optional[str] = None,
         model_profile: Optional[str] = None,
         org_id: Optional[str] = None,
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
+        analysis_scope: Optional[AnalysisScope] = None,
         roboto_client: Optional[RobotoClient] = None,
     ) -> AgentSession:
         """Start a new agent session with an initial message.
@@ -150,6 +152,11 @@ class AgentSession:
                 include a callback for auto-dispatch) and bare
                 :class:`ClientToolSpec` objects (which describe the tool but
                 require the caller to submit results manually).
+            analysis_scope: Optional :class:`AnalysisScope` for the session
+                (e.g. a time window or topic-pattern filter). When provided,
+                the scope is persisted on the session and delivered to every
+                tool invocation on the server side. Individual tools opt in
+                to honoring the scope as they are adopted.
             roboto_client: HTTP client for API communication. If None, uses the default client.
 
         Returns:
@@ -200,6 +207,7 @@ class AgentSession:
             system_prompt=system_prompt,
             model_profile=model_profile,
             client_tools=specs,
+            analysis_scope=analysis_scope,
         )
 
         record = roboto_client.post("v1/ai/chats", caller_org_id=org_id, data=request).to_record(AgentSessionRecord)
@@ -349,8 +357,10 @@ class AgentSession:
     def send(
         self,
         message: AgentMessage,
-        context: typing.Optional[RobotoLLMContext] = None,
+        *,
+        context: Optional[RobotoLLMContext] = None,
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
+        analysis_scope: Optional[AnalysisScope] = None,
     ) -> AgentSession:
         """Send a structured message to the session.
 
@@ -360,6 +370,10 @@ class AgentSession:
             client_tools: Optional client-side tools to add or update for this
                 and subsequent turns. ClientTool callbacks are registered on
                 the session for auto-dispatch.
+            analysis_scope: Optional replacement :class:`AnalysisScope`. When
+                provided, overwrites the session's current scope for all
+                subsequent tool invocations. When ``None``, the session's
+                existing scope (if any) is left untouched.
 
         Returns:
             Self for method chaining.
@@ -369,7 +383,12 @@ class AgentSession:
             RobotoUnauthorizedException: If the caller lacks permission to send messages.
         """
         specs = _extract_specs(client_tools)
-        request = SendMessageRequest(message=message, context=context, client_tools=specs)
+        request = SendMessageRequest(
+            message=message,
+            context=context,
+            client_tools=specs,
+            analysis_scope=analysis_scope,
+        )
 
         self.__roboto_client.post(
             f"v1/ai/chats/{self.__record.session_id}/messages",
@@ -383,8 +402,10 @@ class AgentSession:
     def send_text(
         self,
         text: str,
-        context: typing.Optional[RobotoLLMContext] = None,
+        *,
+        context: Optional[RobotoLLMContext] = None,
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
+        analysis_scope: Optional[AnalysisScope] = None,
     ) -> AgentSession:
         """Send a text message to the session.
 
@@ -395,6 +416,8 @@ class AgentSession:
             text: Text content to send to the assistant.
             context: Optional context to include with the message.
             client_tools: Optional client-side tools to add or update.
+            analysis_scope: Optional replacement :class:`AnalysisScope`; see
+                :py:meth:`send` for update semantics.
 
         Returns:
             Self for method chaining.
@@ -407,6 +430,7 @@ class AgentSession:
             AgentMessage.text(text=text, role=AgentRole.USER),
             context=context,
             client_tools=client_tools,
+            analysis_scope=analysis_scope,
         )
 
     def submit_client_tool_results(
