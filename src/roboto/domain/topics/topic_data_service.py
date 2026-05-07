@@ -18,13 +18,12 @@ from ...time import (
     to_epoch_nanoseconds,
 )
 from .mcap_topic_reader import McapTopicReader
-from .operations import (
-    MessagePathRepresentationMapping,
-)
 from .parquet import ParquetTopicReader
 from .record import (
     CanonicalDataType,
     MessagePathRecord,
+    MessagePathRepresentationMapping,
+    RepresentationSelector,
 )
 from .topic_reader import Timestamp, TopicReader
 
@@ -82,6 +81,7 @@ class TopicDataService:
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         cache_dir_override: typing.Union[str, pathlib.Path, None] = None,
+        representation_selector: RepresentationSelector = RepresentationSelector.raw(),
     ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
         """Retrieve data for a specific topic with optional filtering.
 
@@ -94,6 +94,8 @@ class TopicDataService:
             start_time: Start time (inclusive) for temporal filtering.
             end_time: End time (exclusive) for temporal filtering.
             cache_dir_override: Override the default cache directory for downloads.
+            representation_selector: Criteria for selecting among multiple representations.
+                Defaults to :py:meth:`RepresentationSelector.raw`.
 
         Yields:
             Tuple of (timestamp, record) where timestamp is in nanoseconds since Unix epoch.
@@ -106,22 +108,23 @@ class TopicDataService:
             message_paths_include=message_paths_include,
             message_paths_exclude=message_paths_exclude,
         )
+        selected_mappings = representation_selector.select_representations(filtered_message_path_repr_mappings)
 
         start_time_ns = to_epoch_nanoseconds(start_time) if start_time is not None else None
         end_time_ns = to_epoch_nanoseconds(end_time) if end_time is not None else None
 
-        if McapTopicReader.accepts(filtered_message_path_repr_mappings):
+        if McapTopicReader.accepts(selected_mappings):
             reader: TopicReader = McapTopicReader(self.__roboto_client)
             yield from reader.get_data(
-                filtered_message_path_repr_mappings,
+                selected_mappings,
                 start_time=start_time_ns,
                 end_time=end_time_ns,
             )
-        elif ParquetTopicReader.accepts(filtered_message_path_repr_mappings):
+        elif ParquetTopicReader.accepts(selected_mappings):
             reader = ParquetTopicReader(self.__roboto_client, cache_dir=cache_dir)
-            timestamp_mapping = self.__find_timestamp_message_path_mapping(message_path_repr_mappings)
+            timestamp_mapping = self.__find_timestamp_message_path_mapping(selected_mappings)
             yield from reader.get_data(
-                filtered_message_path_repr_mappings,
+                selected_mappings,
                 start_time=start_time_ns,
                 end_time=end_time_ns,
                 timestamp_message_path_representation_mapping=timestamp_mapping,
@@ -137,6 +140,7 @@ class TopicDataService:
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         cache_dir_override: typing.Union[str, pathlib.Path, None] = None,
+        representation_selector: RepresentationSelector = RepresentationSelector.raw(),
     ) -> pandas.DataFrame:
         """Retrieve data for a specific topic as a pandas DataFrame with optional filtering.
 
@@ -149,6 +153,8 @@ class TopicDataService:
             start_time: Start time (inclusive) for temporal filtering.
             end_time: End time (exclusive) for temporal filtering.
             cache_dir_override: Override the default cache directory for downloads.
+            representation_selector: Criteria for selecting among multiple representations.
+                Defaults to :py:meth:`RepresentationSelector.raw`.
 
         Returns:
             pandas.DataFrame
@@ -165,22 +171,23 @@ class TopicDataService:
             message_paths_include=message_paths_include,
             message_paths_exclude=message_paths_exclude,
         )
+        selected_mappings = representation_selector.select_representations(filtered_message_path_repr_mappings)
 
         start_time_ns = to_epoch_nanoseconds(start_time) if start_time is not None else None
         end_time_ns = to_epoch_nanoseconds(end_time) if end_time is not None else None
 
-        if McapTopicReader.accepts(filtered_message_path_repr_mappings):
+        if McapTopicReader.accepts(selected_mappings):
             reader: TopicReader = McapTopicReader(self.__roboto_client)
             timestamps, df = reader.get_data_as_df(
-                filtered_message_path_repr_mappings,
+                selected_mappings,
                 start_time=start_time_ns,
                 end_time=end_time_ns,
             )
-        elif ParquetTopicReader.accepts(filtered_message_path_repr_mappings):
+        elif ParquetTopicReader.accepts(selected_mappings):
             reader = ParquetTopicReader(self.__roboto_client, cache_dir=cache_dir)
-            timestamp_mapping = self.__find_timestamp_message_path_mapping(message_path_repr_mappings)
+            timestamp_mapping = self.__find_timestamp_message_path_mapping(selected_mappings)
             timestamps, df = reader.get_data_as_df(
-                filtered_message_path_repr_mappings,
+                selected_mappings,
                 start_time=start_time_ns,
                 end_time=end_time_ns,
                 timestamp_message_path_representation_mapping=timestamp_mapping,
@@ -220,6 +227,14 @@ class TopicDataService:
         exclude_paths_set = iterable_to_set(exclude_paths) if exclude_paths is not None else set()
 
         for record in message_path_records:
+            # The canonical-timestamp path is non-excludable: the Parquet reader
+            # needs it for start_time/end_time filtering, and yielded rows are
+            # always (timestamp, row) tuples — there is no scenario where the
+            # caller's data is meaningful without it.
+            if record.canonical_data_type == CanonicalDataType.Timestamp:
+                filtered.append(record)
+                continue
+
             paths = set(record.parents())
             paths.add(record.source_path)
             paths.add(

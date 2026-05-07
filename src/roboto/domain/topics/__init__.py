@@ -12,8 +12,10 @@ from .operations import (
     CreateTopicRequest,
     DeleteMessagePathRequest,
     MessagePathChangeset,
-    MessagePathRepresentationMapping,
     SetDefaultRepresentationRequest,
+    SetTimelineOffsetsRequest,
+    TimelineOffsetEntry,
+    TimelineSourceUpdate,
     UpdateMessagePathRequest,
     UpdateTopicRequest,
 )
@@ -21,14 +23,25 @@ from .record import (
     CanonicalDataType,
     MessagePathMetadataWellKnown,
     MessagePathRecord,
+    MessagePathRepresentationMapping,
     MessagePathStatistic,
     RepresentationRecord,
+    RepresentationSelector,
     RepresentationStorageFormat,
+    SchemaFieldRecord,
+    TimelineExtentRecord,
+    TimelineSourceKind,
+    TimelineSourceRecord,
+    TopicIdentityRecord,
+    TopicPartitionRecord,
     TopicRecord,
+    TopicSchemaRecord,
+    TransformationKind,
 )
 from .topic import Topic
 from .topic_data_service import TopicDataService
 from .topic_reader import Timestamp
+from .topic_schema import TopicSchema
 
 __all__ = (
     "AddMessagePathRequest",
@@ -44,12 +57,25 @@ __all__ = (
     "MessagePathStatistic",
     "MessagePathMetadataWellKnown",
     "RepresentationRecord",
+    "RepresentationSelector",
     "RepresentationStorageFormat",
+    "SchemaFieldRecord",
     "SetDefaultRepresentationRequest",
+    "SetTimelineOffsetsRequest",
+    "TimelineExtentRecord",
+    "TimelineOffsetEntry",
+    "TimelineSourceKind",
+    "TimelineSourceRecord",
+    "TimelineSourceUpdate",
     "Timestamp",
     "Topic",
     "TopicDataService",
+    "TopicIdentityRecord",
+    "TopicPartitionRecord",
     "TopicRecord",
+    "TopicSchema",
+    "TopicSchemaRecord",
+    "TransformationKind",
     "UpdateMessagePathRequest",
     "UpdateTopicRequest",
 )

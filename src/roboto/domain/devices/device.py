@@ -13,6 +13,8 @@ from ...auth.scope import ApiScope
 from ...exceptions import RobotoDomainException
 from ...http import RobotoClient
 from ...updates import MetadataChangeset
+from ...warnings import experimental
+from ..sessions import Session, SessionRecord
 from ..tokens import (
     CreateTokenRequest,
     Token,
@@ -53,10 +55,8 @@ class Device:
         Device instances.
     """
 
-    __roboto_client: RobotoClient
     __record: DeviceRecord
-
-    # Class methods + Constructor
+    __roboto_client: RobotoClient
 
     @classmethod
     def create(
@@ -266,6 +266,11 @@ class Device:
         return urllib.parse.quote(self.device_id, safe="")
 
     @property
+    def metadata(self) -> dict[str, typing.Any]:
+        """Key-value metadata pairs associated with this device."""
+        return self.__record.metadata
+
+    @property
     def modified(self) -> datetime.datetime:
         """The timestamp when this device record was last modified."""
         return self.__record.modified
@@ -283,23 +288,45 @@ class Device:
         return self.__record.org_id
 
     @property
-    def metadata(self) -> dict[str, typing.Any]:
-        """Key-value metadata pairs associated with this device."""
-        return self.__record.metadata
+    def record(self) -> DeviceRecord:
+        """Underlying :py:class:`DeviceRecord` for this device.
+
+        This is the wire representation used in API requests and may evolve over time; prefer the public
+        :py:class:`Device` API unless you need direct access to the record.
+        """
+        return self.__record
 
     @property
     def tags(self) -> list[str]:
         """List of tags associated with this device."""
         return self.__record.tags
 
-    @property
-    def record(self) -> DeviceRecord:
+    @experimental
+    def create_session(self, name: typing.Optional[str] = None) -> Session:
+        """Create a new Session on this Device.
+
+        A Session is an operational time window of this Device. After creation, compose the Session
+        by including files with :py:meth:`Session.add_file` or :py:meth:`Session.add_files`.
+
+        Args:
+            name: Optional short name for the Session (max 120 characters).
+
+        Returns:
+            The newly created Session.
+
+        Examples:
+            Create a Session and add a file to it:
+
+            >>> device = Device.from_id("robot_001", org_id="og_abc123")
+            >>> session = device.create_session(name="2024-05-01_morning_run")
+            >>> session.add_file("fl_0123456789abcdef")
         """
-        The underlying DeviceRecord object which represents this device. This is often used as the wire representation
-        of a device during API requests, and is subject to evolve over time. You should not program against this
-        if avoidable.
-        """
-        return self.__record
+        return Session.create(
+            name=name,
+            device_ids=[self.device_id],
+            caller_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
 
     def create_token(
         self,
@@ -397,6 +424,38 @@ class Device:
             Device deleted successfully
         """
         self.__roboto_client.delete(f"v1/devices/id/{self.encoded_device_id}", owner_org_id=self.org_id)
+
+    @experimental
+    def list_sessions(self) -> collections.abc.Generator[Session, None, None]:
+        """Iterate all Sessions attached to this Device.
+
+        Yields results as they are returned from the server, paginating transparently.
+
+        Examples:
+            Print the name of every Session for a Device:
+
+            >>> device = Device.from_id("robot_001", org_id="og_abc123")
+            >>> for session in device.list_sessions():
+            ...     print(session.name)
+        """
+        next_token: typing.Optional[str] = None
+        while True:
+            query: dict[str, typing.Any] = {}
+            if next_token:
+                query["page_token"] = next_token
+
+            page = self.__roboto_client.get(
+                f"v1/devices/id/{self.encoded_device_id}/sessions",
+                owner_org_id=self.org_id,
+                query=query,
+            ).to_paginated_list(SessionRecord)
+
+            for record in page.items:
+                yield Session(record=record, roboto_client=self.__roboto_client)
+
+            next_token = page.next_token
+            if not next_token:
+                break
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Device":
         """Add or update metadata fields for this device.

@@ -27,7 +27,14 @@ from ...sentinels import (
 )
 from ...time import TimeUnit
 from ...updates import MetadataChangeset
-from ..topics import Topic
+from ...warnings import experimental
+from ..topics import (
+    SetTimelineOffsetsRequest,
+    TimelineExtentRecord,
+    TimelineOffsetEntry,
+    TimelineSourceRecord,
+    Topic,
+)
 from .operations import (
     ImportFileRequest,
     RenameFileRequest,
@@ -994,6 +1001,107 @@ class File:
             >>> updated_file = file.set_device_id("device_xyz789")
         """
         return self.update(device_id=device_id)
+
+    @experimental
+    def set_timeline_offset(
+        self,
+        unix_epoch_offset_ns: int,
+        *,
+        topic: typing.Optional[Topic] = None,
+        topic_name: typing.Optional[str] = None,
+        timeline_source: typing.Optional[TimelineSourceRecord] = None,
+        timeline_source_name: typing.Optional[str] = None,
+    ) -> list[TimelineExtentRecord]:
+        """Calibrate this file's timeline to Unix-epoch wall-clock, optionally scoped to a topic and/or source.
+
+        Contract:
+
+        1. The offset is added to stored partition time to produce session wall-clock:
+           ``session_time_ns = stored_time_ns + unix_epoch_offset_ns``.
+        2. ``topic`` / ``topic_name`` scopes the update to a single topic in this file;
+           ``timeline_source`` / ``timeline_source_name`` scopes it to a single source.
+           With no selectors, the offset applies to every timeline on the file.
+
+        Use :meth:`set_timeline_offsets` to send several offsets in one atomic request.
+
+        Args:
+            unix_epoch_offset_ns: Offset to apply, in nanoseconds.
+            topic: Topic to scope the update to. Mutually exclusive with ``topic_name``.
+            topic_name: Topic name to scope the update to (e.g. ``"/imu/raw"``). Mutually exclusive with ``topic``.
+            timeline_source: Source record to scope the update to. Mutually exclusive with ``timeline_source_name``.
+            timeline_source_name: Source name to scope the update to (e.g. ``"header.stamp"``). Mutually exclusive
+                with ``timeline_source``.
+
+        Returns:
+            The updated :class:`TimelineExtentRecord` objects returned by the server.
+
+        Examples:
+            Apply a file-wide offset:
+
+            >>> file = File.from_id("file_abc123")
+            >>> file.set_timeline_offset(1_700_000_000_000_000_000)
+
+            Apply an offset to a single topic by name:
+
+            >>> file.set_timeline_offset(1_700_000_000_000_000_000, topic_name="/imu/raw")
+
+            Apply an offset to a specific source on a topic:
+
+            >>> file.set_timeline_offset(
+            ...     500_000_000,
+            ...     topic_name="data",
+            ...     timeline_source_name="ts",
+            ... )
+        """
+        if topic is not None and topic_name is not None:
+            raise ValueError("Specify at most one of topic, topic_name.")
+        if timeline_source is not None and timeline_source_name is not None:
+            raise ValueError("Specify at most one of timeline_source, timeline_source_name.")
+
+        entry = TimelineOffsetEntry(
+            unix_epoch_offset_ns=unix_epoch_offset_ns,
+            topic_name=topic.topic_name if topic is not None else topic_name,
+            timeline_source_id=(timeline_source.timeline_source_id if timeline_source is not None else None),
+            timeline_source_name=timeline_source_name,
+        )
+        return self.set_timeline_offsets([entry])
+
+    @experimental
+    def set_timeline_offsets(
+        self,
+        offsets: list[TimelineOffsetEntry],
+    ) -> list[TimelineExtentRecord]:
+        """Apply multiple timeline offsets to this file in one atomic request.
+
+        Each entry carries a ``unix_epoch_offset_ns`` and optional selectors (``topic_name``,
+        ``timeline_source_id``, ``timeline_source_name``) that narrow where the offset is applied.
+        An entry with no selectors targets every timeline on the file.
+
+        Use :meth:`set_timeline_offset` for the single-offset convenience form.
+
+        Args:
+            offsets: Offset entries to apply, each with its own selectors.
+
+        Returns:
+            The updated :class:`TimelineExtentRecord` objects returned by the server.
+
+        Examples:
+            Apply per-topic offsets in a single request:
+
+            >>> from roboto.domain.topics import TimelineOffsetEntry
+            >>> file = File.from_id("file_abc123")
+            >>> file.set_timeline_offsets(
+            ...     [
+            ...         TimelineOffsetEntry(unix_epoch_offset_ns=1_700_000_000_000_000_000, topic_name="/imu/raw"),
+            ...         TimelineOffsetEntry(unix_epoch_offset_ns=1_700_000_000_000_000_000, topic_name="/camera/image"),
+            ...     ]
+            ... )
+        """
+        request = SetTimelineOffsetsRequest(offsets=offsets)
+        return self.__roboto_client.post(
+            f"v1/files/id/{self.file_id}/timeline-offsets",
+            data=request,
+        ).to_record_list(TimelineExtentRecord)
 
     def to_association(self) -> Association:
         """Convert this file to an Association reference.

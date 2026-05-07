@@ -22,6 +22,14 @@ from .shared_helpdoc import COLLECTION_ID_HELP
 
 
 def update(args, context: CLIContext, parser: argparse.ArgumentParser):
+    provided_add_kinds = sum([bool(args.add_dataset_id), bool(args.add_event_id), bool(args.add_file_id)])
+    if provided_add_kinds > 1:
+        parser.error("Cannot mix --add-dataset-id, --add-event-id, and --add-file-id in a single update.")
+
+    provided_remove_kinds = sum([bool(args.remove_dataset_id), bool(args.remove_event_id), bool(args.remove_file_id)])
+    if provided_remove_kinds > 1:
+        parser.error("Cannot mix --remove-dataset-id, --remove-event-id, and --remove-file-id in a single update.")
+
     collection = Collection.from_id(
         collection_id=args.collection_id,
         roboto_client=context.roboto_client,
@@ -33,6 +41,14 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
             [
                 CollectionResourceRef(resource_type=CollectionResourceType.Dataset, resource_id=dataset_id)
                 for dataset_id in args.add_dataset_id
+            ]
+        )
+
+    if args.add_event_id:
+        add_resources.extend(
+            [
+                CollectionResourceRef(resource_type=CollectionResourceType.Event, resource_id=event_id)
+                for event_id in args.add_event_id
             ]
         )
 
@@ -50,6 +66,14 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
             [
                 CollectionResourceRef(resource_type=CollectionResourceType.Dataset, resource_id=dataset_id)
                 for dataset_id in args.remove_dataset_id
+            ]
+        )
+
+    if args.remove_event_id:
+        remove_resources.extend(
+            [
+                CollectionResourceRef(resource_type=CollectionResourceType.Event, resource_id=event_id)
+                for event_id in args.remove_event_id
             ]
         )
 
@@ -83,25 +107,37 @@ def update_setup_parser(parser):
     parser.add_argument("--description", type=str, help="Information about what's in this collection")
     parser.add_argument(
         "--add-dataset-id",
-        nargs="*",
+        nargs="+",
         help="Datasets to add to this collection.",
         action="extend",
     )
     parser.add_argument(
+        "--add-event-id",
+        nargs="+",
+        help="Events to add to this collection.",
+        action="extend",
+    )
+    parser.add_argument(
         "--add-file-id",
-        nargs="*",
+        nargs="+",
         help="Files to add to this collection.",
         action="extend",
     )
     parser.add_argument(
         "--remove-dataset-id",
-        nargs="*",
+        nargs="+",
         help="Datasets to remove from this collection.",
         action="extend",
     )
     parser.add_argument(
+        "--remove-event-id",
+        nargs="+",
+        help="Events to remove from this collection.",
+        action="extend",
+    )
+    parser.add_argument(
         "--remove-file-id",
-        nargs="*",
+        nargs="+",
         help="Files to remove from this collection.",
         action="extend",
     )

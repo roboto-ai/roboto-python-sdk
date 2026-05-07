@@ -24,8 +24,6 @@ from ...updates import (
 )
 from .record import (
     CanonicalDataType,
-    MessagePathRecord,
-    RepresentationRecord,
     RepresentationStorageFormat,
 )
 
@@ -40,6 +38,8 @@ class BaseAddRepresentationRequest(pydantic.BaseModel):
     association: Association
     storage_format: RepresentationStorageFormat
     version: int
+    format: typing.Optional[str] = None
+    transformations: typing.Optional[list[str]] = None
 
 
 class SetDefaultRepresentationRequest(BaseAddRepresentationRequest):
@@ -67,18 +67,6 @@ class AddMessagePathRepresentationRequest(BaseAddRepresentationRequest):
     # 'ignore' used to avoid backwards incompatible change to remove `org_id` from BaseAddRepresentationRequest
     # Should be changed back to 'forbid' for SDK v1.0
     model_config = pydantic.ConfigDict(extra="ignore")
-
-
-class MessagePathRepresentationMapping(pydantic.BaseModel):
-    """Mapping between message paths and their data representation.
-
-    Associates a set of message paths with a specific representation that contains
-    their data. This mapping is used to efficiently locate and access data for
-    specific message paths within topic representations.
-    """
-
-    message_paths: collections.abc.MutableSequence[MessagePathRecord]
-    representation: RepresentationRecord
 
 
 class AddMessagePathRequest(pydantic.BaseModel):
@@ -293,3 +281,64 @@ class UpdateTopicRequest(pydantic.BaseModel):
     message_path_changeset: typing.Union[MessagePathChangeset, NotSetType] = NotSet
 
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
+
+
+class TimelineOffsetEntry(pydantic.BaseModel):
+    """Single offset entry shared by the file and topic timeline-offset endpoints.
+
+    ``unix_epoch_offset_ns`` projects stored partition time onto Unix-epoch wall-clock
+    (``session_time_ns = stored_time_ns + unix_epoch_offset_ns``).
+
+    Optional selectors narrow which timeline extents this offset applies to:
+
+    Topic selector:
+        - ``topic_name``: the topic's name (e.g. ``"/imu/raw"``); topic names are unique within a single file.
+          Only meaningful on :py:meth:`roboto.domain.files.File.set_timeline_offsets`;
+          :py:meth:`roboto.domain.topics.Topic.set_timeline_offsets` rejects entries that set it.
+
+    Timeline-source selector:
+        - ``timeline_source_name``: the source's name (e.g. ``"header.stamp"``). Source names are not unique,
+          so the server applies the offset to every matching extent in scope.
+        - ``timeline_source_id``: explicit id, for callers holding a :py:class:`TimelineSourceRecord`.
+
+    Omitting every selector applies the offset to every timeline extent on the URL-scoped resource (file or topic).
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    unix_epoch_offset_ns: int
+    topic_name: typing.Optional[str] = None
+    timeline_source_name: typing.Optional[str] = None
+    timeline_source_id: typing.Optional[str] = None
+
+    @model_validator(mode="after")
+    def _check_timeline_source_selector(self) -> "TimelineOffsetEntry":
+        if self.timeline_source_name is not None and self.timeline_source_id is not None:
+            raise ValueError("Specify at most one of timeline_source_name, timeline_source_id.")
+        return self
+
+
+class SetTimelineOffsetsRequest(pydantic.BaseModel):
+    """Request body for ``POST /v1/{files|topics}/id/<id>/timeline-offsets``.
+
+    Atomic request: the server applies all entries together or fails.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    offsets: list[TimelineOffsetEntry]
+
+
+class TimelineSourceUpdate(pydantic.BaseModel):
+    """Partial update for a timeline source.
+
+    Fields left at ``NotSet`` are not modified.
+    """
+
+    model_config = pydantic.ConfigDict(
+        extra="ignore",
+        json_schema_extra=NotSetType.openapi_schema_modifier,
+    )
+
+    is_default: typing.Union[bool, NotSetType] = NotSet
+    name: typing.Union[str, NotSetType] = NotSet

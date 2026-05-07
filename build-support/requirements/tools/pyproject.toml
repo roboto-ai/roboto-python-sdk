@@ -72,30 +72,72 @@ exclude = [
 docstring-code-format = true
 
 [tool.ruff.lint]
-# E = pycodestyle errors, F = pyflakes, W = pycodestyle warnings, I = isort, S = security
-select = ["E", "F", "W", "I", "S"]
+# E = pycodestyle errors, F = pyflakes, W = pycodestyle warnings, I = isort,
+# S = security, D = pydocstyle (docstring conventions; see
+# docs/guides/backend/python-documentation-standards.md)
+select = ["E", "F", "W", "I", "S", "D"]
 ignore = [
     "E203", # whitespace before ':' (conflicts with black)
     "S110", # Allow the try/catch/pass shorthand -- the pass already means we know what we're doing.
     "S311", # Allow the uses of random.random(). Not appropriate for cryptography, but that's not how we use it.
+    # D1xx (missing-docstring) rules are deliberately disabled while existing code is brought
+    # into compliance. Re-enable per-package as packages are cleaned up. New code is still
+    # expected to satisfy these rules.
+    "D100", # Missing docstring in public module
+    "D101", # Missing docstring in public class
+    "D102", # Missing docstring in public method
+    "D103", # Missing docstring in public function
+    "D104", # Missing docstring in public package
+    "D105", # Missing docstring in magic method
+    "D106", # Missing docstring in public nested class
+    "D107", # Missing docstring in __init__
+    # Other D rules deferred until existing code is cleaned up. These would otherwise fire
+    # against existing docstrings; most are auto-fixable (`ruff check --fix`). Enable them
+    # incrementally as cleanup passes land.
+    "D200", # One-line docstring should fit on one line
+    "D202", # No blank lines allowed after function docstring
+    "D205", # 1 blank line required between summary line and description
+    "D209", # Multi-line docstring closing quotes should be on a separate line
+    "D212", # Multi-line docstring summary should start at the first line
+    "D301", # Use r""" if any backslashes in a docstring
+    "D401", # First line of docstring should be in imperative mood
+    "D403", # First word of the docstring should be capitalized
+    "D410", # Missing blank line after section
+    "D411", # Missing blank line before section
+    "D415", # First line should end with a period, question mark, or exclamation point
+    "D416", # Section name should end with a colon
+    "D417", # Missing argument description in the docstring
 ]
 
-[tool.ruff.lint.per-file-ignores]
-"test_app_config.py" = ["E501"]
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
+[tool.ruff.lint.per-file-ignores]
+# Tests, scripts, build tooling, and generated code are exempt from docstring conventions
+# (D rules) — they're read for behavior, not as API documentation.
+
+"test_app_config.py" = ["E501"]
 
 "packages/roboto/src/roboto/http/constants.py" = ["S105"] # This file is token names, not token values.
 "packages/roboto/src/roboto/cli/images/*.py" = ["S603"] # We trust the arbitrary shell commands in these files.
 "packages/roboto/src/roboto/cli/actions/invoke/docker_action_runner.py" = ["S603"] # We trust the arbitrary shell commands in these files.
 
 "**/test/**/*.py" = [
+    "D", # Tests don't need docstring conventions enforced.
     "S101", # Asserts allowed in all test code, including test helper scripts.
 ]
 "**/test/**/test_*.py" = [
     "S105", # We can pass plaintext fake passwords in test code.
     "S106", # We can pass plaintext fake passwords in test code.
 ]
+"**/tests/**/*.py" = [
+    "D", # Tests don't need docstring conventions enforced.
+]
+"**/antlrgen/**/*.py" = [
+    "D", # Generated code.
+]
 "packages/roboto_integ/src/**/*.py" = [
+    "D", # Integration test infrastructure doesn't need docstring conventions enforced.
     "S101", # Integration test infrastructure uses assert for test verification.
 ]
 "build-support/src/**/*_test.py" = [
@@ -105,6 +147,12 @@ ignore = [
     "S112", # Allow try-except-continue in test helper code.
 ]
 
+"build-support/src/**/*.py" = [
+    "D", # Build tooling doesn't need docstring conventions enforced.
+]
+"actions/**/*.py" = [
+    "D", # Action scripts follow the same lighter convention as build-support and scripts.
+]
 "build-support/src/roboto_build/**/*.py" = [
     "S603", # We trust the subprocess calls in our build tooling.
     "S606", # We trust the subprocess calls in our build tooling.
@@ -112,6 +160,7 @@ ignore = [
 ]
 
 "scripts/**/*.py" = [
+    "D", # Scripts don't need docstring conventions enforced.
     "S105", # Secret name constants are not hardcoded secrets.
 ]
 
@@ -136,5 +185,6 @@ known-first-party = [
     "roboql",
     "roboto_internal",
     "roboto_service",
+    "roboto_service_tests",
     "roboto_integ",
 ]

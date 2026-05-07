@@ -19,15 +19,19 @@ from ..context import CLIContext
 
 def create(args, context: CLIContext, parser: argparse.ArgumentParser):
     has_datasets = bool(args.dataset_id)
+    has_events = bool(args.event_id)
     has_files = bool(args.file_id)
 
     # 1. Reject mixed resource types
-    if has_datasets and has_files:
-        parser.error("Cannot mix --dataset-id and --file-id in a single collection.")
+    provided_resource_kinds = sum([has_datasets, has_events, has_files])
+    if provided_resource_kinds > 1:
+        parser.error("Cannot mix --dataset-id, --event-id, and --file-id in a single collection.")
 
     # 2. Infer resource_type from provided IDs
     if has_datasets:
         inferred_type: CollectionResourceType | None = CollectionResourceType.Dataset
+    elif has_events:
+        inferred_type = CollectionResourceType.Event
     elif has_files:
         inferred_type = CollectionResourceType.File
     else:
@@ -58,6 +62,10 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
         resources.extend(
             CollectionResourceRef(resource_type=CollectionResourceType.Dataset, resource_id=d) for d in args.dataset_id
         )
+    if has_events:
+        resources.extend(
+            CollectionResourceRef(resource_type=CollectionResourceType.Event, resource_id=e) for e in args.event_id
+        )
     if has_files:
         resources.extend(
             CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=f) for f in args.file_id
@@ -84,22 +92,28 @@ def create_setup_parser(parser):
     parser.add_argument("--description", type=str, help="Information about what's in this collection")
     parser.add_argument(
         "--dataset-id",
-        nargs="*",
+        nargs="+",
         help="Initial datasets to add to this collection.",
         action="extend",
     )
     parser.add_argument(
+        "--event-id",
+        nargs="+",
+        help="Initial events to add to this collection.",
+        action="extend",
+    )
+    parser.add_argument(
         "--file-id",
-        nargs="*",
+        nargs="+",
         help="Initial files to add to this collection.",
         action="extend",
     )
     parser.add_argument(
         "--resource-type",
-        choices=["file", "dataset"],
+        choices=["file", "dataset", "event"],
         help=(
             "The type of resources this collection holds. "
-            "Inferred from --file-id or --dataset-id if not provided. "
+            "Inferred from --file-id, --dataset-id, or --event-id if not provided. "
             "Defaults to 'file' with a warning when neither is given."
         ),
     )

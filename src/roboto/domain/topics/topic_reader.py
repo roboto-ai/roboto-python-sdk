@@ -10,7 +10,7 @@ import abc
 import collections.abc
 import typing
 
-from .operations import (
+from .record import (
     MessagePathRepresentationMapping,
 )
 

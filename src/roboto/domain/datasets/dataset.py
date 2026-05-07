@@ -45,6 +45,7 @@ from ...updates import (
     MetadataChangeset,
     StrSequence,
 )
+from ...warnings import experimental
 from ..devices import Device
 from ..files import (
     DirectoryRecord,
@@ -52,6 +53,7 @@ from ..files import (
     FileRecord,
     LazyLookupFile,
 )
+from ..sessions import Session, SessionFile
 from ..topics import Topic
 from .operations import (
     CreateDatasetIfNotExistsRequest,
@@ -601,6 +603,69 @@ class Dataset:
             DirectoryRecord
         )
 
+    @experimental
+    def create_session(
+        self,
+        name: typing.Optional[str] = None,
+        *,
+        device_ids: typing.Optional[collections.abc.Sequence[str]] = None,
+        include_patterns: typing.Optional[list[str]] = None,
+        exclude_patterns: typing.Optional[list[str]] = None,
+    ) -> Session:
+        """Create a Session populated with files from this dataset.
+
+        By default, every file in the dataset is added to the new Session.
+        ``include_patterns`` / ``exclude_patterns`` narrow that set using the
+        same gitignore-style syntax as :py:meth:`Dataset.list_files`.
+
+        Args:
+            name: Short display name for the Session (max 120 characters).
+            device_ids: Devices to attach to the Session. Defaults to no
+                devices.
+            include_patterns: Gitignore-style patterns selecting which files
+                to include. Same syntax as :py:meth:`Dataset.list_files`.
+            exclude_patterns: Gitignore-style patterns selecting which files
+                to exclude. Takes precedence over ``include_patterns``.
+
+        Returns:
+            The newly created Session.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> session = dataset.create_session("flight-2026-04-23-001")
+
+        Notes:
+            Convenience wrapper around :py:meth:`Session.create` followed by
+            :py:meth:`Session.add_files`. If the file-add step fails, the
+            partially populated Session is deleted before the exception
+            propagates, so the call is safe to retry. If cleanup itself
+            fails (e.g. a transient network error), an empty Session may
+            remain; the cleanup error is logged but the original exception
+            is what the caller sees.
+        """
+        files = list(self.list_files(include_patterns=include_patterns, exclude_patterns=exclude_patterns))
+
+        session = Session.create(
+            name=name,
+            device_ids=list(device_ids) if device_ids is not None else [],
+            caller_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
+        if files:
+            try:
+                session.add_files([SessionFile(file_id=f.file_id) for f in files])
+            except Exception:
+                try:
+                    session.delete()
+                except Exception:
+                    logger.exception(
+                        "Dataset.create_session: failed to roll back Session %s after add_files error;"
+                        "the Session may exist with no files",
+                        session.session_id,
+                    )
+                raise
+        return session
+
     def delete(self) -> None:
         """Delete this dataset from the Roboto platform.
 
@@ -864,6 +929,28 @@ class Dataset:
             ...     print(text_chunk, end="", flush=True)
         """
         return PollingStreamingAISummary(poll_fn=self.__get_latest_summary, poll_on_init=True)
+
+    @experimental
+    def get_sessions(self) -> collections.abc.Generator[Session, None, None]:
+        """Iterate over Sessions that include at least one file from this dataset.
+
+        A Session may draw files from one or more datasets; this method
+        yields every Session whose current-version file list intersects
+        this dataset.
+
+        Yields:
+            Each matching Session. Pagination is handled automatically.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> for session in dataset.get_sessions():
+            ...     print(session.session_id, session.name)
+        """
+        yield from Session.for_dataset(
+            self.dataset_id,
+            owner_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
 
     def get_topics(
         self,

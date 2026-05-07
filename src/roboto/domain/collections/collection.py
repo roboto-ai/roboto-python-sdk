@@ -72,6 +72,7 @@ class Collection:
         resource_type: CollectionResourceType = CollectionResourceType.File,
         resources: Optional[list[CollectionResourceRef]] = None,
         dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
+        event_ids: typing.Optional[collections.abc.Collection[str]] = None,
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
         tags: Optional[list[str]] = None,
         roboto_client: typing.Optional["RobotoClient"] = None,
@@ -88,6 +89,14 @@ class Collection:
                         resource_id=dataset_id,
                     )
                     for dataset_id in dataset_ids
+                ]
+            )
+
+        if event_ids:
+            normalized_resources.extend(
+                [
+                    CollectionResourceRef(resource_type=CollectionResourceType.Event, resource_id=event_id)
+                    for event_id in event_ids
                 ]
             )
 
@@ -176,18 +185,38 @@ class Collection:
     def collection_id(self) -> str:
         return self.__record.collection_id
 
+    @staticmethod
+    def _resource_id(resource: typing.Any, id_field: str) -> str | None:
+        # On the wire path resources are plain dicts (Pydantic deserializes list[Any] from JSON as dicts).
+        # The object branch below handles in-process construction (e.g. tests that build CollectionRecord
+        # with typed domain objects rather than round-tripping through JSON).
+        if isinstance(resource, dict):
+            return typing.cast(str | None, resource.get("resource_id", resource.get(id_field)))
+
+        return typing.cast(str | None, getattr(resource, "resource_id", getattr(resource, id_field, None)))
+
     @property
     def datasets(self) -> list[str]:
         return [
-            resource.get("resource_id", resource.get("dataset_id"))
+            resource_id
             for resource in self.__record.resources.get(CollectionResourceType.Dataset, [])
+            if (resource_id := self._resource_id(resource, "dataset_id")) is not None
+        ]
+
+    @property
+    def events(self) -> list[str]:
+        return [
+            resource_id
+            for resource in self.__record.resources.get(CollectionResourceType.Event, [])
+            if (resource_id := self._resource_id(resource, "event_id")) is not None
         ]
 
     @property
     def files(self) -> list[str]:
         return [
-            resource.get("resource_id", resource.get("file_id"))
+            resource_id
             for resource in self.__record.resources.get(CollectionResourceType.File, [])
+            if (resource_id := self._resource_id(resource, "file_id")) is not None
         ]
 
     @property
@@ -205,6 +234,11 @@ class Collection:
     def add_dataset(self, dataset_id: str) -> "Collection":
         return self.update(
             add_resources=[CollectionResourceRef(resource_id=dataset_id, resource_type=CollectionResourceType.Dataset)]
+        )
+
+    def add_event(self, event_id: str) -> "Collection":
+        return self.update(
+            add_resources=[CollectionResourceRef(resource_id=event_id, resource_type=CollectionResourceType.Event)]
         )
 
     def add_file(self, file_id: str) -> "Collection":
@@ -252,6 +286,11 @@ class Collection:
     def remove_file(self, file_id: str) -> "Collection":
         return self.update(
             remove_resources=[CollectionResourceRef(resource_id=file_id, resource_type=CollectionResourceType.File)]
+        )
+
+    def remove_event(self, event_id: str) -> "Collection":
+        return self.update(
+            remove_resources=[CollectionResourceRef(resource_id=event_id, resource_type=CollectionResourceType.Event)]
         )
 
     def update(

@@ -10,7 +10,7 @@ Core AI abstractions usable by any other submodule within module `roboto.ai`.
 
 from .context import (
     AnalysisScope,
-    RobotoLLMContext,
+    ClientViewingContext,
 )
 from .event import (
     AgentErrorEvent,
@@ -60,6 +60,12 @@ __all__ = [
     "AgentToolUseEvent",
     "AnalysisScope",
     "ClientToolSpec",
+    "ClientViewingContext",
     "ModelProfileResponse",
-    "RobotoLLMContext",
 ]
+
+
+# Deprecated alias for ClientViewingContext, kept for one release so existing
+# imports of ``RobotoLLMContext`` keep working through the rollout. Drop with
+# the next ``context`` -> ``client_context`` wire-format alias removal.
+RobotoLLMContext = ClientViewingContext

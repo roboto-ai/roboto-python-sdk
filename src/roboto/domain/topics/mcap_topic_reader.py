@@ -18,10 +18,8 @@ from ...http import RobotoClient
 from ...logging import default_logger
 from .http_range_reader import HttpRangeReader, as_io_bytes
 from .mcap_reader import McapReader
-from .operations import (
-    MessagePathRepresentationMapping,
-)
 from .record import (
+    MessagePathRepresentationMapping,
     RepresentationStorageFormat,
 )
 from .topic_reader import Timestamp, TopicReader

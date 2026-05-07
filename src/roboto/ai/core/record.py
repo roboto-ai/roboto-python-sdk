@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
+import re
 import typing
 from typing import Any, Optional, Union
 
@@ -12,6 +13,19 @@ import pydantic
 
 from ...compat import StrEnum
 from ...time import utcnow
+from ..goals import AgentGoal
+
+CLIENT_TOOL_NAME_PREFIX = "client_"
+"""Required prefix for every client-declared tool name.
+
+Distinguishes client tools from server-side tools at every layer (API,
+SDK, UI, Bedrock toolConfig) without ambiguity. Underscore is used rather
+than a colon so the resulting name still matches Bedrock's Converse
+``toolSpec.name`` pattern (``^[a-zA-Z][a-zA-Z0-9_]*$``).
+"""
+
+_CLIENT_TOOL_NAME_RE = re.compile(r"^client_[a-z][a-z0-9_]*$")
+"""Pattern enforced on ``ClientToolSpec.name`` — see ``CLIENT_TOOL_NAME_PREFIX``."""
 
 
 class ModelProfileResponse(pydantic.BaseModel):
@@ -97,6 +111,10 @@ class AgentSessionStatus(StrEnum):
 
     CLIENT_TOOL_TURN = "client_tool_turn"
     """Client must execute pending tool uses and submit results."""
+
+    GOALS_FAILED = "goals_failed"
+    """The agent runner exhausted its corrective re-prompt budget without achieving every declared goal for the
+    most-recent turn. Signals to clients that the session needs human intervention before it can continue."""
 
 
 class AgentContentType(StrEnum):
@@ -189,6 +207,23 @@ class ClientToolSpec(pydantic.BaseModel):
     description: str
     input_schema: dict[str, Any]
 
+    @pydantic.field_validator("name")
+    @classmethod
+    def _validate_client_prefix(cls, v: str) -> str:
+        # Enforced at deserialization so the API rejects bad names with a 400
+        # before any session state is persisted. The prefix is the disambiguator
+        # the dispatcher relies on (``tool_name.startswith("client_")``); if a
+        # client snuck a prefix-less name past this check it would either
+        # collide with a server tool or fail Bedrock's Converse validation
+        # later, after the session was already on disk.
+        if not _CLIENT_TOOL_NAME_RE.fullmatch(v):
+            raise ValueError(
+                f"client tool name {v!r} must match {_CLIENT_TOOL_NAME_RE.pattern} "
+                f"(start with {CLIENT_TOOL_NAME_PREFIX!r}, then lowercase letters, "
+                f"digits, and underscores)"
+            )
+        return v
+
 
 class AgentMessage(pydantic.BaseModel):
     """A single message within an agent session.
@@ -249,6 +284,62 @@ class AgentMessage(pydantic.BaseModel):
         )
 
 
+class AgentGoalStatus(StrEnum):
+    """Lifecycle of a per-turn declared goal.
+
+    Goals begin PENDING when registered. They transition to ACHIEVED when the
+    corresponding achieve-tool reports success, or to FAILED when the runner's
+    corrective re-prompt budget for the turn is exhausted (or when the worker
+    cannot construct an achieve-tool for the goal).
+    """
+
+    PENDING = "pending"
+    """Goal has been registered but not yet completed."""
+
+    ACHIEVED = "achieved"
+    """Goal's corresponding achieve-tool was invoked successfully."""
+
+    FAILED = "failed"
+    """Goal could not be achieved within the turn's retry budget."""
+
+
+class AgentSessionGoalRecord(pydantic.BaseModel):
+    """Customer-visible read shape of a goal declared on an agent session."""
+
+    goal_type: str
+    """Discriminator selecting which :class:`AgentGoal` model the
+    :attr:`goal_data` payload conforms to (e.g. ``"dataset_summary"``)."""
+
+    goal_data: dict[str, Any]
+    """The validated goal payload as JSON. Use :meth:`to_agent_goal` to
+    recover the typed model the caller declared."""
+
+    status: AgentGoalStatus
+    """Current lifecycle state of the goal."""
+
+    message_sequence_num: int
+    """Index in the session's full messages list of the :attr:`AgentRole.USER`
+    message that declared this goal. Use to render goals adjacent to the turn
+    they were attached to."""
+
+    created: datetime.datetime
+    """Timestamp when the goal was registered."""
+
+    concluded_at: Optional[datetime.datetime] = None
+    """Timestamp when the goal transitioned to a terminal state (ACHIEVED or
+    FAILED). ``None`` while the goal is still PENDING."""
+
+    def to_agent_goal(self) -> AgentGoal:
+        """Re-hydrate :attr:`goal_data` into the typed :data:`AgentGoal` the caller declared.
+
+        Returns:
+            The validated, discriminated :data:`AgentGoal` instance — for
+            ``"dataset_summary"`` rows, a :class:`DatasetSummaryAgentGoal`;
+            for ``"dataset_triage"`` rows, a :class:`DatasetTriageGoal`; etc.
+        """
+        return pydantic.TypeAdapter(AgentGoal).validate_python(self.goal_data)
+
+
 class AgentSessionRecord(pydantic.BaseModel):
     """Complete record of an agent session.
 
@@ -283,6 +374,23 @@ class AgentSessionRecord(pydantic.BaseModel):
     model_profile: Optional[str] = None
     """Model profile used for this agent session (e.g., 'standard', 'advanced')."""
 
+    forked_from_session_id: Optional[str] = None
+    """If this session was forked, the id of the source session. ``None`` otherwise."""
+
+    forked_from_message_sequence_num: Optional[int] = None
+    """Message sequence number in the source session that this fork was taken from.
+
+    Populated in tandem with ``forked_from_session_id``; both are ``None`` for
+    sessions that were not created as a fork.
+    """
+
+    goals: Optional[list[AgentSessionGoalRecord]] = None
+    """Goals declared across this session's turns, ordered by allocation
+    (i.e. by ``goal_index``). ``None`` means goals were not loaded for this
+    record (full-session reads populate the field; lightweight or legacy
+    reads may omit it). An empty list means goals were loaded but the
+    session never declared any."""
+
     @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def chat_id(self) -> str:
@@ -308,3 +416,10 @@ class AgentSessionDelta(pydantic.BaseModel):
 
     title: Optional[str] = None
     """Updated title of the agent session."""
+
+    goals: Optional[list[AgentSessionGoalRecord]] = None
+    """Latest snapshot of every goal declared in the session, ordered by
+    allocation. ``None`` means there has been no change since the previous
+    delta — clients should retain the snapshot they already hold. An empty
+    list means the session has no declared goals. A non-empty list is the
+    authoritative current snapshot and replaces any prior value."""

@@ -32,6 +32,8 @@ class ExperimentalWarning(Warning):
     """
 
 
+_T = typing.TypeVar("_T")
+_C = typing.TypeVar("_C", bound=type)
 _F = typing.TypeVar("_F", bound=typing.Callable[..., typing.Any])
 
 _DEFAULT_MESSAGE = "{name} is experimental and may change or be removed without notice."
@@ -40,23 +42,19 @@ _SPHINX_NOTICE = ".. warning:: **Experimental**: {message}\n\n"
 
 
 @typing.overload
-def experimental(target: type) -> type: ...
+def experimental(target: str, /) -> typing.Callable[[_T], _T]: ...
 
 
 @typing.overload
-def experimental(target: _F) -> _F: ...
+def experimental(*, message: str) -> typing.Callable[[_T], _T]: ...
 
 
 @typing.overload
-def experimental(target: str) -> typing.Callable[[typing.Union[type, _F]], typing.Union[type, _F]]: ...
-
-
-@typing.overload
-def experimental(*, message: str) -> typing.Callable[[typing.Union[type, _F]], typing.Union[type, _F]]: ...
+def experimental(target: _T) -> _T: ...
 
 
 def experimental(
-    target: typing.Union[type, _F, str, None] = None,
+    target: typing.Any = None,
     *,
     message: typing.Optional[str] = None,
 ) -> typing.Any:
@@ -110,7 +108,7 @@ def _prepend_sphinx_notice(obj: typing.Any, msg: str) -> None:
     obj.__doc__ = notice + existing
 
 
-def _decorate_class(cls: type, msg: str) -> type:
+def _decorate_class(cls: _C, msg: str) -> _C:
     # Wrap __new__ rather than __init__ to avoid mypy soundness error [misc]
     # ("Accessing '__init__' on an instance is unsound"). This mirrors the
     # approach used by CPython's warnings.deprecated (PEP 702) and the
@@ -118,7 +116,7 @@ def _decorate_class(cls: type, msg: str) -> type:
     original_new = cls.__new__
     has_custom_new = original_new is not object.__new__
 
-    def warned_new(target_cls: type, *args: typing.Any, **kwargs: typing.Any) -> typing.Any:
+    def warned_new(target_cls: _C, *args: typing.Any, **kwargs: typing.Any) -> typing.Any:
         if target_cls is cls:
             warnings.warn(msg, ExperimentalWarning, stacklevel=2)
         if has_custom_new:

@@ -5,7 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from ..core import AnalysisScope
-from .agent_session import AgentSession
+from .agent_session import AgentSession, RobotoAgentGoalsFailedException
 from .client_tool import ClientTool, client_tool
 from .event import (
     AgentErrorEvent,
@@ -16,14 +16,27 @@ from .event import (
     AgentToolResultEvent,
     AgentToolUseEvent,
 )
+from .feedback import (
+    NEGATIVE_CATEGORIES,
+    POSITIVE_CATEGORIES,
+    AdminUpdateFeedbackRequest,
+    AgentFeedbackRecord,  # noqa: F401  Re-exported for internal callers; intentionally absent from ``__all__`` (admin shape).
+    FeedbackCategory,
+    FeedbackSentiment,
+    SubmitFeedbackRequest,
+    UserFeedbackRecord,
+    category_is_valid_for_sentiment,
+)
 from .record import (
     AgentContent,
     AgentContentType,
     AgentErrorContent,
+    AgentGoalStatus,
     AgentMessage,
     AgentMessageStatus,
     AgentRole,
     AgentSessionDelta,
+    AgentSessionGoalRecord,
     AgentSessionRecord,
     AgentSessionStatus,
     AgentTextContent,
@@ -33,22 +46,26 @@ from .record import (
     ClientToolResult,
     ClientToolResultStatus,
     ClientToolSpec,
+    ForkChatRequest,
     SendMessageRequest,
     StartAgentSessionRequest,
     SubmitToolResultsRequest,
 )
 
 __all__ = [
+    "AdminUpdateFeedbackRequest",
     "AgentContent",
     "AgentContentType",
     "AgentErrorContent",
     "AgentErrorEvent",
     "AgentEvent",
+    "AgentGoalStatus",
     "AgentMessage",
     "AgentMessageStatus",
     "AgentRole",
     "AgentSession",
     "AgentSessionDelta",
+    "AgentSessionGoalRecord",
     "AgentSessionRecord",
     "AgentSessionStatus",
     "AgentStartTextEvent",
@@ -65,8 +82,17 @@ __all__ = [
     "ClientToolResult",
     "ClientToolResultStatus",
     "ClientToolSpec",
+    "FeedbackCategory",
+    "FeedbackSentiment",
+    "ForkChatRequest",
+    "NEGATIVE_CATEGORIES",
+    "POSITIVE_CATEGORIES",
+    "RobotoAgentGoalsFailedException",
     "SendMessageRequest",
     "StartAgentSessionRequest",
+    "SubmitFeedbackRequest",
     "SubmitToolResultsRequest",
+    "UserFeedbackRecord",
+    "category_is_valid_for_sentiment",
     "client_tool",
 ]

@@ -15,12 +15,10 @@ from ....association import AssociationType
 from ....compat import import_optional_dependency
 from ....http import RobotoClient
 from ....logging import default_logger
-from ..operations import (
-    MessagePathRepresentationMapping,
-)
 from ..record import (
     CanonicalDataType,
     MessagePathRecord,
+    MessagePathRepresentationMapping,
     RepresentationRecord,
     RepresentationStorageFormat,
 )

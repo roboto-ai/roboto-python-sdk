@@ -16,6 +16,7 @@ class CollectionResourceType(StrEnum):
     """Type of resource added to a collection"""
 
     Dataset = "dataset"
+    Event = "event"
     File = "file"
 
 

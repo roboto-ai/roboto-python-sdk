@@ -29,6 +29,7 @@ from ...updates import (
     MetadataChangeset,
     TaglessMetadataChangeset,
 )
+from ...warnings import experimental
 from .message_path import MessagePath
 from .operations import (
     AddMessagePathRepresentationRequest,
@@ -36,6 +37,8 @@ from .operations import (
     CreateTopicRequest,
     MessagePathChangeset,
     SetDefaultRepresentationRequest,
+    SetTimelineOffsetsRequest,
+    TimelineOffsetEntry,
     UpdateMessagePathRequest,
     UpdateTopicRequest,
 )
@@ -49,11 +52,15 @@ from .record import (
     CanonicalDataType,
     MessagePathRecord,
     RepresentationRecord,
+    RepresentationSelector,
     RepresentationStorageFormat,
+    TimelineExtentRecord,
+    TimelineSourceRecord,
     TopicRecord,
 )
 from .topic_data_service import TopicDataService
 from .topic_reader import Timestamp
+from .topic_schema import TopicSchema
 
 if typing.TYPE_CHECKING:
     import pandas  # pants: no-infer-dep
@@ -641,6 +648,15 @@ class Topic:
         return self.__record.schema_checksum
 
     @property
+    @experimental
+    def schema_id(self) -> typing.Optional[str]:
+        """ID of the schema for this topic.
+
+        ``None`` if the topic has no schema, or if the schema has not yet been populated.
+        """
+        return self.__record.schema_id
+
+    @property
     def schema_name(self) -> typing.Optional[str]:
         """Name of the message schema (e.g., 'sensor_msgs/Image')."""
         return self.__record.schema_name
@@ -733,6 +749,8 @@ class Topic:
         association: Association,
         storage_format: RepresentationStorageFormat,
         version: int,
+        format: typing.Optional[str] = None,
+        transformations: typing.Optional[list[str]] = None,
     ) -> RepresentationRecord:
         """Add a representation for a specific message path.
 
@@ -745,6 +763,8 @@ class Topic:
             association: Association pointing to the representation data.
             storage_format: Format of the representation data.
             version: Version number of the representation.
+            format: Content format descriptor (e.g. "jpeg", "sensor_msgs/Image").
+            transformations: Transformation descriptors applied (e.g. ["downsample:0.5"]).
 
         Returns:
             RepresentationRecord representing the newly created representation.
@@ -771,6 +791,8 @@ class Topic:
             message_path_id=message_path_id,
             storage_format=storage_format,
             version=version,
+            format=format,
+            transformations=transformations,
         )
 
         response = self.__roboto_client.post(
@@ -802,6 +824,33 @@ class Topic:
             owner_org_id=self.org_id,
         )
 
+    @experimental
+    def get_schema(self) -> typing.Optional["TopicSchema"]:
+        """Retrieve the schema for this topic, if one exists.
+
+        Returns:
+            A :py:class:`TopicSchema` describing the message structure of this topic,
+            or ``None`` if this topic has no schema.
+
+        Raises:
+            RobotoNotFoundException: ``schema_id`` references a schema that no longer exists.
+
+        Examples:
+            >>> topic = Topic.from_id("topic_xyz789")
+            >>> schema = topic.get_schema()
+            >>> if schema is not None:
+            ...     for field in schema.fields:
+            ...         print(field.name, field.data_type)
+        """
+        if self.schema_id is None:
+            return None
+
+        return TopicSchema.from_id(
+            self.schema_id,
+            owner_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
+
     def get_data(
         self,
         message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
@@ -809,6 +858,7 @@ class Topic:
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
+        representation_selector: RepresentationSelector = RepresentationSelector.raw(),
     ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
         """Return this topic's underlying data.
 
@@ -827,6 +877,10 @@ class Topic:
                 convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
             cache_dir: Directory where topic data will be downloaded if necessary.
                 Defaults to :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
+            representation_selector: Criteria for selecting among multiple representations.
+                Defaults to :py:meth:`RepresentationSelector.raw` — original, untransformed data.
+                Pass a ``RepresentationSelector`` to request a specific content format or
+                transformation pipeline.
 
         Yields:
             Timestamp and dictionary records that match this topic's schema, filtered according to the parameters.
@@ -879,6 +933,14 @@ class Topic:
 
             >>> topic = Topic.from_name_and_file(...)
             >>> df = topic.get_data_as_df()
+
+            Get the JPEG-encoded version of image data:
+
+            >>> topic = Topic.from_name_and_file(...)
+            >>> for timestamp, record in topic.get_data(
+            ...     representation_selector=RepresentationSelector(content_format="jpeg"),
+            ... ):
+            ...     ...
         """
         yield from self.__topic_data_service.get_data(
             topic_id=self.__record.topic_id,
@@ -887,6 +949,7 @@ class Topic:
             start_time=start_time,
             end_time=end_time,
             cache_dir_override=cache_dir,
+            representation_selector=representation_selector,
         )
 
     def get_data_as_df(
@@ -896,6 +959,7 @@ class Topic:
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
+        representation_selector: RepresentationSelector = RepresentationSelector.raw(),
     ) -> pandas.DataFrame:
         """Return this topic's underlying data as a pandas DataFrame.
 
@@ -914,6 +978,10 @@ class Topic:
                 convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
             cache_dir: Directory where topic data will be downloaded if necessary.
                 Defaults to :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
+            representation_selector: Criteria for selecting among multiple representations.
+                Defaults to :py:meth:`RepresentationSelector.raw` — original, untransformed data.
+                Pass a ``RepresentationSelector`` to request a specific content format or
+                transformation pipeline.
 
         Returns:
             pandas DataFrame containing the topic data, indexed by log time.
@@ -947,6 +1015,7 @@ class Topic:
             start_time=start_time,
             end_time=end_time,
             cache_dir_override=cache_dir,
+            representation_selector=representation_selector,
         )
 
     def get_message_path(self, message_path: str) -> MessagePath:
@@ -1007,6 +1076,8 @@ class Topic:
         association: Association,
         storage_format: RepresentationStorageFormat,
         version: int,
+        format: typing.Optional[str] = None,
+        transformations: typing.Optional[list[str]] = None,
     ) -> RepresentationRecord:
         """Set the default representation for this topic.
 
@@ -1017,6 +1088,8 @@ class Topic:
             association: Association pointing to the representation data.
             storage_format: Format of the representation data.
             version: Version number of the representation.
+            format: Content format descriptor (e.g. "jpeg", "sensor_msgs/Image").
+            transformations: Transformation descriptors applied (e.g. ["downsample:0.5"]).
 
         Returns:
             RepresentationRecord representing the newly set default representation.
@@ -1041,6 +1114,8 @@ class Topic:
             association=association,
             storage_format=storage_format,
             version=version,
+            format=format,
+            transformations=transformations,
         )
         response = self.__roboto_client.post(
             f"v1/topics/id/{self.topic_id}/representation",
@@ -1050,6 +1125,105 @@ class Topic:
         representation_record = response.to_record(RepresentationRecord)
         self.refresh()
         return representation_record
+
+    @experimental
+    def set_timeline_offset(
+        self,
+        unix_epoch_offset_ns: int,
+        *,
+        timeline_source: typing.Optional["TimelineSourceRecord"] = None,
+        timeline_source_name: typing.Optional[str] = None,
+    ) -> list["TimelineExtentRecord"]:
+        """Calibrate this topic's timeline to Unix-epoch wall-clock, optionally scoped to a source.
+
+        Contract:
+
+        1. The offset is added to stored partition time to produce wall-clock:
+           ``session_time_ns = stored_time_ns + unix_epoch_offset_ns``.
+        2. ``timeline_source`` / ``timeline_source_name`` scopes the update to a single source on this topic;
+           with no selector, the offset applies to every timeline on the topic.
+
+        Use :py:meth:`set_timeline_offsets` to send several offsets in one atomic request.
+
+        Args:
+            unix_epoch_offset_ns: Offset to apply, in nanoseconds.
+            timeline_source: Source record to scope the update to. Mutually exclusive with ``timeline_source_name``.
+            timeline_source_name: Source name to scope the update to (e.g. ``"header.stamp"``). Mutually exclusive
+                with ``timeline_source``.
+
+        Returns:
+            The updated :py:class:`TimelineExtentRecord` entries returned by the server.
+
+        Examples:
+            Apply a topic-wide offset:
+
+            >>> topic = Topic.from_id("topic_xyz789")
+            >>> topic.set_timeline_offset(1_700_000_000_000_000_000)
+
+            Apply an offset to a specific source on this topic:
+
+            >>> topic.set_timeline_offset(
+            ...     500_000_000,
+            ...     timeline_source_name="header.stamp",
+            ... )
+        """
+        if timeline_source is not None and timeline_source_name is not None:
+            raise ValueError("Specify at most one of timeline_source, timeline_source_name.")
+
+        entry = TimelineOffsetEntry(
+            unix_epoch_offset_ns=unix_epoch_offset_ns,
+            timeline_source_id=(timeline_source.timeline_source_id if timeline_source is not None else None),
+            timeline_source_name=timeline_source_name,
+        )
+        return self.set_timeline_offsets([entry])
+
+    @experimental
+    def set_timeline_offsets(
+        self,
+        offsets: list["TimelineOffsetEntry"],
+    ) -> list["TimelineExtentRecord"]:
+        """Apply multiple timeline offsets to this topic in one atomic request.
+
+        Contract:
+
+        1. Each entry carries a ``unix_epoch_offset_ns`` and optional selectors (``timeline_source_id``,
+           ``timeline_source_name``) that narrow where the offset is applied. An entry with no selectors
+           targets every timeline on this topic.
+        2. The server applies the entire batch in one transaction; on failure none are applied.
+        3. The server 404s if no timeline matches any entry — there is no silent no-op.
+        4. Entries must not set ``topic_name``; this method is already scoped to this topic and the server
+           rejects entries that include one.
+
+        Use :py:meth:`set_timeline_offset` for the single-offset convenience form.
+
+        Args:
+            offsets: Offset entries to apply, each with its own selectors.
+
+        Returns:
+            The updated :py:class:`TimelineExtentRecord` entries returned by the server.
+
+        Examples:
+            Apply per-source offsets in a single request:
+
+            >>> from roboto.domain.topics import TimelineOffsetEntry
+            >>> topic = Topic.from_id("topic_xyz789")
+            >>> topic.set_timeline_offsets(
+            ...     [
+            ...         TimelineOffsetEntry(
+            ...             unix_epoch_offset_ns=1_700_000_000_000_000_000, timeline_source_name="header.stamp"
+            ...         ),
+            ...         TimelineOffsetEntry(
+            ...             unix_epoch_offset_ns=1_700_000_000_000_000_500, timeline_source_name="recv_time"
+            ...         ),
+            ...     ]
+            ... )
+        """
+        request = SetTimelineOffsetsRequest(offsets=offsets)
+        return self.__roboto_client.post(
+            f"v1/topics/id/{self.topic_id}/timeline-offsets",
+            data=request,
+            owner_org_id=self.org_id,
+        ).to_record_list(TimelineExtentRecord)
 
     def to_association(self) -> Association:
         """Convert this topic to an Association object.

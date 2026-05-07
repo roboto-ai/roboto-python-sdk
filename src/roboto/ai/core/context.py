@@ -9,22 +9,40 @@ from typing import Any, Optional
 import pydantic
 
 
-class RobotoLLMContext(pydantic.BaseModel):
-    """Contextual information about what a user is trying to do. May be passed along to Roboto LLM based code paths
-    in order to enrich results"""
+class ClientViewingContext(pydantic.BaseModel):
+    """What the Roboto client (e.g. the Web UI) is currently viewing when the
+    user composed a message.
+
+    Passed to the agent as implicit context for resolving deictic references
+    — "this dataset", "those files", "the visualizer state I'm looking at" —
+    that the user would otherwise have to spell out. This type is purely
+    informational; it is not enforced and never gates tool authorization.
+
+    Distinct from:
+
+    * :class:`AnalysisScope`, which is a hard analysis window honored by
+      individual tools on the server side.
+    * :class:`~roboto.ai.goals.AgentGoal`, which declares typed outcomes the
+      agent runner must drive the turn to satisfy.
+
+    The corresponding wire-format field is ``client_context`` (with a
+    one-release ``context`` alias for migration).
+    """
 
     dataset_ids: list[str] = pydantic.Field(default_factory=list)
-    """IDs of datasets that are relevant to the user's query."""
+    """IDs of datasets the user is currently viewing or has selected."""
 
     file_ids: list[str] = pydantic.Field(default_factory=list)
-    """IDs of files that are relevant to the user's query."""
+    """IDs of files the user is currently viewing or has selected."""
 
     visualizer_state: Optional[dict[str, Any]] = None
-    """State of the visualizer, if a request is being made from the visualizer. This is expected to be a relatively
-    opaque JSON blob"""
+    """State of the visualizer, when the user composed the message from the
+    visualizer view. A relatively opaque JSON blob."""
 
     misc_context: Optional[dict[str, Any]] = None
-    """Miscellaneous context that is relevant to the user's query."""
+    """Miscellaneous client-supplied context that doesn't fit the typed fields
+    above. Use sparingly; prefer adding a typed field when a recurring shape
+    emerges."""
 
 
 class AnalysisScope(pydantic.BaseModel):

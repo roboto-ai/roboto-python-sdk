@@ -13,7 +13,8 @@ import typing
 from typing import Optional, Union
 
 from ...http import RobotoClient
-from ..core import AnalysisScope, RobotoLLMContext
+from ..core import AnalysisScope, ClientViewingContext
+from ..goals import AgentGoal
 from .client_tool import ClientTool
 from .event import (
     AgentErrorEvent,
@@ -23,6 +24,12 @@ from .event import (
     AgentTextEndEvent,
     AgentToolResultEvent,
     AgentToolUseEvent,
+)
+from .feedback import (
+    FeedbackCategory,
+    FeedbackSentiment,
+    SubmitFeedbackRequest,
+    UserFeedbackRecord,
 )
 from .record import (
     AgentErrorContent,
@@ -37,12 +44,40 @@ from .record import (
     ClientToolResult,
     ClientToolResultStatus,
     ClientToolSpec,
+    ForkChatRequest,
     SendMessageRequest,
     StartAgentSessionRequest,
     SubmitToolResultsRequest,
 )
 
 OnEvent = collections.abc.Callable[[AgentEvent], None]
+
+
+class RobotoAgentGoalsFailedException(RuntimeError):
+    """Raised by :meth:`AgentSession.run` when a goal-bearing turn exhausts
+    its corrective re-prompt budget without satisfying every declared goal.
+
+    Inherits :class:`RuntimeError` rather than ``RobotoException`` because this
+    is a strictly client-side condition — the session is paused, not errored
+    on the wire — and the project's ``Roboto*Exception`` hierarchy is reserved
+    for exceptions cast from HTTP status codes by the SDK's response layer.
+    The typed shape still lets callers distinguish "the agent gave up on
+    declared goals" from "I have a bug in my client state machine," which is
+    what motivated lifting it out of the opaque ``RuntimeError`` ``run()``
+    used to raise on unexpected statuses.
+
+    The session is in :attr:`AgentSessionStatus.GOALS_FAILED`; inspect
+    :attr:`AgentSession.messages` and :attr:`AgentSessionRecord.goals` for
+    detail about which goals failed and why.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(
+            f"Session {session_id} ended in GOALS_FAILED — the agent could not achieve every "
+            "declared goal within its corrective re-prompt budget. The session needs human "
+            "intervention before it can continue."
+        )
+        self.session_id = session_id
 
 
 class AgentSession:
@@ -118,14 +153,15 @@ class AgentSession:
     @classmethod
     def start(
         cls,
-        message: Union[str, AgentMessage, collections.abc.Sequence[AgentMessage]],
+        message: Optional[Union[str, AgentMessage, collections.abc.Sequence[AgentMessage]]] = None,
         *,
-        context: Optional[RobotoLLMContext] = None,
+        client_context: Optional[ClientViewingContext] = None,
         system_prompt: Optional[str] = None,
         model_profile: Optional[str] = None,
         org_id: Optional[str] = None,
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
         analysis_scope: Optional[AnalysisScope] = None,
+        goals: Optional[collections.abc.Sequence[AgentGoal]] = None,
         roboto_client: Optional[RobotoClient] = None,
     ) -> AgentSession:
         """Start a new agent session with an initial message.
@@ -138,9 +174,18 @@ class AgentSession:
         Args:
             message: Initial message to start the conversation. Can be a text
                 string, a single AgentMessage, or a sequence of AgentMessage
-                objects for multi-turn initialization.
-            context: Optional context to scope the AI assistant's knowledge for
-                this conversation (e.g., specific datasets or resources).
+                objects for multi-turn initialization. Optional when at least
+                one entry is provided in ``goals``; in that case the server
+                synthesizes a minimal user message — implicitly "achieve the
+                goals" — and the agent will work to achieve every declared
+                goal during the first turn.
+            client_context: Optional :class:`ClientViewingContext` describing
+                what the calling client (e.g. the Web UI) is currently
+                displaying when this session is started. Lets the agent
+                resolve deictic references like "this dataset" without the
+                user spelling them out. Informational only; does not gate
+                authorization or scope tools — see ``analysis_scope`` for
+                that.
             system_prompt: Optional system prompt to customize the AI assistant's
                 behavior for this conversation.
             model_profile: Optional model profile ID (e.g. "standard",
@@ -157,6 +202,11 @@ class AgentSession:
                 the scope is persisted on the session and delivered to every
                 tool invocation on the server side. Individual tools opt in
                 to honoring the scope as they are adopted.
+            goals: Optional structured goals to declare for the first turn.
+                When provided, ``message`` may be omitted; the server will
+                synthesize a minimal user message and the agent runner will
+                enforce achievement of every declared goal before completing
+                the turn.
             roboto_client: HTTP client for API communication. If None, uses the default client.
 
         Returns:
@@ -179,12 +229,17 @@ class AgentSession:
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
-        if isinstance(message, AgentMessage):
+        if message is None:
+            messages: list[AgentMessage] = []
+        elif isinstance(message, AgentMessage):
             messages = [message]
         elif isinstance(message, str):
             messages = [AgentMessage.text(text=message, role=AgentRole.USER)]
         else:
             messages = list(message)
+
+        if not messages and not goals:
+            raise ValueError("AgentSession.start requires either 'message' or at least one 'goals' entry.")
 
         # A conversation starts with user input (optionally preceded by a
         # seeded ASSISTANT transcript). ROBOTO and SYSTEM are produced by the
@@ -202,12 +257,13 @@ class AgentSession:
         specs = _extract_specs(client_tools)
 
         request = StartAgentSessionRequest(
-            context=context,
+            client_context=client_context,
             messages=list(messages),
             system_prompt=system_prompt,
             model_profile=model_profile,
             client_tools=specs,
             analysis_scope=analysis_scope,
+            goals=list(goals) if goals is not None else None,
         )
 
         record = roboto_client.post("v1/ai/chats", caller_org_id=org_id, data=request).to_record(AgentSessionRecord)
@@ -356,17 +412,24 @@ class AgentSession:
 
     def send(
         self,
-        message: AgentMessage,
+        message: Optional[AgentMessage] = None,
         *,
-        context: Optional[RobotoLLMContext] = None,
+        client_context: Optional[ClientViewingContext] = None,
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
         analysis_scope: Optional[AnalysisScope] = None,
+        goals: Optional[collections.abc.Sequence[AgentGoal]] = None,
     ) -> AgentSession:
         """Send a structured message to the session.
 
         Args:
-            message: AgentMessage object containing the message content and metadata.
-            context: Optional context to include with the message.
+            message: AgentMessage object containing the message content and
+                metadata. Optional when at least one entry is provided in
+                ``goals``; in that case the server synthesizes a minimal
+                user message for the turn.
+            client_context: Optional :class:`ClientViewingContext` describing
+                what the calling client is currently viewing when this
+                message was composed. Informational only; see
+                :meth:`AgentSession.start` for full semantics.
             client_tools: Optional client-side tools to add or update for this
                 and subsequent turns. ClientTool callbacks are registered on
                 the session for auto-dispatch.
@@ -374,6 +437,9 @@ class AgentSession:
                 provided, overwrites the session's current scope for all
                 subsequent tool invocations. When ``None``, the session's
                 existing scope (if any) is left untouched.
+            goals: Optional structured goals to declare for this turn. The
+                agent runner enforces achievement of every declared goal
+                before completing the turn.
 
         Returns:
             Self for method chaining.
@@ -382,12 +448,16 @@ class AgentSession:
             RobotoInvalidRequestException: If the message format is invalid.
             RobotoUnauthorizedException: If the caller lacks permission to send messages.
         """
+        if message is None and not goals:
+            raise ValueError("AgentSession.send requires either 'message' or at least one 'goals' entry.")
+
         specs = _extract_specs(client_tools)
         request = SendMessageRequest(
             message=message,
-            context=context,
+            client_context=client_context,
             client_tools=specs,
             analysis_scope=analysis_scope,
+            goals=list(goals) if goals is not None else None,
         )
 
         self.__roboto_client.post(
@@ -396,16 +466,21 @@ class AgentSession:
         )
 
         self.__register_tools(client_tools)
-        self.__record.messages.append(message)
+        # When ``message`` is None the server synthesizes the user message;
+        # the SDK has no way to know what was synthesized, so leave the local
+        # transcript untouched and rely on the next ``events`` poll to surface it.
+        if message is not None:
+            self.__record.messages.append(message)
         return self
 
     def send_text(
         self,
         text: str,
         *,
-        context: Optional[RobotoLLMContext] = None,
+        client_context: Optional[ClientViewingContext] = None,
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
         analysis_scope: Optional[AnalysisScope] = None,
+        goals: Optional[collections.abc.Sequence[AgentGoal]] = None,
     ) -> AgentSession:
         """Send a text message to the session.
 
@@ -414,10 +489,13 @@ class AgentSession:
 
         Args:
             text: Text content to send to the assistant.
-            context: Optional context to include with the message.
+            client_context: Optional :class:`ClientViewingContext` describing
+                what the calling client is currently viewing.
             client_tools: Optional client-side tools to add or update.
             analysis_scope: Optional replacement :class:`AnalysisScope`; see
                 :py:meth:`send` for update semantics.
+            goals: Optional goals to declare for this turn. See :py:meth:`send`
+                for full semantics.
 
         Returns:
             Self for method chaining.
@@ -428,9 +506,10 @@ class AgentSession:
         """
         return self.send(
             AgentMessage.text(text=text, role=AgentRole.USER),
-            context=context,
+            client_context=client_context,
             client_tools=client_tools,
             analysis_scope=analysis_scope,
+            goals=goals,
         )
 
     def submit_client_tool_results(
@@ -643,6 +722,13 @@ class AgentSession:
                 self.submit_client_tool_results(results)
                 continue
 
+            if status == AgentSessionStatus.GOALS_FAILED:
+                # Typed exception so callers can distinguish "agent gave up on
+                # declared goals" from generic RuntimeError. The session is
+                # now paused; inspect messages and AgentSessionRecord.goals
+                # for the failure detail.
+                raise RobotoAgentGoalsFailedException(self.session_id)
+
             raise RuntimeError(
                 f"Session {self.session_id} paused in unexpected status {status}; "
                 "expected USER_TURN or CLIENT_TOOL_TURN."
@@ -791,6 +877,86 @@ class AgentSession:
             status=ClientToolResultStatus.SUCCESS,
             output=output_dict,
         )
+
+    def submit_feedback(
+        self,
+        message_sequence_num: int,
+        sentiment: FeedbackSentiment,
+        categories: Optional[list[FeedbackCategory]] = None,
+        notes: Optional[str] = None,
+    ) -> UserFeedbackRecord:
+        """Submit structured feedback on a specific assistant message in this session.
+
+        Persists categorized feedback so it can be reviewed by Roboto operators.
+        Re-submitting from the same user on the same message overwrites
+        ``sentiment``, ``categories``, and ``notes`` on the existing row
+        rather than creating a duplicate; the ``feedback_id`` and original
+        ``created``/``created_by`` are preserved.
+
+        Args:
+            message_sequence_num: Zero-indexed position of the assistant message being rated.
+            sentiment: Overall rating direction.
+            categories: Zero or more categories describing the feedback. Must match ``sentiment``.
+                ``FeedbackCategory.OTHER`` is always permitted but requires ``notes``.
+            notes: Free-text notes. Required when ``FeedbackCategory.OTHER`` is among the categories.
+
+        Returns:
+            The persisted feedback as a :class:`UserFeedbackRecord`. Admin
+            triage columns (``admin_label``, ``admin_note``, ``resolved``,
+            ``resolved_by``, ``resolved_at``) are intentionally not part of
+            this shape — they are only visible through the admin API.
+
+        Raises:
+            RobotoInvalidRequestException: If the message is still generating, the
+                sentiment/category combination is invalid, or ``OTHER`` is used
+                without notes.
+            RobotoUnauthorizedException: If the caller cannot access this session.
+            RobotoNotFoundException: If ``message_sequence_num`` is out of range.
+        """
+        # Default to ``[]`` only when the caller actually omitted categories.
+        # ``categories or []`` would also flatten an explicit ``[]`` through the
+        # truthiness check, which is the same value but it is worth making the
+        # distinction explicit so a future ``[None]`` or similar doesn't get
+        # silently swallowed.
+        request = SubmitFeedbackRequest(
+            sentiment=sentiment,
+            categories=categories if categories is not None else [],
+            notes=notes,
+        )
+        return self.__roboto_client.post(
+            f"v1/ai/chats/{self.__record.session_id}/messages/{message_sequence_num}/feedback",
+            data=request,
+        ).to_record(UserFeedbackRecord)
+
+    def fork(self, message_sequence_num: int) -> AgentSession:
+        """Fork this session's history up to a specific message into a new session owned by the caller.
+
+        Available to the session's creator (forking their own session) and to
+        Roboto admins (``is_roboto_admin``) forking anyone's session. The new
+        session carries the source session's ``org_id`` so tool calls resolve
+        against the source org's data. The new session is owned by the caller,
+        so admin forks of a customer session never appear in the customer's
+        session list.
+
+        Args:
+            message_sequence_num: Highest message sequence number (inclusive) to copy.
+
+        Returns:
+            A new ``AgentSession`` instance for the forked session.
+
+        Raises:
+            RobotoUnauthorizedException: If the caller is not a member of the
+                source session's org, or is a member but is neither the source
+                session's creator nor a Roboto admin.
+            RobotoInvalidRequestException: If ``message_sequence_num`` is out
+                of range or points at a message still generating.
+        """
+        request = ForkChatRequest(message_sequence_num=message_sequence_num)
+        record = self.__roboto_client.post(
+            f"v1/ai/chats/{self.__record.session_id}/fork",
+            data=request,
+        ).to_record(AgentSessionRecord)
+        return AgentSession(record=record, roboto_client=self.__roboto_client)
 
 
 def _extract_specs(
