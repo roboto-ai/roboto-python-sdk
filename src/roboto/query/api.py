@@ -22,6 +22,7 @@ class QueryTarget(StrEnum):
     Collections = "collections"
     Datasets = "datasets"
     Files = "files"
+    Sessions = "sessions"
     Topics = "topics"
     TopicMessagePaths = "topic_message_paths"
     Events = "events"

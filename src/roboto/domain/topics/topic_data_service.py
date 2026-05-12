@@ -100,8 +100,6 @@ class TopicDataService:
         Yields:
             Tuple of (timestamp, record) where timestamp is in nanoseconds since Unix epoch.
         """
-        cache_dir = self.__ensure_cache_dir(cache_dir_override)
-
         message_path_repr_mappings = self.__get_message_path_mappings(topic_id)
         filtered_message_path_repr_mappings = self.__filter_message_path_mappings(
             message_path_repr_mappings,
@@ -121,7 +119,7 @@ class TopicDataService:
                 end_time=end_time_ns,
             )
         elif ParquetTopicReader.accepts(selected_mappings):
-            reader = ParquetTopicReader(self.__roboto_client, cache_dir=cache_dir)
+            reader = ParquetTopicReader(self.__roboto_client, cache_dir=self.__resolve_cache_dir(cache_dir_override))
             timestamp_mapping = self.__find_timestamp_message_path_mapping(selected_mappings)
             yield from reader.get_data(
                 selected_mappings,
@@ -163,8 +161,6 @@ class TopicDataService:
         """
         pd = import_optional_dependency("pandas", "analytics")
 
-        cache_dir = self.__ensure_cache_dir(cache_dir_override)
-
         message_path_repr_mappings = self.__get_message_path_mappings(topic_id)
         filtered_message_path_repr_mappings = self.__filter_message_path_mappings(
             message_path_repr_mappings,
@@ -184,7 +180,7 @@ class TopicDataService:
                 end_time=end_time_ns,
             )
         elif ParquetTopicReader.accepts(selected_mappings):
-            reader = ParquetTopicReader(self.__roboto_client, cache_dir=cache_dir)
+            reader = ParquetTopicReader(self.__roboto_client, cache_dir=self.__resolve_cache_dir(cache_dir_override))
             timestamp_mapping = self.__find_timestamp_message_path_mapping(selected_mappings)
             timestamps, df = reader.get_data_as_df(
                 selected_mappings,
@@ -206,12 +202,12 @@ class TopicDataService:
 
         return df
 
-    def __ensure_cache_dir(self, cache_dir_override: typing.Union[str, pathlib.Path, None] = None) -> pathlib.Path:
-        cache_dir = pathlib.Path(cache_dir_override) if cache_dir_override is not None else self.__cache_dir
-        if not cache_dir.exists():
-            cache_dir.mkdir(parents=True)
-
-        return cache_dir
+    def __resolve_cache_dir(self, cache_dir_override: typing.Union[str, pathlib.Path, None] = None) -> pathlib.Path:
+        # Resolves only — does not create. The Parquet reader creates the directory
+        # lazily, and only when it has actually decided to write a file to it.
+        # Creating it here would also create it for MCAP-backed topics, which never
+        # use the cache, and would race on first-time creation under concurrent calls.
+        return pathlib.Path(cache_dir_override) if cache_dir_override is not None else self.__cache_dir
 
     def __filter_message_paths(
         self,

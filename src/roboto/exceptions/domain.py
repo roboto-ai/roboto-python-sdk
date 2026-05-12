@@ -455,42 +455,16 @@ class RobotoContextTooLongException(RobotoDomainException):
     """
     Thrown when the conversation context (messages, system prompt, tool results) exceeds
     the model's context window limit.
+
+    Internal heuristic estimates and the model's context limit are recorded in
+    structured CloudWatch logs (see ``BedrockLLMBackbone``); they are deliberately
+    not surfaced through this exception. Callers that need usage telemetry should
+    consume it through dedicated channels rather than introspecting the error.
     """
-
-    __estimated_tokens: int
-    __max_tokens: int
-
-    def __init__(
-        self,
-        message: str,
-        stack_trace: list[str] = [],
-        headers: dict[str, str] = {},
-        estimated_tokens: int = 0,
-        max_tokens: int = 0,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(message, stack_trace, headers, *args, **kwargs)
-        self.__estimated_tokens = estimated_tokens
-        self.__max_tokens = max_tokens
 
     @property
     def http_status_code(self) -> int:
         return 400
-
-    @property
-    def estimated_tokens(self) -> int:
-        return self.__estimated_tokens
-
-    @property
-    def max_tokens(self) -> int:
-        return self.__max_tokens
-
-    def to_dict(self) -> dict[str, Any]:
-        as_dict = super().to_dict()
-        as_dict["error"]["estimated_tokens"] = self.estimated_tokens
-        as_dict["error"]["max_tokens"] = self.max_tokens
-        return as_dict
 
 
 class RobotoHttpExceptionParse(object):
