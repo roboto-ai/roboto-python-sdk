@@ -462,6 +462,23 @@ class RobotoContextTooLongException(RobotoDomainException):
     consume it through dedicated channels rather than introspecting the error.
     """
 
+    def __init__(
+        self,
+        message: str,
+        stack_trace: list[str] = [],
+        headers: dict[str, str] = {},
+        # Wire-compat: pre-0.44.0 servers include estimated_tokens/max_tokens in
+        # the error envelope, and from_json splats every envelope field as a
+        # constructor kwarg. Accept and discard them so deserialization succeeds
+        # against an older deployed API/worker. Remove once the deployed backend
+        # is on >= 0.44.0.
+        estimated_tokens: int = 0,
+        max_tokens: int = 0,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(message, stack_trace, headers, *args, **kwargs)
+
     @property
     def http_status_code(self) -> int:
         return 400

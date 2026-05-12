@@ -1,5 +1,12 @@
 # Changelog
 
+# 0.44.1
+## Features Added
+  - None
+
+## Bugs Fixed
+  - `RobotoContextTooLongException` deserializes cleanly against pre-0.44.0 servers.
+
 # 0.44.0
 ## Breaking Changes
   - `RobotoContextTooLongException` no longer accepts `estimated_tokens` and `max_tokens` constructor arguments, no longer exposes `estimated_tokens` / `max_tokens` properties, and no longer extends the `to_dict()` payload with those fields. The exception now serializes as the standard `{error_code, message}` shape like every other `RobotoDomainException`. The internal heuristic estimate and the model's context limit were never billing-grade values and were not consumed by any in-tree caller; they remain visible in CloudWatch failure logs (see `BedrockLLMBackbone`). Callers that need usage telemetry will get it through a separate, dedicated channel rather than by introspecting the error.
