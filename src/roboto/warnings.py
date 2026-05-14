@@ -42,15 +42,19 @@ _SPHINX_NOTICE = ".. warning:: **Experimental**: {message}\n\n"
 
 
 @typing.overload
+def experimental(target: _C, /) -> _C: ...
+
+
+@typing.overload
+def experimental(target: _F, /) -> _F: ...
+
+
+@typing.overload
 def experimental(target: str, /) -> typing.Callable[[_T], _T]: ...
 
 
 @typing.overload
 def experimental(*, message: str) -> typing.Callable[[_T], _T]: ...
-
-
-@typing.overload
-def experimental(target: _T) -> _T: ...
 
 
 def experimental(

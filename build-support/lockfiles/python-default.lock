@@ -698,36 +698,36 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "179601ec2992726a718053bf41e43c223ceba397d31ceab11f64d9c910d9fc3a",
-              "url": "https://files.pythonhosted.org/packages/c8/e2/3c2eef44f55eafab256836d1d9479bd6a74f70c26cbfdc0639a0e23e4327/boto3-1.43.6-py3-none-any.whl"
+              "hash": "7060f603ca0f645153ee2244506db4db5968a858cd513399d8df70637c362159",
+              "url": "https://files.pythonhosted.org/packages/40/87/68fdfc7eaed69c4c77de1b9f1ddbd52e529510161baf9b2bf863be07aad1/boto3-1.43.7-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "e6315effaf12b890b99956e6f8e2c3000a3f64e4ee91943cec3895ce9a836afb",
-              "url": "https://files.pythonhosted.org/packages/0a/37/78c630d1308964aa9abf44951d9c4df776546ff37251ec2434944e205c4e/boto3-1.43.6.tar.gz"
+              "hash": "b1e4b40f4a828c67291b12ebefd17d87a57321101e4a0c969b2f593a0310f343",
+              "url": "https://files.pythonhosted.org/packages/6b/0d/67ebf496fe061397f7eb907504e950fe6d2fa5945fd05891f3033376e471/boto3-1.43.7.tar.gz"
             }
           ],
           "project_name": "boto3",
           "requires_dists": [
-            "botocore<1.44.0,>=1.43.6",
+            "botocore<1.44.0,>=1.43.7",
             "botocore[crt]<2.0a0,>=1.21.0; extra == \"crt\"",
             "jmespath<2.0.0,>=0.7.1",
             "s3transfer<0.18.0,>=0.17.0"
           ],
           "requires_python": ">=3.10",
-          "version": "1.43.6"
+          "version": "1.43.7"
         },
         {
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "b6d1fdbc6f65a5fe0b7e947823aa37535d3f39f3ba4d21110fab1f55bbbcc04b",
-              "url": "https://files.pythonhosted.org/packages/e5/c8/6f47223840e8d8cfa8c9f7c0ec1b77970417f257fc885169ff4f6326ce09/botocore-1.43.6-py3-none-any.whl"
+              "hash": "e93f25dc186a9de033c87128c0f2016aedd74aea9057d918bfc0703a946b1ad1",
+              "url": "https://files.pythonhosted.org/packages/19/f3/a9beaae1cda959fa438b3937fc995d82b2a08cb117c67c31547580f19849/botocore-1.43.7-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "b1e395b347356860398da42e61c808cf1e34b6fa7180cf2b9d87d986e1a06ba0",
-              "url": "https://files.pythonhosted.org/packages/79/a7/23d0f5028011455096a1eeac0ddf3cbe147b3e855e127342f8202552194d/botocore-1.43.6.tar.gz"
+              "hash": "abbbc623c52dce86ea9d4534d35e2d6ce447d98edfdaced1695ee0278d6063e3",
+              "url": "https://files.pythonhosted.org/packages/ed/be/59144884fa71908e2ac389cfe0fd2ebe8e8adb47bcc994188eb59967406a/botocore-1.43.7.tar.gz"
             }
           ],
           "project_name": "botocore",
@@ -738,7 +738,7 @@
             "urllib3!=2.2.0,<3,>=1.25.4"
           ],
           "requires_python": ">=3.10",
-          "version": "1.43.6"
+          "version": "1.43.7"
         },
         {
           "artifacts": [
@@ -2243,13 +2243,13 @@
           "artifacts": [
             {
               "algorithm": "sha256",
-              "hash": "e677eaf072e290f7b725f9acf0b3a2bd55f9fd6f7c70abe5f0e34823d0accf69",
-              "url": "https://files.pythonhosted.org/packages/6c/3c/3f62dee257eb3d6b2c1ef2a09d36d9793c7111156a73b5654d2c2305e5ce/idna-3.14-py3-none-any.whl"
+              "hash": "048adeaf8c2d788c40fee287673ccaa74c24ffd8dcf09ffa555a2fbb59f10ac8",
+              "url": "https://files.pythonhosted.org/packages/d2/23/408243171aa9aaba178d3e2559159c24c1171a641aa83b67bdd3394ead8e/idna-3.15-py3-none-any.whl"
             },
             {
               "algorithm": "sha256",
-              "hash": "466d810d7a2cc1022bea9b037c39728d51ae7dad40d480fc9b7d7ecf98ba8ee3",
-              "url": "https://files.pythonhosted.org/packages/05/b1/efac073e0c297ecf2fb33c346989a529d4e19164f1759102dee5953ee17e/idna-3.14.tar.gz"
+              "hash": "ca962446ea538f7092a95e057da437618e886f4d349216d2b1e294abfdb65fdc",
+              "url": "https://files.pythonhosted.org/packages/82/77/7b3966d0b9d1d31a36ddf1746926a11dface89a83409bf1483f0237aa758/idna-3.15.tar.gz"
             }
           ],
           "project_name": "idna",
@@ -2259,7 +2259,7 @@
             "ruff>=0.6.2; extra == \"all\""
           ],
           "requires_python": ">=3.8",
-          "version": "3.14"
+          "version": "3.15"
         },
         {
           "artifacts": [

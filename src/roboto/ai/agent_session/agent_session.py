@@ -519,6 +519,11 @@ class AgentSession:
     ) -> AgentSession:
         """Submit results of client-side tool execution to resume the session.
 
+        On success the server has persisted every submitted ``tool_result``
+        and queued a new worker turn; the local ``record.status`` flips to
+        ``ROBOTO_TURN`` to match. See the inline comment for why the next
+        delta poll cannot communicate that transition on its own.
+
         Args:
             results: Tool results from client-side execution.
             client_tools: Optional updated client-side tools for the next
@@ -538,6 +543,11 @@ class AgentSession:
             data=request,
         )
         self.__register_tools(client_tools)
+        # The server appends our results to the existing ROBOTO tool_result message, but the SDK's token has
+        # already advanced past that message on the prior CLIENT_TOOL_TURN poll — the next delta returns empty
+        # with status=None, so record.status stays CLIENT_TOOL_TURN. Without this flip, run() re-dispatches the
+        # same tool_uses and re-POSTs; the second POST hits ROBOTO_TURN and raises RobotoInvalidRequestException.
+        self.__record.status = AgentSessionStatus.ROBOTO_TURN
         return self
 
     def events(
