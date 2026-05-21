@@ -12,7 +12,7 @@ import urllib.parse
 from ...auth.scope import ApiScope
 from ...exceptions import RobotoDomainException
 from ...http import RobotoClient
-from ...updates import MetadataChangeset
+from ...updates import CustomFieldChangeset, MetadataChangeset
 from ...warnings import experimental
 from ..sessions import Session, SessionRecord
 from ..tokens import (
@@ -62,10 +62,11 @@ class Device:
     def create(
         cls,
         device_id: str,
-        caller_org_id: typing.Optional[str] = None,
-        roboto_client: typing.Optional[RobotoClient] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
         tags: typing.Optional[list[str]] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
+        caller_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Device":
         """Register a new device with the Roboto platform.
 
@@ -77,15 +78,18 @@ class Device:
             device_id: A user-provided identifier for the device, unique within the organization.
                 This is typically a meaningful identifier like a serial number, asset tag,
                 or other organization-specific naming scheme.
+            metadata: Optional key-value pairs to associate with the device for discovery and search.
+                For example: {"model": "mk2", "serial_number": "SN001234"}.
+            tags: Optional list of tags to associate with the device for discovery and organization.
+                For example: ["production", "warehouse-a"].
+            custom_fields: Optional initial values for Ready custom fields defined on
+                Devices in the caller's org. Keys must match Ready field names; values
+                must satisfy each field's declared type.
             caller_org_id: The organization ID to register the device under. If not specified
                 and the caller belongs to only one organization, that organization will be used.
                 Required if the caller belongs to multiple organizations.
             roboto_client: Optional RobotoClient instance for API communication. If not provided,
                 the default client configuration will be used.
-            metadata: Optional key-value pairs to associate with the device for discovery and search.
-                For example: {"model": "mk2", "serial_number": "SN001234"}.
-            tags: Optional list of tags to associate with the device for discovery and organization.
-                For example: ["production", "warehouse-a"].
 
         Returns:
             A Device instance representing the newly registered device.
@@ -117,6 +121,7 @@ class Device:
             org_id=caller_org_id,
             metadata=metadata or {},
             tags=tags or [],
+            custom_fields=custom_fields,
         )
         record = roboto_client.post("v1/devices/create", caller_org_id=caller_org_id, data=request).to_record(
             DeviceRecord
@@ -271,6 +276,18 @@ class Device:
         return self.__record.metadata
 
     @property
+    @experimental
+    def custom_fields(self) -> dict[str, typing.Any]:
+        """Custom-field values defined on Devices in this org.
+
+        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` defined
+        for ``(org_id, Device)`` appears as a key. Values that have not been set
+        on this device surface as ``None`` rather than being absent. Empty when
+        no custom fields are defined for the org.
+        """
+        return self.__record.custom_fields
+
+    @property
     def modified(self) -> datetime.datetime:
         """The timestamp when this device record was last modified."""
         return self.__record.modified
@@ -302,7 +319,14 @@ class Device:
         return self.__record.tags
 
     @experimental
-    def create_session(self, name: typing.Optional[str] = None) -> Session:
+    def create_session(
+        self,
+        name: typing.Optional[str] = None,
+        description: typing.Optional[str] = None,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
+        tags: typing.Optional[collections.abc.Sequence[str]] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
+    ) -> Session:
         """Create a new Session on this Device.
 
         A Session is an operational time window of this Device. After creation, compose the Session
@@ -310,6 +334,15 @@ class Device:
 
         Args:
             name: Optional short name for the Session (max 120 characters).
+            description: Optional description of the Session.
+            metadata: Optional initial metadata.
+                Sessions are not filterable or sortable by ``metadata`` keys;
+                for queryable structured attributes, define a custom cield on the ``Session`` entity type.
+            tags: Optional initial tags.
+                Sessions can be filtered by tag membership but are not sortable by tag.
+            custom_fields: Optional initial values for Ready custom fields defined on
+                Sessions in this Device's org. Keys must match Ready field names; values
+                must satisfy each field's declared type.
 
         Returns:
             The newly created Session.
@@ -324,6 +357,10 @@ class Device:
         return Session.create(
             name=name,
             device_ids=[self.device_id],
+            description=description,
+            metadata=metadata,
+            tags=tags,
+            custom_fields=custom_fields,
             caller_org_id=self.org_id,
             roboto_client=self.__roboto_client,
         )
@@ -521,6 +558,38 @@ class Device:
             >>> updated_device = device.remove_tags(["old_tag", "deprecated"])
         """
         return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(remove_tags=tags)))
+
+    @experimental
+    def set_custom_field(self, name: str, value: typing.Any) -> "Device":
+        """Set a single custom-field value on this device.
+
+        ``name`` must be the name of a
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
+        field for this device's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Device`
+        entity type; ``value`` must satisfy the field's declared type.
+        """
+        return self.update(UpdateDeviceRequest(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value})))
+
+    @experimental
+    def clear_custom_field(self, name: str) -> "Device":
+        """Clear a single custom-field value on this device to ``None``."""
+        return self.update(UpdateDeviceRequest(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name])))
+
+    @experimental
+    def set_custom_fields(self, fields: dict[str, typing.Any]) -> "Device":
+        """Set or overwrite multiple custom-field values on this device.
+
+        Each key must name a Ready custom field for this device's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Device`
+        entity type; each value must satisfy the field's declared type.
+        """
+        return self.update(UpdateDeviceRequest(custom_fields_changeset=CustomFieldChangeset(set_fields=fields)))
+
+    @experimental
+    def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> "Device":
+        """Clear multiple custom-field values on this device to ``None``."""
+        return self.update(UpdateDeviceRequest(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names))))
 
     def tokens(self) -> collections.abc.Sequence[Token]:
         """Retrieve all authentication tokens associated with this device.

@@ -14,8 +14,11 @@ from ...sentinels import (
     NotSetType,
     remove_not_set,
 )
+from ...updates import CustomFieldChangeset, MetadataChangeset, StrSequence
 from ...warnings import experimental
 from ..files import File
+from ..metrics.metric import BulkPublishMetricsResult, Metric
+from ..metrics.record import MetricEntry
 from ..topics.record import TopicIdentityRecord
 from .operations import (
     AddFilesRequest,
@@ -75,6 +78,10 @@ class Session:
         cls,
         name: typing.Optional[str] = None,
         device_ids: collections.abc.Sequence[str] = (),
+        description: typing.Optional[str] = None,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
+        tags: typing.Optional[collections.abc.Sequence[str]] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Session":
@@ -87,6 +94,15 @@ class Session:
             name: Optional short name for the Session (max 120 characters).
             device_ids: Devices to associate with the Session at creation.
                 Empty (the default) creates a Session with no associated devices.
+            description: Optional description of the Session.
+            metadata: Optional initial metadata.
+                Sessions are not filterable or sortable by ``metadata`` keys;
+                for queryable structured attributes, define a custom cield on the ``Session`` entity type.
+            tags: Optional initial tags.
+                Sessions can be filtered by tag membership but are not sortable by tag.
+            custom_fields: Optional initial values for Ready custom fields defined on
+                Sessions in the caller's org. Keys must match Ready field names; values
+                must satisfy each field's declared type.
             caller_org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
             roboto_client: Optional RobotoClient; defaults to the ambient one.
 
@@ -95,38 +111,27 @@ class Session:
 
         Examples:
             >>> from roboto.domain.sessions import Session
-            >>> session = Session.create(name="flight-2026-04-23-001", device_ids=["dv_a", "dv_b"])
+            >>> session = Session.create(
+            ...     name="flight-2026-04-23-001",
+            ...     device_ids=["dv_a", "dv_b"],
+            ...     description="formation flight #4",
+            ...     metadata={"pilot": "alice"},
+            ...     tags=["pre-flight-check"],
+            ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        request = CreateSessionRequest(name=name, device_ids=list(device_ids))
+        request = CreateSessionRequest(
+            name=name,
+            device_ids=list(device_ids),
+            description=description,
+            metadata=metadata or {},
+            tags=list(tags) if tags else [],
+            custom_fields=custom_fields,
+        )
         record = roboto_client.post(
             "v1/sessions",
             data=request,
             caller_org_id=caller_org_id,
-        ).to_record(SessionRecord)
-        return cls(record=record, roboto_client=roboto_client)
-
-    @classmethod
-    def from_id(
-        cls,
-        session_id: str,
-        owner_org_id: typing.Optional[str] = None,
-        roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> "Session":
-        """Load a Session by ID.
-
-        Args:
-            session_id: Session primary key.
-            owner_org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
-
-        Returns:
-            The Session.
-        """
-        roboto_client = RobotoClient.defaulted(roboto_client)
-        record = roboto_client.get(
-            f"v1/sessions/id/{session_id}",
-            owner_org_id=owner_org_id,
         ).to_record(SessionRecord)
         return cls(record=record, roboto_client=roboto_client)
 
@@ -209,6 +214,30 @@ class Session:
             if not next_token:
                 break
 
+    @classmethod
+    def from_id(
+        cls,
+        session_id: str,
+        owner_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> "Session":
+        """Load a Session by ID.
+
+        Args:
+            session_id: Session primary key.
+            owner_org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
+            roboto_client: Optional RobotoClient; defaults to the ambient one.
+
+        Returns:
+            The Session.
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        record = roboto_client.get(
+            f"v1/sessions/id/{session_id}",
+            owner_org_id=owner_org_id,
+        ).to_record(SessionRecord)
+        return cls(record=record, roboto_client=roboto_client)
+
     def __init__(
         self,
         record: SessionRecord,
@@ -226,9 +255,25 @@ class Session:
         return self.__record.created
 
     @property
+    def custom_fields(self) -> dict[str, typing.Any]:
+        """Custom-field values defined on Sessions in this org.
+
+        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` defined
+        for ``(org_id, Session)`` appears as a key. Values that have not been set
+        on this session surface as ``None`` rather than being absent. Empty when
+        no custom fields are defined for the org.
+        """
+        return self.__record.custom_fields
+
+    @property
     def created_by(self) -> str:
         """Identifier of the user or service which created this Session."""
         return self.__record.created_by
+
+    @property
+    def description(self) -> typing.Optional[str]:
+        """Optional description of this Session."""
+        return self.__record.description
 
     @property
     def max_timestamp_ns(self) -> typing.Optional[int]:
@@ -237,6 +282,15 @@ class Session:
         ``None`` when the Session has no contributions.
         """
         return self.__record.max_timestamp_ns
+
+    @property
+    def metadata(self) -> dict[str, typing.Any]:
+        """User-supplied metadata attached to this Session.
+
+        Sessions are not filterable or sortable by ``metadata`` keys.
+        For queryable structured attributes on a Session, define a custom field on the ``Session`` entity type.
+        """
+        return self.__record.metadata.copy()
 
     @property
     def min_timestamp_ns(self) -> typing.Optional[int]:
@@ -276,25 +330,10 @@ class Session:
         """Globally unique identifier assigned to this Session on creation."""
         return self.__record.session_id
 
-    def attach_to_device(self, device_id: str) -> None:
-        """Attach a Device to this Session as a subject.
-
-        A Session may have many device subjects — for example, a formation flight where multiple drones operate within
-        a single activity window.
-
-        Args:
-            device_id: ID of the Device to add as a subject of this Session.
-
-        Examples:
-            >>> session.attach_to_device("dv_wingman")
-            >>> list(session.list_devices())
-            ['dv_lead', 'dv_wingman']
-        """
-        self.__roboto_client.post(
-            f"v1/sessions/id/{self.session_id}/devices",
-            data=AttachToDeviceRequest(device_id=device_id),
-            owner_org_id=self.org_id,
-        )
+    @property
+    def tags(self) -> list[str]:
+        """User-supplied tags on this Session."""
+        return self.__record.tags.copy()
 
     def add_file(
         self,
@@ -314,7 +353,7 @@ class Session:
             range_max_timestamp_ns: Optional upper bound paired with ``range_min_timestamp_ns``.
 
         Returns:
-            This Session, with recomputed aggregate bounds (``min_timestamp_ns`` / ``max_timestamp_ns``).
+            This Session, refreshed from the server response.
 
         Examples:
             Include a whole file:
@@ -352,7 +391,7 @@ class Session:
             files: Files to contribute to the Session.
 
         Returns:
-            This Session, with recomputed aggregate bounds (``min_timestamp_ns`` / ``max_timestamp_ns``).
+            This Session, refreshed from the server response.
 
         Examples:
             >>> from roboto.domain.sessions import SessionFile
@@ -375,11 +414,43 @@ class Session:
         self.__record = record
         return self
 
+    def attach_to_device(self, device_id: str) -> None:
+        """Attach a Device to this Session as a subject.
+
+        A Session may have many device attachments.
+        For example, a formation flight where multiple drones operate within a single activity window.
+
+        Args:
+            device_id: ID of the Device to add as a subject of this Session.
+
+        Examples:
+            >>> session.attach_to_device("dv_wingman")
+            >>> list(session.list_devices())
+            ['dv_lead', 'dv_wingman']
+        """
+        self.__roboto_client.post(
+            f"v1/sessions/id/{self.session_id}/devices",
+            data=AttachToDeviceRequest(device_id=device_id),
+            owner_org_id=self.org_id,
+        )
+
     def delete(self) -> None:
         """Delete this Session. Its file contributions and device attachments are removed alongside it."""
         self.__roboto_client.delete(
             f"v1/sessions/id/{self.session_id}",
             owner_org_id=self.org_id,
+        )
+
+    def detach_from_device(self, device_id: str) -> None:
+        """Remove a Device from this Session's subjects.
+
+        Args:
+            device_id: ID of the Device to remove as a subject of this Session.
+        """
+        self.__roboto_client.delete(
+            f"v1/sessions/id/{self.session_id}/devices",
+            owner_org_id=self.org_id,
+            data=DetachFromDeviceRequest(device_id=device_id),
         )
 
     def list_devices(self) -> collections.abc.Generator[str, None, None]:
@@ -428,6 +499,83 @@ class Session:
             if not next_token:
                 break
 
+    def list_metrics(self) -> list[Metric]:
+        """Return all metrics published to this Session.
+
+        Returns:
+            List of :py:class:`~roboto.domain.metrics.Metric` instances for this Session.
+
+        Examples:
+            >>> metrics = session.list_metrics()
+            >>> for m in metrics:
+            ...     print(m.name, m.value)
+        """
+        return Metric.get_by_session(
+            session_id=self.session_id,
+            owner_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
+
+    def publish_metrics(
+        self,
+        metrics: list[MetricEntry],
+        device_id: typing.Union[NotSetType, typing.Optional[str]] = NotSet,
+    ) -> BulkPublishMetricsResult:
+        """Record metric values for this Session in a single network call.
+
+        Convenience wrapper around :py:meth:`~roboto.domain.metrics.Metric.publish`
+        that supplies this Session's ``session_id`` and ``org_id``. Each
+        ``(metric, session)`` pair is upserted: republishing under the same
+        name replaces the previous value.
+
+        If a metric definition does not already exist for a given name it is
+        created automatically.
+
+        Args:
+            metrics: Metric names and numeric values to record.
+            device_id: Device to associate with each published value, or
+                :py:data:`None` to opt out. When omitted, the server infers a
+                device from this Session's attached devices: the call succeeds
+                only if exactly one device is associated and is rejected when
+                zero or more than one are.
+
+        Returns:
+            A :py:class:`~roboto.domain.metrics.BulkPublishMetricsResult` with
+            ``succeeded`` and ``failed`` lists.
+
+        Raises:
+            :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`:
+                ``device_id`` was omitted and this Session has zero or more
+                than one attached devices.
+
+        Examples:
+            Let the server infer the device from this Session's single attached device:
+
+            >>> from roboto.domain.metrics import MetricEntry
+            >>> result = session.publish_metrics(
+            ...     [
+            ...         MetricEntry(name="cpu.usage_max", value=87.2),
+            ...         MetricEntry(name="memory.peak_mb", value=2048.0),
+            ...     ]
+            ... )
+            >>> len(result.succeeded)
+            2
+
+            Attach to an explicit device, overriding inference:
+
+            >>> session.publish_metrics(
+            ...     [MetricEntry(name="cpu.usage_max", value=87.2)],
+            ...     device_id="dv_robot01",
+            ... )
+        """
+        return Metric.publish(
+            session_id=self.session_id,
+            device_id=device_id,
+            metrics=metrics,
+            caller_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
+
     def list_topics(self) -> collections.abc.Generator[TopicIdentityRecord, None, None]:
         """Iterate topic identities reachable from this Session, following pagination.
 
@@ -460,17 +608,36 @@ class Session:
             if not next_token:
                 break
 
-    def detach_from_device(self, device_id: str) -> None:
-        """Remove a Device from this Session's subjects.
+    def put_metadata(self, metadata: dict[str, typing.Any]) -> "Session":
+        """Add or update metadata fields on this Session.
 
         Args:
-            device_id: ID of the Device to remove as a subject of this Session.
+            metadata: Field-to-value map. Existing fields are overwritten;
+                fields not in this map are left unchanged.
+
+        Returns:
+            This Session, refreshed from the server response.
+
+        Examples:
+            >>> session.put_metadata({"weather": "clear", "pilot": "alice"})
         """
-        self.__roboto_client.delete(
-            f"v1/sessions/id/{self.session_id}/devices",
-            owner_org_id=self.org_id,
-            data=DetachFromDeviceRequest(device_id=device_id),
-        )
+        return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
+
+    def put_tags(self, tags: StrSequence) -> "Session":
+        """Add tags to this Session.
+
+        Tags already present on the Session are not duplicated.
+
+        Args:
+            tags: Tags to add.
+
+        Returns:
+            This Session, refreshed from the server response.
+
+        Examples:
+            >>> session.put_tags(["pre-flight-check", "training"])
+        """
+        return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
     def remove_file(self, file: typing.Union[File, str]) -> "Session":
         """Remove a single file's contributions from this Session.
@@ -478,10 +645,10 @@ class Session:
         Thin convenience over :py:meth:`remove_files` for the common one-file case.
 
         Args:
-            file: A :py:class:`~roboto.domain.files.File` or a raw file id.
+            file: A :py:class:`~roboto.domain.files.File` or a file id.
 
         Returns:
-            This Session, with recomputed aggregate bounds (``min_timestamp_ns`` / ``max_timestamp_ns``).
+            This Session, refreshed from the server response.
         """
         file_id = file.file_id if isinstance(file, File) else file
         return self.remove_files([file_id])
@@ -496,7 +663,7 @@ class Session:
             file_ids: File IDs whose contributions should be removed.
 
         Returns:
-            This Session, with recomputed aggregate bounds (``min_timestamp_ns`` / ``max_timestamp_ns``).
+            This Session, refreshed from the server response.
         """
         record = self.__roboto_client.delete(
             f"v1/sessions/id/{self.session_id}/files",
@@ -506,20 +673,73 @@ class Session:
         self.__record = record
         return self
 
-    def update(
-        self,
-        name: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
-    ) -> "Session":
-        """Update mutable Session fields.
+    def remove_metadata(self, metadata: StrSequence) -> "Session":
+        """Remove metadata keys from this Session.
 
         Args:
-            name: New name for the Session. Set to ``None`` to clear the name.
-                Leave at the default to leave the name unchanged.
+            metadata: Metadata keys to remove. Dot notation addresses nested keys (``"weather.condition"``).
 
         Returns:
             This Session, refreshed from the server response.
+
+        Examples:
+            >>> session.remove_metadata(["pilot", "weather.condition"])
         """
-        request = remove_not_set(SessionUpdate(name=name))
+        return self.update(metadata_changeset=MetadataChangeset(remove_fields=metadata))
+
+    def remove_tags(self, tags: StrSequence) -> "Session":
+        """Remove the given tags from this Session.
+
+        Args:
+            tags: Tags to remove. Tags not present on the Session are
+                silently ignored.
+
+        Returns:
+            This Session, refreshed from the server response.
+
+        Examples:
+            >>> session.remove_tags(["training"])
+        """
+        return self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
+
+    def update(
+        self,
+        description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
+        metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
+        name: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
+        custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None,
+    ) -> "Session":
+        """Update mutable Session fields.
+
+        Fields left at the ``NotSet`` default are preserved;
+        for nullable string fields (``description``, ``name``), pass ``None`` to clear.
+
+        Args:
+            description: New description for the Session. Set to ``None`` to clear the description.
+                Leave at the default to leave the description unchanged.
+            metadata_changeset: Tag and metadata changes to apply (put/remove tags and fields).
+            See :py:meth:`put_tags`, :py:meth:`remove_tags`, :py:meth:`put_metadata`,
+            and :py:meth:`remove_metadata` for shorthand helpers.
+            name: New name for the Session. Set to ``None`` to clear the name.
+                Leave at the default to leave the name unchanged.
+            custom_fields_changeset: Changes to apply to Ready custom-field values
+                on this session. Field names not referenced by the changeset are
+                left unchanged.
+
+        Returns:
+            This Session, refreshed from the server response.
+
+        Examples:
+            >>> session.update(description="formation flight #4", name="flight-2026-04-23-001")
+        """
+        request = remove_not_set(
+            SessionUpdate(
+                description=description,
+                metadata_changeset=metadata_changeset,
+                name=name,
+                custom_fields_changeset=custom_fields_changeset,
+            )
+        )
         record = self.__roboto_client.put(
             f"v1/sessions/id/{self.session_id}",
             data=request,
@@ -527,3 +747,31 @@ class Session:
         ).to_record(SessionRecord)
         self.__record = record
         return self
+
+    def set_custom_field(self, name: str, value: typing.Any) -> "Session":
+        """Set a single custom-field value on this session.
+
+        ``name`` must be the name of a
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
+        field for this session's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
+        entity type; ``value`` must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
+
+    def clear_custom_field(self, name: str) -> "Session":
+        """Clear a single custom-field value on this session to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
+
+    def set_custom_fields(self, fields: dict[str, typing.Any]) -> "Session":
+        """Set or overwrite multiple custom-field values on this session.
+
+        Each key must name a Ready custom field for this session's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
+        entity type; each value must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
+
+    def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> "Session":
+        """Clear multiple custom-field values on this session to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))

@@ -33,9 +33,27 @@ class SessionRecord(pydantic.BaseModel):
     created_by: str
     """User ID or service account that created the session."""
 
+    custom_fields: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    """Values for the custom fields defined on Sessions in this org.
+
+    Every ``Ready`` custom field defined for ``(org_id, Session)`` appears as a
+    key; values that have not been set surface as ``None`` rather than being
+    absent. Empty when no custom fields are defined for the org.
+    """
+
+    description: typing.Optional[str] = None
+    """Optional description of the Session."""
+
     max_timestamp_ns: typing.Optional[int] = None
     """Upper bound of the session's aggregate timestamps, in Unix-epoch nanoseconds.
     ``None`` until the session has at least one file contribution."""
+
+    metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    """User-supplied metadata.
+
+    Sessions cannot be filtered or sorted by ``metadata`` keys;
+    for queryable structured attributes, define a custom field on the ``Session`` entity type.
+    """
 
     min_timestamp_ns: typing.Optional[int] = None
     """Lower bound of the session's aggregate timestamps, in Unix-epoch nanoseconds.
@@ -55,6 +73,13 @@ class SessionRecord(pydantic.BaseModel):
 
     session_id: str
     """Stable, unique identifier for the Session."""
+
+    tags: list[str] = pydantic.Field(default_factory=list)
+    """User-supplied tags.
+
+    Sessions can be filtered by tag membership (e.g., ``tags CONTAINS '<tag>'``)
+    but are not sortable by tag.
+    """
 
 
 @experimental

@@ -46,6 +46,13 @@ class CollectionRecord(pydantic.BaseModel):
     resources: dict[CollectionResourceType, list[typing.Any]] = pydantic.Field(default_factory=dict)
     missing: dict[CollectionResourceType, list[CollectionResourceRef]] = pydantic.Field(default_factory=dict)
     tags: list[str] = []
+    custom_fields: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    """Values for the custom fields defined on Collections in this org.
+
+    Every ``Ready`` custom field defined for ``(org_id, Collection)`` appears as
+    a key; values that have not been set surface as ``None`` rather than being
+    absent. Empty when no custom fields are defined for the org.
+    """
     version: int
     created: datetime.datetime
     created_by: str

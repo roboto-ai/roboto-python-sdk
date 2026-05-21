@@ -15,6 +15,40 @@ from ...compat import StrEnum
 from ...time import utcnow
 from ..goals import AgentGoal
 
+
+class SessionVisibility(StrEnum):
+    """Read-scope for an :class:`AgentSessionRecord`.
+
+    Two values: ``PRIVATE`` (creator-only) and ``ORG`` (anyone in the
+    session's organization). Set at session creation time and immutable
+    over the life of the session today. The canonical SDK import path is
+    :py:class:`roboto.ai.agent_session.SessionVisibility`; the enum is
+    defined here in ``ai.core.record`` only because both
+    :class:`AgentSessionRecord` and :class:`StartAgentSessionRequest`
+    depend on it and ``core.record`` is the lowest common ancestor in
+    the SDK's import graph.
+    """
+
+    PRIVATE = "private"
+    """Only the creating user or a Roboto admin may read the session.
+
+    Default for bare ``POST /chats`` so an in-flight experiment doesn't
+    leak to the rest of the org until the caller opts in. The
+    ``is_roboto_admin`` bypass covers admin tools and system users; see
+    ``_caller_owns_or_is_system`` in the ``ai_router`` module. Existing
+    rows pre-migration are backfilled to ``PRIVATE`` for the same reason.
+    """
+
+    ORG = "org"
+    """Any member of the session's organization, plus Roboto admins, may
+    read the session.
+
+    Default for sessions produced by the agent invoke flow because agents
+    exist to share workflows across teammates. Forks of an ``ORG``
+    session do not inherit visibility — the forked session lands as
+    ``PRIVATE`` (see :meth:`agent_session_repo.AgentSessionRepo.fork_session`)."""
+
+
 CLIENT_TOOL_NAME_PREFIX = "client_"
 """Required prefix for every client-declared tool name.
 
@@ -383,6 +417,17 @@ class AgentSessionRecord(pydantic.BaseModel):
     Populated in tandem with ``forked_from_session_id``; both are ``None`` for
     sessions that were not created as a fork.
     """
+
+    visibility: SessionVisibility = SessionVisibility.PRIVATE
+    """Who can read this session. ``PRIVATE`` (the default) restricts reads
+    to the ``created_by`` user and system-users; ``ORG`` opens the session
+    to every member of :attr:`org_id`."""
+
+    created_from_agent_id: Optional[str] = None
+    """If this session was started via the agent invoke flow, the id of
+    the agent that produced it. ``None`` for sessions started directly
+    through ``POST /chats``. Set only by the invoke handler and never
+    propagated through forks — a fork is its own thread."""
 
     goals: Optional[list[AgentSessionGoalRecord]] = None
     """Goals declared across this session's turns, ordered by allocation

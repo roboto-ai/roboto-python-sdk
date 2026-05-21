@@ -23,6 +23,8 @@ from ...sentinels import (
     NotSetType,
     remove_not_set,
 )
+from ...updates import CustomFieldChangeset
+from ...warnings import experimental
 from .operations import (
     CreateCollectionRequest,
     UpdateCollectionRequest,
@@ -75,6 +77,7 @@ class Collection:
         event_ids: typing.Optional[collections.abc.Collection[str]] = None,
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
         tags: Optional[list[str]] = None,
+        custom_fields: Optional[dict[str, typing.Any]] = None,
         roboto_client: typing.Optional["RobotoClient"] = None,
         caller_org_id: Optional[str] = None,
     ) -> "Collection":
@@ -114,6 +117,7 @@ class Collection:
             resource_type=resource_type,
             resources=normalized_resources,
             tags=tags,
+            custom_fields=custom_fields,
         )
 
         record = roboto_client.post("v1/collections/create", data=request, caller_org_id=caller_org_id).to_record(
@@ -224,6 +228,18 @@ class Collection:
         return self.__record
 
     @property
+    @experimental
+    def custom_fields(self) -> dict[str, typing.Any]:
+        """Custom-field values defined on Collections in this org.
+
+        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` defined
+        for ``(org_id, Collection)`` appears as a key. Values that have not been set
+        on this collection surface as ``None`` rather than being absent. Empty when
+        no custom fields are defined for the org.
+        """
+        return self.__record.custom_fields
+
+    @property
     def updated(self) -> datetime.datetime:
         return self.__record.updated
 
@@ -301,6 +317,7 @@ class Collection:
         name: Optional[Union[NotSetType, str]] = NotSet,
         remove_resources: Union[list[CollectionResourceRef], NotSetType] = NotSet,
         remove_tags: Union[list[str], NotSetType] = NotSet,
+        custom_fields_changeset: Optional[CustomFieldChangeset] = None,
     ) -> "Collection":
         request = remove_not_set(
             UpdateCollectionRequest(
@@ -310,6 +327,7 @@ class Collection:
                 remove_tags=remove_tags,
                 add_resources=add_resources,
                 remove_resources=remove_resources,
+                custom_fields_changeset=custom_fields_changeset,
             )
         )
 
@@ -318,3 +336,35 @@ class Collection:
         )
 
         return self
+
+    @experimental
+    def set_custom_field(self, name: str, value: typing.Any) -> "Collection":
+        """Set a single custom-field value on this collection.
+
+        ``name`` must be the name of a
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
+        field for this collection's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Collection`
+        entity type; ``value`` must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
+
+    @experimental
+    def clear_custom_field(self, name: str) -> "Collection":
+        """Clear a single custom-field value on this collection to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
+
+    @experimental
+    def set_custom_fields(self, fields: dict[str, typing.Any]) -> "Collection":
+        """Set or overwrite multiple custom-field values on this collection.
+
+        Each key must name a Ready custom field for this collection's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Collection`
+        entity type; each value must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
+
+    @experimental
+    def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> "Collection":
+        """Clear multiple custom-field values on this collection to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))

@@ -54,6 +54,15 @@ class EventRecord(pydantic.BaseModel):
     Key-value pairs to associate with this event for discovery and search.
     """
 
+    custom_fields: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    """
+    Values for the custom fields defined on Events in this org.
+
+    Every ``Ready`` custom field defined for ``(org_id, Event)`` appears as a
+    key; values that have not been set surface as ``None`` rather than being
+    absent. Empty when no custom fields are defined for the org.
+    """
+
     modified: datetime.datetime
     """
     Date/time when this event was last modified.
@@ -109,6 +118,7 @@ class EventRecord(pydantic.BaseModel):
             and self.end_time == other.end_time
             and self.event_id == other.event_id
             and self.metadata == other.metadata
+            and self.custom_fields == other.custom_fields
             and self.modified == other.modified
             and self.modified_by == other.modified_by
             and self.name == other.name

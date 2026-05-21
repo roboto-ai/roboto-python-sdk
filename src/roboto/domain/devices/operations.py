@@ -8,7 +8,7 @@ import typing
 
 import pydantic
 
-from ...updates import MetadataChangeset
+from ...updates import CustomFieldChangeset, MetadataChangeset
 
 
 class CreateDeviceRequest(pydantic.BaseModel):
@@ -41,6 +41,17 @@ class CreateDeviceRequest(pydantic.BaseModel):
     )
     """List of tags for device discovery and organization."""
 
+    custom_fields: typing.Optional[dict[str, typing.Any]] = None
+    """Initial values for Ready custom fields on this device.
+
+    Each key must be the name of a :py:class:`~roboto.domain.custom_fields.CustomField`
+    that is :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` for the
+    caller's org and the :py:class:`~roboto.domain.custom_fields.TargetEntityType.Device`
+    entity type; each value must satisfy the field's declared type. Names that are
+    undefined or not ``Ready``, and values that don't match the field's type, are
+    rejected with a structured error.
+    """
+
 
 class UpdateDeviceRequest(pydantic.BaseModel):
     """Request payload for updating device properties.
@@ -52,3 +63,15 @@ class UpdateDeviceRequest(pydantic.BaseModel):
 
     metadata_changeset: typing.Optional[MetadataChangeset] = None
     """Metadata changes to apply (add, update, or remove fields/tags)."""
+
+    custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None
+    """Changes to apply to Ready custom-field values on this device.
+
+    Each referenced field name must be a
+    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom field
+    for this device's org and the
+    :py:class:`~roboto.domain.custom_fields.TargetEntityType.Device` entity type;
+    each ``set_fields`` value must satisfy the field's declared type. Names that
+    are undefined or not ``Ready`` are rejected with a structured error. Field
+    names not mentioned by the changeset are left unchanged.
+    """

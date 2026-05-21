@@ -42,6 +42,7 @@ from ...sentinels import (
     remove_not_set,
 )
 from ...updates import (
+    CustomFieldChangeset,
     MetadataChangeset,
     StrSequence,
 )
@@ -111,6 +112,7 @@ class Dataset:
         name: typing.Optional[str] = None,
         tags: typing.Optional[list[str]] = None,
         device_id: typing.Optional[str] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
         create_device_if_missing: bool = False,
@@ -127,6 +129,9 @@ class Dataset:
             name: Optional short name for the dataset (max 120 characters).
             tags: Optional list of tags for dataset discovery and organization.
             device_id: Optional identifier of the device that generated this data.
+            custom_fields: Optional initial values for Ready custom fields defined on
+                Datasets in the caller's org. Keys must match Ready field names; values
+                must satisfy each field's declared type.
             caller_org_id: Organization ID to create the dataset in. Required for multi-org users.
             roboto_client: HTTP client for API communication. If None, uses the default client.
             create_device_if_missing: If True, and a device_id is provided that does not
@@ -164,6 +169,7 @@ class Dataset:
             metadata=metadata or {},
             name=name,
             tags=tags or [],
+            custom_fields=custom_fields,
         )
 
         try:
@@ -194,6 +200,7 @@ class Dataset:
         name: typing.Optional[str] = None,
         tags: typing.Optional[list[str]] = None,
         device_id: typing.Optional[str] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
         create_device_if_missing: bool = False,
@@ -213,6 +220,10 @@ class Dataset:
             name: Optional short name for the dataset (max 120 characters).
             tags: Optional list of tags for dataset discovery and organization.
             device_id: Optional identifier of the device that generated this data.
+            custom_fields: Optional initial values for ``Ready`` custom fields defined on
+                Datasets in ``caller_org_id``. Keys must match Ready field names; values
+                must satisfy each field's declared type. Ignored when an existing dataset
+                matches ``match_roboql_query`` — the existing record is returned unchanged.
             caller_org_id: Organization ID to create the dataset in. Required for multi-org users.
             roboto_client: HTTP client for API communication. If None, uses the default client.
             create_device_if_missing: If True, and a device_id is provided that does not
@@ -261,6 +272,7 @@ class Dataset:
                 metadata=metadata or {},
                 name=name,
                 tags=tags or [],
+                custom_fields=custom_fields,
             ),
         )
 
@@ -469,6 +481,18 @@ class Dataset:
 
         return self.get_metadata()
 
+    @property
+    @experimental
+    def custom_fields(self) -> dict[str, typing.Any]:
+        """Custom-field values defined on Datasets in this org.
+
+        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` defined
+        for ``(org_id, Dataset)`` appears as a key. Values that have not been set
+        on this dataset surface as ``None`` rather than being absent. Empty when
+        no custom fields are defined for the org.
+        """
+        return self.__record.custom_fields
+
     def get_metadata(self) -> dict[str, typing.Any]:
         """Return custom metadata associated with this dataset.
 
@@ -611,6 +635,10 @@ class Dataset:
         device_ids: typing.Optional[collections.abc.Sequence[str]] = None,
         include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
+        description: typing.Optional[str] = None,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
+        tags: typing.Optional[collections.abc.Sequence[str]] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
     ) -> Session:
         """Create a Session populated with files from this dataset.
 
@@ -626,6 +654,15 @@ class Dataset:
                 to include. Same syntax as :py:meth:`Dataset.list_files`.
             exclude_patterns: Gitignore-style patterns selecting which files
                 to exclude. Takes precedence over ``include_patterns``.
+            description: Optional description of the Session.
+            metadata: Optional initial metadata.
+                Sessions are not filterable or sortable by ``metadata`` keys;
+                for queryable structured attributes, define a custom field on the ``Session`` entity type.
+            tags: Optional initial tags.
+                Sessions can be filtered by tag membership but are not sortable by tag.
+            custom_fields: Optional initial values for Ready custom fields defined on
+                Sessions in this dataset's org. Keys must match Ready field names; values
+                must satisfy each field's declared type.
 
         Returns:
             The newly created Session.
@@ -648,6 +685,10 @@ class Dataset:
         session = Session.create(
             name=name,
             device_ids=list(device_ids) if device_ids is not None else [],
+            description=description,
+            metadata=metadata,
+            tags=tags,
+            custom_fields=custom_fields,
             caller_org_id=self.org_id,
             roboto_client=self.__roboto_client,
         )
@@ -1213,6 +1254,38 @@ class Dataset:
         """Remove each tag in this sequence if it exists"""
         self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
+    @experimental
+    def set_custom_field(self, name: str, value: typing.Any) -> Dataset:
+        """Set a single custom-field value on this dataset.
+
+        ``name`` must be the name of a
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
+        field for this dataset's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Dataset`
+        entity type; ``value`` must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
+
+    @experimental
+    def clear_custom_field(self, name: str) -> Dataset:
+        """Clear a single custom-field value on this dataset to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
+
+    @experimental
+    def set_custom_fields(self, fields: dict[str, typing.Any]) -> Dataset:
+        """Set or overwrite multiple custom-field values on this dataset.
+
+        Each key must name a Ready custom field for this dataset's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Dataset`
+        entity type; each value must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
+
+    @experimental
+    def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> Dataset:
+        """Clear multiple custom-field values on this dataset to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))
+
     def set_device_id(self, device_id: typing.Optional[str], create_device_if_missing: bool = False) -> Dataset:
         """
         Set the device ID for this dataset.
@@ -1285,6 +1358,7 @@ class Dataset:
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
         name: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         create_device_if_missing: bool = False,
+        custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None,
     ) -> Dataset:
         """Update this dataset's properties.
 
@@ -1300,6 +1374,8 @@ class Dataset:
                 exist in the organization, a new device will be created automatically. If False,
                 and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
                 will be raised.
+            custom_fields_changeset: Changes to apply to Ready custom-field values on this
+                dataset. Field names not referenced by the changeset are left unchanged.
 
         Returns:
             Updated Dataset instance with the new properties.
@@ -1334,6 +1410,7 @@ class Dataset:
                 device_id=device_id,
                 name=name,
                 metadata_changeset=metadata_changeset,
+                custom_fields_changeset=custom_fields_changeset,
             )
         )
 

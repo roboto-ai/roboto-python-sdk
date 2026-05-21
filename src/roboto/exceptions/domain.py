@@ -451,6 +451,26 @@ class RobotoServiceTimeoutException(RobotoDomainException):
         return 504
 
 
+class RobotoStatementTimeoutException(RobotoServiceTimeoutException):
+    """Raised when a persistence-layer query is aborted by our own bounded timeout.
+
+    Persistence layer adapters apply a per-query budget on opt-in code paths
+    (e.g. post-turn cleanup, agent tool slots) so a stuck query cannot consume
+    the whole worker invocation. When that budget fires, the adapter aborts
+    the statement and re-casts the underlying driver cancellation into this
+    exception, so callers never see ``psycopg`` (or any other SQL driver)
+    leak through the repo boundary.
+
+    Treat it as an expected operational signal: log at WARNING and either
+    degrade (partial response, "timed out" sidecar) or skip the optional
+    follow-up work — not as a bug to page on.
+    """
+
+    @property
+    def http_status_code(self) -> int:
+        return 504
+
+
 class RobotoContextTooLongException(RobotoDomainException):
     """
     Thrown when the conversation context (messages, system prompt, tool results) exceeds

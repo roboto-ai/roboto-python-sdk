@@ -13,7 +13,7 @@ from ...pydantic import (
     remove_non_noneable_init_args,
 )
 from ...sentinels import NotSet, NotSetType
-from ...updates import MetadataChangeset
+from ...updates import CustomFieldChangeset, MetadataChangeset
 
 
 class CreateDatasetRequest(pydantic.BaseModel):
@@ -55,6 +55,22 @@ class CreateDatasetRequest(pydantic.BaseModel):
         + "`['sunny', 'campaign5']`",
     )
     """List of tags for dataset discovery and organization."""
+
+    custom_fields: typing.Optional[dict[str, typing.Any]] = pydantic.Field(
+        default=None,
+        description="Initial values for custom fields defined on Datasets in the caller's org, e.g. "
+        + "`{ 'drone_id': 'DJI-X', 'flight_count': 12 }`. Each name must match a Ready custom-field "
+        + "definition for the org's Dataset entity type; values are typed against the field's declared type.",
+    )
+    """Initial values for Ready custom fields on this dataset.
+
+    Each key must be the name of a :py:class:`~roboto.domain.custom_fields.CustomField`
+    that is :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` for the
+    caller's org and the :py:class:`~roboto.domain.custom_fields.TargetEntityType.Dataset`
+    entity type; each value must satisfy the field's declared type. Names that are
+    undefined or not ``Ready``, and values that don't match the field's type, are
+    rejected with a structured error.
+    """
 
     def __init__(self, **data):
         super().__init__(**remove_non_noneable_init_args(data, self))
@@ -121,6 +137,18 @@ class UpdateDatasetRequest(pydantic.BaseModel):
         typing.Union[typing.Annotated[str, pydantic.StringConstraints(max_length=120)], NotSetType]
     ] = NotSet
     """New name for the dataset (max 120 characters). Set to None to clear the name."""
+
+    custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None
+    """Changes to apply to Ready custom-field values on this dataset.
+
+    Each referenced field name must be a
+    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom field
+    for this dataset's org and the
+    :py:class:`~roboto.domain.custom_fields.TargetEntityType.Dataset` entity type;
+    each ``set_fields`` value must satisfy the field's declared type. Names that
+    are undefined or not ``Ready`` are rejected with a structured error. Field
+    names not mentioned by the changeset are left unchanged.
+    """
 
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
 

@@ -10,6 +10,8 @@ import typing
 
 import pydantic
 
+from .warnings import experimental
+
 StrSequence = typing.Union[list[str], tuple[str, ...], set[str]]
 
 
@@ -357,6 +359,106 @@ class MetadataChangeset(pydantic.BaseModel):
 
             if not len(parent_obj[key_path]):
                 __del_from_collection(key_path, parent_obj)
+
+
+@experimental
+class CustomFieldChangeset(pydantic.BaseModel):
+    """Describes a set of changes to apply to an entity's custom-field values.
+
+    Each referenced field name must be a custom field defined for the entity's type
+    in the caller's organization, and that field must be
+    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
+    Any value supplied must satisfy that field's declared type. Field names not
+    mentioned by the changeset are left unchanged. A cleared field reads back as ``None``.
+    """
+
+    set_fields: typing.Optional[dict[str, typing.Any]] = None
+    """Field names to set or overwrite, mapped to their new values.
+
+    Each value's Python type must match the corresponding field's declared
+    :py:class:`~roboto.domain.custom_fields.CustomFieldType`.
+    """
+
+    clear_fields: typing.Optional[StrSequence] = None
+    """Field names whose values should be cleared to ``None``."""
+
+    @pydantic.model_validator(mode="after")
+    def _reject_overlap(self) -> "CustomFieldChangeset":
+        if self.set_fields and self.clear_fields:
+            overlap = set(self.set_fields) & set(self.clear_fields)
+            if overlap:
+                names = ", ".join(sorted(overlap))
+                raise ValueError(f"CustomFieldChangeset cannot both set and clear the same field(s): {names}")
+        return self
+
+    class Builder:
+        __set_fields: dict[str, typing.Any]
+        __clear_fields: list[str]
+
+        def __init__(self) -> None:
+            self.__set_fields = dict()
+            self.__clear_fields = []
+
+        def set_field(self, name: str, value: typing.Any) -> "CustomFieldChangeset.Builder":
+            self.__set_fields[name] = value
+            return self
+
+        def clear_field(self, name: str) -> "CustomFieldChangeset.Builder":
+            self.__clear_fields.append(name)
+            return self
+
+        def build(self) -> "CustomFieldChangeset":
+            payload: collections.abc.Mapping = {
+                "set_fields": self.__set_fields,
+                "clear_fields": self.__clear_fields,
+            }
+            return CustomFieldChangeset(**{k: v for k, v in payload.items() if v})
+
+    def apply_field_updates(self, existing: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """Apply this changeset to an existing custom-field map.
+
+        Args:
+            existing: Current custom-field name-to-value map. Not mutated.
+
+        Returns:
+            A new map reflecting the changeset. ``set_fields`` entries overwrite
+            existing values; ``clear_fields`` entries set their values to
+            ``None``. Field names not mentioned by the changeset are carried
+            through unchanged.
+        """
+        updated = dict(existing)
+        for name, value in (self.set_fields or {}).items():
+            updated[name] = value
+        for name in self.clear_fields or []:
+            updated[name] = None
+        return updated
+
+    def combine(self, other: "CustomFieldChangeset") -> "CustomFieldChangeset":
+        """Merge this changeset with ``other`` such that ``other`` wins on conflicts.
+
+        For any field name appearing in both ``set_fields`` maps, ``other``'s value
+        wins. A field appearing in one side's ``set_fields`` and the other side's
+        ``clear_fields`` resolves to whichever side is ``other``.
+        """
+        set_combined: dict[str, typing.Any] = {}
+        set_combined.update(self.set_fields or {})
+        set_combined.update(other.set_fields or {})
+
+        clear_combined = set(self.clear_fields or []) | set(other.clear_fields or [])
+
+        for name in (other.set_fields or {}).keys():
+            clear_combined.discard(name)
+        for name in other.clear_fields or []:
+            set_combined.pop(name, None)
+
+        return CustomFieldChangeset(
+            set_fields=set_combined or None,
+            clear_fields=sorted(clear_combined) or None,
+        )
+
+    def is_empty(self) -> bool:
+        """Return ``True`` when applying this changeset would not change any value."""
+        return not (self.set_fields or self.clear_fields)
 
 
 class UpdateCondition(pydantic.BaseModel):

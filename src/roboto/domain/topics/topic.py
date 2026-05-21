@@ -941,6 +941,15 @@ class Topic:
             ...     representation_selector=RepresentationSelector(content_format="jpeg"),
             ... ):
             ...     ...
+
+        Tip:
+            For many topics, parallelize with a thread pool:
+
+            >>> from concurrent.futures import ThreadPoolExecutor
+            >>> from itertools import chain
+            >>> with ThreadPoolExecutor(max_workers=16) as ex:  # tune for your workload
+            ...     results = list(ex.map(lambda t: list(t.get_data()), topics))
+            >>> merged = list(chain.from_iterable(results))
         """
         yield from self.__topic_data_service.get_data(
             topic_id=self.__record.topic_id,
@@ -1007,6 +1016,15 @@ class Topic:
             ... )
             >>> print(df_filtered.columns.tolist())
             ['angular_velocity.x', 'angular_velocity.y']
+
+        Tip:
+            For many topics, parallelize with a thread pool:
+
+            >>> import pandas as pd
+            >>> from concurrent.futures import ThreadPoolExecutor
+            >>> with ThreadPoolExecutor(max_workers=16) as ex:  # tune for your workload
+            ...     dfs = list(ex.map(lambda t: t.get_data_as_df(), topics))
+            >>> combined = pd.concat(dfs).sort_index()
         """
         return self.__topic_data_service.get_data_as_df(
             topic_id=self.__record.topic_id,

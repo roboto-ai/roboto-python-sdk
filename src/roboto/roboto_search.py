@@ -17,11 +17,13 @@ from .domain import (
     datasets,
     events,
     files,
+    sessions,
     topics,
 )
 from .env import RobotoEnv
 from .http import RobotoClient
 from .query import Query, QueryClient, QueryContentMode, QueryTarget
+from .warnings import experimental
 
 
 class RobotoSearch:
@@ -126,13 +128,11 @@ class RobotoSearch:
         """
         Examples:
             >>> import matplotlib.pyplot as plt
-            >>> import pandas as pd
             >>> from roboto import RobotoSearch
             >>> robosearch = RobotoSearch()
             >>> for topic in robosearch.find_topics("msgpaths[cpuload.load].max > 0.9"):
-            ...     topic_data = list(topic.get_data())
-            ...     df = pd.json_normalize(topic_data)
-            ... plt.plot(df["log_time"], df["load"], label=f"{topic.topic_id}")
+            ...     df = topic.get_data_as_df(message_paths_include=["cpuload.load"])
+            ...     plt.plot(df.index, df["cpuload.load"], label=topic.topic_id)
             >>> plt.legend()
             >>> plt.show()
         """
@@ -149,4 +149,46 @@ class RobotoSearch:
             yield events.Event(
                 events.EventRecord.model_validate(result),
                 self.__query_client.roboto_client,
+            )
+
+    @experimental
+    def find_sessions(
+        self,
+        query: typing.Optional[Query] = None,
+        timeout_seconds: float = math.inf,
+    ) -> collections.abc.Generator[sessions.Session, None, None]:
+        """Yield ``Session`` objects matching ``query``, one at a time.
+
+        Submits ``query`` against the structured-query API targeting Sessions and lazily
+        materializes each row into a ``Session`` instance bound to the caller's
+        ``RobotoClient``. Iteration drives server-side pagination under the hood;
+        ``timeout_seconds`` bounds the total wall-clock time spent waiting for query
+        results before iteration stops.
+
+        Filterable fields:
+
+        - ``session_id`` (alias ``id``).
+        - ``name``.
+        - ``min_timestamp_ns`` (alias ``start_time``) — inclusive lower bound of the
+          session's recorded time window.
+        - ``max_timestamp_ns`` (alias ``end_time``) — inclusive upper bound of the
+          session's recorded time window.
+        - ``duration`` — synthetic numeric field equal to
+          ``max_timestamp_ns - min_timestamp_ns``; accepts integer nanoseconds only.
+        - ``dataset.dataset_id`` (alias ``dataset.id``) — matches sessions that
+          include at least one file from the given dataset. ``=`` / ``!=`` only.
+        - ``device.device_id`` (alias ``device.id``) — matches sessions attached
+          to the given device. ``=`` / ``!=`` only.
+
+        The four time-window fields accept any shape :py:data:`roboto.time.Time`
+        permits — integer epoch nanoseconds, float / Decimal / ``<sec>.<nsec>`` string
+        seconds, ISO8601 strings, or tz-aware ``datetime`` — and the server normalizes
+        the value to epoch nanoseconds before the comparison runs.
+
+        Sortable fields: ``session_id``, ``min_timestamp_ns``, and ``duration``.
+        """
+        for result in self.__query_client.submit_query(query, QueryTarget.Sessions, timeout_seconds):
+            yield sessions.Session(
+                record=sessions.SessionRecord.model_validate(result),
+                roboto_client=self.__query_client.roboto_client,
             )

@@ -39,5 +39,13 @@ class DeviceRecord(pydantic.BaseModel):
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     """Key-value metadata pairs associated with this device."""
 
+    custom_fields: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    """Values for the custom fields defined on Devices in this org.
+
+    Every ``Ready`` custom field defined for ``(org_id, Device)`` appears as a
+    key; values that have not been set surface as ``None`` rather than being
+    absent. Empty when no custom fields are defined for the org.
+    """
+
     tags: list[str] = pydantic.Field(default_factory=list)
     """List of tags associated with this device."""

@@ -9,6 +9,7 @@ import typing
 import pydantic
 
 from ...sentinels import NotSet, NotSetType
+from ...updates import CustomFieldChangeset, MetadataChangeset
 
 
 class CreateSessionRequest(pydantic.BaseModel):
@@ -22,6 +23,30 @@ class CreateSessionRequest(pydantic.BaseModel):
     name: typing.Optional[str] = pydantic.Field(default=None, max_length=120)
     device_ids: list[str] = pydantic.Field(default_factory=list)
 
+    description: typing.Optional[str] = None
+    """Optional description of the Session."""
+
+    metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    """Key-value metadata to associate with the Session.
+
+    Sessions cannot be filtered or sorted by ``metadata`` keys;
+    for queryable structured attributes, define a custom field on the ``Session`` entity type.
+    """
+
+    tags: list[str] = pydantic.Field(default_factory=list)
+    """Tags to associate with the Session."""
+
+    custom_fields: typing.Optional[dict[str, typing.Any]] = None
+    """Initial values for Ready custom fields on this session.
+
+    Each key must be the name of a :py:class:`~roboto.domain.custom_fields.CustomField`
+    that is :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` for the
+    caller's org and the :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
+    entity type; each value must satisfy the field's declared type. Names that are
+    undefined or not ``Ready``, and values that don't match the field's type, are
+    rejected with a structured error.
+    """
+
 
 class SessionUpdate(pydantic.BaseModel):
     """Partial update for a session.
@@ -34,10 +59,28 @@ class SessionUpdate(pydantic.BaseModel):
         json_schema_extra=NotSetType.openapi_schema_modifier,
     )
 
+    description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
+    """New description for the Session. Set to ``None`` to clear the description."""
+
+    metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
+    """Tag and metadata changes to merge into the Session (add, update, or remove fields and tags)."""
+
     name: typing.Optional[
         typing.Union[typing.Annotated[str, pydantic.StringConstraints(max_length=120)], NotSetType]
     ] = NotSet
     """New name for the Session (max 120 characters). Set to ``None`` to clear the name."""
+
+    custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None
+    """Changes to apply to Ready custom-field values on this session.
+
+    Each referenced field name must be a
+    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom field
+    for this session's org and the
+    :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session` entity type;
+    each ``set_fields`` value must satisfy the field's declared type. Names that
+    are undefined or not ``Ready`` are rejected with a structured error. Field
+    names not mentioned by the changeset are left unchanged.
+    """
 
 
 class AttachToDeviceRequest(pydantic.BaseModel):

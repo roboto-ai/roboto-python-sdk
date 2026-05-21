@@ -58,6 +58,14 @@ class DatasetRecord(pydantic.BaseModel):
     metadata: dict[str, Any] = pydantic.Field(default_factory=dict)
     """User-defined key-value pairs for storing additional dataset information."""
 
+    custom_fields: dict[str, Any] = pydantic.Field(default_factory=dict)
+    """Values for the custom fields defined on Datasets in this org.
+
+    Every ``Ready`` custom field defined for ``(org_id, Dataset)`` appears as a
+    key — values that have not been set surface as ``None`` rather than being
+    absent. Empty when no custom fields are defined for the org.
+    """
+
     modified: datetime.datetime
     """Timestamp when this dataset was last modified."""
 

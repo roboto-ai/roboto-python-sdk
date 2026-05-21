@@ -26,9 +26,11 @@ from ...sentinels import (
 )
 from ...time import Time, to_epoch_nanoseconds
 from ...updates import (
+    CustomFieldChangeset,
     MetadataChangeset,
     StrSequence,
 )
+from ...warnings import experimental
 from ..files import File
 from ..topics import (
     MessagePath,
@@ -107,6 +109,7 @@ class Event:
         metadata: typing.Optional[dict[str, typing.Any]] = None,
         tags: typing.Optional[list[str]] = None,
         display_options: typing.Optional[EventDisplayOptions] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Event":
@@ -138,6 +141,9 @@ class Event:
             metadata: Key-value metadata for discovery and search.
             tags: Tags for categorizing and searching the event.
             display_options: Visual display options such as color.
+            custom_fields: Optional initial values for Ready custom fields defined on
+                Events in the caller's org. Keys must match Ready field names; values
+                must satisfy each field's declared type.
             caller_org_id: Organization ID of the SDK caller. If not provided,
                 uses the caller's organization.
             roboto_client: HTTP client for API communication. If None, uses the default client.
@@ -206,6 +212,7 @@ class Event:
             tags=tags or [],
             name=name,
             display_options=display_options,
+            custom_fields=custom_fields,
         )
         record = roboto_client.post("v1/events/create", caller_org_id=caller_org_id, data=request).to_record(
             EventRecord
@@ -503,6 +510,18 @@ class Event:
         return self.__record.metadata
 
     @property
+    @experimental
+    def custom_fields(self) -> dict[str, typing.Any]:
+        """Custom-field values defined on Events in this org.
+
+        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` defined
+        for ``(org_id, Event)`` appears as a key. Values that have not been set
+        on this event surface as ``None`` rather than being absent. Empty when
+        no custom fields are defined for the org.
+        """
+        return self.__record.custom_fields
+
+    @property
     def modified(self) -> datetime.datetime:
         """Date and time when this event was last modified."""
         return self.__record.modified
@@ -681,6 +700,15 @@ class Event:
         is expected to give the same output as:
 
             >>> event.get_data(message_paths_include=["velocity"], message_paths_exclude=["velocity.z"])
+
+        Tip:
+            For many events, parallelize with a thread pool:
+
+            >>> from concurrent.futures import ThreadPoolExecutor
+            >>> from itertools import chain
+            >>> with ThreadPoolExecutor(max_workers=16) as ex:  # tune for your workload
+            ...     results = list(ex.map(lambda e: list(e.get_data()), events))
+            >>> merged = list(chain.from_iterable(results))
         """
         args = self.__get_data_args(
             message_paths_include=message_paths_include,
@@ -746,6 +774,15 @@ class Event:
             >>> df = event.get_data_as_df()
             >>> print(f"Event duration: {df.index.max() - df.index.min()} ns")
             >>> print(f"Data points: {len(df)}")
+
+        Tip:
+            For many events, parallelize with a thread pool:
+
+            >>> import pandas as pd
+            >>> from concurrent.futures import ThreadPoolExecutor
+            >>> with ThreadPoolExecutor(max_workers=16) as ex:  # tune for your workload
+            ...     dfs = list(ex.map(lambda e: e.get_data_as_df(), events))
+            >>> combined = pd.concat(dfs).sort_index()
         """
         result = self.__get_data_args(
             message_paths_include=message_paths_include,
@@ -886,6 +923,38 @@ class Event:
         """
         return self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
+    @experimental
+    def set_custom_field(self, name: str, value: typing.Any) -> "Event":
+        """Set a single custom-field value on this event.
+
+        ``name`` must be the name of a
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
+        field for this event's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Event`
+        entity type; ``value`` must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
+
+    @experimental
+    def clear_custom_field(self, name: str) -> "Event":
+        """Clear a single custom-field value on this event to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
+
+    @experimental
+    def set_custom_fields(self, fields: dict[str, typing.Any]) -> "Event":
+        """Set or overwrite multiple custom-field values on this event.
+
+        Each key must name a Ready custom field for this event's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Event`
+        entity type; each value must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
+
+    @experimental
+    def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> "Event":
+        """Clear multiple custom-field values on this event to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))
+
     def set_color(self, color: typing.Optional[str]) -> "Event":
         """Set the display color for this event.
 
@@ -1011,6 +1080,7 @@ class Event:
         description: typing.Union[str, None, NotSetType] = NotSet,
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
         display_options_changeset: typing.Union[EventDisplayOptionsChangeset, NotSetType] = NotSet,
+        custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None,
     ) -> "Event":
         """Update this event's attributes.
 
@@ -1028,6 +1098,8 @@ class Event:
             description: New description for the event. Set to None to clear existing description.
             metadata_changeset: Changes to apply to the event's metadata and tags.
             display_options_changeset: Changes to apply to the event's display options.
+            custom_fields_changeset: Changes to apply to Ready custom-field values on this
+                event. Field names not referenced by the changeset are left unchanged.
 
         Returns:
             This Event instance with attributes updated accordingly.
@@ -1080,6 +1152,7 @@ class Event:
                 display_options_changeset=(
                     remove_not_set(display_options_changeset) if is_set(display_options_changeset) else NotSet
                 ),
+                custom_fields_changeset=custom_fields_changeset,
             )
         )
 

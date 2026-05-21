@@ -29,6 +29,7 @@ from ..core.record import (
     AgentToolResultContent,
     AgentToolUseContent,
     ClientToolSpec,
+    SessionVisibility,
 )
 from ..goals import AgentGoal
 
@@ -44,12 +45,75 @@ specialized agents declare one or two goals at a time. Lift the ceiling
 intentionally (with new tests covering large-fan-out behavior) rather than
 quietly raising it on demand."""
 
+MAX_AVAILABLE_SKILLS = 100
+"""Hard ceiling on the size of a session's explicit ``available_skills`` set.
+
+Every entry becomes a line in the ``load_skill`` tool's registry description and
+a value in its ``name`` enum. An unbounded set bloats the tool schema and the
+per-turn prompt without making skill selection easier for the model. 100 is a
+generous cap for v1 — well above any realistic curated set — and can be lifted
+intentionally (with tests covering large registries) rather than removed on
+demand."""
+
 
 class AgentToolDetailResponse(pydantic.BaseModel):
     """Unsanitized tool request and response details for an agent tool invocation."""
 
     tool_use: AgentToolUseContent
     tool_result: AgentToolResultContent
+
+
+class InvokeSkillSpec(pydantic.BaseModel):
+    """Spec for invoking a skill as part of a turn trigger.
+
+    Embedded in :class:`SendMessageRequest` and :class:`StartAgentSessionRequest`.
+    The route layer resolves access (org visibility, private gating) and version
+    selection; this struct only carries the caller's choice.
+
+    Defined locally to avoid the ``roboto.ai`` ↔ ``roboto.domain.skills``
+    import cycle.
+    """
+
+    skill_id: str
+    """Target skill's ID. Must be visible to the caller (own private skill or
+    an org-shared skill); the route layer rejects unauthorized invocations
+    before the spec reaches the service."""
+
+    version: Optional[int] = None
+    """Optional. If omitted, resolves to the skill's latest (MAX(version)) row.
+
+    Note this is the structural latest, not the caller's pinned ``ai_version``:
+    a manually-invoked chip runs MAX(version) regardless of what the caller's
+    AI auto-invoke is pinned to. Use ``Skill.set_ai_version()`` to control the
+    pin separately.
+    """
+
+
+class AvailableSkillSpec(pydantic.BaseModel):
+    """One entry in a session's explicit AI-invokable skill set.
+
+    Embedded in :attr:`StartAgentSessionRequest.available_skills`. Unlike
+    :class:`InvokeSkillSpec` — which seeds a skill into the opening transcript
+    as a turn trigger — this struct only declares that a skill *version* is
+    available for the AI to auto-invoke via its ``load_skill`` tool during the
+    session. The route layer resolves access (org visibility, private gating)
+    and version selection; this struct only carries the caller's choice.
+
+    Defined locally to avoid the ``roboto.ai`` <-> ``roboto.domain.skills``
+    import cycle.
+    """
+
+    skill_id: str
+    """Target skill's ID. Must be visible to the caller — an org-shared skill,
+    or the caller's own private skill. A subscription is *not* required; the
+    per-session set bypasses subscription state entirely."""
+
+    version: Optional[int] = None
+    """Optional. If omitted, resolves to the skill's latest (MAX(version)) row.
+
+    Pins the exact version exposed to the AI for this session. Subscriptions and
+    their per-user ``ai_version`` pins are ignored when a session carries an
+    explicit ``available_skills`` set."""
 
 
 class SendMessageRequest(pydantic.BaseModel):
@@ -86,26 +150,39 @@ class SendMessageRequest(pydantic.BaseModel):
     when present, :attr:`message` becomes optional. Capped at :data:`MAX_GOALS_PER_TURN` entries (see the constant
     for rationale)."""
 
+    invoke_skills: list["InvokeSkillSpec"] = pydantic.Field(default_factory=list)
+    """Skills to invoke as part of this turn, in order. The server fabricates one
+    ``LoadSkillTool`` ``tool_use`` + ``tool_result`` pair per entry and appends them to the
+    transcript after :attr:`message` (if any). When :attr:`message` is empty and no goals
+    are declared, the fabricated pairs become the turn trigger themselves — useful for
+    chip-only invocations that don't carry a typed prompt. Pass a single-element
+    list for the common "invoke one skill" case."""
+
     @pydantic.model_validator(mode="after")
-    def _at_least_message_or_goals(self) -> "SendMessageRequest":
-        if self.message is None and not self.goals:
-            raise ValueError("SendMessageRequest requires either 'message' or at least one entry in 'goals'.")
+    def _at_least_one_trigger(self) -> "SendMessageRequest":
+        if self.message is None and not self.goals and not self.invoke_skills:
+            raise ValueError("SendMessageRequest requires at least one of 'message', 'goals', or 'invoke_skills'.")
         return self
 
     @pydantic.model_validator(mode="after")
-    def _message_with_goals_must_carry_text(self) -> "SendMessageRequest":
-        # When goals are declared alongside a real message, that message becomes
-        # the worker's wake-up trigger and must carry text content for
-        # write_message to persist. A message containing only tool_use or
-        # tool_result blocks would be silently dropped, orphaning the goals.
-        # Reject at the validation layer so the route returns 4xx instead of 5xx.
-        if self.goals and self.message is not None:
-            has_text = any(isinstance(c, AgentTextContent) for c in self.message.content)
-            if not has_text:
+    def _message_must_be_user_text_only(self) -> "SendMessageRequest":
+        # /send carries user-originated turn triggers. Anything else has its own
+        # endpoint: client tool results go to submit_client_tool_results, and
+        # tool_use blocks are never user-originated. Without this guard,
+        # write_message silently drops the offending content and the caller
+        # sees a 200 with the wrong outcome.
+        if self.message is None:
+            return self
+        if self.message.role != AgentRole.USER:
+            raise ValueError("When 'message' is provided to send_message, its role must be USER.")
+        if not self.message.content:
+            raise ValueError("When 'message' is provided to send_message, it must contain at least one text block.")
+        for content in self.message.content:
+            if not isinstance(content, AgentTextContent):
                 raise ValueError(
-                    "When 'goals' are declared, the optional 'message' must contain at least one text block. "
-                    "Tool-use or tool-result-only messages cannot drive a goal-bearing turn; omit 'message' "
-                    "to let the server synthesize a minimal user message instead."
+                    "When 'message' is provided to send_message, content may only contain text blocks. "
+                    "Tool results from client-side tools must be submitted via the "
+                    "submit_client_tool_results endpoint, not via send_message."
                 )
         return self
 
@@ -150,31 +227,90 @@ class StartAgentSessionRequest(pydantic.BaseModel):
     omitted; when present, :attr:`messages` may be empty. Capped at :data:`MAX_GOALS_PER_TURN` entries (see the
     constant for rationale)."""
 
+    invoke_skills: list["InvokeSkillSpec"] = pydantic.Field(default_factory=list)
+    """Skills to invoke at session start, in order. The server fabricates one
+    ``LoadSkillTool`` ``tool_use`` + ``tool_result`` pair per entry and appends them to the
+    transcript after any seeded :attr:`messages`. When ``messages`` is empty and no goals
+    are declared, the fabricated pairs become the session seed. Pass a
+    single-element list for the common "invoke one skill" case."""
+
+    available_skills: Optional[list["AvailableSkillSpec"]] = pydantic.Field(
+        default=None, max_length=MAX_AVAILABLE_SKILLS
+    )
+    """Explicit set of skills the AI may auto-invoke during this session,
+    replacing the subscription-derived ``load_skill`` registry.
+
+    Tri-state:
+
+    - ``None`` (the default) — the AI's ``load_skill`` registry is derived per
+      turn from the caller's skill subscriptions, as usual.
+    - ``[]`` — the AI has *no* auto-invokable skills for this session.
+    - a non-empty list — exactly these skill versions are auto-invokable; the
+      caller's subscriptions and per-user ``ai_version`` pins are ignored.
+
+    Each entry may reference any org-shared skill or the caller's own private
+    skill (visibility only — no subscription required), at any version. One
+    version per skill: duplicate ``skill_id`` entries are rejected. Resolved
+    once at session start and frozen onto the session; later subscription
+    changes and skill-body edits do not propagate into it. Capped at
+    :data:`MAX_AVAILABLE_SKILLS` entries.
+
+    Distinct from :attr:`invoke_skills`: ``available_skills`` configures *what
+    the AI can reach for*, while ``invoke_skills`` *seeds* skill bodies into the
+    opening transcript as a turn trigger. It is configuration, not a trigger — a
+    request carrying only ``available_skills`` and no ``messages`` / ``goals`` /
+    ``invoke_skills`` is still rejected."""
+
+    visibility: SessionVisibility = SessionVisibility.PRIVATE
+    """Who may read the resulting session after it is created. ``PRIVATE`` (the default) restricts reads to the creator
+    and Roboto admins; ``ORG`` lets any member of the session's org read it and surfaces the row on the org-wide
+    Sessions tab via the ``visibility == 'org'`` filter on ``POST /chats/search``. The default is ``PRIVATE`` so
+    that a chat started against the bare ``POST /chats`` path does not leak to the rest of the org until the caller
+    opts in. The agent-invoke route constructs its own ``StartAgentSessionRequest`` and overrides this field (its
+    ``InvokeAgentRequest`` defaults to ``ORG``) because agents exist to share workflows across teammates."""
+
     @pydantic.model_validator(mode="after")
-    def _at_least_messages_or_goals(self) -> "StartAgentSessionRequest":
-        if not self.messages and not self.goals:
+    def _at_least_one_trigger(self) -> "StartAgentSessionRequest":
+        if not self.messages and not self.goals and not self.invoke_skills:
             raise ValueError(
-                "StartAgentSessionRequest requires either at least one entry in 'messages' or at least one entry "
-                "in 'goals'."
+                "StartAgentSessionRequest requires at least one of 'messages', 'goals', or 'invoke_skills'."
             )
         return self
 
     @pydantic.model_validator(mode="after")
     def _at_least_one_seeded_message_must_carry_text_when_goals_present(self) -> "StartAgentSessionRequest":
-        # When goals are declared alongside seeded history, at least one
-        # message in the history must carry text content. The runner needs a
-        # text-bearing message to drive the turn against; a tool-use- or
-        # tool-result-only seeded list has nothing for write_message to
-        # persist as the wake-up trigger, leaving goals orphaned. Mirrors
-        # SendMessageRequest._message_with_goals_must_carry_text.
-        if self.goals and self.messages:
+        # When goals are declared alongside seeded history (and no skill_invocation), at
+        # least one message in the history must carry text content. The runner needs a
+        # text-bearing message to drive the turn against; a tool-use- or tool-result-only
+        # seeded list has nothing for write_message to persist as the wake-up trigger,
+        # leaving goals orphaned. Mirrors SendMessageRequest._message_with_goals_must_carry_text.
+        # When invoke_skills is non-empty, the fabricated pairs provide the trigger.
+        if self.goals and self.messages and not self.invoke_skills:
             has_text = any(isinstance(c, AgentTextContent) for m in self.messages for c in m.content)
             if not has_text:
                 raise ValueError(
-                    "When 'goals' are declared with seeded 'messages', at least one message must contain "
-                    "a text block. Tool-use or tool-result-only seeded history cannot drive a goal-bearing "
-                    "turn; omit 'messages' to let the server synthesize a minimal user message instead."
+                    "When 'goals' are declared with seeded 'messages' and no 'invoke_skills', at least one "
+                    "message must contain a text block. Tool-use or tool-result-only seeded history cannot "
+                    "drive a goal-bearing turn; omit 'messages' to let the server synthesize a minimal user "
+                    "message instead, or supply 'invoke_skills' to seed the turn from skill bodies."
                 )
+        return self
+
+    @pydantic.model_validator(mode="after")
+    def _available_skills_have_unique_skill_ids(self) -> "StartAgentSessionRequest":
+        # The per-session AI registry holds at most one version per skill —
+        # LoadSkillTool keys its enum by skill name, so two versions of the
+        # same skill would collide. Reject duplicates here so the caller gets
+        # a clear client-side error instead of a silently-deduplicated set.
+        if self.available_skills:
+            seen: set[str] = set()
+            for spec in self.available_skills:
+                if spec.skill_id in seen:
+                    raise ValueError(
+                        f"available_skills lists skill_id '{spec.skill_id}' more than once; the per-session "
+                        "AI registry holds one version per skill."
+                    )
+                seen.add(spec.skill_id)
         return self
 
 
@@ -238,11 +374,14 @@ __all__ = [
     "AgentToolDetailResponse",
     "AgentToolResultContent",
     "AgentToolUseContent",
+    "AvailableSkillSpec",
     "ClientToolResult",
     "ClientToolResultStatus",
     "ClientToolSpec",
     "ForkChatRequest",
+    "InvokeSkillSpec",
     "SendMessageRequest",
+    "SessionVisibility",
     "StartAgentSessionRequest",
     "SubmitToolResultsRequest",
 ]

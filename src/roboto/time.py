@@ -69,6 +69,9 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
         * ``str`` formatted ``value``:
             - If not provided, ``unit`` defaults to :py:attr:`~roboto.time.TimeUnit.Seconds`.
             - E.g., a ROS formatted timestamp in the form of "<sec>.<nsec>").
+            - ISO8601 timestamp strings (e.g. ``"2024-05-16T10:25:47Z"``) are also accepted;
+              they are parsed via :py:meth:`datetime.datetime.fromisoformat` and treated as
+              the ``datetime`` branch below. The ``unit`` argument is ignored for ISO8601 input.
         * ``datetime.datetime`` formatted ``value``:
             - ``unit``, if provided, is ignored.
               Datetimes are always converted from seconds to nanoseconds.
@@ -92,9 +95,14 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
         return int(value * nano_multiplier)
 
     elif isinstance(value, str):
-        # E.g., a ROS formatted timestamp `<sec>.<nsec>`
-        nano_multiplier = unit.nano_multiplier() if unit is not None else TimeUnit.Seconds.nano_multiplier()
-        return int(decimal.Decimal(value) * nano_multiplier)
+        try:
+            # E.g., a ROS formatted timestamp `<sec>.<nsec>`
+            nano_multiplier = unit.nano_multiplier() if unit is not None else TimeUnit.Seconds.nano_multiplier()
+            return int(decimal.Decimal(value) * nano_multiplier)
+        except decimal.InvalidOperation:
+            # ISO8601 fallback for customer-supplied timestamps outside the
+            # `<sec>.<nsec>` shape, e.g. `"2024-05-16T10:25:47Z"`.
+            return to_epoch_nanoseconds(_parse_iso8601(value))
 
     elif isinstance(value, datetime.datetime):
         timezone_aware = _ensure_timezone_aware(value)
@@ -121,6 +129,12 @@ def _ensure_timezone_aware(dt: datetime.datetime) -> datetime.datetime:
         return dt
 
     return dt.replace(tzinfo=datetime.timezone.utc)
+
+
+def _parse_iso8601(value: str) -> datetime.datetime:
+    # The Z -> +00:00 swap is for Python 3.10; 3.11+ accepts Z natively.
+    candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+    return datetime.datetime.fromisoformat(candidate)
 
 
 # https://docs.python.org/3.10/library/datetime.html#determining-if-an-object-is-aware-or-naive

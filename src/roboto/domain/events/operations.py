@@ -15,7 +15,7 @@ from ...sentinels import (
     is_set,
     value_or_default_if_unset,
 )
-from ...updates import MetadataChangeset
+from ...updates import CustomFieldChangeset, MetadataChangeset
 
 
 class EventDisplayOptions(pydantic.BaseModel):
@@ -114,6 +114,17 @@ class CreateEventRequest(pydantic.BaseModel):
     Display options for this event, such as color.
     """
 
+    custom_fields: typing.Optional[dict[str, typing.Any]] = None
+    """Initial values for Ready custom fields on this event.
+
+    Each key must be the name of a :py:class:`~roboto.domain.custom_fields.CustomField`
+    that is :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` for the
+    caller's org and the :py:class:`~roboto.domain.custom_fields.TargetEntityType.Event`
+    entity type; each value must satisfy the field's declared type. Names that are
+    undefined or not ``Ready``, and values that don't match the field's type, are
+    rejected with a structured error.
+    """
+
 
 class QueryEventsForAssociationsRequest(pydantic.BaseModel):
     """
@@ -162,6 +173,18 @@ class UpdateEventRequest(pydantic.BaseModel):
     display_options_changeset: typing.Union[EventDisplayOptionsChangeset, NotSetType] = NotSet
     """
     Display options changes to apply to this event.
+    """
+
+    custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None
+    """Changes to apply to Ready custom-field values on this event.
+
+    Each referenced field name must be a
+    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom field
+    for this event's org and the
+    :py:class:`~roboto.domain.custom_fields.TargetEntityType.Event` entity type;
+    each ``set_fields`` value must satisfy the field's declared type. Names that
+    are undefined or not ``Ready`` are rejected with a structured error. Field
+    names not mentioned by the changeset are left unchanged.
     """
 
     # This is required to get NotSet/NotSetType to serialize appropriately.

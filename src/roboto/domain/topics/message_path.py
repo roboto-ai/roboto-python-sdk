@@ -296,6 +296,15 @@ class MessagePath:
             >>> df = angular_velocity_x.get_data_as_df()
             >>> import math
             >>> assert math.isclose(angular_velocity_x.mean, df[angular_velocity_x.path].mean())
+
+        Tip:
+            For many message paths, parallelize with a thread pool:
+
+            >>> from concurrent.futures import ThreadPoolExecutor
+            >>> from itertools import chain
+            >>> with ThreadPoolExecutor(max_workers=16) as ex:  # tune for your workload
+            ...     results = list(ex.map(lambda mp: list(mp.get_data()), message_paths))
+            >>> merged = list(chain.from_iterable(results))
         """
 
         yield from self.__topic_data_service.get_data(
@@ -346,6 +355,15 @@ class MessagePath:
             1722870127699468924                  0.15
             >>> print(f"Mean: {df[angular_velocity_x.path].mean()}")
             Mean: 0.125
+
+        Tip:
+            For many message paths, parallelize with a thread pool:
+
+            >>> import pandas as pd
+            >>> from concurrent.futures import ThreadPoolExecutor
+            >>> with ThreadPoolExecutor(max_workers=16) as ex:  # tune for your workload
+            ...     dfs = list(ex.map(lambda mp: mp.get_data_as_df(), message_paths))
+            >>> combined = pd.concat(dfs).sort_index()
         """
         return self.__topic_data_service.get_data_as_df(
             topic_id=self.__record.topic_id,

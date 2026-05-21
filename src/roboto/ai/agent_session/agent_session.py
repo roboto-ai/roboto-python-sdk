@@ -41,10 +41,12 @@ from .record import (
     AgentTextContent,
     AgentToolResultContent,
     AgentToolUseContent,
+    AvailableSkillSpec,
     ClientToolResult,
     ClientToolResultStatus,
     ClientToolSpec,
     ForkChatRequest,
+    InvokeSkillSpec,
     SendMessageRequest,
     StartAgentSessionRequest,
     SubmitToolResultsRequest,
@@ -162,6 +164,8 @@ class AgentSession:
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
         analysis_scope: Optional[AnalysisScope] = None,
         goals: Optional[collections.abc.Sequence[AgentGoal]] = None,
+        invoke_skills: Optional[collections.abc.Sequence[InvokeSkillSpec]] = None,
+        available_skills: Optional[collections.abc.Sequence[AvailableSkillSpec]] = None,
         roboto_client: Optional[RobotoClient] = None,
     ) -> AgentSession:
         """Start a new agent session with an initial message.
@@ -175,10 +179,10 @@ class AgentSession:
             message: Initial message to start the conversation. Can be a text
                 string, a single AgentMessage, or a sequence of AgentMessage
                 objects for multi-turn initialization. Optional when at least
-                one entry is provided in ``goals``; in that case the server
-                synthesizes a minimal user message — implicitly "achieve the
-                goals" — and the agent will work to achieve every declared
-                goal during the first turn.
+                one entry is provided in ``goals`` or ``invoke_skills``; in
+                those cases the server synthesizes a minimal user message —
+                implicitly "achieve the goals" or "apply the invoked skills"
+                — and the agent will work the turn from there.
             client_context: Optional :class:`ClientViewingContext` describing
                 what the calling client (e.g. the Web UI) is currently
                 displaying when this session is started. Lets the agent
@@ -207,6 +211,29 @@ class AgentSession:
                 synthesize a minimal user message and the agent runner will
                 enforce achievement of every declared goal before completing
                 the turn.
+            invoke_skills: Optional sequence of :class:`InvokeSkillSpec` to
+                invoke one or more stored skills at session start, in order.
+                For each entry the server fabricates a ``load_skill``
+                tool_use/tool_result pair after any seeded ``message``; with no
+                ``message`` and no ``goals``, the fabricated pairs alone seed
+                the conversation. Each skill must be visible to the caller (org
+                skill or own private skill); the version must exist on the
+                skill but is not required to be the latest one. Latest
+                (MAX(version)) is used when ``version`` is omitted on an entry.
+            available_skills: Optional explicit set of skills the AI may
+                auto-invoke during this session, replacing the registry it
+                would otherwise derive from the caller's skill subscriptions.
+                ``None`` (the default) keeps the subscription-derived behavior;
+                an empty list gives the AI no auto-invokable skills; a non-empty
+                list of :class:`AvailableSkillSpec` makes exactly those skill
+                versions auto-invokable and ignores subscriptions and per-user
+                ``ai_version`` pins. Each entry may reference any org skill or
+                the caller's own private skill (visibility only — no
+                subscription needed), at any version. This is session
+                configuration, not a turn trigger: it does not by itself
+                satisfy the "needs a message, goal, or invoked skill"
+                requirement. Distinct from ``invoke_skills``, which seeds skill
+                bodies into the opening transcript.
             roboto_client: HTTP client for API communication. If None, uses the default client.
 
         Returns:
@@ -238,8 +265,8 @@ class AgentSession:
         else:
             messages = list(message)
 
-        if not messages and not goals:
-            raise ValueError("AgentSession.start requires either 'message' or at least one 'goals' entry.")
+        if not messages and not goals and not invoke_skills:
+            raise ValueError("AgentSession.start requires at least one of 'message', 'goals', or 'invoke_skills'.")
 
         # A conversation starts with user input (optionally preceded by a
         # seeded ASSISTANT transcript). ROBOTO and SYSTEM are produced by the
@@ -264,6 +291,8 @@ class AgentSession:
             client_tools=specs,
             analysis_scope=analysis_scope,
             goals=list(goals) if goals is not None else None,
+            invoke_skills=list(invoke_skills) if invoke_skills is not None else [],
+            available_skills=list(available_skills) if available_skills is not None else None,
         )
 
         record = roboto_client.post("v1/ai/chats", caller_org_id=org_id, data=request).to_record(AgentSessionRecord)
@@ -418,14 +447,15 @@ class AgentSession:
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
         analysis_scope: Optional[AnalysisScope] = None,
         goals: Optional[collections.abc.Sequence[AgentGoal]] = None,
+        invoke_skills: Optional[collections.abc.Sequence[InvokeSkillSpec]] = None,
     ) -> AgentSession:
         """Send a structured message to the session.
 
         Args:
             message: AgentMessage object containing the message content and
                 metadata. Optional when at least one entry is provided in
-                ``goals``; in that case the server synthesizes a minimal
-                user message for the turn.
+                ``goals`` or ``invoke_skills``; in that case the server
+                synthesizes a minimal user message for the turn.
             client_context: Optional :class:`ClientViewingContext` describing
                 what the calling client is currently viewing when this
                 message was composed. Informational only; see
@@ -440,6 +470,13 @@ class AgentSession:
             goals: Optional structured goals to declare for this turn. The
                 agent runner enforces achievement of every declared goal
                 before completing the turn.
+            invoke_skills: Optional sequence of :class:`InvokeSkillSpec` to
+                invoke one or more stored skills as part of this turn. For each
+                entry the server fabricates a ``load_skill``
+                tool_use/tool_result pair after ``message`` (if any). When
+                ``message`` and ``goals`` are both omitted, the fabricated
+                pairs alone trigger the turn. Latest (MAX(version)) is used
+                when ``version`` is omitted on an entry.
 
         Returns:
             Self for method chaining.
@@ -448,8 +485,8 @@ class AgentSession:
             RobotoInvalidRequestException: If the message format is invalid.
             RobotoUnauthorizedException: If the caller lacks permission to send messages.
         """
-        if message is None and not goals:
-            raise ValueError("AgentSession.send requires either 'message' or at least one 'goals' entry.")
+        if message is None and not goals and not invoke_skills:
+            raise ValueError("AgentSession.send requires at least one of 'message', 'goals', or 'invoke_skills'.")
 
         specs = _extract_specs(client_tools)
         request = SendMessageRequest(
@@ -458,6 +495,7 @@ class AgentSession:
             client_tools=specs,
             analysis_scope=analysis_scope,
             goals=list(goals) if goals is not None else None,
+            invoke_skills=list(invoke_skills) if invoke_skills is not None else [],
         )
 
         self.__roboto_client.post(
@@ -466,9 +504,10 @@ class AgentSession:
         )
 
         self.__register_tools(client_tools)
-        # When ``message`` is None the server synthesizes the user message;
-        # the SDK has no way to know what was synthesized, so leave the local
-        # transcript untouched and rely on the next ``events`` poll to surface it.
+        # When ``message`` is None the server synthesizes the user message (or
+        # writes the skill_invocation directly); the SDK has no way to know
+        # what landed, so leave the local transcript untouched and rely on the
+        # next ``events`` poll to surface it.
         if message is not None:
             self.__record.messages.append(message)
         return self
@@ -549,6 +588,33 @@ class AgentSession:
         # same tool_uses and re-POSTs; the second POST hits ROBOTO_TURN and raises RobotoInvalidRequestException.
         self.__record.status = AgentSessionStatus.ROBOTO_TURN
         return self
+
+    def invoke_skill(self, skill_id: str, version: Optional[int] = None) -> AgentSession:
+        """Manually invoke a skill into this session.
+
+        Thin wrapper around :py:meth:`send` that builds a single-element
+        ``invoke_skills`` list and sends it with no user message — kept for
+        SDK ergonomics on the common "invoke exactly one skill" case.
+
+        Args:
+            skill_id: The skill to invoke.
+            version: Optional version number. Must exist on the skill (any
+                version is invokable). If omitted, the latest (MAX(version))
+                version is used.
+
+        Returns:
+            Self for method chaining.
+
+        Examples:
+            Apply a skill's latest version to the current turn:
+
+            >>> session.invoke_skill("sk_qa_review")
+
+            Apply a specific version of the skill:
+
+            >>> session.invoke_skill("sk_qa_review", version=2)
+        """
+        return self.send(invoke_skills=[InvokeSkillSpec(skill_id=skill_id, version=version)])
 
     def events(
         self,
