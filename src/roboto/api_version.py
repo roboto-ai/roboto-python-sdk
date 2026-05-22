@@ -37,6 +37,14 @@ class RobotoApiVersion(StrEnum):
     """Query endpoints are now eventually consistent when using v2026_03_13 or later.
     Clients on older API versions maintain strong consistency for backward compatibility."""
 
+    v2026_05_20 = "2026-05-20"
+    """AgentSession and AI Chat are renamed to AgentThread across the SDK and REST API:
+    ``chat_id`` / ``session_id`` become ``thread_id`` on the wire, ``/v1/ai/chats`` becomes
+    ``/v1/ai/threads``, and agent ``invoke`` becomes ``launch`` (``POST /v1/ai/agents/{id}/launch``;
+    the previous developer-only ``…/invoke`` URL was removed outright). Clients on older API
+    versions continue to receive ``session_id`` in response bodies and can keep calling the
+    legacy ``/v1/ai/chats`` paths, which are soft-deprecated aliases on the same handlers."""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the latest available API version.
@@ -44,7 +52,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent API version supported by the platform.
         """
-        return RobotoApiVersion.v2026_03_13
+        return RobotoApiVersion.v2026_05_20
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

@@ -157,7 +157,7 @@ extending the ``Union`` and registering a corresponding ``GoalHandler``.
 
 A goal is the right primitive when the caller has an upfront, verifiable
 platform mutation the turn must complete — and is willing to fail the turn
-(``AgentSessionStatus.GOALS_FAILED``) if the action doesn't happen. Goals
+(``AgentThreadStatus.GOALS_FAILED``) if the action doesn't happen. Goals
 power specialized agents with deterministic, directionally opinionated
 behavior. One-off LLM-discovered actions and pure reads belong as regular
 :class:`AgentTool` registrations; actions that don't need an LLM at all

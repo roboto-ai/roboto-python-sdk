@@ -21,15 +21,15 @@ from ..core.record import (
     AgentMessage,
     AgentMessageStatus,
     AgentRole,
-    AgentSessionDelta,
-    AgentSessionGoalRecord,
-    AgentSessionRecord,
-    AgentSessionStatus,
     AgentTextContent,
+    AgentThreadDelta,
+    AgentThreadGoalRecord,
+    AgentThreadRecord,
+    AgentThreadStatus,
     AgentToolResultContent,
     AgentToolUseContent,
     ClientToolSpec,
-    SessionVisibility,
+    ThreadVisibility,
 )
 from ..goals import AgentGoal
 
@@ -46,7 +46,7 @@ intentionally (with new tests covering large-fan-out behavior) rather than
 quietly raising it on demand."""
 
 MAX_AVAILABLE_SKILLS = 100
-"""Hard ceiling on the size of a session's explicit ``available_skills`` set.
+"""Hard ceiling on the size of a thread's explicit ``available_skills`` set.
 
 Every entry becomes a line in the ``load_skill`` tool's registry description and
 a value in its ``name`` enum. An unbounded set bloats the tool schema and the
@@ -66,7 +66,7 @@ class AgentToolDetailResponse(pydantic.BaseModel):
 class InvokeSkillSpec(pydantic.BaseModel):
     """Spec for invoking a skill as part of a turn trigger.
 
-    Embedded in :class:`SendMessageRequest` and :class:`StartAgentSessionRequest`.
+    Embedded in :class:`SendMessageRequest` and :class:`StartAgentThreadRequest`.
     The route layer resolves access (org visibility, private gating) and version
     selection; this struct only carries the caller's choice.
 
@@ -90,13 +90,13 @@ class InvokeSkillSpec(pydantic.BaseModel):
 
 
 class AvailableSkillSpec(pydantic.BaseModel):
-    """One entry in a session's explicit AI-invokable skill set.
+    """One entry in a thread's explicit AI-invokable skill set.
 
-    Embedded in :attr:`StartAgentSessionRequest.available_skills`. Unlike
+    Embedded in :attr:`StartAgentThreadRequest.available_skills`. Unlike
     :class:`InvokeSkillSpec` — which seeds a skill into the opening transcript
     as a turn trigger — this struct only declares that a skill *version* is
     available for the AI to auto-invoke via its ``load_skill`` tool during the
-    session. The route layer resolves access (org visibility, private gating)
+    thread. The route layer resolves access (org visibility, private gating)
     and version selection; this struct only carries the caller's choice.
 
     Defined locally to avoid the ``roboto.ai`` <-> ``roboto.domain.skills``
@@ -106,18 +106,18 @@ class AvailableSkillSpec(pydantic.BaseModel):
     skill_id: str
     """Target skill's ID. Must be visible to the caller — an org-shared skill,
     or the caller's own private skill. A subscription is *not* required; the
-    per-session set bypasses subscription state entirely."""
+    per-thread set bypasses subscription state entirely."""
 
     version: Optional[int] = None
     """Optional. If omitted, resolves to the skill's latest (MAX(version)) row.
 
-    Pins the exact version exposed to the AI for this session. Subscriptions and
-    their per-user ``ai_version`` pins are ignored when a session carries an
+    Pins the exact version exposed to the AI for this thread. Subscriptions and
+    their per-user ``ai_version`` pins are ignored when a thread carries an
     explicit ``available_skills`` set."""
 
 
 class SendMessageRequest(pydantic.BaseModel):
-    """Request payload for sending a message to an agent session.
+    """Request payload for sending a message to an agent thread.
 
     Contains the message content and optional context for the AI assistant.
     """
@@ -140,8 +140,8 @@ class SendMessageRequest(pydantic.BaseModel):
     """Optional client-side tools available for this invocation."""
 
     analysis_scope: Optional[AnalysisScope] = None
-    """Optional replacement analysis scope. When provided, overwrites the session's current analysis scope; the new
-    scope takes effect for this turn's tool invocations and every turn thereafter. When ``None``, the session's
+    """Optional replacement analysis scope. When provided, overwrites the thread's current analysis scope; the new
+    scope takes effect for this turn's tool invocations and every turn thereafter. When ``None``, the thread's
     existing analysis scope is left untouched (there is currently no wire-format way to clear a scope via ``send``)."""
 
     goals: Optional[list[AgentGoal]] = pydantic.Field(default=None, max_length=MAX_GOALS_PER_TURN)
@@ -187,8 +187,8 @@ class SendMessageRequest(pydantic.BaseModel):
         return self
 
 
-class StartAgentSessionRequest(pydantic.BaseModel):
-    """Request payload for starting a new agent session.
+class StartAgentThreadRequest(pydantic.BaseModel):
+    """Request payload for starting a new agent thread.
 
     Contains the initial messages and configuration for creating a new
     conversation.
@@ -199,7 +199,7 @@ class StartAgentSessionRequest(pydantic.BaseModel):
         validation_alias=pydantic.AliasChoices("client_context", "context"),
     )
     """Optional :class:`ClientViewingContext` describing what the client was
-    viewing when this session was started. Wire field is ``client_context``;
+    viewing when this thread was started. Wire field is ``client_context``;
     the legacy ``context`` alias is accepted during the migration window and
     will be dropped in a future release."""
 
@@ -215,10 +215,10 @@ class StartAgentSessionRequest(pydantic.BaseModel):
     """Optional client-side tools available for this invocation."""
 
     model_profile: Optional[str] = None
-    """Optional model profile ID for the session (e.g. 'standard', 'advanced')."""
+    """Optional model profile ID for the thread (e.g. 'standard', 'advanced')."""
 
     analysis_scope: Optional[AnalysisScope] = None
-    """Optional analysis scope for the session. Delivered to every tool invocation on the server side; individual
+    """Optional analysis scope for the thread. Delivered to every tool invocation on the server side; individual
     tools opt in to honoring it. ``None`` means no scope."""
 
     goals: Optional[list[AgentGoal]] = pydantic.Field(default=None, max_length=MAX_GOALS_PER_TURN)
@@ -228,30 +228,30 @@ class StartAgentSessionRequest(pydantic.BaseModel):
     constant for rationale)."""
 
     invoke_skills: list["InvokeSkillSpec"] = pydantic.Field(default_factory=list)
-    """Skills to invoke at session start, in order. The server fabricates one
+    """Skills to invoke at thread start, in order. The server fabricates one
     ``LoadSkillTool`` ``tool_use`` + ``tool_result`` pair per entry and appends them to the
     transcript after any seeded :attr:`messages`. When ``messages`` is empty and no goals
-    are declared, the fabricated pairs become the session seed. Pass a
+    are declared, the fabricated pairs become the thread seed. Pass a
     single-element list for the common "invoke one skill" case."""
 
     available_skills: Optional[list["AvailableSkillSpec"]] = pydantic.Field(
         default=None, max_length=MAX_AVAILABLE_SKILLS
     )
-    """Explicit set of skills the AI may auto-invoke during this session,
+    """Explicit set of skills the AI may auto-invoke during this thread,
     replacing the subscription-derived ``load_skill`` registry.
 
     Tri-state:
 
     - ``None`` (the default) — the AI's ``load_skill`` registry is derived per
       turn from the caller's skill subscriptions, as usual.
-    - ``[]`` — the AI has *no* auto-invokable skills for this session.
+    - ``[]`` — the AI has *no* auto-invokable skills for this thread.
     - a non-empty list — exactly these skill versions are auto-invokable; the
       caller's subscriptions and per-user ``ai_version`` pins are ignored.
 
     Each entry may reference any org-shared skill or the caller's own private
     skill (visibility only — no subscription required), at any version. One
     version per skill: duplicate ``skill_id`` entries are rejected. Resolved
-    once at session start and frozen onto the session; later subscription
+    once at thread start and frozen onto the thread; later subscription
     changes and skill-body edits do not propagate into it. Capped at
     :data:`MAX_AVAILABLE_SKILLS` entries.
 
@@ -261,24 +261,26 @@ class StartAgentSessionRequest(pydantic.BaseModel):
     request carrying only ``available_skills`` and no ``messages`` / ``goals`` /
     ``invoke_skills`` is still rejected."""
 
-    visibility: SessionVisibility = SessionVisibility.PRIVATE
-    """Who may read the resulting session after it is created. ``PRIVATE`` (the default) restricts reads to the creator
-    and Roboto admins; ``ORG`` lets any member of the session's org read it and surfaces the row on the org-wide
-    Sessions tab via the ``visibility == 'org'`` filter on ``POST /chats/search``. The default is ``PRIVATE`` so
-    that a chat started against the bare ``POST /chats`` path does not leak to the rest of the org until the caller
-    opts in. The agent-invoke route constructs its own ``StartAgentSessionRequest`` and overrides this field (its
-    ``InvokeAgentRequest`` defaults to ``ORG``) because agents exist to share workflows across teammates."""
+    visibility: ThreadVisibility = ThreadVisibility.PRIVATE
+    """Who may read the resulting thread after it is created. ``PRIVATE``
+    (the default) restricts reads to the creator and Roboto admins; ``ORG``
+    lets any member of the thread's org read it and makes the thread
+    visible to org members on ``POST /v1/ai/threads/search``. The default
+    is ``PRIVATE`` so that a thread started via ``POST /v1/ai/threads``
+    does not leak to the rest of the org until the caller opts in;
+    threads created through the agent launch flow default to ``ORG``
+    instead, since agents exist to share workflows across teammates."""
 
     @pydantic.model_validator(mode="after")
-    def _at_least_one_trigger(self) -> "StartAgentSessionRequest":
+    def _at_least_one_trigger(self) -> "StartAgentThreadRequest":
         if not self.messages and not self.goals and not self.invoke_skills:
             raise ValueError(
-                "StartAgentSessionRequest requires at least one of 'messages', 'goals', or 'invoke_skills'."
+                "StartAgentThreadRequest requires at least one of 'messages', 'goals', or 'invoke_skills'."
             )
         return self
 
     @pydantic.model_validator(mode="after")
-    def _at_least_one_seeded_message_must_carry_text_when_goals_present(self) -> "StartAgentSessionRequest":
+    def _at_least_one_seeded_message_must_carry_text_when_goals_present(self) -> "StartAgentThreadRequest":
         # When goals are declared alongside seeded history (and no skill_invocation), at
         # least one message in the history must carry text content. The runner needs a
         # text-bearing message to drive the turn against; a tool-use- or tool-result-only
@@ -297,8 +299,8 @@ class StartAgentSessionRequest(pydantic.BaseModel):
         return self
 
     @pydantic.model_validator(mode="after")
-    def _available_skills_have_unique_skill_ids(self) -> "StartAgentSessionRequest":
-        # The per-session AI registry holds at most one version per skill —
+    def _available_skills_have_unique_skill_ids(self) -> "StartAgentThreadRequest":
+        # The per-thread AI registry holds at most one version per skill —
         # LoadSkillTool keys its enum by skill name, so two versions of the
         # same skill would collide. Reject duplicates here so the caller gets
         # a clear client-side error instead of a silently-deduplicated set.
@@ -307,7 +309,7 @@ class StartAgentSessionRequest(pydantic.BaseModel):
             for spec in self.available_skills:
                 if spec.skill_id in seen:
                     raise ValueError(
-                        f"available_skills lists skill_id '{spec.skill_id}' more than once; the per-session "
+                        f"available_skills lists skill_id '{spec.skill_id}' more than once; the per-thread "
                         "AI registry holds one version per skill."
                     )
                 seen.add(spec.skill_id)
@@ -351,11 +353,31 @@ class SubmitToolResultsRequest(pydantic.BaseModel):
     """Optional updated client-side tools for the next invocation."""
 
 
-class ForkChatRequest(pydantic.BaseModel):
-    """Request payload for forking a chat at a specific message."""
+class ForkAgentThreadRequest(pydantic.BaseModel):
+    """Request payload for forking an agent thread at a specific message."""
 
     message_sequence_num: int
-    """Highest message sequence number (inclusive) to copy into the new chat."""
+    """Highest message sequence number (inclusive) to copy into the new thread."""
+
+
+class AgentThreadSubject(pydantic.BaseModel):
+    """Canonical record of an entity an :class:`AgentThread` applies to.
+
+    Used to answer "which agent threads are about this dataset / file?"
+    — the dataset detail page's Agent Threads tab is one consumer; future
+    surfaces that want to discover threads by entity will use the same
+    record.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    association_id: str
+    """Identifier of the entity the thread applies to — e.g. a dataset id
+    or file id."""
+
+    note: str
+    """Short, free-form explanation of how the subject came to be
+    attached (e.g. why this thread applies to that entity)."""
 
 
 __all__ = [
@@ -366,10 +388,11 @@ __all__ = [
     "AgentMessage",
     "AgentMessageStatus",
     "AgentRole",
-    "AgentSessionDelta",
-    "AgentSessionGoalRecord",
-    "AgentSessionRecord",
-    "AgentSessionStatus",
+    "AgentThreadDelta",
+    "AgentThreadGoalRecord",
+    "AgentThreadRecord",
+    "AgentThreadStatus",
+    "AgentThreadSubject",
     "AgentTextContent",
     "AgentToolDetailResponse",
     "AgentToolResultContent",
@@ -378,10 +401,10 @@ __all__ = [
     "ClientToolResult",
     "ClientToolResultStatus",
     "ClientToolSpec",
-    "ForkChatRequest",
+    "ForkAgentThreadRequest",
     "InvokeSkillSpec",
     "SendMessageRequest",
-    "SessionVisibility",
-    "StartAgentSessionRequest",
+    "ThreadVisibility",
+    "StartAgentThreadRequest",
     "SubmitToolResultsRequest",
 ]

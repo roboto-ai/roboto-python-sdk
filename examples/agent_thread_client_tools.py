@@ -4,7 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Example: AgentSession with client-side tools.
+"""Example: AgentThread with client-side tools.
 
 Demonstrates how to expose Python functions as client-side tools that the
 Roboto agent can invoke. This example implements two toy memory tools
@@ -16,15 +16,15 @@ Running this script requires programmatic access to a Roboto deployment:
 
 Then:
 
-    python packages/roboto/examples/agent_session_client_tools.py
+    python packages/roboto/examples/agent_thread_client_tools.py
 """
 
 from __future__ import annotations
 
 import pathlib
 
-from roboto.ai import AgentSession, client_tool
-from roboto.ai.agent_session import (
+from roboto.ai import AgentThread, client_tool
+from roboto.ai.agent_thread import (
     AgentEvent,
     AgentStartTextEvent,
     AgentTextDeltaEvent,
@@ -83,17 +83,17 @@ def main() -> None:
     if KB_FILE.exists():
         KB_FILE.unlink()
 
-    session = AgentSession.start(
+    thread = AgentThread.start(
         "First, remember that my favorite color is blue. Then recall my favorite color and tell me what it is.",
         client_tools=[remember, recall],
         org_id="roboto-public",
     )
-    print(f"Started session {session.session_id}")
+    print(f"Started thread {thread.thread_id}")
 
-    session.run(on_event=_print_event)
+    thread.run(on_event=_print_event)
 
     print("\n=== Transcript ===")
-    print(session.transcript)
+    print(thread.transcript)
 
 
 if __name__ == "__main__":

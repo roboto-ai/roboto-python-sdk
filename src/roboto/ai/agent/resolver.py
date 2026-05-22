@@ -6,7 +6,7 @@
 
 from typing import Any
 
-from ..agent_session.record import StartAgentSessionRequest
+from ..agent_thread.record import StartAgentThreadRequest
 from .record import _PLACEHOLDER_RE, AgentRecord, TemplateVariable
 
 
@@ -35,9 +35,9 @@ class UnknownAgentVariablesError(AgentResolutionError):
 def resolve_agent(
     agent: AgentRecord,
     values: dict[str, str],
-) -> StartAgentSessionRequest:
+) -> StartAgentThreadRequest:
     """Substitute ``values`` into ``agent.request_template`` and return a
-    fully-validated :class:`StartAgentSessionRequest`.
+    fully-validated :class:`StartAgentThreadRequest`.
 
     Walks the body's JSON form swapping every ``{{name}}`` occurrence in a
     string leaf. Embedded substitution is supported. Dict keys are never
@@ -49,13 +49,13 @@ def resolve_agent(
         UnresolvedAgentVariablesError: a required variable has neither a
             supplied value nor a default; carries the offending names.
         pydantic.ValidationError: the substituted body failed
-            :class:`StartAgentSessionRequest` validation — e.g. a resolved
+            :class:`StartAgentThreadRequest` validation — e.g. a resolved
             value doesn't match a field-level regex or enum.
     """
     merged = _merge_values_and_defaults(agent.variables, values)
     raw = agent.request_template.model_dump(mode="json")
     resolved = _walk_and_sub(raw, merged)
-    return StartAgentSessionRequest.model_validate(resolved)
+    return StartAgentThreadRequest.model_validate(resolved)
 
 
 def _merge_values_and_defaults(

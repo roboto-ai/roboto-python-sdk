@@ -9,7 +9,7 @@ from .action_runtime import (
     FilesChangesetFileManager,
     InvocationContext,
 )
-from .ai import AgentSession, AISummary, ClientTool, ClientToolSpec, client_tool
+from .ai import AgentThread, AISummary, ClientTool, ClientToolSpec, client_tool
 from .association import (
     Association,
     AssociationType,
@@ -173,7 +173,7 @@ __all__ = [
     "ActionRuntime",
     "AddMessagePathRepresentationRequest",
     "AddMessagePathRequest",
-    "AgentSession",
+    "AgentThread",
     "AISummary",
     "Association",
     "AssociationType",

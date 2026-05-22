@@ -150,7 +150,7 @@ class AgentFeedbackRecord(pydantic.BaseModel):
     feedback_id: str
     """Unique identifier for this feedback entry."""
 
-    session_id: str
+    thread_id: str
     """Session the feedback was submitted against."""
 
     message_sequence_num: int
@@ -219,7 +219,7 @@ class UserFeedbackRecord(pydantic.BaseModel):
     feedback_id: str
     """Unique identifier for this feedback entry."""
 
-    session_id: str
+    thread_id: str
     """Session the feedback was submitted against."""
 
     message_sequence_num: int

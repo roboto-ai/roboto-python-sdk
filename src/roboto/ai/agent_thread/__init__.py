@@ -5,7 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from ..core import AnalysisScope
-from .agent_session import AgentSession, RobotoAgentGoalsFailedException
+from .agent_thread import AgentThread, RobotoAgentGoalsFailedException
 from .client_tool import ClientTool, client_tool
 from .event import (
     AgentErrorEvent,
@@ -35,11 +35,12 @@ from .record import (
     AgentMessage,
     AgentMessageStatus,
     AgentRole,
-    AgentSessionDelta,
-    AgentSessionGoalRecord,
-    AgentSessionRecord,
-    AgentSessionStatus,
     AgentTextContent,
+    AgentThreadDelta,
+    AgentThreadGoalRecord,
+    AgentThreadRecord,
+    AgentThreadStatus,
+    AgentThreadSubject,
     AgentToolDetailResponse,
     AgentToolResultContent,
     AgentToolUseContent,
@@ -47,12 +48,12 @@ from .record import (
     ClientToolResult,
     ClientToolResultStatus,
     ClientToolSpec,
-    ForkChatRequest,
+    ForkAgentThreadRequest,
     InvokeSkillSpec,
     SendMessageRequest,
-    SessionVisibility,
-    StartAgentSessionRequest,
+    StartAgentThreadRequest,
     SubmitToolResultsRequest,
+    ThreadVisibility,
 )
 
 __all__ = [
@@ -66,11 +67,12 @@ __all__ = [
     "AgentMessage",
     "AgentMessageStatus",
     "AgentRole",
-    "AgentSession",
-    "AgentSessionDelta",
-    "AgentSessionGoalRecord",
-    "AgentSessionRecord",
-    "AgentSessionStatus",
+    "AgentThread",
+    "AgentThreadDelta",
+    "AgentThreadGoalRecord",
+    "AgentThreadRecord",
+    "AgentThreadStatus",
+    "AgentThreadSubject",
     "AgentStartTextEvent",
     "AgentTextContent",
     "AgentTextDeltaEvent",
@@ -88,14 +90,14 @@ __all__ = [
     "ClientToolSpec",
     "FeedbackCategory",
     "FeedbackSentiment",
-    "ForkChatRequest",
+    "ForkAgentThreadRequest",
     "InvokeSkillSpec",
     "NEGATIVE_CATEGORIES",
     "POSITIVE_CATEGORIES",
     "RobotoAgentGoalsFailedException",
     "SendMessageRequest",
-    "SessionVisibility",
-    "StartAgentSessionRequest",
+    "ThreadVisibility",
+    "StartAgentThreadRequest",
     "SubmitFeedbackRequest",
     "SubmitToolResultsRequest",
     "UserFeedbackRecord",

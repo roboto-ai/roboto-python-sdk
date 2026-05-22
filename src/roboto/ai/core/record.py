@@ -16,37 +16,28 @@ from ...time import utcnow
 from ..goals import AgentGoal
 
 
-class SessionVisibility(StrEnum):
-    """Read-scope for an :class:`AgentSessionRecord`.
+class ThreadVisibility(StrEnum):
+    """Read-scope for an :class:`AgentThreadRecord`.
 
-    Two values: ``PRIVATE`` (creator-only) and ``ORG`` (anyone in the
-    session's organization). Set at session creation time and immutable
-    over the life of the session today. The canonical SDK import path is
-    :py:class:`roboto.ai.agent_session.SessionVisibility`; the enum is
-    defined here in ``ai.core.record`` only because both
-    :class:`AgentSessionRecord` and :class:`StartAgentSessionRequest`
-    depend on it and ``core.record`` is the lowest common ancestor in
-    the SDK's import graph.
+    Set at thread creation time and immutable for the life of the thread.
+    Import as :class:`roboto.ai.agent_thread.ThreadVisibility`.
     """
 
     PRIVATE = "private"
-    """Only the creating user or a Roboto admin may read the session.
+    """Only the creating user (and Roboto admins) may read the thread.
 
-    Default for bare ``POST /chats`` so an in-flight experiment doesn't
-    leak to the rest of the org until the caller opts in. The
-    ``is_roboto_admin`` bypass covers admin tools and system users; see
-    ``_caller_owns_or_is_system`` in the ``ai_router`` module. Existing
-    rows pre-migration are backfilled to ``PRIVATE`` for the same reason.
+    Default for threads created via ``POST /v1/ai/threads`` so an
+    in-flight experiment does not leak to the rest of the org until the
+    caller opts in.
     """
 
     ORG = "org"
-    """Any member of the session's organization, plus Roboto admins, may
-    read the session.
+    """Any member of the thread's organization (and Roboto admins) may
+    read the thread.
 
-    Default for sessions produced by the agent invoke flow because agents
-    exist to share workflows across teammates. Forks of an ``ORG``
-    session do not inherit visibility — the forked session lands as
-    ``PRIVATE`` (see :meth:`agent_session_repo.AgentSessionRepo.fork_session`)."""
+    Default for threads produced by the agent launch flow, since agents
+    exist to share workflows across teammates. Forks of an ``ORG`` thread
+    do not inherit visibility — every fork lands as ``PRIVATE``."""
 
 
 CLIENT_TOOL_NAME_PREFIX = "client_"
@@ -75,13 +66,13 @@ class ModelProfileResponse(pydantic.BaseModel):
     """Short description of the profile's characteristics."""
 
     is_default: bool = False
-    """Whether this profile is selected by default for new sessions."""
+    """Whether this profile is selected by default for new threads."""
 
 
 class AgentRole(StrEnum):
-    """Enumeration of possible roles in an agent session.
+    """Enumeration of possible roles in an agent thread.
 
-    Defines the different participants that can send messages in a session.
+    Defines the different participants that can send messages in a thread.
     """
 
     USER = "user"
@@ -128,14 +119,14 @@ class AgentMessageStatus(StrEnum):
         )
 
 
-class AgentSessionStatus(StrEnum):
-    """Enumeration of possible agent session states.
+class AgentThreadStatus(StrEnum):
+    """Enumeration of possible agent thread states.
 
-    Tracks the overall status of an agent session from creation to termination.
+    Tracks the overall status of an agent thread from creation to termination.
     """
 
     NOT_STARTED = "not_started"
-    """Session has been created but no messages have been sent."""
+    """Thread has been created but no messages have been sent."""
 
     USER_TURN = "user_turn"
     """User has the turn to send a message."""
@@ -148,7 +139,7 @@ class AgentSessionStatus(StrEnum):
 
     GOALS_FAILED = "goals_failed"
     """The agent runner exhausted its corrective re-prompt budget without achieving every declared goal for the
-    most-recent turn. Signals to clients that the session needs human intervention before it can continue."""
+    most-recent turn. Signals to clients that the thread needs human intervention before it can continue."""
 
 
 class AgentContentType(StrEnum):
@@ -245,11 +236,11 @@ class ClientToolSpec(pydantic.BaseModel):
     @classmethod
     def _validate_client_prefix(cls, v: str) -> str:
         # Enforced at deserialization so the API rejects bad names with a 400
-        # before any session state is persisted. The prefix is the disambiguator
+        # before any thread state is persisted. The prefix is the disambiguator
         # the dispatcher relies on (``tool_name.startswith("client_")``); if a
         # client snuck a prefix-less name past this check it would either
         # collide with a server tool or fail Bedrock's Converse validation
-        # later, after the session was already on disk.
+        # later, after the thread was already on disk.
         if not _CLIENT_TOOL_NAME_RE.fullmatch(v):
             raise ValueError(
                 f"client tool name {v!r} must match {_CLIENT_TOOL_NAME_RE.pattern} "
@@ -260,7 +251,7 @@ class ClientToolSpec(pydantic.BaseModel):
 
 
 class AgentMessage(pydantic.BaseModel):
-    """A single message within an agent session.
+    """A single message within an agent thread.
 
     Represents one message in the conversation, containing the sender role,
     content blocks, and generation status. Messages can contain multiple
@@ -337,8 +328,8 @@ class AgentGoalStatus(StrEnum):
     """Goal could not be achieved within the turn's retry budget."""
 
 
-class AgentSessionGoalRecord(pydantic.BaseModel):
-    """Customer-visible read shape of a goal declared on an agent session."""
+class AgentThreadGoalRecord(pydantic.BaseModel):
+    """Customer-visible read shape of a goal declared on an agent thread."""
 
     goal_type: str
     """Discriminator selecting which :class:`AgentGoal` model the
@@ -352,7 +343,7 @@ class AgentSessionGoalRecord(pydantic.BaseModel):
     """Current lifecycle state of the goal."""
 
     message_sequence_num: int
-    """Index in the session's full messages list of the :attr:`AgentRole.USER`
+    """Index in the thread's full messages list of the :attr:`AgentRole.USER`
     message that declared this goal. Use to render goals adjacent to the turn
     they were attached to."""
 
@@ -374,24 +365,30 @@ class AgentSessionGoalRecord(pydantic.BaseModel):
         return pydantic.TypeAdapter(AgentGoal).validate_python(self.goal_data)
 
 
-class AgentSessionRecord(pydantic.BaseModel):
-    """Complete record of an agent session.
+class AgentThreadRecord(pydantic.BaseModel):
+    """Complete record of an agent thread.
 
-    Contains all the persistent data for a session including metadata,
+    Contains all the persistent data for a thread including metadata,
     message history, and synchronization state.
     """
 
-    session_id: str = pydantic.Field(validation_alias=pydantic.AliasChoices("session_id", "chat_id"))
-    """Unique identifier for this agent session."""
+    thread_id: str = pydantic.Field(
+        validation_alias=pydantic.AliasChoices("thread_id", "session_id", "chat_id"),
+    )
+    """Unique identifier for this agent thread.
+
+    Deserialization also accepts the legacy ``session_id`` and ``chat_id``
+    spellings for backward compatibility; the canonical attribute name is
+    ``thread_id``."""
 
     created: datetime.datetime
-    """Timestamp when this agent session was created."""
+    """Timestamp when this agent thread was created."""
 
     created_by: str
-    """User ID of the person who created this agent session."""
+    """User ID of the person who created this agent thread."""
 
     org_id: str
-    """Organization ID that owns this agent session."""
+    """Organization ID that owns this agent thread."""
 
     messages: list[AgentMessage] = pydantic.Field(default_factory=list)
     """Complete list of messages in the conversation."""
@@ -399,55 +396,54 @@ class AgentSessionRecord(pydantic.BaseModel):
     continuation_token: str
     """Token used for incremental updates and synchronization."""
 
-    status: AgentSessionStatus
-    """Current status of this agent session."""
+    status: AgentThreadStatus
+    """Current status of this agent thread."""
 
     title: Optional[str] = None
-    """Title of this agent session."""
+    """Title of this agent thread."""
 
     model_profile: Optional[str] = None
-    """Model profile used for this agent session (e.g., 'standard', 'advanced')."""
+    """Model profile used for this agent thread (e.g., 'standard', 'advanced')."""
 
-    forked_from_session_id: Optional[str] = None
-    """If this session was forked, the id of the source session. ``None`` otherwise."""
+    forked_from_thread_id: Optional[str] = pydantic.Field(
+        default=None,
+        validation_alias=pydantic.AliasChoices("forked_from_thread_id", "forked_from_session_id"),
+    )
+    """If this thread was forked, the id of the source thread. ``None`` otherwise.
+
+    Deserialization also accepts the legacy ``forked_from_session_id``
+    spelling for backward compatibility."""
 
     forked_from_message_sequence_num: Optional[int] = None
-    """Message sequence number in the source session that this fork was taken from.
+    """Message sequence number in the source thread that this fork was taken from.
 
-    Populated in tandem with ``forked_from_session_id``; both are ``None`` for
-    sessions that were not created as a fork.
+    Populated in tandem with ``forked_from_thread_id``; both are ``None`` for
+    threads that were not created as a fork.
     """
 
-    visibility: SessionVisibility = SessionVisibility.PRIVATE
-    """Who can read this session. ``PRIVATE`` (the default) restricts reads
-    to the ``created_by`` user and system-users; ``ORG`` opens the session
-    to every member of :attr:`org_id`."""
+    visibility: ThreadVisibility = ThreadVisibility.PRIVATE
+    """Who can read this thread. ``PRIVATE`` (the default) restricts reads
+    to the :attr:`created_by` user and Roboto admins; ``ORG`` opens the
+    thread to every member of :attr:`org_id`."""
 
     created_from_agent_id: Optional[str] = None
-    """If this session was started via the agent invoke flow, the id of
-    the agent that produced it. ``None`` for sessions started directly
-    through ``POST /chats``. Set only by the invoke handler and never
-    propagated through forks — a fork is its own thread."""
+    """If this thread was started via the agent launch flow, the id of
+    the agent that produced it. ``None`` for threads started directly
+    through ``POST /v1/ai/threads``. Forks do not inherit this field —
+    a fork is its own thread."""
 
-    goals: Optional[list[AgentSessionGoalRecord]] = None
-    """Goals declared across this session's turns, ordered by allocation
-    (i.e. by ``goal_index``). ``None`` means goals were not loaded for this
-    record (full-session reads populate the field; lightweight or legacy
-    reads may omit it). An empty list means goals were loaded but the
-    session never declared any."""
-
-    @pydantic.computed_field  # type: ignore[prop-decorator]
-    @property
-    def chat_id(self) -> str:
-        """Backwards-compatible alias — serialized as chat_id in API responses."""
-        return self.session_id
+    goals: Optional[list[AgentThreadGoalRecord]] = None
+    """Goals declared across this thread's turns, ordered by the turn
+    that declared them. ``None`` means goals were not loaded for this
+    record; an empty list means they were loaded but the thread never
+    declared any."""
 
 
-class AgentSessionDelta(pydantic.BaseModel):
-    """Incremental update to an agent session.
+class AgentThreadDelta(pydantic.BaseModel):
+    """Incremental update to an agent thread.
 
     Contains only the changes since the last synchronization, used for
-    efficient real-time updates without transferring the entire session history.
+    efficient real-time updates without transferring the entire thread history.
     """
 
     messages_by_idx: dict[int, AgentMessage]
@@ -456,15 +452,15 @@ class AgentSessionDelta(pydantic.BaseModel):
     continuation_token: str
     """Updated token for the next incremental synchronization."""
 
-    status: Optional[AgentSessionStatus] = None
-    """Updated status of the agent session."""
+    status: Optional[AgentThreadStatus] = None
+    """Updated status of the agent thread."""
 
     title: Optional[str] = None
-    """Updated title of the agent session."""
+    """Updated title of the agent thread."""
 
-    goals: Optional[list[AgentSessionGoalRecord]] = None
-    """Latest snapshot of every goal declared in the session, ordered by
+    goals: Optional[list[AgentThreadGoalRecord]] = None
+    """Latest snapshot of every goal declared in the thread, ordered by
     allocation. ``None`` means there has been no change since the previous
     delta — clients should retain the snapshot they already hold. An empty
-    list means the session has no declared goals. A non-empty list is the
+    list means the thread has no declared goals. A non-empty list is the
     authoritative current snapshot and replaces any prior value."""

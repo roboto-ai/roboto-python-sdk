@@ -35,20 +35,20 @@ from .record import (
     AgentErrorContent,
     AgentMessage,
     AgentRole,
-    AgentSessionDelta,
-    AgentSessionRecord,
-    AgentSessionStatus,
     AgentTextContent,
+    AgentThreadDelta,
+    AgentThreadRecord,
+    AgentThreadStatus,
     AgentToolResultContent,
     AgentToolUseContent,
     AvailableSkillSpec,
     ClientToolResult,
     ClientToolResultStatus,
     ClientToolSpec,
-    ForkChatRequest,
+    ForkAgentThreadRequest,
     InvokeSkillSpec,
     SendMessageRequest,
-    StartAgentSessionRequest,
+    StartAgentThreadRequest,
     SubmitToolResultsRequest,
 )
 
@@ -56,7 +56,7 @@ OnEvent = collections.abc.Callable[[AgentEvent], None]
 
 
 class RobotoAgentGoalsFailedException(RuntimeError):
-    """Raised by :meth:`AgentSession.run` when a goal-bearing turn exhausts
+    """Raised by :meth:`AgentThread.run` when a goal-bearing turn exhausts
     its corrective re-prompt budget without satisfying every declared goal.
 
     Inherits :class:`RuntimeError` rather than ``RobotoException`` because this
@@ -68,24 +68,24 @@ class RobotoAgentGoalsFailedException(RuntimeError):
     what motivated lifting it out of the opaque ``RuntimeError`` ``run()``
     used to raise on unexpected statuses.
 
-    The session is in :attr:`AgentSessionStatus.GOALS_FAILED`; inspect
-    :attr:`AgentSession.messages` and :attr:`AgentSessionRecord.goals` for
+    The session is in :attr:`AgentThreadStatus.GOALS_FAILED`; inspect
+    :attr:`AgentThread.messages` and :attr:`AgentThreadRecord.goals` for
     detail about which goals failed and why.
     """
 
-    def __init__(self, session_id: str) -> None:
+    def __init__(self, thread_id: str) -> None:
         super().__init__(
-            f"Session {session_id} ended in GOALS_FAILED — the agent could not achieve every "
-            "declared goal within its corrective re-prompt budget. The session needs human "
+            f"Thread {thread_id} ended in GOALS_FAILED — the agent could not achieve every "
+            "declared goal within its corrective re-prompt budget. The thread needs human "
             "intervention before it can continue."
         )
-        self.session_id = session_id
+        self.thread_id = thread_id
 
 
-class AgentSession:
+class AgentThread:
     """An interactive AI agent session within the Roboto platform.
 
-    An AgentSession is a conversational interface with Roboto's AI assistant,
+    An AgentThread is a conversational interface with Roboto's AI assistant,
     enabling users to ask questions, request data analysis, and interact with
     their robotics data through natural language. Sessions maintain conversation
     history and support streaming responses for real-time interaction.
@@ -97,17 +97,17 @@ class AgentSession:
     Examples:
         Fire-and-forget with client-side tools:
 
-        >>> from roboto.ai import AgentSession, client_tool
+        >>> from roboto.ai import AgentThread, client_tool
         >>> @client_tool
         ... def remember(fact: str) -> str:
         ...     \"\"\"Store a fact in long-term memory.\"\"\"
         ...     ...
-        >>> session = AgentSession.start("Remember my favorite color is blue.", client_tools=[remember])
+        >>> session = AgentThread.start("Remember my favorite color is blue.", client_tools=[remember])
         >>> session.run()
 
         Observing events as they happen:
 
-        >>> session = AgentSession.start("Explain machine learning.")
+        >>> session = AgentThread.start("Explain machine learning.")
         >>> for event in session.events():
         ...     if isinstance(event, AgentTextDeltaEvent):
         ...         print(event.text, end="", flush=True)
@@ -116,24 +116,24 @@ class AgentSession:
     @classmethod
     def from_id(
         cls,
-        session_id: str,
+        thread_id: str,
         roboto_client: Optional[RobotoClient] = None,
         load_messages: bool = True,
-    ) -> AgentSession:
+    ) -> AgentThread:
         """Retrieve an existing agent session by its unique identifier.
 
         Loads a previously created session from the Roboto platform, allowing
         users to resume conversations and access message history.
 
         Args:
-            session_id: Unique identifier for the session. Accepts both
+            thread_id: Unique identifier for the session. Accepts both
                 ``ags_*`` and legacy ``ch_*`` identifiers.
             roboto_client: HTTP client for API communication. If None, uses the default client.
             load_messages: Whether to load the session's messages. If False, the
                 session's messages will be empty.
 
         Returns:
-            AgentSession instance representing the existing session.
+            AgentThread instance representing the existing session.
 
         Raises:
             RobotoNotFoundException: If the session does not exist.
@@ -142,13 +142,13 @@ class AgentSession:
         Examples:
             Resume an existing session:
 
-            >>> session = AgentSession.from_id("ags_abc123")
+            >>> session = AgentThread.from_id("ags_abc123")
             >>> print(f"Session has {len(session.messages)} messages")
             Session has 5 messages
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         query_params = {"load_messages": load_messages}
-        record = roboto_client.get(f"v1/ai/chats/{session_id}", query=query_params).to_record(AgentSessionRecord)
+        record = roboto_client.get(f"v1/ai/threads/{thread_id}", query=query_params).to_record(AgentThreadRecord)
 
         return cls(record=record, roboto_client=roboto_client)
 
@@ -167,7 +167,7 @@ class AgentSession:
         invoke_skills: Optional[collections.abc.Sequence[InvokeSkillSpec]] = None,
         available_skills: Optional[collections.abc.Sequence[AvailableSkillSpec]] = None,
         roboto_client: Optional[RobotoClient] = None,
-    ) -> AgentSession:
+    ) -> AgentThread:
         """Start a new agent session with an initial message.
 
         Creates a new session and sends the initial message to begin the
@@ -237,7 +237,7 @@ class AgentSession:
             roboto_client: HTTP client for API communication. If None, uses the default client.
 
         Returns:
-            AgentSession instance representing the newly created session.
+            AgentThread instance representing the newly created session.
 
         Raises:
             RobotoInvalidRequestException: If the message format is invalid.
@@ -251,7 +251,7 @@ class AgentSession:
             ... def recall(query: str) -> str:
             ...     \"\"\"Search long-term memory for facts matching a query.\"\"\"
             ...     ...
-            >>> session = AgentSession.start("What do you remember?", client_tools=[recall])
+            >>> session = AgentThread.start("What do you remember?", client_tools=[recall])
             >>> session.run()
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -266,7 +266,7 @@ class AgentSession:
             messages = list(message)
 
         if not messages and not goals and not invoke_skills:
-            raise ValueError("AgentSession.start requires at least one of 'message', 'goals', or 'invoke_skills'.")
+            raise ValueError("AgentThread.start requires at least one of 'message', 'goals', or 'invoke_skills'.")
 
         # A conversation starts with user input (optionally preceded by a
         # seeded ASSISTANT transcript). ROBOTO and SYSTEM are produced by the
@@ -283,7 +283,7 @@ class AgentSession:
 
         specs = _extract_specs(client_tools)
 
-        request = StartAgentSessionRequest(
+        request = StartAgentThreadRequest(
             client_context=client_context,
             messages=list(messages),
             system_prompt=system_prompt,
@@ -295,7 +295,7 @@ class AgentSession:
             available_skills=list(available_skills) if available_skills is not None else None,
         )
 
-        record = roboto_client.post("v1/ai/chats", caller_org_id=org_id, data=request).to_record(AgentSessionRecord)
+        record = roboto_client.post("v1/ai/threads", caller_org_id=org_id, data=request).to_record(AgentThreadRecord)
 
         return cls(
             record=record,
@@ -305,18 +305,18 @@ class AgentSession:
 
     def __init__(
         self,
-        record: AgentSessionRecord,
+        record: AgentThreadRecord,
         roboto_client: Optional[RobotoClient] = None,
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
     ):
-        """Initialize an AgentSession with an underlying record.
+        """Initialize an AgentThread with an underlying record.
 
         Note:
             This constructor is intended for internal use. Prefer
-            :py:meth:`AgentSession.start` or :py:meth:`AgentSession.from_id`.
+            :py:meth:`AgentThread.start` or :py:meth:`AgentThread.from_id`.
 
         Args:
-            record: AgentSessionRecord containing the session's persisted data.
+            record: AgentThreadRecord containing the session's persisted data.
             roboto_client: HTTP client for API communication. If None, uses the default client.
             client_tools: Pre-declared client tools. :class:`ClientTool` entries
                 are registered for auto-dispatch; :class:`ClientToolSpec` entries
@@ -324,7 +324,7 @@ class AgentSession:
                 them for server tools) but have no callback and require manual
                 submission via :py:meth:`submit_client_tool_results`.
         """
-        self.__record: AgentSessionRecord = record
+        self.__record: AgentThreadRecord = record
         self.__roboto_client: RobotoClient = RobotoClient.defaulted(roboto_client)
         # Tools with a registered callback — the set :py:meth:`run` will
         # auto-dispatch.
@@ -351,9 +351,9 @@ class AgentSession:
         self.__register_tools(client_tools)
 
     @property
-    def session_id(self) -> str:
-        """Unique identifier for this session."""
-        return self.__record.session_id
+    def thread_id(self) -> str:
+        """Unique identifier for this thread."""
+        return self.__record.thread_id
 
     @property
     def latest_message(self) -> Optional[AgentMessage]:
@@ -368,8 +368,8 @@ class AgentSession:
         return self.__record.messages
 
     @property
-    def status(self) -> AgentSessionStatus:
-        """Current status of the session."""
+    def status(self) -> AgentThreadStatus:
+        """Current status of the thread."""
         return self.__record.status
 
     @property
@@ -384,9 +384,9 @@ class AgentSession:
         Returns a formatted string containing all messages in the conversation,
         with role indicators and message content clearly separated.
         """
-        return f"=== {self.__record.session_id} ===\n" + "\n".join(str(message) for message in self.messages)
+        return f"=== {self.__record.thread_id} ===\n" + "\n".join(str(message) for message in self.messages)
 
-    def register_client_tool(self, tool: ClientTool) -> AgentSession:
+    def register_client_tool(self, tool: ClientTool) -> AgentThread:
         """Register a client-side tool for auto-dispatch in subsequent turns.
 
         The tool's spec is not sent to the backend by this call; pass it via
@@ -408,7 +408,7 @@ class AgentSession:
         """Remove a previously registered client-tool callback.
 
         This only removes the local callback. The backend was told about the
-        tool in :class:`StartAgentSessionRequest` ``client_tools`` (or via a
+        tool in :class:`StartAgentThreadRequest` ``client_tools`` (or via a
         later :py:meth:`send`) and may still emit ``tool_use`` events for it;
         once the callback is gone, :py:meth:`run` will submit an error result
         for those invocations so the agent can recover. There is no
@@ -427,7 +427,7 @@ class AgentSession:
         """
         return self.__client_tools.pop(name, None) is not None
 
-    def refresh(self) -> AgentSession:
+    def refresh(self) -> AgentThread:
         """Update the session with the latest messages and status.
 
         Fetches any new messages or status changes from the server and updates
@@ -448,7 +448,7 @@ class AgentSession:
         analysis_scope: Optional[AnalysisScope] = None,
         goals: Optional[collections.abc.Sequence[AgentGoal]] = None,
         invoke_skills: Optional[collections.abc.Sequence[InvokeSkillSpec]] = None,
-    ) -> AgentSession:
+    ) -> AgentThread:
         """Send a structured message to the session.
 
         Args:
@@ -459,7 +459,7 @@ class AgentSession:
             client_context: Optional :class:`ClientViewingContext` describing
                 what the calling client is currently viewing when this
                 message was composed. Informational only; see
-                :meth:`AgentSession.start` for full semantics.
+                :meth:`AgentThread.start` for full semantics.
             client_tools: Optional client-side tools to add or update for this
                 and subsequent turns. ClientTool callbacks are registered on
                 the session for auto-dispatch.
@@ -486,7 +486,7 @@ class AgentSession:
             RobotoUnauthorizedException: If the caller lacks permission to send messages.
         """
         if message is None and not goals and not invoke_skills:
-            raise ValueError("AgentSession.send requires at least one of 'message', 'goals', or 'invoke_skills'.")
+            raise ValueError("AgentThread.send requires at least one of 'message', 'goals', or 'invoke_skills'.")
 
         specs = _extract_specs(client_tools)
         request = SendMessageRequest(
@@ -499,7 +499,7 @@ class AgentSession:
         )
 
         self.__roboto_client.post(
-            f"v1/ai/chats/{self.__record.session_id}/messages",
+            f"v1/ai/threads/{self.__record.thread_id}/messages",
             data=request,
         )
 
@@ -520,7 +520,7 @@ class AgentSession:
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
         analysis_scope: Optional[AnalysisScope] = None,
         goals: Optional[collections.abc.Sequence[AgentGoal]] = None,
-    ) -> AgentSession:
+    ) -> AgentThread:
         """Send a text message to the session.
 
         Convenience method for sending a simple text message without needing to
@@ -555,7 +555,7 @@ class AgentSession:
         self,
         results: collections.abc.Sequence[ClientToolResult],
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
-    ) -> AgentSession:
+    ) -> AgentThread:
         """Submit results of client-side tool execution to resume the session.
 
         On success the server has persisted every submitted ``tool_result``
@@ -578,7 +578,7 @@ class AgentSession:
             client_tools=specs,
         )
         self.__roboto_client.post(
-            f"v1/ai/chats/{self.__record.session_id}/tool-results",
+            f"v1/ai/threads/{self.__record.thread_id}/tool-results",
             data=request,
         )
         self.__register_tools(client_tools)
@@ -586,11 +586,11 @@ class AgentSession:
         # already advanced past that message on the prior CLIENT_TOOL_TURN poll — the next delta returns empty
         # with status=None, so record.status stays CLIENT_TOOL_TURN. Without this flip, run() re-dispatches the
         # same tool_uses and re-POSTs; the second POST hits ROBOTO_TURN and raises RobotoInvalidRequestException.
-        self.__record.status = AgentSessionStatus.ROBOTO_TURN
+        self.__record.status = AgentThreadStatus.ROBOTO_TURN
         return self
 
-    def invoke_skill(self, skill_id: str, version: Optional[int] = None) -> AgentSession:
-        """Manually invoke a skill into this session.
+    def invoke_skill(self, skill_id: str, version: Optional[int] = None) -> AgentThread:
+        """Manually invoke a skill into this thread.
 
         Thin wrapper around :py:meth:`send` that builds a single-element
         ``invoke_skills`` list and sends it with no user message — kept for
@@ -608,11 +608,11 @@ class AgentSession:
         Examples:
             Apply a skill's latest version to the current turn:
 
-            >>> session.invoke_skill("sk_qa_review")
+            >>> thread.invoke_skill("sk_qa_review")
 
             Apply a specific version of the skill:
 
-            >>> session.invoke_skill("sk_qa_review", version=2)
+            >>> thread.invoke_skill("sk_qa_review", version=2)
         """
         return self.send(invoke_skills=[InvokeSkillSpec(skill_id=skill_id, version=version)])
 
@@ -625,7 +625,7 @@ class AgentSession:
 
         Polls the session and yields :class:`AgentEvent` objects as new content
         arrives. Does **not** auto-dispatch client-side tools — if the session
-        reaches :py:attr:`AgentSessionStatus.CLIENT_TOOL_TURN`, the generator
+        reaches :py:attr:`AgentThreadStatus.CLIENT_TOOL_TURN`, the generator
         returns and the caller is expected to call
         :py:meth:`submit_client_tool_results` (and then call :py:meth:`events`
         again to continue). For automatic dispatch, use :py:meth:`run`.
@@ -709,7 +709,7 @@ class AgentSession:
                     yield AgentTextEndEvent()
                     self.__open_text_idxs.discard(idx)
 
-            if self.__record.status != AgentSessionStatus.ROBOTO_TURN:
+            if self.__record.status != AgentThreadStatus.ROBOTO_TURN:
                 return
 
             if timeout is not None and time.time() - start_time > timeout:
@@ -727,14 +727,14 @@ class AgentSession:
         on_event: Optional[OnEvent] = None,
         tick: float = 0.2,
         timeout: Optional[float] = None,
-    ) -> AgentSession:
+    ) -> AgentThread:
         """Drive the session forward until it is the user's turn.
 
         Polls the session, auto-dispatching any pending client-side tool
         invocations against the callbacks registered with this session
         (via :py:meth:`start`, :py:meth:`send`, or
         :py:meth:`register_client_tool`). Returns once the session status is
-        :py:attr:`AgentSessionStatus.USER_TURN`.
+        :py:attr:`AgentThreadStatus.USER_TURN`.
 
         If the agent requests a client-side tool that has no registered
         callback, an ``error`` result is submitted automatically with a
@@ -758,7 +758,7 @@ class AgentSession:
                 session reaches ``USER_TURN``.
             RuntimeError: If the session is in ``CLIENT_TOOL_TURN`` with no
                 messages (i.e. a server state that should not be reachable),
-                or if an unexpected :class:`AgentSessionStatus` value is
+                or if an unexpected :class:`AgentThreadStatus` value is
                 observed.
             RobotoHttpException: Propagated from the underlying
                 :py:meth:`submit_client_tool_results` POST if the server
@@ -768,7 +768,7 @@ class AgentSession:
         Examples:
             Fire-and-forget:
 
-            >>> session = AgentSession.start("Remember my favorite color is blue.", client_tools=[remember])
+            >>> session = AgentThread.start("Remember my favorite color is blue.", client_tools=[remember])
             >>> session.run()
 
             With progress logging:
@@ -790,31 +790,31 @@ class AgentSession:
                     on_event(event)
 
             status = self.__record.status
-            if status == AgentSessionStatus.USER_TURN:
+            if status == AgentThreadStatus.USER_TURN:
                 return self
 
-            if status == AgentSessionStatus.CLIENT_TOOL_TURN:
+            if status == AgentThreadStatus.CLIENT_TOOL_TURN:
                 results = self.__dispatch_pending_client_tools()
                 self.submit_client_tool_results(results)
                 continue
 
-            if status == AgentSessionStatus.GOALS_FAILED:
+            if status == AgentThreadStatus.GOALS_FAILED:
                 # Typed exception so callers can distinguish "agent gave up on
                 # declared goals" from generic RuntimeError. The session is
-                # now paused; inspect messages and AgentSessionRecord.goals
+                # now paused; inspect messages and AgentThreadRecord.goals
                 # for the failure detail.
-                raise RobotoAgentGoalsFailedException(self.session_id)
+                raise RobotoAgentGoalsFailedException(self.thread_id)
 
             raise RuntimeError(
-                f"Session {self.session_id} paused in unexpected status {status}; "
+                f"Session {self.thread_id} paused in unexpected status {status}; "
                 "expected USER_TURN or CLIENT_TOOL_TURN."
             )
 
-    def __get_delta_and_update(self) -> AgentSessionDelta:
+    def __get_delta_and_update(self) -> AgentThreadDelta:
         delta = self.__roboto_client.get(
-            f"v1/ai/chats/{self.__record.session_id}/delta",
+            f"v1/ai/threads/{self.__record.thread_id}/delta",
             query={"next_token": self.__record.continuation_token},
-        ).to_record(AgentSessionDelta)
+        ).to_record(AgentThreadDelta)
 
         self.__record.continuation_token = delta.continuation_token
 
@@ -848,7 +848,7 @@ class AgentSession:
         """Collect ClientToolResults for every tool_use the server expects us to answer.
 
         The server promotes the session to ``CLIENT_TOOL_TURN`` in two ways
-        (see ``calculate_session_status`` in ``roboto_service``):
+        (see ``calculate_thread_status`` in ``roboto_service``):
 
         1. The latest message is an assistant message ending in a client
            ``tool_use`` block. All unanswered tool_uses live on
@@ -882,7 +882,7 @@ class AgentSession:
             answered_ids = {c.tool_use_id for c in latest.content if isinstance(c, AgentToolResultContent)}
         else:
             raise RuntimeError(
-                f"Session {self.session_id} is in CLIENT_TOOL_TURN but neither the latest "
+                f"Session {self.thread_id} is in CLIENT_TOOL_TURN but neither the latest "
                 f"message nor its predecessor contains unanswered client tool_uses."
             )
 
@@ -1000,11 +1000,11 @@ class AgentSession:
             notes=notes,
         )
         return self.__roboto_client.post(
-            f"v1/ai/chats/{self.__record.session_id}/messages/{message_sequence_num}/feedback",
+            f"v1/ai/threads/{self.__record.thread_id}/messages/{message_sequence_num}/feedback",
             data=request,
         ).to_record(UserFeedbackRecord)
 
-    def fork(self, message_sequence_num: int) -> AgentSession:
+    def fork(self, message_sequence_num: int) -> AgentThread:
         """Fork this session's history up to a specific message into a new session owned by the caller.
 
         Available to the session's creator (forking their own session) and to
@@ -1018,7 +1018,7 @@ class AgentSession:
             message_sequence_num: Highest message sequence number (inclusive) to copy.
 
         Returns:
-            A new ``AgentSession`` instance for the forked session.
+            A new ``AgentThread`` instance for the forked session.
 
         Raises:
             RobotoUnauthorizedException: If the caller is not a member of the
@@ -1027,12 +1027,12 @@ class AgentSession:
             RobotoInvalidRequestException: If ``message_sequence_num`` is out
                 of range or points at a message still generating.
         """
-        request = ForkChatRequest(message_sequence_num=message_sequence_num)
+        request = ForkAgentThreadRequest(message_sequence_num=message_sequence_num)
         record = self.__roboto_client.post(
-            f"v1/ai/chats/{self.__record.session_id}/fork",
+            f"v1/ai/threads/{self.__record.thread_id}/fork",
             data=request,
-        ).to_record(AgentSessionRecord)
-        return AgentSession(record=record, roboto_client=self.__roboto_client)
+        ).to_record(AgentThreadRecord)
+        return AgentThread(record=record, roboto_client=self.__roboto_client)
 
 
 def _extract_specs(

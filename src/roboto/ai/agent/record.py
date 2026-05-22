@@ -12,7 +12,7 @@ import pydantic
 
 from ...compat import StrEnum
 from ...sentinels import NotSet, NotSetType
-from ..agent_session.record import SessionVisibility, StartAgentSessionRequest
+from ..agent_thread.record import StartAgentThreadRequest, ThreadVisibility
 
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}")
 """Recognizes ``{{name}}`` placeholders. Names start with a letter or
@@ -111,9 +111,9 @@ class TemplateVariable(pydantic.BaseModel):
 
 
 class AgentRecord(pydantic.BaseModel):
-    """A pre-filled :class:`StartAgentSessionRequest` plus declared variables.
+    """A pre-filled :class:`StartAgentThreadRequest` plus declared variables.
 
-    An :class:`AgentRecord` captures *most* of what an :class:`AgentSession`
+    An :class:`AgentRecord` captures *most* of what an :class:`AgentThread`
     needs to start - system prompt, model profile, seeded messages, declared
     goals - and leaves a small set of named holes that callers must fill at
     invoke time. The canonical example is a triage agent whose goal carries a
@@ -142,9 +142,9 @@ class AgentRecord(pydantic.BaseModel):
     description: Optional[str] = None
     """Free-form description rendered on the agents list and detail pages."""
 
-    request_template: StartAgentSessionRequest
+    request_template: StartAgentThreadRequest
     """The body that will be cloned and resolved into a real
-    :class:`StartAgentSessionRequest` at invoke time. Any string leaf may
+    :class:`StartAgentThreadRequest` at invoke time. Any string leaf may
     contain ``{{name}}`` placeholders; non-string fields cannot be templated
     in v1 (the substitution engine never visits them)."""
 
@@ -198,7 +198,7 @@ class AgentRecord(pydantic.BaseModel):
         return self
 
 
-def extract_placeholders(body: StartAgentSessionRequest) -> set[str]:
+def extract_placeholders(body: StartAgentThreadRequest) -> set[str]:
     """Return every ``{{name}}`` placeholder referenced anywhere in ``body``.
 
     Walks the JSON form of the request rather than the Pydantic model so the
@@ -244,7 +244,7 @@ class CreateAgentRequest(pydantic.BaseModel):
 
     name: str
     description: Optional[str] = None
-    request_template: StartAgentSessionRequest
+    request_template: StartAgentThreadRequest
     variables: list[TemplateVariable] = pydantic.Field(default_factory=list)
 
 
@@ -258,7 +258,7 @@ class UpdateAgentRequest(pydantic.BaseModel):
 
     name: Union[str, NotSetType] = NotSet
     description: Union[Optional[str], NotSetType] = NotSet
-    request_template: Union[StartAgentSessionRequest, NotSetType] = NotSet
+    request_template: Union[StartAgentThreadRequest, NotSetType] = NotSet
     variables: Union[list[TemplateVariable], NotSetType] = NotSet
 
     model_config = pydantic.ConfigDict(
@@ -267,11 +267,11 @@ class UpdateAgentRequest(pydantic.BaseModel):
     )
 
 
-class InvokeAgentRequest(pydantic.BaseModel):
-    """Wire payload for ``POST /v1/ai/agents/<agent_id>/invoke``.
+class LaunchAgentRequest(pydantic.BaseModel):
+    """Wire payload for ``POST /v1/ai/agents/<agent_id>/launch``.
 
     The route resolves the named agent, substitutes ``values`` into its
-    body, and starts a new :class:`AgentSession` whose visibility comes from
+    body, and starts a new :class:`AgentThread` whose visibility comes from
     :attr:`visibility` and whose ``created_from_agent_id`` points back at
     the source agent.
     """
@@ -281,8 +281,8 @@ class InvokeAgentRequest(pydantic.BaseModel):
     :class:`TemplateVariable` names; values are coerced to ``str`` before
     being spliced into placeholders."""
 
-    visibility: SessionVisibility = SessionVisibility.ORG
-    """Visibility of the resulting :class:`AgentSession`. Invoke-time wins:
+    visibility: ThreadVisibility = ThreadVisibility.ORG
+    """Visibility of the resulting :class:`AgentThread`. Invoke-time wins:
     this value overrides whatever the agent's ``request_template.visibility``
     field carries. Agents cannot pin visibility — authors who need to convey
     recommended visibility do so in the agent's ``description``. Defaults to
@@ -293,7 +293,7 @@ class InvokeAgentRequest(pydantic.BaseModel):
 __all__ = [
     "AgentRecord",
     "CreateAgentRequest",
-    "InvokeAgentRequest",
+    "LaunchAgentRequest",
     "TemplateVariable",
     "TemplateVariableType",
     "UpdateAgentRequest",

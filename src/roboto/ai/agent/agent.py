@@ -19,31 +19,31 @@ import urllib.parse
 
 from ...http import RobotoClient
 from ...sentinels import NotSet, NotSetType, is_set, remove_not_set
-from ..agent_session import (
-    AgentSession,
-    AgentSessionRecord,
-    SessionVisibility,
-    StartAgentSessionRequest,
+from ..agent_thread import (
+    AgentThread,
+    AgentThreadRecord,
+    StartAgentThreadRequest,
+    ThreadVisibility,
 )
 from .record import (
     AgentRecord,
     CreateAgentRequest,
-    InvokeAgentRequest,
+    LaunchAgentRequest,
     TemplateVariable,
     UpdateAgentRequest,
 )
 
 
 class Agent:
-    """A reusable, parameterized factory for :class:`AgentSession`.
+    """A reusable, parameterized factory for :class:`AgentThread`.
 
-    An :class:`Agent` captures a :class:`StartAgentSessionRequest` body
+    An :class:`Agent` captures a :class:`StartAgentThreadRequest` body
     with ``{{name}}`` placeholders alongside the
     :class:`TemplateVariable` declarations that those placeholders bind
     to. Invoking the agent substitutes caller-supplied values into the
     body, runs invoke-time existence checks for typed values (dataset
     ids, device ids), and starts a session via the same code path as
-    :meth:`AgentSession.start`.
+    :meth:`AgentThread.start`.
 
     The wrapper is to :class:`AgentRecord` what
     :class:`~roboto.domain.actions.Action` is to
@@ -65,7 +65,7 @@ class Agent:
     def create(
         cls,
         name: str,
-        request_template: StartAgentSessionRequest,
+        request_template: StartAgentThreadRequest,
         variables: typing.Optional[collections.abc.Sequence[TemplateVariable]] = None,
         description: typing.Optional[str] = None,
         caller_org_id: typing.Optional[str] = None,
@@ -83,7 +83,7 @@ class Agent:
                 ``(org_id, name)``; a second agent with the same name in
                 the same org is rejected with
                 :class:`RobotoConflictException`.
-            request_template: The :class:`StartAgentSessionRequest` to
+            request_template: The :class:`StartAgentThreadRequest` to
                 clone at invoke time. Any string leaf may carry
                 ``{{name}}`` placeholders; every referenced placeholder
                 must appear in ``variables`` (and vice versa).
@@ -116,8 +116,8 @@ class Agent:
             Create an agent with one dataset-typed variable:
 
             >>> from roboto.ai.agent import Agent, TemplateVariable, TemplateVariableType
-            >>> from roboto.ai.agent_session import StartAgentSessionRequest, AgentMessage
-            >>> request_template = StartAgentSessionRequest(
+            >>> from roboto.ai.agent_thread import StartAgentThreadRequest, AgentMessage
+            >>> request_template = StartAgentThreadRequest(
             ...     messages=[AgentMessage.text("Triage dataset {{dataset_id}}.")],
             ... )
             >>> agent = Agent.create(
@@ -319,8 +319,8 @@ class Agent:
         return self.__record.description
 
     @property
-    def request_template(self) -> StartAgentSessionRequest:
-        """The :class:`StartAgentSessionRequest` cloned at invoke time."""
+    def request_template(self) -> StartAgentThreadRequest:
+        """The :class:`StartAgentThreadRequest` cloned at invoke time."""
         return self.__record.request_template
 
     @property
@@ -360,38 +360,38 @@ class Agent:
         """
         return self.__record
 
-    def invoke(
+    def launch(
         self,
         values: typing.Optional[dict[str, str]] = None,
-        visibility: SessionVisibility = SessionVisibility.ORG,
-    ) -> AgentSession:
-        """Resolve placeholders and start an :class:`AgentSession`.
+        visibility: ThreadVisibility = ThreadVisibility.ORG,
+    ) -> AgentThread:
+        """Resolve placeholders and start an :class:`AgentThread`.
 
         The platform substitutes ``values`` into :attr:`request_template`,
-        runs invoke-time existence checks on typed values (``DATASET_ID``
-        / ``DEVICE_ID``), and creates a session via the same code path
-        as a bare :meth:`AgentSession.start`. The resulting session is
+        runs launch-time existence checks on typed values (``DATASET_ID``
+        / ``DEVICE_ID``), and creates a thread via the same code path
+        as a bare :meth:`AgentThread.start`. The resulting thread is
         owned by this agent's :attr:`org_id` (not the caller's default
         org), and its ``created_from_agent_id`` is stamped with this
         agent's :attr:`agent_id` so the agent detail page can list
-        "sessions launched from here".
+        "threads launched from here".
 
         Args:
             values: Variable name to caller-supplied value. Keys must
                 match the names declared in :attr:`variables`; values
                 are coerced to ``str`` before splicing into placeholders.
                 Omit when every declared variable carries a ``default``.
-            visibility: :class:`SessionVisibility` for the new session.
+            visibility: :class:`ThreadVisibility` for the new thread.
                 Defaults to ``ORG`` because agents exist to share
                 workflows; the caller passes ``PRIVATE`` to opt out per
-                invocation. Overrides whatever the authored
+                launch. Overrides whatever the authored
                 ``request_template`` carries.
 
         Returns:
-            An :class:`AgentSession` wrapping the freshly created
-            session. The session is fully hydrated (messages, status,
-            continuation token) and ready for :meth:`AgentSession.run`
-            or :meth:`AgentSession.events`.
+            An :class:`AgentThread` wrapping the freshly created
+            thread. The thread is fully hydrated (messages, status,
+            continuation token) and ready for :meth:`AgentThread.run`
+            or :meth:`AgentThread.events`.
 
         Raises:
             RobotoInvalidRequestException: ``values`` is missing a
@@ -406,25 +406,25 @@ class Agent:
 
         Examples:
             >>> agent = Agent.from_name("triage")
-            >>> session = agent.invoke(values={"dataset_id": "ds_abc123"})
-            >>> session.run()
+            >>> thread = agent.launch(values={"dataset_id": "ds_abc123"})
+            >>> thread.run()
         """
-        request = InvokeAgentRequest(
+        request = LaunchAgentRequest(
             values=values if values is not None else {},
             visibility=visibility,
         )
         encoded_agent_id = urllib.parse.quote(self.agent_id, safe="")
         record = self.__roboto_client.post(
-            f"v1/ai/agents/{encoded_agent_id}/invoke",
+            f"v1/ai/agents/{encoded_agent_id}/launch",
             data=request,
-        ).to_record(AgentSessionRecord)
-        return AgentSession(record=record, roboto_client=self.__roboto_client)
+        ).to_record(AgentThreadRecord)
+        return AgentThread(record=record, roboto_client=self.__roboto_client)
 
     def update(
         self,
         name: typing.Union[str, NotSetType] = NotSet,
         description: typing.Union[typing.Optional[str], NotSetType] = NotSet,
-        request_template: typing.Union[StartAgentSessionRequest, NotSetType] = NotSet,
+        request_template: typing.Union[StartAgentThreadRequest, NotSetType] = NotSet,
         variables: typing.Union[collections.abc.Sequence[TemplateVariable], NotSetType] = NotSet,
     ) -> "Agent":
         """Apply a partial update.
@@ -441,7 +441,7 @@ class Agent:
                 ``(org_id, name)`` uniqueness as :meth:`create`.
             description: Replace the description. Pass ``None`` to
                 clear; omit to leave unchanged.
-            request_template: Replace the :class:`StartAgentSessionRequest`.
+            request_template: Replace the :class:`StartAgentThreadRequest`.
             variables: Replace the variable declarations.
 
         Returns:

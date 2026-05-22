@@ -16,8 +16,8 @@ from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
-from ...ai.agent_session import AgentSession
-from ...ai.agent_session.event import (
+from ...ai.agent_thread import AgentThread
+from ...ai.agent_thread.event import (
     AgentStartTextEvent,
     AgentTextDeltaEvent,
     AgentTextEndEvent,
@@ -183,7 +183,7 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
     )
     console.print()
 
-    chat: typing.Union[AgentSession, None] = None
+    chat: typing.Union[AgentThread, None] = None
     thinking_spinner: RobotoSpinner | None
     multi_tool_spinner: RobotoMultiToolSpinner | None = None
     markdown: RobotoMarkdown | None = None
@@ -207,7 +207,7 @@ def start(args, context: CLIContext, parser: argparse.ArgumentParser):
         thinking_spinner.start()
 
         if chat is None:
-            chat = AgentSession.start(
+            chat = AgentThread.start(
                 message=prompt,
                 org_id=org_id,
                 roboto_client=context.roboto_client,
