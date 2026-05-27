@@ -6,6 +6,7 @@
 
 from .types import (
     AgentGoal,
+    CreateEventsGoal,
     DatasetSummaryAgentGoal,
     DatasetTriageGoal,
     GoalType,
@@ -13,6 +14,7 @@ from .types import (
 
 __all__ = [
     "AgentGoal",
+    "CreateEventsGoal",
     "DatasetSummaryAgentGoal",
     "DatasetTriageGoal",
     "GoalType",

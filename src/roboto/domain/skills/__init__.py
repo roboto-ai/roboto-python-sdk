@@ -10,10 +10,12 @@ A skill is text instructions the model follows when invoked — either manually
 via a chat-composer chip or automatically when the model selects it from the
 ``load_skill`` tool's registry. Skills are owned by a user, optionally shared
 with the user's organization, and versioned in place; each version is mutable
-without lifecycle states. Authorship grants edit and delete rights; visibility
-to other users follows the skill's accessibility (``private`` or ``org``).
-Per-user subscriptions carry an ``ai_version`` pin that controls whether — and
-which version — the AI auto-invoke registry exposes to the subscriber.
+without lifecycle states. Visibility and edit rights follow the skill's
+accessibility: ``private`` (author-only), ``org`` (visible org-wide, author-only
+to edit), or ``org-editable`` (visible org-wide and editable by any subscribed
+member). Per-user subscriptions carry an ``ai_version`` pin that controls
+whether — and which version — the AI auto-invoke registry exposes to the
+subscriber.
 """
 
 from .operations import (

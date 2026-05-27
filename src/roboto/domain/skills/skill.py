@@ -49,12 +49,15 @@ class Skill:
     ) -> Skill:
         """Create a new skill plus its first version (version=1).
 
-        The skill is created in the caller's organization. Only the caller can
-        edit or delete it; org-shared skills become readable by all members
-        once an :py:meth:`accessibility` of :py:attr:`SkillAccessibility.Org`
-        is set. The author is auto-subscribed at creation time and the new
-        version is pinned as Available to AI. Other org members must
-        :py:meth:`subscribe` to see the skill in their AI auto-invoke registry.
+        The skill is created in the caller's organization. With the default
+        :py:attr:`SkillAccessibility.Private` accessibility only the caller can
+        see, edit, or delete it. :py:attr:`SkillAccessibility.Org` makes it
+        readable by all org members (author-only to edit);
+        :py:attr:`SkillAccessibility.OrgEditable` additionally lets any member
+        who subscribes edit its versions, name, and tags. The author is
+        auto-subscribed at creation time and the new version is pinned as
+        Available to AI. Other org members must :py:meth:`subscribe` to see the
+        skill in their AI auto-invoke registry.
         Pass ``tags`` to seed the skill's tag list at creation time;
         later edits flow through :class:`UpdateSkillMetadataRequest`.
 
@@ -264,7 +267,11 @@ class Skill:
         return self
 
     def update_metadata(self, request: UpdateSkillMetadataRequest) -> Skill:
-        """Update skill-level metadata (name, accessibility, tags). Author-only.
+        """Update skill-level metadata (name, accessibility, tags).
+
+        Editing the name and tags is permitted for the author and — on an
+        :py:attr:`SkillAccessibility.OrgEditable` skill — for any subscribed
+        org member. Changing ``accessibility`` is always author-only.
 
         Updates apply in place; the local record is replaced with the
         server's authoritative copy.
@@ -284,7 +291,7 @@ class Skill:
         return self
 
     def delete(self) -> None:
-        """Hard-delete this skill. Author-only.
+        """Hard-delete this skill. Author-only, including on ``OrgEditable`` skills.
 
         Cascades to all versions and subscriptions. Existing chats keep any
         fabricated ``load_skill`` tool_use / tool_result blocks they've
@@ -324,8 +331,10 @@ class Skill:
     def create_version(self, request: CreateSkillVersionRequest) -> SkillVersionRecord:
         """Add a new version to this skill. The server assigns ``MAX(version) + 1``.
 
-        Subscribers who pinned the previous version stay on that pin until they
-        explicitly re-pin — the new row does not auto-promote.
+        Permitted for the author and — on an :py:attr:`SkillAccessibility.OrgEditable`
+        skill — for any subscribed org member. Subscribers who pinned the previous
+        version stay on that pin until they explicitly re-pin — the new row does
+        not auto-promote.
 
         Examples:
             >>> v2 = skill.create_version(
@@ -343,7 +352,10 @@ class Skill:
         ).to_record(SkillVersionRecord)
 
     def update_version(self, version: int, request: UpdateSkillVersionRequest) -> SkillVersionRecord:
-        """Edit fields on an existing version in place. Author-only.
+        """Edit fields on an existing version in place.
+
+        Permitted for the author and — on an :py:attr:`SkillAccessibility.OrgEditable`
+        skill — for any subscribed org member.
 
         Subscribers pinned to this version see the new body on their next AI
         invocation; there is no per-edit revision. Use :py:meth:`create_version`
@@ -359,6 +371,11 @@ class Skill:
 
     def delete_version(self, version: int) -> None:
         """Delete a single version. If it's the last remaining version, the parent skill is removed too.
+
+        Permitted for the author and — on an :py:attr:`SkillAccessibility.OrgEditable`
+        skill — for any subscribed org member. A subscribed non-author may not
+        delete the *last* remaining version: that cascades into a full skill
+        delete, which is author-only. The author has no such restriction.
 
         Subscriptions pinned to the deleted version have their ``ai_version``
         nulled out via a server-side trigger; the subscription row survives.

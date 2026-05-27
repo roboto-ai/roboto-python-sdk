@@ -27,6 +27,10 @@ class GoalType(StrEnum):
     """Deliberate over a caller-supplied label vocabulary and apply the labels that fit (zero or more) as tags
     on the dataset, with a per-label justification recorded in the agent session log."""
 
+    CREATE_EVENTS = "create_events"
+    """Investigate a dataset and create events on it, drawn from a caller-supplied event vocabulary;
+    optionally file each created event into a caller-supplied collection."""
+
 
 class AgentGoalBase(pydantic.BaseModel):
     """Shared base for every :data:`AgentGoal` subclass.
@@ -146,8 +150,114 @@ class DatasetTriageGoal(AgentGoalBase):
         return value
 
 
+_MAX_EVENT_FOCUS_PROMPT_CHARS = 4000
+"""Length cap on :attr:`CreateEventsGoal.event_focus_prompt`; keeps the prompt budget predictable."""
+
+_MAX_EVENT_VOCABULARY = 50
+"""Cap on :attr:`CreateEventsGoal.event_vocabulary` size; prevents runaway prompt + tool-schema
+bloat. Mirrors the conservative cap on triage labels."""
+
+_MAX_TAG_VOCABULARY = 50
+"""Cap on :attr:`CreateEventsGoal.tag_vocabulary` size; same rationale as :data:`_MAX_EVENT_VOCABULARY`."""
+
+_MAX_VOCABULARY_KEY_CHARS = 100
+"""Per-entry key length cap for either vocabulary. Keys are reflected into the achieve-tool's enums
+and become created events' ``name`` / ``tags``; the cap keeps both bounded."""
+
+_MAX_VOCABULARY_DESCRIPTION_CHARS = 500
+"""Per-entry description length cap for either vocabulary; keeps the prompt budget predictable."""
+
+
+def _validate_vocabulary(value: dict[str, str], *, field_name: str) -> dict[str, str]:
+    """Shared entry validator for :class:`CreateEventsGoal`'s two vocabularies.
+
+    Both ``event_vocabulary`` and ``tag_vocabulary`` map a short key (an event-type
+    name / a tag) to a description rendered into the prompt. Keys must be non-empty
+    and at most :data:`_MAX_VOCABULARY_KEY_CHARS`; descriptions non-empty and at most
+    :data:`_MAX_VOCABULARY_DESCRIPTION_CHARS`.
+    """
+    for key, description in value.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError(f"{field_name} keys must be non-empty strings; got {key!r}.")
+        if len(key) > _MAX_VOCABULARY_KEY_CHARS:
+            raise ValueError(
+                f"{field_name} key {key!r} exceeds {_MAX_VOCABULARY_KEY_CHARS} characters (got {len(key)})."
+            )
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError(
+                f"{field_name} value for {key!r} must be a non-empty string; the description is "
+                "rendered into the prompt so the LLM can pick correctly."
+            )
+        if len(description) > _MAX_VOCABULARY_DESCRIPTION_CHARS:
+            raise ValueError(
+                f"{field_name} value for {key!r} exceeds {_MAX_VOCABULARY_DESCRIPTION_CHARS} characters "
+                f"(got {len(description)})."
+            )
+    return value
+
+
+class CreateEventsGoal(AgentGoalBase):
+    """Goal: investigate a dataset and create tagged events on it from fixed vocabularies.
+
+    The caller declares :attr:`event_vocabulary` — a fixed set of event types
+    (name → description) the agent may create — and, optionally, :attr:`tag_vocabulary`
+    — a fixed set of tags (tag → when-to-apply description) the agent may attach.
+    The achieve-tool constrains every submitted event's ``name`` to an
+    ``event_vocabulary`` key and every tag to a ``tag_vocabulary`` key, so the agent
+    can only file events of the declared kinds carrying the declared tags; the
+    descriptions steer which intervals qualify and which tags fit. Every created
+    event is associated with the dataset identified by :attr:`dataset_id`. When
+    :attr:`collection_id` is set, each created event is also added to that (event)
+    collection; when it is ``None``, events are created but not filed into any
+    collection. The dataset id — and the collection id when set — are
+    constructor-injected into the achieve-tool so the LLM cannot redirect the work.
+    """
+
+    goal_type: Literal[GoalType.CREATE_EVENTS] = GoalType.CREATE_EVENTS
+    """Discriminator. Always :attr:`GoalType.CREATE_EVENTS`."""
+
+    dataset_id: str
+    """Identifier of the dataset to investigate. Every created event is associated with this
+    dataset. The achieve-tool enforces this as an invariant."""
+
+    event_vocabulary: dict[str, str] = pydantic.Field(min_length=1, max_length=_MAX_EVENT_VOCABULARY)
+    """Fixed set of event types the agent may create, mapped to descriptions. Keys are the event
+    names the LLM may choose between — each becomes the ``name`` of a created event — and values
+    describe what each event type signifies so the LLM can decide which intervals qualify. Must
+    contain at least one entry and at most :data:`_MAX_EVENT_VOCABULARY`."""
+
+    tag_vocabulary: dict[str, str] = pydantic.Field(default_factory=dict, max_length=_MAX_TAG_VOCABULARY)
+    """Fixed set of tags the agent may attach to created events, mapped to descriptions of when each
+    tag applies. For every event it creates the agent picks a subset (possibly empty) of these tags.
+    Empty (the default) means created events carry no tags. At most :data:`_MAX_TAG_VOCABULARY`
+    entries."""
+
+    collection_id: Optional[str] = None
+    """Identifier of the collection every created event is added to. ``None`` (the default) means
+    created events are not filed into any collection. When set, the achieve-tool enforces it as an
+    invariant and the target must be an event collection."""
+
+    event_focus_prompt: Optional[str] = pydantic.Field(
+        default=None, min_length=1, max_length=_MAX_EVENT_FOCUS_PROMPT_CHARS
+    )
+    """Caller-provided natural-language guidance layered on top of the vocabularies (e.g. "only flag
+    intervals longer than five seconds"). ``None`` means the vocabulary descriptions alone steer the
+    agent. When set, must be 1-:data:`_MAX_EVENT_FOCUS_PROMPT_CHARS` characters; an empty string is
+    rejected so callers don't accidentally suppress the guidance with whitespace-stripped input."""
+
+    @pydantic.field_validator("event_vocabulary")
+    @classmethod
+    def _validate_event_vocabulary(cls, value: dict[str, str]) -> dict[str, str]:
+        return _validate_vocabulary(value, field_name="event_vocabulary")
+
+    @pydantic.field_validator("tag_vocabulary")
+    @classmethod
+    def _validate_tag_vocabulary(cls, value: dict[str, str]) -> dict[str, str]:
+        return _validate_vocabulary(value, field_name="tag_vocabulary")
+
+
 AgentGoal = Annotated[
-    Union[DatasetSummaryAgentGoal, DatasetTriageGoal],
+    Union[DatasetSummaryAgentGoal, DatasetTriageGoal, CreateEventsGoal],
     pydantic.Field(discriminator="goal_type"),
 ]
 """Closed, Roboto-controlled discriminated union of all declarable agent goals.

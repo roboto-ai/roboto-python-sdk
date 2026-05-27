@@ -5,17 +5,17 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import abc
-import collections
 import collections.abc
 import typing
 
 import mcap_ros1._vendor.genpy
 import mcap_ros2._dynamic
 
-from ...logging import default_logger
+from .message_path_accessor import (
+    AccessorCache,
+    compile_accessors,
+)
 from .record import MessagePathRecord
-
-logger = default_logger()
 
 
 def is_ros1_time_value(val: typing.Any) -> bool:
@@ -199,6 +199,12 @@ class DictAttrGetter(AttrGetter):
         return hasattr(value, "keys")
 
 
+# Module-level singletons: the getters carry no per-instance state, so reusing
+# one instance per shape avoids allocating a fresh getter on every `to_dict()`.
+_CLASS_GETTER = ClassAttrGetter()
+_DICT_GETTER = DictAttrGetter()
+
+
 class DecodedMessage:
     """Facade for values returned from message decoders.
 
@@ -217,6 +223,7 @@ class DecodedMessage:
 
     __message: typing.Any
     __message_paths: collections.abc.Sequence[MessagePathRecord]
+    __accessor_cache: typing.Optional[AccessorCache]
 
     @staticmethod
     def is_path_match(attrib: str, message_path: str) -> bool:
@@ -257,9 +264,21 @@ class DecodedMessage:
         self,
         msg: typing.Any,
         message_paths: collections.abc.Sequence[MessagePathRecord],
+        accessor_cache: typing.Optional[AccessorCache] = None,
     ):
+        """Wrap a decoded message for dictionary conversion.
+
+        Args:
+            msg: The decoded message, either a dict (JSON-encoded) or a dynamically
+                created class with ``__slots__`` (ROS1/ROS2 binary encoding).
+            message_paths: Paths to extract from the message.
+            accessor_cache: Optional cache that lets repeated decodes from the same
+                read pass skip per-message accessor compilation. The reader owns the
+                cache and passes it in; one-off callers can leave it ``None``.
+        """
         self.__message = msg
         self.__message_paths = message_paths
+        self.__accessor_cache = accessor_cache
 
     def to_dict(self) -> dict:
         """Convert the decoded message to a dictionary format.
@@ -277,125 +296,12 @@ class DecodedMessage:
             >>> print(data_dict)
             {'pose': {'position': {'x': 1.5}}, 'velocity': 2.0}
         """
+        getter: AttrGetter = _DICT_GETTER if isinstance(self.__message, dict) else _CLASS_GETTER
+        if self.__accessor_cache is not None:
+            accessors = self.__accessor_cache.get_or_compile(self.__message_paths, self.__message, getter)
+        else:
+            accessors, _ = compile_accessors(self.__message_paths, self.__message, getter)
         accumulator: dict[str, typing.Any] = {}
-
-        getter: AttrGetter = ClassAttrGetter()
-
-        if isinstance(self.__message, dict):
-            # Message data was encoded as JSON
-            getter = DictAttrGetter()
-
-        for record in self.__message_paths:
-            self.__extract_path(
-                accumulator=accumulator,
-                obj=self.__message,
-                path_components=record.path_in_schema.copy(),
-                path_index=0,
-                getter=getter,
-            )
-
+        for accessor in accessors:
+            accessor(self.__message, accumulator)
         return accumulator
-
-    def __extract_path(
-        self,
-        accumulator: dict[str, typing.Any],
-        obj: typing.Any,
-        path_components: list[str],
-        path_index: int,
-        getter: AttrGetter,
-    ) -> None:
-        """Recursively extract values from a nested object structure following a path.
-
-        Traverses the object using path_components and builds a nested dictionary in the
-        accumulator. Handles special cases for ROS1/ROS2 time fields and sequences.
-
-        Args:
-            accumulator: Dictionary to store the extracted values. Modified in place.
-            obj: The current object being traversed.
-            path_components: List of attribute names forming the path to extract.
-            path_index: Current position in the path_components list (0-based).
-            getter: AttrGetter instance for accessing attributes from obj.
-        """
-        # Base case: we've exhausted the path components
-        if path_index >= len(path_components):
-            return
-
-        current_attr = path_components[path_index]
-
-        # Check if the attribute exists in the object
-        if not getter.has_attribute(obj, current_attr):
-            return
-
-        value = getter.get_attribute(obj, current_attr)
-
-        # Leaf node: this is the final attribute in the path
-        if path_index == len(path_components) - 1:
-            accumulator[current_attr] = value
-            return
-
-        if is_ros1_time_value(value):
-            for canonical_msg_path_name, attr_name in [
-                # ROS1 uses "secs"
-                #   https://github.com/foxglove/mcap/blob/main/python/mcap-ros1-support/mcap_ros1/_vendor/genpy/rostime.py#L54
-                # and "nsecs"
-                #   https://github.com/foxglove/mcap/blob/main/python/mcap-ros1-support/mcap_ros1/_vendor/genpy/rostime.py#L54
-                # but ROS ingestion uses "sec" and "nsec" instead for message path naming:
-                #   https://github.com/roboto-ai/roboto-ingestion-actions/blob/main/actions/ros_ingestion/src/ros_ingestion/utils.py#L408-L420
-                ("sec", "secs"),
-                ("nsec", "nsecs"),
-            ]:
-                try:
-                    index_of_sec = path_components.index(canonical_msg_path_name)
-                    if index_of_sec > path_index:
-                        path_components[index_of_sec] = attr_name
-                except ValueError:
-                    pass
-        elif is_ros2_time_value(value):
-            # ROS2 uses "nanosec"
-            #   https://github.com/foxglove/mcap/blob/main/python/mcap-ros2-support/mcap_ros2/_dynamic.py#L131
-            # but ROS ingestion uses "nsec" instead for message path naming:
-            #   https://github.com/roboto-ai/roboto-ingestion-actions/blob/main/actions/ros_ingestion/src/ros_ingestion/utils.py#L401-L402
-            try:
-                index_of_sec = path_components.index("nsec")
-                if index_of_sec > path_index:
-                    path_components[index_of_sec] = "nanosec"
-            except ValueError:
-                pass
-        elif isinstance(value, collections.abc.Sequence) and not isinstance(value, (str, bytes)):
-            # Map over the list and extract from each element
-            sub_path = path_components[path_index + 1 :]
-            # Merge with existing list results
-            list_accum = (
-                accumulator[current_attr]
-                if current_attr in accumulator and isinstance(accumulator[current_attr], list)
-                else defaultlist[dict](factory=dict)
-            )
-            for i, item in enumerate(value):
-                item_accum = list_accum[i]
-                self.__extract_path(
-                    accumulator=item_accum,
-                    obj=item,
-                    path_components=sub_path,
-                    path_index=0,
-                    getter=getter,
-                )
-
-            accumulator[current_attr] = list_accum
-            return
-
-        if not getter.has_sub_attributes(value):
-            # Can't traverse further, but we haven't reached the end of the indexable path
-            return
-
-        # Create nested obj if it doesn't exist
-        if current_attr not in accumulator:
-            accumulator[current_attr] = dict()
-
-        # Recurse to the next level
-        self.__extract_path(
-            accumulator=accumulator[current_attr],
-            obj=value,
-            path_components=path_components,
-            path_index=path_index + 1,
-            getter=getter,
-        )

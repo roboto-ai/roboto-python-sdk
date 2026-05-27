@@ -40,14 +40,18 @@ class CreateSkillRequest(pydantic.BaseModel):
     """
 
     name: str = pydantic.Field(max_length=120, pattern=SKILL_NAME_PATTERN)
-    """Skill name. Unique within ``(org_id, accessibility)`` — a user's private skill
-    and an org-shared skill may share a name without conflict. Must match
+    """Skill name. Unique per org across every org-visible skill (``Org`` and
+    ``OrgEditable`` share one name namespace); private skills are unique per
+    ``(org_id, created_by)``. A user's private skill and an org-shared skill
+    may therefore share a name without conflict. Must match
     :data:`SKILL_NAME_PATTERN` so the name is parseable inside the chat composer's
     ``/slug`` token (no whitespace, letters/digits/hyphens/underscores only)."""
 
     accessibility: SkillAccessibility = SkillAccessibility.Private
-    """Visibility scope: ``Private`` (only the author) or ``Org`` (every org member).
-    The author can flip this later via :class:`UpdateSkillMetadataRequest`."""
+    """Visibility scope: ``Private`` (only the author), ``Org`` (visible to every
+    org member, author-only to edit), or ``OrgEditable`` (visible to every org
+    member, editable by any member who subscribes). The author can flip this
+    later via :class:`UpdateSkillMetadataRequest`."""
 
     description: str = pydantic.Field(max_length=MAX_SKILL_DESCRIPTION_LENGTH)
     """"When to use" text for v1. Surfaces verbatim in the ``load_skill`` tool's
@@ -68,15 +72,22 @@ class CreateSkillRequest(pydantic.BaseModel):
 
 
 class UpdateSkillMetadataRequest(pydantic.BaseModel):
-    """Update top-level skill identity. Author-only."""
+    """Update top-level skill identity.
+
+    Editing ``name`` / ``put_tags`` / ``remove_tags`` is permitted for the author
+    and — on an ``OrgEditable`` skill — for any subscribed org member. Changing
+    ``accessibility`` is always author-only.
+    """
 
     name: Union[str, NotSetType] = pydantic.Field(default=NotSet, max_length=120, pattern=SKILL_NAME_PATTERN)
     """New skill name. Omit (the ``NotSet`` default) to leave unchanged. Must match
-    :data:`SKILL_NAME_PATTERN` and stays unique within ``(org_id, accessibility)``."""
+    :data:`SKILL_NAME_PATTERN` and stays unique per org (private skills per author)."""
 
     accessibility: Union[SkillAccessibility, NotSetType] = NotSet
-    """New visibility scope. Omit to leave unchanged. Flipping ``Private`` → ``Org``
-    immediately exposes the skill to every org member."""
+    """New visibility scope. Omit to leave unchanged. Author-only — a subscribed
+    non-author editor of an ``OrgEditable`` skill cannot change it. Flipping
+    ``Private`` → ``Org`` / ``OrgEditable`` immediately exposes the skill to every
+    org member; flipping to ``Private`` prunes every non-author subscription."""
 
     # Tag changes flow as additive lists (not a full ``tags=`` replacement) so
     # concurrent edits to disjoint tags merge without lost updates — same

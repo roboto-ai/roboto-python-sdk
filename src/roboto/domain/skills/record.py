@@ -18,13 +18,18 @@ MAX_SKILL_DESCRIPTION_LENGTH = 500
 
 
 class SkillAccessibility(StrEnum):
-    """Controls who can see a skill."""
+    """Controls who can see and edit a skill."""
 
     Private = "private"
     """Only the author (``created_by``) can see, edit, or invoke the skill."""
 
     Org = "org"
     """All members of the owning org can see and invoke the skill. Only the author can edit."""
+
+    OrgEditable = "org-editable"
+    """All members of the owning org can see and invoke the skill, and any member who has
+    subscribed to it can also edit its versions, name, and tags. Changing the skill's
+    accessibility and deleting the whole skill remain author-only."""
 
 
 class SkillRecord(pydantic.BaseModel):

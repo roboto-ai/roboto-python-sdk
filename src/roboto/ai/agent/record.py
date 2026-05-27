@@ -11,6 +11,7 @@ from typing import Any, Optional, Union
 import pydantic
 
 from ...compat import StrEnum
+from ...domain.collections.record import CollectionResourceType
 from ...sentinels import NotSet, NotSetType
 from ..agent_thread.record import StartAgentThreadRequest, ThreadVisibility
 
@@ -52,6 +53,10 @@ class TemplateVariableType(StrEnum):
     """A Roboto device identifier. UI renders a device picker; invoke-time
     validator asserts the device is registered in the caller's org."""
 
+    COLLECTION_ID = "collection_id"
+    """A Roboto collection identifier. UI renders a collection picker; invoke-time
+    validator asserts the collection exists in the caller's org."""
+
 
 class TemplateVariable(pydantic.BaseModel):
     """A named slot in an :class:`AgentRecord` that must be filled before the
@@ -86,6 +91,12 @@ class TemplateVariable(pydantic.BaseModel):
     """Default value substituted when the caller omits the variable. Coerced
     to ``str``; types are a UI concern."""
 
+    collection_content_type: Optional[CollectionResourceType] = None
+    """Only meaningful when :attr:`type` is :attr:`TemplateVariableType.COLLECTION_ID`: constrains
+    the invoke-page collection picker to collections holding this resource type (e.g. ``event``
+    collections for a create-events goal). ``None`` leaves the picker unconstrained. Must be ``None``
+    for every other variable type — see :meth:`_validate_resolvable`."""
+
     @pydantic.field_validator("name")
     @classmethod
     def _validate_name(cls, value: str) -> str:
@@ -100,12 +111,20 @@ class TemplateVariable(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def _validate_resolvable(self) -> "TemplateVariable":
-        """Reject ``required=False`` paired with ``default=None`` — an optional
-        variable with no default has no resolution path at invoke time."""
+        """Reject two malformed shapes: ``required=False`` paired with
+        ``default=None`` (an optional variable with no default has no resolution
+        path at invoke time), and a :attr:`collection_content_type` set on a
+        variable whose :attr:`type` is not ``COLLECTION_ID`` (the annotation only
+        has meaning for the collection picker)."""
         if not self.required and self.default is None:
             raise ValueError(
                 f"TemplateVariable {self.name!r}: an optional variable must carry a default "
                 "(required=False, default=None has no defined resolution)."
+            )
+        if self.collection_content_type is not None and self.type is not TemplateVariableType.COLLECTION_ID:
+            raise ValueError(
+                f"TemplateVariable {self.name!r}: collection_content_type is only valid when type is "
+                f"COLLECTION_ID (got type={self.type!r})."
             )
         return self
 

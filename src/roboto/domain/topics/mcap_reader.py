@@ -10,13 +10,14 @@ import typing
 
 import mcap.reader
 import mcap_ros1.decoder
-import mcap_ros2.decoder
 
 from .decoded_message import DecodedMessage
 from .json_decoder_factory import (
     JsonDecoderFactory,
 )
+from .message_path_accessor import AccessorCache
 from .record import MessagePathRecord
+from .ros2_decoder import make_ros2_decoder_factory
 
 
 class McapReader:
@@ -33,6 +34,7 @@ class McapReader:
     __message_iterator: typing.Iterator[mcap.reader.DecodedMessageTuple]
     __message_paths: collections.abc.Sequence[MessagePathRecord]
     __next_unconsummed_decode_result: typing.Union[mcap.reader.DecodedMessageTuple, None] = None
+    __accessor_cache: AccessorCache
 
     def __init__(
         self,
@@ -59,10 +61,11 @@ class McapReader:
         """
         json_decoder = JsonDecoderFactory()
         ros1_decoder = mcap_ros1.decoder.DecoderFactory()
-        ros2_decoder = mcap_ros2.decoder.DecoderFactory()
+        ros2_decoder = make_ros2_decoder_factory()
         reader = mcap.reader.make_reader(stream, decoder_factories=[json_decoder, ros1_decoder, ros2_decoder])
         self.__message_iterator = reader.iter_decoded_messages(start_time=start_time, end_time=end_time)
         self.__message_paths = message_paths
+        self.__accessor_cache = AccessorCache()
         self.__decode_next()
 
     @property
@@ -118,7 +121,11 @@ class McapReader:
         self.__decode_next()
 
         if next_decode_result is not None:
-            return DecodedMessage(next_decode_result.decoded_message, self.__message_paths)
+            return DecodedMessage(
+                next_decode_result.decoded_message,
+                self.__message_paths,
+                accessor_cache=self.__accessor_cache,
+            )
         return None
 
     def next_message_is_time_aligned(self, timestamp: typing.Union[int, float]) -> bool:
