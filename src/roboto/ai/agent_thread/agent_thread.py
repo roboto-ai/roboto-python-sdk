@@ -54,6 +54,11 @@ from .record import (
 
 OnEvent = collections.abc.Callable[[AgentEvent], None]
 
+# Backend-injected input-schema metadata, not real tool arguments. Kept on the
+# wire (the web UI and the server's compression engine read it), but filtered
+# out before a client-tool callback is invoked.
+_BACKEND_INJECTED_INPUT_FIELDS = frozenset({"_compression_intent"})
+
 
 class RobotoAgentGoalsFailedException(RuntimeError):
     """Raised by :meth:`AgentThread.run` when a goal-bearing turn exhausts
@@ -909,6 +914,8 @@ class AgentThread:
         # list, sets keys on an inner dict) cannot corrupt the session's own
         # in-memory copy of the message.
         tool_input = copy.deepcopy(tool_use.input) if tool_use.input else {}
+        # Backend-injected metadata must not reach the callback as kwargs.
+        tool_input = {key: value for key, value in tool_input.items() if key not in _BACKEND_INJECTED_INPUT_FIELDS}
         tool = self.__client_tools.get(tool_name)
 
         if tool is None:

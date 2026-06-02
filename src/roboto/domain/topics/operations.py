@@ -284,7 +284,7 @@ class UpdateTopicRequest(pydantic.BaseModel):
 
 
 class TimelineOffsetEntry(pydantic.BaseModel):
-    """Single offset entry shared by the file and topic timeline-offset endpoints.
+    """Single offset entry for the file timeline-offset endpoint.
 
     ``unix_epoch_offset_ns`` projects stored partition time onto Unix-epoch wall-clock
     (``session_time_ns = stored_time_ns + unix_epoch_offset_ns``).
@@ -293,15 +293,14 @@ class TimelineOffsetEntry(pydantic.BaseModel):
 
     Topic selector:
         - ``topic_name``: the topic's name (e.g. ``"/imu/raw"``); topic names are unique within a single file.
-          Only meaningful on :py:meth:`roboto.domain.files.File.set_timeline_offsets`;
-          :py:meth:`roboto.domain.topics.Topic.set_timeline_offsets` rejects entries that set it.
+          Scopes the offset to a single topic on the file.
 
     Timeline-source selector:
         - ``timeline_source_name``: the source's name (e.g. ``"header.stamp"``). Source names are not unique,
           so the server applies the offset to every matching extent in scope.
         - ``timeline_source_id``: explicit id, for callers holding a :py:class:`TimelineSourceRecord`.
 
-    Omitting every selector applies the offset to every timeline extent on the URL-scoped resource (file or topic).
+    Omitting every selector applies the offset to every timeline extent on the file.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -319,7 +318,7 @@ class TimelineOffsetEntry(pydantic.BaseModel):
 
 
 class SetTimelineOffsetsRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/{files|topics}/id/<id>/timeline-offsets``.
+    """Request body for ``POST /v1/files/id/<id>/timeline-offsets``.
 
     Atomic request: the server applies all entries together or fails.
     """

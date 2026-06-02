@@ -524,6 +524,13 @@ class Metric:
         the chosen :py:class:`~roboto.domain.metrics.NumericAggregation` is
         applied to the values in each bucket.
 
+        The server snaps the requested window outward to whole-period
+        boundaries to guarantee apples-to-apples comparisons.
+        All time period buckets always cover their complete calendar period. For example,
+            * a monthly aggregation requested between Jan 15 – Mar 15 will return aggregated data for all of
+                January, February, and March.
+            * a quarterly aggregation from Apr 27 - Dec 28 will return aggregated data for all of Q2, Q3, and Q4.
+
         Args:
             name: Name of the metric definition to aggregate.
             period: Calendar bucket size to group observations by.

@@ -37,8 +37,6 @@ from .operations import (
     CreateTopicRequest,
     MessagePathChangeset,
     SetDefaultRepresentationRequest,
-    SetTimelineOffsetsRequest,
-    TimelineOffsetEntry,
     UpdateMessagePathRequest,
     UpdateTopicRequest,
 )
@@ -54,8 +52,6 @@ from .record import (
     RepresentationRecord,
     RepresentationSelector,
     RepresentationStorageFormat,
-    TimelineExtentRecord,
-    TimelineSourceRecord,
     TopicRecord,
 )
 from .topic_data_service import TopicDataService
@@ -1143,105 +1139,6 @@ class Topic:
         representation_record = response.to_record(RepresentationRecord)
         self.refresh()
         return representation_record
-
-    @experimental
-    def set_timeline_offset(
-        self,
-        unix_epoch_offset_ns: int,
-        *,
-        timeline_source: typing.Optional["TimelineSourceRecord"] = None,
-        timeline_source_name: typing.Optional[str] = None,
-    ) -> list["TimelineExtentRecord"]:
-        """Calibrate this topic's timeline to Unix-epoch wall-clock, optionally scoped to a source.
-
-        Contract:
-
-        1. The offset is added to stored partition time to produce wall-clock:
-           ``session_time_ns = stored_time_ns + unix_epoch_offset_ns``.
-        2. ``timeline_source`` / ``timeline_source_name`` scopes the update to a single source on this topic;
-           with no selector, the offset applies to every timeline on the topic.
-
-        Use :py:meth:`set_timeline_offsets` to send several offsets in one atomic request.
-
-        Args:
-            unix_epoch_offset_ns: Offset to apply, in nanoseconds.
-            timeline_source: Source record to scope the update to. Mutually exclusive with ``timeline_source_name``.
-            timeline_source_name: Source name to scope the update to (e.g. ``"header.stamp"``). Mutually exclusive
-                with ``timeline_source``.
-
-        Returns:
-            The updated :py:class:`TimelineExtentRecord` entries returned by the server.
-
-        Examples:
-            Apply a topic-wide offset:
-
-            >>> topic = Topic.from_id("topic_xyz789")
-            >>> topic.set_timeline_offset(1_700_000_000_000_000_000)
-
-            Apply an offset to a specific source on this topic:
-
-            >>> topic.set_timeline_offset(
-            ...     500_000_000,
-            ...     timeline_source_name="header.stamp",
-            ... )
-        """
-        if timeline_source is not None and timeline_source_name is not None:
-            raise ValueError("Specify at most one of timeline_source, timeline_source_name.")
-
-        entry = TimelineOffsetEntry(
-            unix_epoch_offset_ns=unix_epoch_offset_ns,
-            timeline_source_id=(timeline_source.timeline_source_id if timeline_source is not None else None),
-            timeline_source_name=timeline_source_name,
-        )
-        return self.set_timeline_offsets([entry])
-
-    @experimental
-    def set_timeline_offsets(
-        self,
-        offsets: list["TimelineOffsetEntry"],
-    ) -> list["TimelineExtentRecord"]:
-        """Apply multiple timeline offsets to this topic in one atomic request.
-
-        Contract:
-
-        1. Each entry carries a ``unix_epoch_offset_ns`` and optional selectors (``timeline_source_id``,
-           ``timeline_source_name``) that narrow where the offset is applied. An entry with no selectors
-           targets every timeline on this topic.
-        2. The server applies the entire batch in one transaction; on failure none are applied.
-        3. The server 404s if no timeline matches any entry — there is no silent no-op.
-        4. Entries must not set ``topic_name``; this method is already scoped to this topic and the server
-           rejects entries that include one.
-
-        Use :py:meth:`set_timeline_offset` for the single-offset convenience form.
-
-        Args:
-            offsets: Offset entries to apply, each with its own selectors.
-
-        Returns:
-            The updated :py:class:`TimelineExtentRecord` entries returned by the server.
-
-        Examples:
-            Apply per-source offsets in a single request:
-
-            >>> from roboto.domain.topics import TimelineOffsetEntry
-            >>> topic = Topic.from_id("topic_xyz789")
-            >>> topic.set_timeline_offsets(
-            ...     [
-            ...         TimelineOffsetEntry(
-            ...             unix_epoch_offset_ns=1_700_000_000_000_000_000, timeline_source_name="header.stamp"
-            ...         ),
-            ...         TimelineOffsetEntry(
-            ...             unix_epoch_offset_ns=1_700_000_000_000_000_500, timeline_source_name="recv_time"
-            ...         ),
-            ...     ]
-            ... )
-        """
-        request = SetTimelineOffsetsRequest(offsets=offsets)
-        return self.__roboto_client.post(
-            f"v1/topics/id/{self.topic_id}/timeline-offsets",
-            data=request,
-            owner_org_id=self.org_id,
-        ).to_record_list(TimelineExtentRecord)
 
     def to_association(self) -> Association:
         """Convert this topic to an Association object.

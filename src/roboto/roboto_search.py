@@ -179,6 +179,15 @@ class RobotoSearch:
           include at least one file from the given dataset. ``=`` / ``!=`` only.
         - ``device.device_id`` (alias ``device.id``) — matches sessions attached
           to the given device. ``=`` / ``!=`` only.
+        - ``metric.<name>`` (alias ``metrics.<name>``) — matches sessions by a session
+          metric named ``<name>``; dots are part of the metric name (e.g.
+          ``metric.cpu.load.max``). Accepts value and existence comparators.
+          The value comparators ``=``, ``!=``, ``>``, ``>=``, ``<``, ``<=`` require a
+          numeric value, and only match sessions that have the metric *and* whose value
+          satisfies the comparison.
+          The presence comparators take no value: ``IS_NOT_NULL`` / ``EXISTS``
+          match sessions that have the metric (any value); ``IS_NULL`` / ``NOT_EXISTS``
+          match sessions that lack it.
 
         The four time-window fields accept any shape :py:data:`roboto.time.Time`
         permits — integer epoch nanoseconds, float / Decimal / ``<sec>.<nsec>`` string
