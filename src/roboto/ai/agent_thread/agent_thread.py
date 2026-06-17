@@ -15,6 +15,7 @@ from typing import Optional, Union
 from ...http import RobotoClient
 from ..core import AnalysisScope, ClientViewingContext
 from ..goals import AgentGoal
+from .agent_thread_goal_view import AgentThreadGoalView
 from .client_tool import ClientTool
 from .event import (
     AgentErrorEvent,
@@ -37,6 +38,7 @@ from .record import (
     AgentRole,
     AgentTextContent,
     AgentThreadDelta,
+    AgentThreadGoalRecord,
     AgentThreadRecord,
     AgentThreadStatus,
     AgentToolResultContent,
@@ -353,6 +355,16 @@ class AgentThread:
         # receive a premature End on one poll and a duplicate Start on the
         # next when more text chunks arrive.
         self.__open_text_idxs: set[int] = set()
+        # Cache for ``self.goals``. Keyed on the ``self.__record.goals`` object
+        # itself (compared with ``is``) so a ``refresh`` that installs a fresh
+        # goals list invalidates transparently while repeated reads against the
+        # same list reuse the wrappers. Holding the list rather than ``id(...)``
+        # is load-bearing: an id is only unique among live objects, and since
+        # the cache would not otherwise reference the list, a freed list's id
+        # could be reused by an unrelated object and yield a false hit. The key
+        # may also be ``None`` (the record's "goals not loaded" sentinel), which
+        # caches cleanly. The outer ``None`` means "not yet built".
+        self.__goals_cache: tuple[Optional[list[AgentThreadGoalRecord]], list[AgentThreadGoalView]] | None = None
         self.__register_tools(client_tools)
 
     @property
@@ -376,6 +388,40 @@ class AgentThread:
     def status(self) -> AgentThreadStatus:
         """Current status of the thread."""
         return self.__record.status
+
+    @property
+    def goals(self) -> list[AgentThreadGoalView]:
+        """Goals declared across this thread's turns, oldest first.
+
+        Each entry is an :class:`AgentThreadGoalView` SDK wrapper that delegates
+        the goal-record fields and adds three resolved properties:
+
+        - :attr:`AgentThreadGoalView.achieve_tool_use` — the LLM's achieve-tool
+          invocation, located by ``achieve_tool_use_id``.
+        - :attr:`AgentThreadGoalView.achieve_tool_result` — the matching tool
+          result block, if one was persisted.
+        - :attr:`AgentThreadGoalView.result` — the typed, per-goal-type
+          :data:`GoalResult` (with the LLM's submitted payload parsed into
+          typed fields).
+
+        Returns an empty list when the thread declared no goals or when
+        the underlying record was fetched without loading them — call
+        :meth:`refresh` if you expect goals to be present but the list is
+        empty.
+
+        Wrappers are cached against the underlying goals-list identity:
+        repeated reads return the same list (and the same per-goal wrappers)
+        until a ``refresh`` installs a fresh goals list, at which point the
+        cache is invalidated transparently. Callers may rely on identity
+        comparison across reads against the same snapshot.
+        """
+        goals_list = self.__record.goals
+        cached = self.__goals_cache
+        if cached is not None and cached[0] is goals_list:
+            return cached[1]
+        wrappers = [AgentThreadGoalView(record, self.__record.messages) for record in (goals_list or [])]
+        self.__goals_cache = (goals_list, wrappers)
+        return wrappers
 
     @property
     def client_tool_names(self) -> list[str]:

@@ -15,6 +15,16 @@ import pydantic
 from ...compat import StrEnum
 from ...warnings import experimental
 
+CUSTOM_FIELD_NAME_PATTERN = r"[a-z][a-z0-9_]{0,62}"
+"""Regular expression describing the format of a valid custom-field name.
+
+A custom-field name is at most 63 characters long, starts with a lowercase ASCII
+letter, and may otherwise contain lowercase ASCII letters, digits, and underscores.
+
+Unanchored, for embedding in a larger pattern; wrap as ``^{...}$`` to match a
+whole field name.
+"""
+
 
 class CustomFieldStatus(StrEnum):
     """Lifecycle state of a :py:class:`~roboto.domain.custom_fields.CustomField`.
@@ -154,7 +164,7 @@ class CustomFieldRecord(pydantic.BaseModel):
     """Long-form description of the field's meaning, or ``None`` if unset."""
 
     display_name: Optional[str] = None
-    """Human-readable label for the field, ir ``None`` if unset."""
+    """Human-readable label for the field, or ``None`` if unset."""
 
     entity_type: TargetEntityType
     """Roboto entity type the field extends."""

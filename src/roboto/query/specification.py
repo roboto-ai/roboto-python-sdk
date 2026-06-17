@@ -92,6 +92,17 @@ class QuerySpecification(pydantic.BaseModel):
     Page size for returned results. Optional, default is ``MAX_PAGE_SIZE``.
     """
 
+    max_results: typing.Optional[int] = pydantic.Field(default=None, ge=1)
+    """
+    Maximum number of results to return across all pages. Must be ``>= 1`` when set.
+    ``None`` (default) means no cap — pagination yields the full result set. Distinct from
+    ``limit``, which is the per-page size.
+
+    Only honored for queries executed via Roboto search (the ``QueryTarget`` resource types:
+    collections, datasets, files, sessions, topics, topic message paths, events). Other code
+    paths that accept a ``QuerySpecification`` ignore this field.
+    """
+
     after: typing.Optional[str] = None
     """
     Encoded next page token. Optional.

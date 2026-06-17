@@ -25,14 +25,14 @@ class TopicSchema:
     Schemas are deduplicated within an organization: topics whose fields share the same names,
     paths, and data types reference the same schema.
 
-    Use :py:meth:`from_id` when you already know the ``schema_id``, or :py:meth:`for_topic` to retrieve the
-    schema associated with a specific topic. :py:meth:`Topic.get_schema` is also a convenient entry point.
+    Use :py:meth:`from_id` when you already know the ``schema_id``.
+    :py:meth:`Topic.get_schema` retrieves the schema associated with a specific topic.
 
     Examples:
-        Retrieve a topic's schema and inspect its fields:
+        Retrieve a schema and inspect its fields:
 
         >>> from roboto.domain.topics import TopicSchema
-        >>> schema = TopicSchema.for_topic(topic_id="tp_abc123")
+        >>> schema = TopicSchema.from_id("ts_abc123")
         >>> print(schema.name, schema.checksum)
         >>> for field in schema.fields:
         ...     print(field.path_in_schema, field.data_type)
@@ -41,37 +41,6 @@ class TopicSchema:
     __record: TopicSchemaRecord
     __fields: list[SchemaFieldRecord]
     __roboto_client: RobotoClient
-
-    @classmethod
-    def for_topic(
-        cls,
-        topic_id: str,
-        owner_org_id: typing.Optional[str] = None,
-        roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> "TopicSchema":
-        """Retrieve the schema associated with a topic.
-
-        Args:
-            topic_id: Unique identifier of the topic whose schema to retrieve.
-            owner_org_id: Organization that owns the topic. Required for cross-org access.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-
-        Returns:
-            A :py:class:`TopicSchema` for the topic.
-
-        Raises:
-            RobotoNotFoundException: The topic does not exist, or has no schema associated with it.
-        """
-        roboto_client = RobotoClient.defaulted(roboto_client)
-        record = roboto_client.get(
-            f"v1/topics/id/{topic_id}/schema",
-            owner_org_id=owner_org_id,
-        ).to_record(TopicSchemaRecord)
-        fields = roboto_client.get(
-            f"v1/topics/schema/id/{record.schema_id}/fields",
-            owner_org_id=owner_org_id,
-        ).to_record_list(SchemaFieldRecord)
-        return cls(record, fields, roboto_client)
 
     @classmethod
     def from_id(
@@ -101,11 +70,11 @@ class TopicSchema:
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(
-            f"v1/topics/schema/id/{schema_id}",
+            f"v2/topics/schema/id/{schema_id}",
             owner_org_id=owner_org_id,
         ).to_record(TopicSchemaRecord)
         fields = roboto_client.get(
-            f"v1/topics/schema/id/{schema_id}/fields",
+            f"v2/topics/schema/id/{schema_id}/fields",
             owner_org_id=owner_org_id,
         ).to_record_list(SchemaFieldRecord)
         return cls(record, fields, roboto_client)

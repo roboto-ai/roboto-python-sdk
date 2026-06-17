@@ -37,6 +37,7 @@ from .requester import (
 from .response import (
     BatchResponse,
     BatchResponseElement,
+    InvalidPaginationTokenError,
     PaginatedList,
     PaginationToken,
     PaginationTokenEncoding,
@@ -57,6 +58,7 @@ __all__ = (
     "DEFAULT_HTTP_TIMEOUT",
     "HttpClient",
     "HttpError",
+    "InvalidPaginationTokenError",
     "ORG_OVERRIDE_HEADER",
     "ORG_OVERRIDE_QUERY_PARAM",
     "PaginatedList",

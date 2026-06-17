@@ -12,7 +12,13 @@ import pydantic
 
 from ...sentinels import NotSet, NotSetType
 from ...warnings import experimental
-from .record import CustomFieldOptions, CustomFieldStatus, CustomFieldType, TargetEntityType
+from .record import (
+    CUSTOM_FIELD_NAME_PATTERN,
+    CustomFieldOptions,
+    CustomFieldStatus,
+    CustomFieldType,
+    TargetEntityType,
+)
 
 FieldDescription: TypeAlias = Annotated[str, pydantic.StringConstraints(max_length=256)]
 """Long-form description of a custom field. Up to 256 characters."""
@@ -39,7 +45,7 @@ class CreateCustomFieldRequest(pydantic.BaseModel):
     entity_type: TargetEntityType
     """Roboto entity type the field extends."""
 
-    field_name: Annotated[str, pydantic.StringConstraints(pattern=r"^[a-z][a-z0-9_]{0,62}$")]
+    field_name: Annotated[str, pydantic.StringConstraints(pattern=rf"^{CUSTOM_FIELD_NAME_PATTERN}$")]
     """Name of the field. Fixed at creation time.
 
     Must match ``^[a-z][a-z0-9_]{0,62}$`` (lowercase ASCII, max 63 chars) and is

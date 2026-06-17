@@ -32,6 +32,25 @@ class GoalType(StrEnum):
     optionally file each created event into a caller-supplied collection."""
 
 
+class AgentGoalStatus(StrEnum):
+    """Lifecycle of a per-turn declared goal.
+
+    Goals begin PENDING when registered. They transition to ACHIEVED when the
+    corresponding achieve-tool reports success, or to FAILED when the runner's
+    corrective re-prompt budget for the turn is exhausted (or when the worker
+    cannot construct an achieve-tool for the goal).
+    """
+
+    PENDING = "pending"
+    """Goal has been registered but not yet completed."""
+
+    ACHIEVED = "achieved"
+    """Goal's corresponding achieve-tool was invoked successfully."""
+
+    FAILED = "failed"
+    """Goal could not be achieved within the turn's retry budget."""
+
+
 class AgentGoalBase(pydantic.BaseModel):
     """Shared base for every :data:`AgentGoal` subclass.
 

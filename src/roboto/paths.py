@@ -77,6 +77,10 @@ def patterns_to_condition_group(
 ) -> ConditionGroup:
     """
     Transform a list of Git wildmatch patterns into a ConditionGroup.
+
+    ``patterns`` must be non-empty. An empty iterable yields a zero-condition group, which
+    ``ConditionGroup`` rejects with a ``ValueError``; callers treat an empty pattern list as
+    no filter and skip this call rather than passing it through.
     """
     return ConditionGroup(
         conditions=[

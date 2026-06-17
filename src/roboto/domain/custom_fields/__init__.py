@@ -7,6 +7,7 @@
 from .custom_field import CustomField
 from .operations import CreateCustomFieldRequest, ListCustomFieldsRequest, UpdateCustomFieldRequest
 from .record import (
+    CUSTOM_FIELD_NAME_PATTERN,
     CustomFieldOptions,
     CustomFieldRecord,
     CustomFieldStatus,
@@ -16,6 +17,7 @@ from .record import (
 )
 
 __all__ = [
+    "CUSTOM_FIELD_NAME_PATTERN",
     "CustomField",
     "CustomFieldOptions",
     "CustomFieldRecord",

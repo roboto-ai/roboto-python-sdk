@@ -21,6 +21,9 @@ NSEC_PER_SEC = 1_000_000_000
 NSEC_PER_MS = 1_000_000
 NSEC_PER_US = 1_000
 
+_SEC_PER_DAY = 86_400
+_UNIX_EPOCH = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
+
 
 Time: typing.TypeAlias = typing.Union[int, float, decimal.Decimal, str, datetime.datetime]
 
@@ -106,10 +109,12 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
 
     elif isinstance(value, datetime.datetime):
         timezone_aware = _ensure_timezone_aware(value)
-        return int(
-            # datetime::timestamp is always seconds
-            timezone_aware.timestamp() * TimeUnit.Seconds.nano_multiplier()
-        )
+        # Use integer timedelta math rather than ``timestamp() * 1e9``: the float
+        # multiply rounds away the low-order nanosecond digits for sub-second
+        # values (e.g. a 1us datetime yields ...001024 instead of ...001000).
+        # datetime resolves to microseconds, so this is exact for every datetime.
+        delta = timezone_aware - _UNIX_EPOCH
+        return (delta.days * _SEC_PER_DAY + delta.seconds) * NSEC_PER_SEC + delta.microseconds * NSEC_PER_US
 
     else:
         raise TypeError(

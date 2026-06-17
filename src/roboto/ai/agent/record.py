@@ -14,6 +14,7 @@ from ...compat import StrEnum
 from ...domain.collections.record import CollectionResourceType
 from ...sentinels import NotSet, NotSetType
 from ..agent_thread.record import StartAgentThreadRequest, ThreadVisibility
+from ..core import AnalysisScope
 
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}")
 """Recognizes ``{{name}}`` placeholders. Names start with a letter or
@@ -307,6 +308,13 @@ class LaunchAgentRequest(pydantic.BaseModel):
     recommended visibility do so in the agent's ``description``. Defaults to
     ``ORG`` because agents exist to share workflows across teammates;
     ``PRIVATE`` is an explicit opt-out per invocation."""
+
+    analysis_scope: Optional[AnalysisScope] = None
+    """Optional :class:`~roboto.ai.core.AnalysisScope` for the resulting
+    thread. When provided, it is zipper-merged onto whatever the agent's
+    ``request_template.analysis_scope`` field carries: each dimension the
+    caller set wins, and the rest inherit from the template. When ``None``,
+    the authored template's scope (usually none) is left untouched."""
 
 
 __all__ = [

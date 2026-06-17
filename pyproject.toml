@@ -21,6 +21,7 @@ dependencies = [
     "pydantic-core>=2.14",
     "pydantic-settings>=2.1",
     "rich>=14.2",
+    "roboto-mcap-codec>=0.1.15,<0.2",
     "tenacity>=8.2",
     "tqdm>=4.65",
     "urllib3>=2.0",

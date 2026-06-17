@@ -126,6 +126,35 @@ class CreateEventRequest(pydantic.BaseModel):
     """
 
 
+MAX_EVENTS_PER_DELETE_BATCH = 1000
+"""Maximum number of event IDs the bulk Delete Events API accepts in a single request.
+
+The cap keeps a single delete bounded to one reasonably sized DELETE statement and
+transaction, so an oversized request can't make the service or database go nuts. A
+request that exceeds it is rejected server-side with a 400.
+:py:meth:`roboto.domain.events.Event.delete_many` splits larger inputs into chunks of
+this size automatically, so SDK callers don't need to batch by hand.
+"""
+
+
+class DeleteEventsRequest(pydantic.BaseModel):
+    """
+    Request payload for the Delete Events (bulk) operation.
+
+    Used to delete multiple events in a single request. Event IDs that don't
+    exist are silently ignored so the operation is idempotent; an ID the caller
+    isn't allowed to delete causes the whole request to be rejected.
+
+    A single request may contain at most :py:const:`MAX_EVENTS_PER_DELETE_BATCH`
+    event IDs; larger requests are rejected. Use
+    :py:meth:`roboto.domain.events.Event.delete_many`, which chunks input into
+    batches of this size for you.
+    """
+
+    event_ids: list[str]
+    """IDs of the events to delete. At most :py:const:`MAX_EVENTS_PER_DELETE_BATCH` per request."""
+
+
 class QueryEventsForAssociationsRequest(pydantic.BaseModel):
     """
     Request payload for the Query Events for Associations operation.

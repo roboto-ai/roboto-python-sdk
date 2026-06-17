@@ -21,6 +21,28 @@ from ...logging import default_logger
 logger = default_logger()
 
 
+class S3BucketHealthCheck(pydantic.BaseModel):
+    """Summary of the most recent health check against an S3 bucket integration.
+
+    Carries only a machine-readable classification and curated, non-sensitive copy: no identifiers
+    (bucket name, role ARN, account ID), no secrets, and no raw AWS error text. The identifiers a
+    reader needs live on the enclosing :class:`S3BucketIntegrationRecord`.
+    """
+
+    reason_code: str
+    """Machine-readable result classification — a fixed token, e.g. ``ok`` or ``permission_denied``."""
+
+    aws_error_code: str | None = None
+    """AWS error code that drove the classification (e.g. ``AccessDenied``), if any — a fixed token,
+    never AWS's free-text message."""
+
+    message: str
+    """Curated, human-readable explanation, safe to display."""
+
+    probes: dict[str, str] = pydantic.Field(default_factory=dict)
+    """Outcome per probe name (assume_role, list, put, …), each one of ``ok`` / ``denied`` / ``error`` / ``skipped``."""
+
+
 class S3BucketIntegrationRecord(pydantic.BaseModel):
     """Record representing an S3 bucket integration with a Roboto organization."""
 
@@ -37,13 +59,19 @@ class S3BucketIntegrationRecord(pydantic.BaseModel):
     """Whether Roboto has read-only access to the bucket."""
 
     status: str
-    """Integration status (e.g. 'healthy', 'in_progress', 'unhealthy')."""
+    """Integration status: one of 'unverified', 'healthy', 'unhealthy', 'unknown'."""
 
     created: datetime.datetime
     """Timestamp when the integration was created."""
 
     modified: datetime.datetime
     """Timestamp when the integration was last modified."""
+
+    status_last_updated: datetime.datetime | None = None
+    """Timestamp when ``status`` was last written, i.e. when the most recent health check ran."""
+
+    last_health_check: S3BucketHealthCheck | None = None
+    """Summary of the most recent health check, or ``None`` if the integration has never been checked."""
 
 
 class RegisterS3IntegrationRequest(pydantic.BaseModel):

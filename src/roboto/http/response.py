@@ -115,6 +115,19 @@ class PaginationTokenScheme(enum.Enum):
     V1 = "v1"
 
 
+class InvalidPaginationTokenError(ValueError):
+    """Raised when a pagination token cannot be parsed.
+
+    A pagination token is opaque to clients, so one that fails to decode or carries
+    an unsupported scheme reflects bad caller input — a fabricated, truncated, or
+    stale token — rather than a server fault. Subclasses ``ValueError`` so existing
+    callers that catch ``ValueError`` around :meth:`PaginationToken.from_token` keep
+    working unchanged, while callers that want to distinguish this recoverable
+    input error (e.g. to surface an actionable message instead of a generic 500 or
+    runtime exception) can catch it specifically.
+    """
+
+
 class PaginationToken:
     """
     A pagination token that can be treated as a truly opaque token by clients,
@@ -148,8 +161,8 @@ class PaginationToken:
         try:
             decoded = PaginationToken.decode(token)
             if not decoded.startswith(PaginationTokenScheme.V1.value):
-                logger.error("Invalid pagination token scheme %s", decoded)
-                raise ValueError("Invalid pagination token scheme")
+                logger.warning("Invalid pagination token scheme %s", decoded)
+                raise InvalidPaginationTokenError("Invalid pagination token scheme")
             scheme, encoding, data = decoded.split(":", maxsplit=2)
             pagination_token_scheme = PaginationTokenScheme(scheme)
             pagination_token_encoding = PaginationTokenEncoding(encoding)
@@ -159,8 +172,8 @@ class PaginationToken:
                 (json.loads(data) if pagination_token_encoding == PaginationTokenEncoding.Json else data),
             )
         except Exception as e:
-            logger.error(f"Invalid pagination token {token}", exc_info=e)
-            raise ValueError("Invalid pagination token format") from None
+            logger.warning(f"Invalid pagination token {token}", exc_info=e)
+            raise InvalidPaginationTokenError("Invalid pagination token format") from None
 
     @classmethod
     def json_token(cls, data: typing.Any) -> "PaginationToken":

@@ -22,7 +22,9 @@ The events domain includes:
 
 from .event import Event
 from .operations import (
+    MAX_EVENTS_PER_DELETE_BATCH,
     CreateEventRequest,
+    DeleteEventsRequest,
     EventDisplayOptions,
     EventDisplayOptionsChangeset,
     QueryEventsForAssociationsRequest,
@@ -31,7 +33,9 @@ from .operations import (
 from .record import EventRecord
 
 __all__ = [
+    "MAX_EVENTS_PER_DELETE_BATCH",
     "CreateEventRequest",
+    "DeleteEventsRequest",
     "Event",
     "EventDisplayOptions",
     "EventDisplayOptionsChangeset",

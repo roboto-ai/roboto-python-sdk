@@ -67,3 +67,17 @@ class AnalysisScope(pydantic.BaseModel):
         if self.start_time is not None and self.end_time is not None and self.start_time > self.end_time:
             raise ValueError(f"AnalysisScope.start_time ({self.start_time}) must be <= end_time ({self.end_time}).")
         return self
+
+    def merge(self, override: "AnalysisScope") -> "AnalysisScope":
+        """Zipper-merge ``override`` onto this scope, dimension by dimension.
+
+        For each field, the ``override`` value wins when it is set (not
+        ``None``); otherwise this scope's value carries through. Used to
+        reconcile an invoke-time scope (``override``) against an authored
+        template scope (``self``): a launch can override individual
+        dimensions while inheriting the rest.
+        """
+        return AnalysisScope(
+            start_time=override.start_time if override.start_time is not None else self.start_time,
+            end_time=override.end_time if override.end_time is not None else self.end_time,
+        )

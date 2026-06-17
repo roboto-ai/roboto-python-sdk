@@ -25,6 +25,7 @@ from ..agent_thread import (
     StartAgentThreadRequest,
     ThreadVisibility,
 )
+from ..core import AnalysisScope
 from .record import (
     AgentRecord,
     CreateAgentRequest,
@@ -364,6 +365,7 @@ class Agent:
         self,
         values: typing.Optional[dict[str, str]] = None,
         visibility: ThreadVisibility = ThreadVisibility.ORG,
+        analysis_scope: typing.Optional[AnalysisScope] = None,
     ) -> AgentThread:
         """Resolve placeholders and start an :class:`AgentThread`.
 
@@ -386,6 +388,12 @@ class Agent:
                 workflows; the caller passes ``PRIVATE`` to opt out per
                 launch. Overrides whatever the authored
                 ``request_template`` carries.
+            analysis_scope: Optional :class:`~roboto.ai.core.AnalysisScope`
+                for the new thread. When provided, it is zipper-merged onto
+                whatever the authored ``request_template`` carries: each
+                dimension the caller set wins, and the rest inherit from the
+                template. When omitted, the template's scope (usually none)
+                is left untouched.
 
         Returns:
             An :class:`AgentThread` wrapping the freshly created
@@ -412,6 +420,7 @@ class Agent:
         request = LaunchAgentRequest(
             values=values if values is not None else {},
             visibility=visibility,
+            analysis_scope=analysis_scope,
         )
         encoded_agent_id = urllib.parse.quote(self.agent_id, safe="")
         record = self.__roboto_client.post(

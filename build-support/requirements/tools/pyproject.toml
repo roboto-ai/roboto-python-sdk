@@ -38,6 +38,7 @@ module = [
     "fsspec.*",
     "jose.*",
     "markdown",
+    "mcap_codec.*",
     "nanoid",
     "numpy.*",
     "pandas.*",

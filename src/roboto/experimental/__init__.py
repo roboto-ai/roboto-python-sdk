@@ -13,13 +13,8 @@ stabilizes. Use these APIs for evaluation and feedback, not for
 long-lived production code.
 
 When an API graduates to stable, it moves to its canonical ``roboto.*``
-location, and ``from roboto.experimental import X`` becomes a forwarding
-alias that emits a ``DeprecationWarning`` advising you to update the
-import. The CHANGELOG records each graduation and the alias's lifetime.
+location, and its ``roboto.experimental`` import path becomes a
+forwarding alias that emits a ``DeprecationWarning`` advising you to
+update the import. The CHANGELOG records each graduation and the
+alias's lifetime.
 """
-
-from .representation_record import RepresentationRecord
-
-__all__ = [
-    "RepresentationRecord",
-]

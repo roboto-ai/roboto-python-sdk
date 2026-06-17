@@ -16,6 +16,8 @@ from .json_decoder_factory import (
     JsonDecoderFactory,
 )
 from .message_path_accessor import AccessorCache
+from .omgidl import make_omgidl_decoder_factory
+from .omgidl.decoder_factory import UNDECODABLE_MESSAGE
 from .record import MessagePathRecord
 from .ros2_decoder import make_ros2_decoder_factory
 
@@ -62,7 +64,11 @@ class McapReader:
         json_decoder = JsonDecoderFactory()
         ros1_decoder = mcap_ros1.decoder.DecoderFactory()
         ros2_decoder = make_ros2_decoder_factory()
-        reader = mcap.reader.make_reader(stream, decoder_factories=[json_decoder, ros1_decoder, ros2_decoder])
+        omgidl_decoder = make_omgidl_decoder_factory()
+        reader = mcap.reader.make_reader(
+            stream,
+            decoder_factories=[json_decoder, ros1_decoder, ros2_decoder, omgidl_decoder],
+        )
         self.__message_iterator = reader.iter_decoded_messages(start_time=start_time, end_time=end_time)
         self.__message_paths = message_paths
         self.__accessor_cache = AccessorCache()
@@ -146,5 +152,12 @@ class McapReader:
         return next_decode_result.message.log_time == timestamp
 
     def __decode_next(self) -> None:
-        next_decode_result = next(self.__message_iterator, None)
-        self.__next_unconsummed_decode_result = next_decode_result
+        # The omgidl decoder returns UNDECODABLE_MESSAGE for a message it cannot decode (an
+        # unsupported wstring/wchar in a non-recoverable position) rather than raising, so a single
+        # such message does not abort iteration over the rest of the file. Skip past those.
+        while True:
+            next_decode_result = next(self.__message_iterator, None)
+            if next_decode_result is not None and next_decode_result.decoded_message is UNDECODABLE_MESSAGE:
+                continue
+            self.__next_unconsummed_decode_result = next_decode_result
+            return

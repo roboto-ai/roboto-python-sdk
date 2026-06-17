@@ -741,9 +741,11 @@ class Dataset:
 
         Args:
             include_patterns: List of gitignore-style patterns for files to include.
-                If None, all files are considered for deletion.
+                If None or empty, all files are considered for deletion. An empty list is
+                treated as no filter (all files), not as "include nothing".
             exclude_patterns: List of gitignore-style patterns for files to exclude
-                from deletion. Takes precedence over include patterns.
+                from deletion. Takes precedence over include patterns. If None or empty,
+                no files are excluded.
 
         Raises:
             RobotoUnauthorizedException: Caller lacks permission to delete files.
@@ -779,9 +781,11 @@ class Dataset:
         Args:
             out_path: Local directory path where files should be downloaded.
             include_patterns: List of gitignore-style patterns for files to include.
-                If None, all files are downloaded.
+                If None or empty, all files are downloaded. An empty list is treated as
+                no filter (all files), not as "include nothing".
             exclude_patterns: List of gitignore-style patterns for files to exclude
-                from download. Takes precedence over include patterns.
+                from download. Takes precedence over include patterns. If None or empty,
+                no files are excluded.
             print_progress: Whether to show a progress bar during download.
 
         Returns:
@@ -1104,9 +1108,10 @@ class Dataset:
 
         Args:
             include_patterns: List of gitignore-style patterns for files to include.
-                If None, all files are considered.
+                If None or empty, all files are considered. An empty list is treated as
+                no filter (all files), not as "include nothing".
             exclude_patterns: List of gitignore-style patterns for files to exclude.
-                Takes precedence over include patterns.
+                Takes precedence over include patterns. If None or empty, no files are excluded.
 
         Yields:
             File instances that match the specified patterns.

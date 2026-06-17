@@ -6,6 +6,7 @@
 
 from ..core import AnalysisScope
 from .agent_thread import AgentThread, RobotoAgentGoalsFailedException
+from .agent_thread_goal_view import AgentThreadGoalView
 from .client_tool import ClientTool, client_tool
 from .event import (
     AgentErrorEvent,
@@ -69,6 +70,7 @@ __all__ = [
     "AgentRole",
     "AgentThread",
     "AgentThreadDelta",
+    "AgentThreadGoalView",
     "AgentThreadGoalRecord",
     "AgentThreadRecord",
     "AgentThreadStatus",

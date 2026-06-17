@@ -6,14 +6,28 @@
 
 import datetime
 import re
-import typing
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import pydantic
 
 from ...compat import StrEnum
 from ...time import utcnow
-from ..goals import AgentGoal
+from ..goals import AgentGoal, AgentGoalStatus
+
+# Message-content primitives live in the leaf ``content`` module so the goals
+# layer can build on them without importing ``record`` (which depends on
+# ``goals`` for ``AgentGoal``). They are re-exported here — and listed in
+# ``__all__`` below — so the historical ``roboto.ai.core.record`` import path
+# keeps resolving for downstream consumers (see ``test_core_exports`` and
+# ``roboto_service``).
+from .content import (
+    AgentContent,
+    AgentContentType,
+    AgentErrorContent,
+    AgentTextContent,
+    AgentToolResultContent,
+    AgentToolUseContent,
+)
 
 
 class ThreadVisibility(StrEnum):
@@ -142,83 +156,6 @@ class AgentThreadStatus(StrEnum):
     most-recent turn. Signals to clients that the thread needs human intervention before it can continue."""
 
 
-class AgentContentType(StrEnum):
-    """Enumeration of different types of content within agent messages.
-
-    Defines the various content types that can be included in agent messages.
-    """
-
-    TEXT = "text"
-    """Plain text content from users or AI responses."""
-
-    TOOL_USE = "tool_use"
-    """Tool invocation requests from the AI assistant."""
-
-    TOOL_RESULT = "tool_result"
-    """Results returned from tool executions."""
-
-    ERROR = "error"
-    """Error information when message generation fails."""
-
-
-class AgentTextContent(pydantic.BaseModel):
-    """Text content within an agent message."""
-
-    text: str
-    """The actual text content of the message."""
-
-    def __str__(self) -> str:
-        return self.text
-
-
-class AgentToolUseContent(pydantic.BaseModel):
-    """Tool usage request content within an agent message."""
-
-    content_type: typing.Literal[AgentContentType.TOOL_USE] = AgentContentType.TOOL_USE
-    tool_name: str
-    """Name of the tool the LLM is requesting to invoke."""
-    tool_use_id: str
-    """Unique identifier for this tool invocation, used to correlate with its result."""
-    input: Optional[dict[str, Any]] = None
-    """Parsed tool input parameters chosen by the LLM (provider-agnostic)."""
-    raw_request: Optional[dict[str, Any]] = None
-    """Raw, unparsed request payload for this tool invocation."""
-
-
-class AgentToolResultContent(pydantic.BaseModel):
-    """Tool execution result content within an agent message."""
-
-    content_type: typing.Literal[AgentContentType.TOOL_RESULT] = AgentContentType.TOOL_RESULT
-    tool_name: str
-    """Name of the tool that was executed."""
-    tool_use_id: str
-    """Identifier of the tool invocation this result corresponds to."""
-    runtime_ms: int
-    """Wall-clock execution time of the tool in milliseconds."""
-    status: str
-    """Outcome of the tool execution (e.g. 'success', 'error')."""
-    raw_response: Optional[dict[str, Any]] = None
-    """Raw, unparsed response payload from tool execution."""
-
-
-class AgentErrorContent(pydantic.BaseModel):
-    """Error content within an agent message.
-
-    Used when message generation fails due to an error or is cancelled by the user.
-    """
-
-    content_type: typing.Literal[AgentContentType.ERROR] = AgentContentType.ERROR
-    error_message: str
-    """User-friendly error message describing what went wrong."""
-
-    error_code: Optional[str] = None
-    """Optional error code for programmatic handling."""
-
-
-AgentContent: typing.TypeAlias = Union[AgentTextContent, AgentToolUseContent, AgentToolResultContent, AgentErrorContent]
-"""Type alias for all possible content types within agent messages."""
-
-
 class ClientToolSpec(pydantic.BaseModel):
     """Declarative specification for a client-side tool.
 
@@ -309,25 +246,6 @@ class AgentMessage(pydantic.BaseModel):
         )
 
 
-class AgentGoalStatus(StrEnum):
-    """Lifecycle of a per-turn declared goal.
-
-    Goals begin PENDING when registered. They transition to ACHIEVED when the
-    corresponding achieve-tool reports success, or to FAILED when the runner's
-    corrective re-prompt budget for the turn is exhausted (or when the worker
-    cannot construct an achieve-tool for the goal).
-    """
-
-    PENDING = "pending"
-    """Goal has been registered but not yet completed."""
-
-    ACHIEVED = "achieved"
-    """Goal's corresponding achieve-tool was invoked successfully."""
-
-    FAILED = "failed"
-    """Goal could not be achieved within the turn's retry budget."""
-
-
 class AgentThreadGoalRecord(pydantic.BaseModel):
     """Customer-visible read shape of a goal declared on an agent thread."""
 
@@ -353,6 +271,21 @@ class AgentThreadGoalRecord(pydantic.BaseModel):
     concluded_at: Optional[datetime.datetime] = None
     """Timestamp when the goal transitioned to a terminal state (ACHIEVED or
     FAILED). ``None`` while the goal is still PENDING."""
+
+    achieve_tool_use_id: Optional[str] = None
+    """``tool_use_id`` of the achieve-tool invocation associated with this
+    goal. Populated by the turn runner on every achieve-tool attempt, so
+    its final value depends on the goal's terminal status:
+
+    - ``ACHIEVED``: the ``tool_use_id`` of the successful invocation.
+    - ``FAILED``: the ``tool_use_id`` of the last attempted invocation,
+      or ``None`` if the LLM never invoked the achieve-tool before the
+      retry budget exhausted.
+    - ``PENDING``: ``None`` (or the most recent attempt so far).
+
+    Use with :class:`AgentThread.goals` and the ``GoalResult`` accessor on
+    the SDK wrapper to locate the exact ``AgentToolUseContent`` /
+    ``AgentToolResultContent`` pair without scanning by tool name."""
 
     def to_agent_goal(self) -> AgentGoal:
         """Re-hydrate :attr:`goal_data` into the typed :data:`AgentGoal` the caller declared.
@@ -464,3 +397,28 @@ class AgentThreadDelta(pydantic.BaseModel):
     delta — clients should retain the snapshot they already hold. An empty
     list means the thread has no declared goals. A non-empty list is the
     authoritative current snapshot and replaces any prior value."""
+
+
+# Explicit public surface. Includes the message-content primitives and
+# ``AgentGoalStatus`` re-exported above so they stay importable from
+# ``roboto.ai.core.record`` even though they now live in ``content`` / ``goals``.
+__all__ = [
+    "CLIENT_TOOL_NAME_PREFIX",
+    "AgentContent",
+    "AgentContentType",
+    "AgentErrorContent",
+    "AgentGoalStatus",
+    "AgentMessage",
+    "AgentMessageStatus",
+    "AgentRole",
+    "AgentTextContent",
+    "AgentThreadDelta",
+    "AgentThreadGoalRecord",
+    "AgentThreadRecord",
+    "AgentThreadStatus",
+    "AgentToolResultContent",
+    "AgentToolUseContent",
+    "ClientToolSpec",
+    "ModelProfileResponse",
+    "ThreadVisibility",
+]

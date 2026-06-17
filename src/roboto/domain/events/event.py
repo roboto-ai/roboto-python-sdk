@@ -39,7 +39,9 @@ from ..topics import (
     TopicDataService,
 )
 from .operations import (
+    MAX_EVENTS_PER_DELETE_BATCH,
     CreateEventRequest,
+    DeleteEventsRequest,
     EventDisplayOptions,
     EventDisplayOptionsChangeset,
     QueryEventsForAssociationsRequest,
@@ -455,6 +457,59 @@ class Event:
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(f"v1/events/id/{event_id}").to_record(EventRecord)
         return cls(record, roboto_client)
+
+    @classmethod
+    def delete_many(
+        cls,
+        event_ids: collections.abc.Collection[str],
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> None:
+        """Delete multiple events.
+
+        Authorization works just like :meth:`delete`: you can delete any event
+        you're able to manage. If the list includes an event you're not allowed
+        to delete, the whole request is rejected and nothing is deleted. This
+        operation cannot be undone. Event IDs that don't exist are ignored, so
+        the call is idempotent and safe to retry.
+
+        The bulk delete API caps each request at
+        :py:const:`~roboto.domain.events.operations.MAX_EVENTS_PER_DELETE_BATCH`
+        event IDs. This method removes that limit for callers by splitting
+        ``event_ids`` into chunks of that size and sending one request per chunk.
+        Because each chunk is its own request, deleting a very large number of
+        events is not atomic: if a request fails partway through, earlier chunks
+        stay deleted. The operation is idempotent, so retrying with the same IDs
+        safely finishes the job.
+
+        Args:
+            event_ids: IDs of the events to delete. May exceed the per-request
+                limit; they are batched automatically.
+            roboto_client: HTTP client for API communication. If None, uses the
+                default client.
+
+        Raises:
+            RobotoUnauthorizedException: Caller isn't allowed to delete one of
+                the requested events.
+
+        Examples:
+            Delete several events at once:
+
+            >>> from roboto.domain.events import Event
+            >>> Event.delete_many(["ev_abc123", "ev_def456", "ev_ghi789"])
+
+            Delete the events surfaced by a query:
+
+            >>> events = list(Event.get_by_dataset("ds_abc123"))
+            >>> Event.delete_many([event.event_id for event in events])
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        event_ids = list(event_ids)
+        for batch_start in range(0, len(event_ids), MAX_EVENTS_PER_DELETE_BATCH):
+            batch = event_ids[batch_start : batch_start + MAX_EVENTS_PER_DELETE_BATCH]
+            roboto_client.post(
+                "v1/events/delete",
+                data=DeleteEventsRequest(event_ids=batch),
+            )
 
     def __eq__(self, other: typing.Any) -> bool:
         if not isinstance(other, Event):

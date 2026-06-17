@@ -25,10 +25,10 @@ from .domain import (
     RobotoNotFoundException,
     RobotoNotImplementedException,
     RobotoNotReadyException,
+    RobotoOperationTimeoutException,
     RobotoResponseTooLargeException,
     RobotoServiceException,
     RobotoServiceUnavailableException,
-    RobotoStatementTimeoutException,
     RobotoUnauthorizedException,
     RobotoUnknownOperationException,
 )
@@ -71,7 +71,7 @@ __all__ = [
     "RobotoNoOrgProvidedException",
     "RobotoServiceException",
     "RobotoServiceUnavailableException",
-    "RobotoStatementTimeoutException",
+    "RobotoOperationTimeoutException",
     "RobotoUnauthorizedException",
     "RobotoUnknownOperationException",
 ]
