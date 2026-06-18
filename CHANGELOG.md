@@ -1,6 +1,6 @@
 # Changelog
 
-# 0.48.0
+# 0.48.0.post1
 ## Breaking Changes
   - `RobotoStatementTimeoutException` is renamed to `RobotoOperationTimeoutException` in `roboto.exceptions`. The new name reflects that it signals any operation aborted by Roboto's bounded timeout. Behavior is unchanged, and it still carries HTTP status 504. No alias is kept for the old name, so update imports to `from roboto.exceptions import RobotoOperationTimeoutException`.
 

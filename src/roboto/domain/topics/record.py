@@ -529,6 +529,10 @@ class TopicRecord(pydantic.BaseModel):
     topic_name: str
 
 
+FieldPath = tuple[str, ...]
+"""A schema field's path components, in order from the schema root to the leaf."""
+
+
 @experimental
 class SchemaFieldRecord(pydantic.BaseModel):
     """A single field within a topic schema.
@@ -554,7 +558,7 @@ class SchemaFieldRecord(pydantic.BaseModel):
     """Human-readable display name of the field (typically the final component of ``path_in_schema``)."""
 
     org_id: str
-    path_in_schema: tuple[str, ...]
+    path_in_schema: FieldPath
     """
     Path components locating this field in the source data schema.
     Each component is a schema-native attribute name, in order from the schema root to the leaf.

@@ -39,6 +39,7 @@ class RepresentationRecord(pydantic.BaseModel):
 
     created: typing.Optional[datetime.datetime] = None
     created_by: str
+    """Identity of the user who created this representation."""
 
     field_id: typing.Optional[str] = None
     """
@@ -52,7 +53,18 @@ class RepresentationRecord(pydantic.BaseModel):
     modified: typing.Optional[datetime.datetime] = None
     modified_by: str
     org_id: str
+    """Identifier of the org that owns this representation."""
+
     representation_id: str
+    """Unique identifier of this representation."""
+
+    size_bytes: typing.Optional[int] = None
+    """Size in bytes of the file backing this representation, when known; ``None`` when the size is unavailable.
+
+    Populated on read-plan resolution so the plan can carry the backing file's size onto its object refs.
+    Write paths that upsert a representation leave it ``None``.
+    """
+
     storage_format: RepresentationStorageFormat
     """Container the representation data is stored in (e.g. MCAP, Parquet)."""
 
@@ -85,10 +97,8 @@ class RepresentationSelector(pydantic.BaseModel):
     a selector with no criteria set is a field with no stored variant simply absent from
     the result; such a selector requires nothing, so nothing requested is missing.
 
-    Successor to :py:class:`roboto.domain.topics.RepresentationSelector`, which
-    :py:meth:`~roboto.domain.topics.Topic.get_data` uses. This class keeps the same
-    no-fallback matching, and adds an explicit ``storage_format`` criterion and a more
-    expressive way to specify required transformations.
+    Successor to :py:class:`roboto.domain.topics.RepresentationSelector`,
+    used by :py:meth:`~roboto.domain.topics.Topic.get_data`.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)

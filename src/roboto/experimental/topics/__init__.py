@@ -23,7 +23,7 @@ from .read_plan import (
     ReadPlanScanTask,
     ReadPlanSchemaRef,
     ReadPlanTimestamp,
-    ReadPlanWindow,
+    TimeWindow,
 )
 from .record import RepresentationRecord, RepresentationSelector
 
@@ -40,9 +40,9 @@ __all__ = [
     "ReadPlanScanTask",
     "ReadPlanSchemaRef",
     "ReadPlanTimestamp",
-    "ReadPlanWindow",
     "RepresentationOverride",
     "RepresentationPreference",
     "RepresentationRecord",
     "RepresentationSelector",
+    "TimeWindow",
 ]

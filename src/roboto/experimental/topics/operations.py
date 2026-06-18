@@ -44,7 +44,7 @@ class RepresentationOverride(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(frozen=True)
 
     field: FieldAddress
-    """The subtree this override scopes to."""
+    """The subtree this override covers."""
 
     selector: RepresentationSelector
     """The selector to apply within that subtree."""

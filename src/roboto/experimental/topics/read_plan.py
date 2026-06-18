@@ -11,6 +11,8 @@ import typing
 import pydantic
 
 from ...domain.topics import RepresentationStorageFormat, TimelineSourceKind
+from ...domain.topics.record import FieldPath
+from ...time import TimeUnit
 
 PLAN_VERSION: int = 1
 """Contract version stamped on every plan.
@@ -21,19 +23,24 @@ misreading a newer plan.
 """
 
 
-class ReadPlanWindow(pydantic.BaseModel):
-    """The absolute time window, in Unix-epoch nanoseconds, the plan resolves over."""
+class TimeWindow(pydantic.BaseModel):
+    """A closed time window in nanoseconds since the Unix epoch; both bounds inclusive.
+
+    The same shape serves any window the read path carries — the absolute window a plan resolves over,
+    and a partition's stored-time window once ``time_offset_ns`` is applied. The bounds' time domain is
+    fixed by the context that holds the window, not by this type.
+    """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     start: int
-    """Inclusive lower bound, in nanoseconds since the Unix epoch."""
+    """Inclusive lower bound, in nanoseconds."""
 
     end: int
-    """Inclusive upper bound, in nanoseconds since the Unix epoch."""
+    """Inclusive upper bound, in nanoseconds."""
 
     @pydantic.model_validator(mode="after")
-    def _bounds_ordered(self) -> ReadPlanWindow:
+    def _bounds_ordered(self) -> TimeWindow:
         if self.end < self.start:
             raise ValueError("end must be greater than or equal to start")
         return self
@@ -59,7 +66,7 @@ class ReadPlanFieldRef(pydantic.BaseModel):
     field_id: str
     """Identifier of the schema field."""
 
-    path: tuple[str, ...]
+    path: FieldPath
     """The field's path components within the schema, from the root to the field."""
 
 
@@ -80,10 +87,34 @@ class ReadPlanTimestamp(pydantic.BaseModel):
     field: typing.Optional[ReadPlanFieldRef] = None
     """The schema field timestamps are read from; set exactly when ``kind`` is ``"schema_field"``."""
 
+    unit: typing.Optional[str] = None
+    """Time unit of the designated field's stored values (a :py:class:`~roboto.time.TimeUnit` value, e.g. ``"ms"``).
+
+    Only meaningful for a ``"schema_field"`` source, and only set when the schema declares the
+    field's unit. ``None`` when the schema does not record one;
+    a consumer then treats non-self-describing values as nanoseconds, matching how the plan's extents are recorded.
+    Envelope-derived timestamps (message log/publish time) are always assumed nanoseconds.
+    """
+
+    @pydantic.field_validator("unit")
+    @classmethod
+    def _unit_is_well_known(cls, unit: typing.Optional[str]) -> typing.Optional[str]:
+        # Reject a malformed unit at the wire boundary, not later in the decode-side TimeUnit(unit)
+        # call. None stays valid: it means the schema records no unit.
+        if unit is not None and unit not in TimeUnit:
+            accepted = ", ".join(repr(member.value) for member in TimeUnit)
+            raise ValueError(f"unit {unit!r} is not a recognized TimeUnit; expected one of {accepted}")
+
+        return unit
+
     @pydantic.model_validator(mode="after")
     def _field_iff_schema_field(self) -> ReadPlanTimestamp:
         if (self.kind == "schema_field") != (self.field is not None):
             raise ValueError("'field' must be set exactly when kind is 'schema_field'")
+
+        if self.unit is not None and self.kind != "schema_field":
+            raise ValueError("'unit' may only be set when kind is 'schema_field'")
+
         return self
 
 
@@ -121,13 +152,17 @@ class ReadPlanProjection(pydantic.BaseModel):
             raise ValueError("projection must set either 'all' or 'fields'")
         return self
 
-    @pydantic.model_serializer
-    def _serialize(self) -> dict[str, typing.Any]:
+    @pydantic.model_serializer(mode="wrap")
+    def _serialize(self, handler: pydantic.SerializerFunctionWrapHandler) -> dict[str, typing.Any]:
+        # Wrap, not plain, so nested fields keep honoring their own serializers, aliases, and the
+        # caller's dump flags (by_alias, exclude_none, mode); the default handler serializes every
+        # field, then this narrows the output to the one form _exactly_one_form admits.
+        serialized = handler(self)
         if self.all:
             return {"all": True}
-        # _exactly_one_form guarantees `fields` is set on the narrowed form.
-        fields = typing.cast("tuple[ReadPlanFieldRef, ...]", self.fields)
-        return {"fields": [field.model_dump() for field in fields]}
+        # _exactly_one_form guarantees `fields` is set on the narrowed form. Coerce to a list to
+        # preserve the prior wire shape in Python mode (the handler hands back a tuple here).
+        return {"fields": list(serialized["fields"])}
 
 
 class ReadPlanExtent(pydantic.BaseModel):
@@ -156,6 +191,9 @@ class ReadPlanObjectRef(pydantic.BaseModel):
     fs_node_id: str
     """Identifier of the backing file. This id is stable, so a consumer can cache on it."""
 
+    size_bytes: typing.Optional[int] = None
+    """The source object's size in bytes."""
+
 
 class ReadPlanScanTask(pydantic.BaseModel):
     """One file to open, with the format and transformations needed to interpret it.
@@ -167,11 +205,11 @@ class ReadPlanScanTask(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    scope: typing.Optional[ReadPlanFieldRef] = None
+    subtree: typing.Optional[ReadPlanFieldRef] = None
     """The field subtree this scan task covers; ``None`` covers the whole schema."""
 
     precedence: int
-    """Where two scan tasks' scopes overlap, the one with the higher precedence wins."""
+    """Where two scan tasks' subtrees overlap, the one with the higher precedence wins."""
 
     format: RepresentationStorageFormat
     """The format the bytes are stored in; selects the decoder a consumer applies."""
@@ -201,7 +239,12 @@ class ReadPlanPartition(pydantic.BaseModel):
     """Where this partition's row timestamps come from."""
 
     scan_tasks: tuple[ReadPlanScanTask, ...] = ()
-    """The files to read for this partition; empty when the partition has no readable data."""
+    """The files to read for this partition; empty when the partition has no readable data.
+
+    A partition's rows may be shredded across several scan tasks (record-shredding style), each owning a
+    subtree of the schema; the read path reassembles each row per leaf, the highest-precedence scan task
+    winning where subtrees overlap. The common case is a single scan task covering the whole schema.
+    """
 
 
 class ReadPlan(pydantic.BaseModel):
@@ -215,7 +258,7 @@ class ReadPlan(pydantic.BaseModel):
     topic_id: str
     """The topic this plan reads."""
 
-    window: ReadPlanWindow
+    window: TimeWindow
     """The time window the plan resolves over."""
 
     schema_: typing.Optional[ReadPlanSchemaRef] = pydantic.Field(default=None, alias="schema")
@@ -231,13 +274,6 @@ class ReadPlan(pydantic.BaseModel):
 
     partitions: tuple[ReadPlanPartition, ...] = ()
     """One entry per partition in the window, each its own fetch-and-interpret plan."""
-
-    next_page_token: typing.Optional[str] = None
-    """Reserved pagination seam: always ``None`` today, meaning the plan is complete inline.
-
-    The field exists so a later contract revision can page large partition
-    sets without a breaking envelope change.
-    """
 
     @pydantic.field_validator("plan_version")
     @classmethod
