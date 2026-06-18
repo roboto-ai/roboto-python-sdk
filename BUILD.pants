@@ -3,7 +3,8 @@ python_requirements(
     source="pyproject.toml",
     module_mapping={
         "mcap-ros1-support": ("mcap_ros1",),
-        "mcap-ros2-support": ("mcap_ros2",)
+        "mcap-ros2-support": ("mcap_ros2",),
+        "roboto-mcap-codec": ("mcap_codec",),
     },
 )
 
