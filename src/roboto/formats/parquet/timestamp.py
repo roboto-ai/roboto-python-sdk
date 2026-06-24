@@ -8,15 +8,11 @@ import dataclasses
 import datetime
 import typing
 
-from ....compat import import_optional_dependency
-from ....time import (
+from ...compat import import_optional_dependency
+from ...time import (
     Time,
     TimeUnit,
     to_epoch_nanoseconds,
-)
-from ..record import (
-    MessagePathMetadataWellKnown,
-    MessagePathRecord,
 )
 
 if typing.TYPE_CHECKING:
@@ -49,7 +45,7 @@ def time_unit_from_timestamp_type(timestamp_type: "pyarrow.TimestampType") -> Ti
 @dataclasses.dataclass
 class Timestamp:
     """
-    Timestamp signal in topic data stored as Parquet.
+    Timestamp signal in a Parquet field.
     Serves as both a descriptor of that signal and as a utility for projecting it to other time units.
 
     Note:
@@ -57,10 +53,15 @@ class Timestamp:
     """
 
     field: "pyarrow.Field"
-    message_path: MessagePathRecord
+    unit_hint: typing.Optional[str]
+    """Unit the stored values are recorded in, used when the Arrow type does not carry one.
+
+    Sourced from the field's metadata (old model) or its first-class unit (new model) at
+    the bounded-context boundary. ``None`` when the unit is unknown.
+    """
 
     def to_epoch_nanoseconds(self, timestamp: Time) -> int:
-        unit = self.__unit_from_message_path_metadata()
+        unit = self.__unit_from_hint()
         return to_epoch_nanoseconds(timestamp, unit)
 
     def unit(self) -> TimeUnit:
@@ -69,13 +70,13 @@ class Timestamp:
             timestamp_type = typing.cast("pyarrow.TimestampType", self.field.type)
             return TimeUnit(timestamp_type.unit)
 
-        return self.__unit_from_message_path_metadata()
+        return self.__unit_from_hint()
 
-    def __unit_from_message_path_metadata(self) -> TimeUnit:
-        unit = self.message_path.metadata.get(MessagePathMetadataWellKnown.Unit.value, None)
+    def __unit_from_hint(self) -> TimeUnit:
+        unit = self.unit_hint
         if unit is None:
             raise Exception(
-                f"Unable to determine timestamp unit of data in field '{self.message_path.source_path}'. "
+                f"Unable to determine timestamp unit of data in field '{self.field.name}'. "
                 "This is likely an issue with Parquet ingestion, please reach out to Roboto support!"
             )
 

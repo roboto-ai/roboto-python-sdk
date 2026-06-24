@@ -16,11 +16,11 @@ from ...association import Association
 from ...domain.actions import InvocationInput
 from ...domain.files import File
 from ...domain.topics import Topic
-from ...fs import DownloadableFile, FileService
 from ...http import RobotoClient
 from ...logging import default_logger, maybe_pluralize
 from ...progress import NoopProgressMonitor, TqdmProgressMonitor
 from ...roboto_search import RobotoSearch
+from ...storage import DownloadableFile, FileService
 from .action_input import ActionInputRecord
 from .file_resolver import InputFileResolver
 from .topic_resolver import InputTopicResolver

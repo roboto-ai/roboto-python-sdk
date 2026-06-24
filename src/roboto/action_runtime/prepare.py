@@ -147,8 +147,11 @@ def prepare_invocation_input_data(
     roboto_client: RobotoClient,
     roboto_search: RobotoSearch,
 ):
-    # Resolve and optionally download inputs
-    resolved_input: typing.Optional[ActionInputRecord] = None
+    # Resolve and optionally download inputs. A no-input invocation (e.g. running an action with
+    # just a dataset ID) passes input_data=None; treat that as empty input rather than skipping
+    # setup entirely, so the manifest is always written. The action container's get_input() expects
+    # the manifest file to exist whenever setup completes.
+    resolved_input = ActionInputRecord()
     if input_data is not None:
         log.info("Resolving input data")
 
@@ -173,9 +176,9 @@ def prepare_invocation_input_data(
         if requires_downloaded_inputs and download_directory != target_directory:
             resolved_input = _hardlink_resolved_input_to_target_directory(resolved_input, target_directory)
 
-        log.info("Writing input manifest to %s", inputs_data_manifest_file)
-        _ensure_file_path_exists(inputs_data_manifest_file)
-        inputs_data_manifest_file.write_text(resolved_input.model_dump_json())
+    log.info("Writing input manifest to %s", inputs_data_manifest_file)
+    _ensure_file_path_exists(inputs_data_manifest_file)
+    inputs_data_manifest_file.write_text(resolved_input.model_dump_json())
 
 
 def prepare_metadata_changeset_manifest(

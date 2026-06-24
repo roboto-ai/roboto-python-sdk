@@ -45,8 +45,10 @@ class SparseBuffer:
         """
         self.__size = file_size
         self.__pos = 0
-        # Sparse cache: list of (start_offset, data) tuples, kept sorted by start_offset
-        self.__regions: list[tuple[int, bytes]] = []
+        # Sparse cache: list of (start_offset, data) tuples, kept sorted by start_offset.
+        # Regions are bytearrays so sequential appends can extend in place instead of
+        # re-copying the accumulated region on every merge.
+        self.__regions: list[tuple[int, bytearray]] = []
 
     @property
     def regions(self) -> list[tuple[int, int]]:
@@ -75,6 +77,19 @@ class SparseBuffer:
 
         end = offset + len(data)
 
+        # Fast path: data appends exactly to the end of an existing region and
+        # touches no other region — extend in place (amortized O(len(data)))
+        # instead of re-copying the accumulated region.
+        for i, (region_start, region_data) in enumerate(self.__regions):
+            if region_start + len(region_data) == offset:
+                next_start = self.__regions[i + 1][0] if i + 1 < len(self.__regions) else None
+                if next_start is None or end < next_start:
+                    region_data += data
+                    return
+                break
+            if region_start > end:
+                break
+
         # Find regions that overlap or are adjacent
         merged_start = offset
         merged_end = end
@@ -89,13 +104,28 @@ class SparseBuffer:
                 merged_end = max(merged_end, region_end)
 
         if regions_to_remove:
-            # Build merged data
-            merged_data = bytearray(merged_end - merged_start)
-            # First, copy existing regions
-            for i in regions_to_remove:
-                region_start, region_data = self.__regions[i]
-                off = region_start - merged_start
-                merged_data[off : off + len(region_data)] = region_data
+            first_start, first_data = self.__regions[regions_to_remove[0]]
+            if first_start == merged_start:
+                # The lowest-start involved region anchors the merged span at
+                # its own start, so it already holds the head of the result.
+                # Grow it in place and overlay the other pieces, instead of
+                # allocating a fresh buffer and re-copying the (typically large)
+                # accumulated head region.
+                merged_data = first_data
+                merged_data.extend(bytes(merged_end - merged_start - len(first_data)))
+                for i in regions_to_remove[1:]:
+                    region_start, region_data = self.__regions[i]
+                    off = region_start - merged_start
+                    merged_data[off : off + len(region_data)] = region_data
+            else:
+                # The new data starts before the lowest-start region, so the
+                # anchor's bytes do not begin at merged_start; build a fresh
+                # buffer and copy the existing regions into place.
+                merged_data = bytearray(merged_end - merged_start)
+                for i in regions_to_remove:
+                    region_start, region_data = self.__regions[i]
+                    off = region_start - merged_start
+                    merged_data[off : off + len(region_data)] = region_data
             # Then overlay new data (takes precedence)
             off = offset - merged_start
             merged_data[off : off + len(data)] = data
@@ -104,9 +134,9 @@ class SparseBuffer:
             for i in reversed(regions_to_remove):
                 del self.__regions[i]
 
-            self.__regions.append((merged_start, bytes(merged_data)))
+            self.__regions.append((merged_start, merged_data))
         else:
-            self.__regions.append((offset, data))
+            self.__regions.append((offset, bytearray(data)))
 
         # Keep sorted by start offset for efficient lookup
         self.__regions.sort(key=lambda r: r[0])
@@ -129,7 +159,7 @@ class SparseBuffer:
             region_end = region_start + len(region_data)
             if region_start <= start and start + size <= region_end:
                 offset = start - region_start
-                return region_data[offset : offset + size]
+                return bytes(memoryview(region_data)[offset : offset + size])
         return None
 
     def read(self, size: int = -1) -> bytes:
@@ -165,7 +195,7 @@ class SparseBuffer:
                 available = region_end - self.__pos
                 read_size = min(size, available)
                 region_offset = self.__pos - region_start
-                result = region_data[region_offset : region_offset + read_size]
+                result = bytes(memoryview(region_data)[region_offset : region_offset + read_size])
                 self.__pos += len(result)
                 return result
 

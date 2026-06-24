@@ -146,16 +146,16 @@ from .domain.users import (
     UserRecord,
 )
 from .env import RobotoEnv
-from .fs import (
+from .http import BatchRequest, RobotoClient
+from .regionalization import RobotoRegion
+from .roboto_search import RobotoSearch
+from .storage import (
     BeginSignedUrlUploadRequest,
     BeginSignedUrlUploadResponse,
     BeginUploadRequest,
     BeginUploadResponse,
     ReportUploadProgressRequest,
 )
-from .http import BatchRequest, RobotoClient
-from .regionalization import RobotoRegion
-from .roboto_search import RobotoSearch
 from .warnings import (
     ExperimentalWarning,
     experimental,

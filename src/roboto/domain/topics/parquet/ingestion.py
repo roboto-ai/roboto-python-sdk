@@ -12,9 +12,9 @@ import typing
 
 from ....association import Association
 from ....exceptions import IngestionException
-from ....fs import FileService
 from ....http import RobotoClient
 from ....logging import default_logger
+from ....storage import FileService
 
 logger = default_logger()
 

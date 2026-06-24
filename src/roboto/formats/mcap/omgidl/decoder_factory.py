@@ -8,7 +8,7 @@
 
 Exposes an :py:class:`mcap.decoder.DecoderFactory` that decodes CDR messages whose
 schema is OMG IDL (``omgidl`` / ``ros2idl``), for use by
-:py:class:`~roboto.domain.topics.mcap_reader.McapReader`. Decoding is delegated to
+:py:class:`~roboto.formats.mcap.reader.McapReader`. Decoding is delegated to
 the shared Rust decoder (the ``mcap_codec`` extension built from ``roboto-mcap-codec``
 -- the same decoder the ingestion action uses), which parses the schema and decodes
 every CDR framing (plain XCDR1/XCDR2 and the parameter-list ``PL_CDR``/``PL_CDR2``
@@ -44,7 +44,7 @@ class _UndecodableMessage:
     Used when a message's type involves a field with no well-defined CDR encoding
     (implementation-dependent ``wstring`` / ``wchar``) or member ids the decoder cannot compute
     (HASH autoid). Returning this keeps mcap's decode generator alive so
-    :py:class:`~roboto.domain.topics.mcap_reader.McapReader` can skip the message and continue
+    :py:class:`~roboto.formats.mcap.reader.McapReader` can skip the message and continue
     reading every other topic.
     """
 

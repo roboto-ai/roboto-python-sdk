@@ -52,6 +52,18 @@ module = [
 ]
 ignore_missing_imports = true
 
+# mcap (>=1.4.0) ships a py.typed marker, so mypy follows into its sources and
+# trips over "Source file found twice under different module names" -- a namespace
+# package collision in its package layout that aborts the whole run. We don't
+# type-check mcap, so skip following into it.
+[[tool.mypy.overrides]]
+module = [
+    "mcap",
+    "mcap.*",
+]
+follow_imports = "skip"
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 120
 exclude = [

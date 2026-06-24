@@ -11,11 +11,11 @@ import typing
 import mcap_ros1._vendor.genpy
 import mcap_ros2._dynamic
 
-from .message_path_accessor import (
+from ..fields import FieldSelection
+from .accessor import (
     AccessorCache,
     compile_accessors,
 )
-from .record import MessagePathRecord
 
 
 def is_ros1_time_value(val: typing.Any) -> bool:
@@ -205,6 +205,11 @@ _CLASS_GETTER = ClassAttrGetter()
 _DICT_GETTER = DictAttrGetter()
 
 
+def getter_for(message: typing.Any) -> AttrGetter:
+    """The shared attribute getter matching a decoded message's shape."""
+    return _DICT_GETTER if isinstance(message, dict) else _CLASS_GETTER
+
+
 class DecodedMessage:
     """Facade for values returned from message decoders.
 
@@ -218,26 +223,26 @@ class DecodedMessage:
 
     This class abstracts away the differences between these formats and provides
     consistent access to message data through a dictionary interface, filtering
-    the output based on the specified message paths.
+    the output based on the specified fields.
     """
 
     __message: typing.Any
-    __message_paths: collections.abc.Sequence[MessagePathRecord]
+    __fields: collections.abc.Sequence[FieldSelection]
     __accessor_cache: typing.Optional[AccessorCache]
 
     @staticmethod
-    def is_path_match(attrib: str, message_path: str) -> bool:
-        """Check if an attribute path matches or is a parent of a message path.
+    def is_path_match(attrib: str, field_path: str) -> bool:
+        """Check if an attribute path matches or is a parent of a field path.
 
         Determines whether a given attribute path should be included when filtering
-        message data based on the specified message paths.
+        message data based on the specified fields.
 
         Args:
             attrib: Attribute path to check (e.g., "pose.position").
-            message_path: Target message path (e.g., "pose.position.x").
+            field_path: Target field path (e.g., "pose.position.x").
 
         Returns:
-            True if the attribute matches or is a parent of the message path.
+            True if the attribute matches or is a parent of the field path.
 
         Examples:
             >>> DecodedMessage.is_path_match("pose", "pose.position.x")
@@ -249,11 +254,11 @@ class DecodedMessage:
             >>> DecodedMessage.is_path_match("velocity", "pose.position.x")
             False
         """
-        if attrib == message_path:
+        if attrib == field_path:
             return True
 
         attrib_parts = attrib.split(".")
-        path_parts = message_path.split(".")
+        path_parts = field_path.split(".")
 
         if len(attrib_parts) >= len(path_parts):
             return False
@@ -263,7 +268,7 @@ class DecodedMessage:
     def __init__(
         self,
         msg: typing.Any,
-        message_paths: collections.abc.Sequence[MessagePathRecord],
+        fields: collections.abc.Sequence[FieldSelection],
         accessor_cache: typing.Optional[AccessorCache] = None,
     ):
         """Wrap a decoded message for dictionary conversion.
@@ -271,36 +276,36 @@ class DecodedMessage:
         Args:
             msg: The decoded message, either a dict (JSON-encoded) or a dynamically
                 created class with ``__slots__`` (ROS1/ROS2 binary encoding).
-            message_paths: Paths to extract from the message.
+            fields: Fields to extract from the message.
             accessor_cache: Optional cache that lets repeated decodes from the same
                 read pass skip per-message accessor compilation. The reader owns the
                 cache and passes it in; one-off callers can leave it ``None``.
         """
         self.__message = msg
-        self.__message_paths = message_paths
+        self.__fields = fields
         self.__accessor_cache = accessor_cache
 
     def to_dict(self) -> dict:
         """Convert the decoded message to a dictionary format.
 
         Extracts and organizes message data into a dictionary structure,
-        including only the attributes that match the specified message paths.
+        including only the attributes that match the specified fields.
 
         Returns:
             Dictionary containing the filtered message data with attribute names as keys.
 
         Examples:
-            >>> # Assuming message_paths include "pose.position.x" and "velocity"
-            >>> decoded_msg = DecodedMessage(ros_message, message_paths)
+            >>> # Assuming fields include "pose.position.x" and "velocity"
+            >>> decoded_msg = DecodedMessage(ros_message, fields)
             >>> data_dict = decoded_msg.to_dict()
             >>> print(data_dict)
             {'pose': {'position': {'x': 1.5}}, 'velocity': 2.0}
         """
-        getter: AttrGetter = _DICT_GETTER if isinstance(self.__message, dict) else _CLASS_GETTER
+        getter = getter_for(self.__message)
         if self.__accessor_cache is not None:
-            accessors = self.__accessor_cache.get_or_compile(self.__message_paths, self.__message, getter)
+            accessors = self.__accessor_cache.get_or_compile(self.__fields, self.__message, getter)
         else:
-            accessors, _ = compile_accessors(self.__message_paths, self.__message, getter)
+            accessors, _ = compile_accessors(self.__fields, self.__message, getter)
         accumulator: dict[str, typing.Any] = {}
         for accessor in accessors:
             accessor(self.__message, accumulator)

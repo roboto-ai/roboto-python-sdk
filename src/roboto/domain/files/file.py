@@ -13,7 +13,6 @@ import typing
 import urllib.parse
 
 from ...association import Association
-from ...fs import FileService
 from ...http import BatchRequest, RobotoClient
 from ...progress import (
     NoopProgressMonitor,
@@ -25,6 +24,7 @@ from ...sentinels import (
     NotSetType,
     remove_not_set,
 )
+from ...storage import FileService
 from ...time import TimeUnit
 from ...updates import MetadataChangeset
 from ...warnings import experimental

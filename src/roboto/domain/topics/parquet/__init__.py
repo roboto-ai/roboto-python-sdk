@@ -4,14 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from .arrow_to_roboto import (
+from ....formats.parquet import (
+    ParquetParser,
     generate_message_path_requests,
 )
 from .ingestion import (
     make_topic_filename_safe,
     upload_representation_file,
 )
-from .parquet_parser import ParquetParser
 from .parquet_topic_reader import (
     ParquetTopicReader,
 )

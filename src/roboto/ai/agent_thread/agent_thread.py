@@ -36,6 +36,7 @@ from .record import (
     AgentErrorContent,
     AgentMessage,
     AgentRole,
+    AgentTask,
     AgentTextContent,
     AgentThreadDelta,
     AgentThreadGoalRecord,
@@ -422,6 +423,16 @@ class AgentThread:
         wrappers = [AgentThreadGoalView(record, self.__record.messages) for record in (goals_list or [])]
         self.__goals_cache = (goals_list, wrappers)
         return wrappers
+
+    @property
+    def tasks(self) -> list[AgentTask]:
+        """The thread's task list, ordered by position.
+
+        Returns an empty list when the thread has no tasks or when the
+        underlying record was fetched without loading them — call
+        :meth:`refresh` if you expect tasks but the list is empty.
+        """
+        return list(self.__record.tasks or [])
 
     @property
     def client_tool_names(self) -> list[str]:
@@ -878,6 +889,20 @@ class AgentThread:
 
         if delta.status is not None:
             self.__record.status = delta.status
+
+        if delta.title is not None:
+            self.__record.title = delta.title
+
+        # ``goals`` and ``tasks`` arrive as full snapshots with the same
+        # contract: ``None`` means unchanged since the last poll (retain what we
+        # hold), while any list — including an empty one — is authoritative and
+        # replaces the current value. Skipping these left a refreshed thread
+        # reporting only the goals/tasks captured at the original fetch.
+        if delta.goals is not None:
+            self.__record.goals = delta.goals
+
+        if delta.tasks is not None:
+            self.__record.tasks = delta.tasks
 
         return delta
 

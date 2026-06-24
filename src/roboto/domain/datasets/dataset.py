@@ -26,7 +26,6 @@ from ...env import RobotoEnv
 from ...exceptions import (
     RobotoDeviceNotFoundException,
 )
-from ...fs import DownloadableFile, FileService
 from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger, maybe_pluralize
 from ...paths import excludespec_from_patterns
@@ -41,6 +40,7 @@ from ...sentinels import (
     is_set,
     remove_not_set,
 )
+from ...storage import DownloadableFile, FileService
 from ...updates import (
     CustomFieldChangeset,
     MetadataChangeset,
@@ -934,44 +934,47 @@ class Dataset:
         )
 
     def get_summary(self) -> StreamingAISummary:
-        """Retrieve the existing AI summary for this dataset.
+        """Retrieve this dataset's existing AI summary.
 
-        Fetches the current AI summary for this dataset if one exists, or generates
-        a new one if no summary has been created yet. The summary provides an
-        AI-generated analysis of the dataset's content, structure, and metadata.
+        Returns the dataset's current AI summary if one exists. Reading never
+        generates a summary as a side effect: a dataset that has never been
+        summarized raises :class:`RobotoNotFoundException` rather than implicitly
+        kicking off — and paying for — generation. Call :meth:`generate_summary`
+        to create one explicitly.
 
         Returns:
-            StreamingAISummary object that provides access to the existing summary.
-            If no summary exists, a new one will be generated automatically.
+            StreamingAISummary wrapping the dataset's existing summary. If a
+            generation kicked off elsewhere is still in flight, the returned
+            summary is ``Pending``; poll it via ``await_completion`` or
+            ``text_stream``.
 
         Raises:
+            RobotoNotFoundException: This dataset has no AI summary yet. Call
+                :meth:`generate_summary` to create one.
             RobotoUnauthorizedException: Caller lacks permission to access summaries
                 for this dataset.
 
         Examples:
-            Get the current summary:
+            Get the existing summary, generating one first if there is none:
 
+            >>> from roboto.exceptions import RobotoNotFoundException
             >>> dataset = Dataset.from_id("ds_abc123")
-            >>> summary = dataset.get_summary()
+            >>> try:
+            ...     summary = dataset.get_summary()
+            ... except RobotoNotFoundException:
+            ...     summary = dataset.generate_summary()
             >>> print(summary.complete_text)
             'This dataset contains 42 files with sensor data from highway driving tests...'
 
-            Check if summary is still being generated:
+            Check whether a summary exists without generating one:
 
+            >>> from roboto.exceptions import RobotoNotFoundException
             >>> dataset = Dataset.from_id("ds_abc123")
-            >>> summary = dataset.get_summary()
-            >>> if summary.current and summary.current.status == AISummaryStatus.Pending:
-            ...     print("Summary is still being generated...")
-            ...     # Wait for completion
-            ...     final_summary = summary.await_completion()
-            ...     print(final_summary.text)
-
-            Stream summary text as it becomes available:
-
-            >>> dataset = Dataset.from_id("ds_abc123")
-            >>> summary = dataset.get_summary()
-            >>> for text_chunk in summary.text_stream():
-            ...     print(text_chunk, end="", flush=True)
+            >>> try:
+            ...     summary = dataset.get_summary()
+            ...     print(summary.complete_text)
+            ... except RobotoNotFoundException:
+            ...     print("No summary yet — call generate_summary() to create one.")
         """
         return PollingStreamingAISummary(poll_fn=self.__get_latest_summary, poll_on_init=True)
 

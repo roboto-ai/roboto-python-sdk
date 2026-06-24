@@ -29,6 +29,18 @@ from .content import (
     AgentToolUseContent,
 )
 
+# Task records live in the leaf ``task`` module (no dependency on ``record``)
+# and are re-exported here — and in ``__all__`` — so they import from
+# ``roboto.ai.core.record`` alongside the rest of the thread types.
+from .task import (
+    AgentSubtask,
+    AgentSubtaskStatus,
+    AgentTask,
+    AgentTaskBoundary,
+    AgentTaskMinimal,
+    AgentTaskStatus,
+)
+
 
 class ThreadVisibility(StrEnum):
     """Read-scope for an :class:`AgentThreadRecord`.
@@ -371,6 +383,11 @@ class AgentThreadRecord(pydantic.BaseModel):
     record; an empty list means they were loaded but the thread never
     declared any."""
 
+    tasks: Optional[list[AgentTask]] = None
+    """The thread's task list, ordered by :attr:`AgentTask.position`. ``None``
+    means tasks were not loaded for this record; an empty list means they were
+    loaded but the thread has none."""
+
 
 class AgentThreadDelta(pydantic.BaseModel):
     """Incremental update to an agent thread.
@@ -398,6 +415,13 @@ class AgentThreadDelta(pydantic.BaseModel):
     list means the thread has no declared goals. A non-empty list is the
     authoritative current snapshot and replaces any prior value."""
 
+    tasks: Optional[list[AgentTask]] = None
+    """Latest snapshot of the thread's task list, ordered by position. ``None``
+    means no change since the previous delta — clients should retain the
+    snapshot they already hold. An empty list means the thread has no tasks. A
+    non-empty list is the authoritative current snapshot and replaces any prior
+    value."""
+
 
 # Explicit public surface. Includes the message-content primitives and
 # ``AgentGoalStatus`` re-exported above so they stay importable from
@@ -411,11 +435,17 @@ __all__ = [
     "AgentMessage",
     "AgentMessageStatus",
     "AgentRole",
+    "AgentSubtask",
+    "AgentSubtaskStatus",
     "AgentTextContent",
     "AgentThreadDelta",
     "AgentThreadGoalRecord",
     "AgentThreadRecord",
     "AgentThreadStatus",
+    "AgentTask",
+    "AgentTaskBoundary",
+    "AgentTaskMinimal",
+    "AgentTaskStatus",
     "AgentToolResultContent",
     "AgentToolUseContent",
     "ClientToolSpec",

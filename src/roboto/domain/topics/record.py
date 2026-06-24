@@ -15,6 +15,7 @@ import pydantic
 
 from ...association import Association
 from ...compat import StrEnum
+from ...formats import FieldSelection
 from ...warnings import experimental
 
 
@@ -432,6 +433,10 @@ class MessagePathRecord(pydantic.BaseModel):
         """
         parent_path_parts = self.path_in_schema[:-1]
         return [delimiter.join(parent_path_parts[:i]) for i in range(len(parent_path_parts), 0, -1)]
+
+    def to_field_selection(self) -> FieldSelection:
+        """Translate this record into the :py:class:`~roboto.formats.FieldSelection` the format decoders accept."""
+        return FieldSelection(path_in_schema=tuple(self.path_in_schema))
 
 
 class MessagePathRepresentationMapping(pydantic.BaseModel):

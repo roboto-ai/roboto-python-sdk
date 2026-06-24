@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+import os
 import typing
 import urllib.parse
 
@@ -63,8 +64,8 @@ _FOOTER_READ_BEHIND_SIZE = 128 * 1024
 """Size to fetch when reading footer/summary at end of file.
 
 MCAP footer is 22 bytes, and summary section is typically 10-100KB.
-We fetch the last 256KB to cover both in one request, which is much
-smaller than the 8MB data read-ahead size.
+This 128KB window covers both in one request, which is much smaller
+than the 8MB data read-ahead size.
 """
 
 
@@ -80,7 +81,6 @@ smaller than the 8MB data read-ahead size.
 
 def _is_running_in_aws() -> bool:
     """Detect if we're running in an AWS environment with fast S3 connectivity."""
-    import os
 
     # ECS sets these environment variables
     if os.environ.get("ECS_CONTAINER_METADATA_URI"):
@@ -108,28 +108,38 @@ def _get_min_bytes_per_thread() -> int:
     else:
         # Local/remote: slower connections where parallelization helps
         # Lower threshold to parallelize earlier - connection overhead dominates
-        return 2 * 1024 * 1024  # 2 MB
+        return 1024 * 1024  # 1 MB
 
 
-# Cache the result since environment doesn't change at runtime
-_IN_AWS = _is_running_in_aws()
 _MIN_BYTES_PER_THREAD = _get_min_bytes_per_thread()
 
 
-def _get_max_prefetch_threads() -> int:
-    """Calculate max parallel connections based on available CPUs.
+_MAX_PREFETCH_THREADS = 32
+"""Upper bound on parallel range-request connections.
 
-    Uses ~75% of available CPUs, with a floor of 2 and ceiling of 12.
-    The ceiling prevents overwhelming the network/server even on large machines.
+Range fetches are network-wait bound, not CPU bound, so the bound follows the
+stdlib's I/O-oriented executor default of 32 rather than scaling with core
+count. ``_MIN_BYTES_PER_THREAD`` keeps small transfers from spawning excess
+connections.
+"""
+
+
+def _raise_for_status(resp: typing.Any, what: str, url: str) -> None:
+    """Raise on a non-success HTTP status from a range request.
+
+    A successful Range request returns 206 (Partial Content); a server that
+    ignores the Range and sends the whole body returns 200. Anything else is
+    a transport/auth failure (e.g. 403 on an expired presigned URL) whose
+    body is an error payload, not file bytes, and must never be treated as
+    such.
     """
-    import os
-
-    cpu_count = os.cpu_count() or 4  # Default to 4 if detection fails
-    threads = max(2, int(cpu_count * 0.75))
-    return min(threads, 12)  # Cap at 12 to avoid overwhelming network
-
-
-_MAX_PREFETCH_THREADS = _get_max_prefetch_threads()
+    status = getattr(resp, "status", None)
+    if status is not None and status not in (200, 206):
+        raise OSError(
+            f"HTTP {status} from {what}; the response body is an error payload, not file bytes. "
+            f"This is a transport/auth failure (e.g. an expired presigned URL), "
+            f"not a lack of HTTP Range support. URL: {url}"
+        )
 
 
 class HttpRangeReader:
@@ -187,35 +197,15 @@ class HttpRangeReader:
                 self.__host, maxsize=_MAX_PREFETCH_THREADS, block=True, retries=urllib3.Retry(total=3)
             )
 
-        # Fetch magic bytes (first 8 bytes) and get file size from Content-Range header.
-        # This combines the size probe and magic check into a single request.
-        resp = self.__pool.request("GET", self.__path, headers={"Range": "bytes=0-7"})
-        magic_data = resp.data
-        content_range = resp.headers.get("Content-Range", "")
-        # Content-Range header looks like: bytes 0-7/<total>
-        if not content_range or "/" not in content_range:
-            raise ValueError(
-                f"Server does not support HTTP Range requests. "
-                f"Expected 'Content-Range' header in response, got: {resp.headers!r}. "
-                f"URL: {url}"
-            )
+        # Once the pool exists it owns OS resources (sockets) that must be
+        # released even if the opening probes fail. Nothing has taken ownership
+        # via ``with`` yet, so a raise here would otherwise leak the pool; close
+        # it on any construction failure and re-raise.
         try:
-            self.__size = int(content_range.split("/")[-1])
-        except ValueError as e:
-            raise ValueError(
-                f"Failed to parse file size from Content-Range header: {content_range!r}. URL: {url}"
-            ) from e
-
-        # Initialize sparse buffer now that we know the file size
-        self.__buffer = SparseBuffer(self.__size)
-        self.__buffer.add_region(0, magic_data)
-
-        # For small files, fetch everything upfront to avoid multiple range requests
-        # due to MCAP's non-linear access pattern (footer → summary → data).
-        if self.__size <= _SMALL_FILE_THRESHOLD:
-            # Fetch rest of file (we already have 0-7)
-            remaining = self.__fetch(8, self.__size - 8)
-            self.__buffer.add_region(8, remaining)
+            self.__open(url)
+        except BaseException:
+            self.__pool.close()
+            raise
 
     def __enter__(self) -> "HttpRangeReader":
         return self
@@ -236,22 +226,44 @@ class HttpRangeReader:
     def prefetch_range(self, start: int, end: int) -> None:
         """Prefetch a byte range using parallel HTTP requests.
 
+        Byte spans already in the cache (e.g., placed there by the footer
+        read-behind at open, which covers the whole file when it is small)
+        are not re-fetched; only the uncovered gaps are requested.
+
         Args:
             start: Start byte offset (inclusive)
             end: End byte offset (inclusive)
         """
-        total_size = end - start + 1
+        # Subtract cached regions from [start, end], leaving uncovered spans.
+        spans = [(start, end)]
+        for region_start, region_end in self.__buffer.regions:  # region_end is exclusive
+            remaining: list[tuple[int, int]] = []
+            for span_start, span_end in spans:
+                if region_end <= span_start or region_start > span_end:
+                    remaining.append((span_start, span_end))
+                    continue
+                if span_start < region_start:
+                    remaining.append((span_start, region_start - 1))
+                if span_end >= region_end:
+                    remaining.append((region_end, span_end))
+            spans = remaining
+            if not spans:
+                return
 
-        # Use same logic as __fetch_batches_parallel for thread count
+        # Batch size is derived from the full requested range, not the uncovered
+        # remainder, so cache clipping never reduces transfer parallelism below
+        # what the unclipped request would have used.
+        total_size = end - start + 1
         num_batches = max(1, min(total_size // _MIN_BYTES_PER_THREAD, _MAX_PREFETCH_THREADS))
         chunk_size = (total_size + num_batches - 1) // num_batches
 
         batches: list[tuple[int, int]] = []
-        pos = start
-        while pos <= end:
-            batch_end = min(pos + chunk_size - 1, end)
-            batches.append((pos, batch_end))
-            pos = batch_end + 1
+        for span_start, span_end in spans:
+            pos = span_start
+            while pos <= span_end:
+                batch_end = min(pos + chunk_size - 1, span_end)
+                batches.append((pos, batch_end))
+                pos = batch_end + 1
 
         self.__fetch_batches_parallel(batches)
 
@@ -318,7 +330,7 @@ class HttpRangeReader:
         """
         # Detect magic byte check: small read at position 0
         # For these, don't use read-ahead - just fetch what's requested
-        # (magic bytes are already cached from __init__, so this rarely triggers)
+        # (magic bytes are cached at open, so this rarely triggers)
         if start == 0 and min_size <= _MAGIC_CHECK_THRESHOLD:
             return 0, min_size
 
@@ -340,21 +352,16 @@ class HttpRangeReader:
         # re-fetch it (simpler than splitting into multiple fetches). The buffer's
         # add_region handles merging correctly.
         for region_start, region_end in self.__buffer.regions:
-            # If our fetch start is inside a cached region, skip past it
-            if region_start <= fetch_start < region_end:
+            # Snap fetch_start forward to this region's end when it lands inside
+            # the region (already cached) or within the coalesce gap just past
+            # it — filling a small gap beats issuing a second request for it.
+            if region_start <= fetch_start <= region_end + _GAP_COALESCE_THRESHOLD:
                 fetch_start = region_end
 
-            # If our fetch end overlaps into a cached region, stop before it
-            if region_start < fetch_end <= region_end:
+            # Symmetrically, pull fetch_end back to this region's start when it
+            # lands inside the region or within the coalesce gap just before it.
+            if region_start - _GAP_COALESCE_THRESHOLD <= fetch_end <= region_end:
                 fetch_end = region_start
-
-            # If there's a cached region just before our fetch start with a small gap
-            if region_end < fetch_start and fetch_start - region_end <= _GAP_COALESCE_THRESHOLD:
-                fetch_start = region_end  # Fill the gap
-
-            # If there's a cached region just after our fetch end with a small gap
-            if region_start > fetch_end and region_start - fetch_end <= _GAP_COALESCE_THRESHOLD:
-                fetch_end = region_start  # Extend to fill the gap
 
         # Ensure we still fetch something
         if fetch_start >= fetch_end:
@@ -366,7 +373,7 @@ class HttpRangeReader:
         """Fetch bytes from remote URL using HTTP Range request."""
         end = min(start + length - 1, self.__size - 1)
         resp = self.__pool.request("GET", self.__path, headers={"Range": f"bytes={start}-{end}"})
-        return resp.data
+        return self.__ranged_bytes(resp, start, f"range fetch bytes={start}-{end}")
 
     def __fetch_batches_parallel(self, batches: list[tuple[int, int]]) -> None:
         """Fetch batches in parallel using connection pool."""
@@ -382,7 +389,10 @@ class HttpRangeReader:
         def fetch_one(batch: tuple[int, int]) -> tuple[int, bytes]:
             batch_start, batch_end = batch
             resp = self.__pool.request("GET", self.__path, headers={"Range": f"bytes={batch_start}-{batch_end}"})
-            return (batch_start, resp.data)
+            return (
+                batch_start,
+                self.__ranged_bytes(resp, batch_start, f"parallel range fetch bytes={batch_start}-{batch_end}"),
+            )
 
         results: list[tuple[int, bytes]] = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(batches)) as executor:
@@ -390,8 +400,133 @@ class HttpRangeReader:
             for future in concurrent.futures.as_completed(futures):
                 results.append(future.result())
 
+        # Insert in offset order so adjacent batches extend the buffer's regions
+        # sequentially rather than triggering repeated merge copies.
+        results.sort(key=lambda r: r[0])
         for start, data in results:
             self.__buffer.add_region(start, data)
+
+    def __open(self, url: str) -> None:
+        """Probe the remote file at open time and warm the sparse cache.
+
+        Issues the magic-prefix and footer-suffix requests, parses the total
+        file size, seeds the sparse buffer, and — for small files — fetches the
+        remaining gap upfront. Separated from ``__init__`` so a failure here is
+        wrapped by the pool-cleanup guard.
+        """
+        # Fetch the magic bytes (first 8 bytes) and the footer window (last
+        # _FOOTER_READ_BEHIND_SIZE bytes, as a suffix range) concurrently. The
+        # magic request's Content-Range header carries the total file size, and
+        # the suffix request warms the footer/summary region consumers like
+        # MCAP read first — for files smaller than the footer window it is the
+        # entire file.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            head_future = executor.submit(self.__pool.request, "GET", self.__path, headers={"Range": "bytes=0-7"})
+            tail_future = executor.submit(
+                self.__pool.request, "GET", self.__path, headers={"Range": f"bytes=-{_FOOTER_READ_BEHIND_SIZE}"}
+            )
+            head_resp = head_future.result()
+            tail_resp = tail_future.result()
+
+        # Validate transport/auth status before trusting either body. An expired
+        # presigned URL answers 403 with an error payload and no Content-Range;
+        # without this check the head path would raise a misleading "no Range
+        # support" error and a body of error JSON could be mistaken for bytes.
+        _raise_for_status(head_resp, "open-time magic-prefix request", url)
+        _raise_for_status(tail_resp, "open-time footer-suffix request", url)
+
+        content_range = head_resp.headers.get("Content-Range", "")
+        # Content-Range header looks like: bytes 0-7/<total>
+        if not content_range or "/" not in content_range:
+            raise OSError(
+                f"Server does not support HTTP Range requests. "
+                f"Expected 'Content-Range' header in response, got: {head_resp.headers!r}. "
+                f"URL: {url}"
+            )
+        try:
+            self.__size = int(content_range.split("/")[-1])
+        except ValueError:
+            raise OSError(f"Failed to parse file size from Content-Range header: {content_range!r}. URL: {url}")
+
+        # Initialize sparse buffer now that we know the file size
+        self.__buffer = SparseBuffer(self.__size)
+        self.__buffer.add_region(0, head_resp.data)
+
+        # Only place the tail bytes if the server honored the suffix range
+        # (a Content-Range of "bytes <start>-<end>/<total>" pins their offset).
+        tail_start = self.__size
+        tail_reaches_eof = False
+        if tail_resp.data:
+            tail_content_range = tail_resp.headers.get("Content-Range", "")
+            range_spec = tail_content_range.split("/")[0].removeprefix("bytes").strip()
+            try:
+                tail_start = int(range_spec.split("-")[0])
+                tail_end = int(range_spec.split("-")[1])
+            except (ValueError, IndexError):
+                tail_start = self.__size
+            else:
+                self.__buffer.add_region(tail_start, tail_resp.data)
+                # The suffix region must reach the final byte; a proxy that
+                # normalizes the suffix range differently can return data that
+                # stops short, leaving a silent coverage gap at EOF.
+                tail_reaches_eof = tail_end == self.__size - 1
+
+        # For small files, fetch everything upfront to avoid multiple range requests
+        # due to MCAP's non-linear access pattern (footer → summary → data).
+        if self.__size <= _SMALL_FILE_THRESHOLD:
+            # Validate the tail actually reached EOF before relying on it to
+            # cover the end of the file; do not infer coverage from tail_start.
+            if not tail_reaches_eof:
+                raise OSError(
+                    f"Suffix-range (footer) response did not reach end of file: "
+                    f"tail covers up to {tail_start}-?, file size is {self.__size}. "
+                    f"The server/proxy returned an incomplete tail, which would leave "
+                    f"a coverage gap at EOF. URL: {url}"
+                )
+
+            if tail_start > 8:
+                # Fetch the gap between the magic bytes and the cached tail
+                remaining = self.__fetch(8, tail_start - 8)
+                self.__buffer.add_region(8, remaining)
+
+    def __ranged_bytes(self, resp: typing.Any, expected_start: int, what: str) -> bytes:
+        """Validate a ranged-fetch response and return its body as the bytes at ``expected_start``.
+
+        A range request must come back as 206 with a Content-Range whose start matches ``expected_start``;
+        otherwise the body cannot be trusted to be the requested slice.
+        A 200 means the server ignored the Range and sent the whole object:
+        that is only usable when the request began at offset 0 (full body == requested bytes).
+        At any nonzero offset, storing the full body would corrupt the sparse buffer, so raise.
+        """
+        _raise_for_status(resp, what, self.__url)
+        status = getattr(resp, "status", None)
+        if status == 200:
+            if expected_start == 0:
+                return resp.data
+            raise OSError(
+                f"HTTP 200 (full body) from {what}: the server ignored the Range header and "
+                f"returned the whole object, which cannot be stored at nonzero offset "
+                f"{expected_start} without corrupting the read. URL: {self.__url}"
+            )
+
+        # Only 206 remains (__raise_for_status admits exactly {200, 206}). Parse the
+        # Content-Range start ("bytes <start>-<end>/<total>"); a missing/malformed
+        # header leaves returned_start None, which fails the match below.
+        content_range = resp.headers.get("Content-Range", "")
+        spec = content_range.split("/")[0].removeprefix("bytes").strip()
+        try:
+            returned_start: typing.Optional[int] = int(spec.split("-")[0])
+        except (ValueError, IndexError):
+            returned_start = None
+
+        if returned_start != expected_start:
+            raise OSError(
+                f"Ranged {what} returned Content-Range {content_range!r} (start {returned_start}), "
+                f"expected start {expected_start}; response cannot be trusted as the requested "
+                f"bytes. URL: {self.__url}"
+            )
+
+        return resp.data
 
 
 def as_io_bytes(reader: HttpRangeReader) -> typing.IO[bytes]:

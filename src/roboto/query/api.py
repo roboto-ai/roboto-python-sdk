@@ -21,6 +21,7 @@ class QueryTarget(StrEnum):
 
     Collections = "collections"
     Datasets = "datasets"
+    Devices = "devices"
     Files = "files"
     Sessions = "sessions"
     Topics = "topics"

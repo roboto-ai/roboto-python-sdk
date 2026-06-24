@@ -7,34 +7,40 @@
 from __future__ import annotations
 
 import collections.abc
-import os
 import pathlib
-import threading
 import typing
-import urllib.request
-import uuid
-import weakref
 
 from ....association import AssociationType
 from ....compat import import_optional_dependency
+from ....formats.parquet import (
+    Timestamp as TimestampDescriptor,
+)
+from ....formats.parquet import (
+    compute_time_filter_mask,
+    extract_timestamp_field,
+    extract_timestamps,
+    parquet_file_from_url,
+    resolve_columns,
+    should_read_row_group,
+)
 from ....http import RobotoClient
 from ....logging import default_logger
+from ....storage.cache import (
+    COLUMN_COUNT_LOCAL_CACHE_THRESHOLD,
+    CachePolicy,
+    FetchMode,
+    choose_fetch_mode,
+    download_to_cache,
+)
 from ..record import (
     CanonicalDataType,
+    MessagePathMetadataWellKnown,
     MessagePathRecord,
     MessagePathRepresentationMapping,
     RepresentationRecord,
     RepresentationStorageFormat,
 )
 from ..topic_reader import Timestamp, TopicReader
-from .table_transforms import (
-    compute_time_filter_mask,
-    extract_timestamp_field,
-    extract_timestamps,
-    resolve_columns,
-    should_read_row_group,
-)
-from .timestamp import Timestamp as TimestampDescriptor
 
 if typing.TYPE_CHECKING:
     import pandas  # pants: no-infer-dep
@@ -46,44 +52,6 @@ logger = default_logger()
 
 OUTFILE_NAME_PATTERN = "{repr_id}_{file_id}.parquet"
 """Filename template for locally cached Parquet files."""
-
-_COLUMN_COUNT_LOCAL_CACHE_THRESHOLD = 10
-"""
-When the number of columns to read meets or exceeds this threshold,
-the Parquet file is downloaded to a local cache before reading.
-Reading many columns over HTTP incurs significant per-column overhead;
-a local file avoids repeated network round-trips, but also loads much unnecessary data.
-10 was chosen as individual column loading can be very slow for some files and many columns, while local
-cache based access is never terribly slow.
-"""
-
-_download_locks: "weakref.WeakValueDictionary[str, threading.Lock]" = weakref.WeakValueDictionary()
-"""In-process registry of per-file download locks, keyed by absolute cache path.
-
-Dedupes concurrent downloads of the same Parquet file within a single process.
-Cross-process concurrency is handled by the atomic-rename pattern in
-``__download_to_cache`` (last writer wins, but every observed file is complete),
-not by this lock.
-
-Entries hold the lock by weak reference: as long as at least one caller is
-inside ``__download_to_cache`` for a given path, its local strong reference
-keeps the lock alive and concurrent callers share the same instance. Once the
-last caller returns, the lock becomes unreferenced and the entry is evicted
-automatically, so the registry's footprint is bounded by in-flight downloads
-rather than by lifetime-unique paths.
-"""
-
-_download_locks_guard = threading.Lock()
-"""Guards inserts into ``_download_locks``."""
-
-
-def _get_download_lock(key: str) -> threading.Lock:
-    with _download_locks_guard:
-        lock = _download_locks.get(key)
-        if lock is None:
-            lock = threading.Lock()
-            _download_locks[key] = lock
-        return lock
 
 
 class _ReadContext(typing.NamedTuple):
@@ -282,13 +250,8 @@ class ParquetTopicReader(TopicReader):
 
     def __parquet_file_from_remote_streaming(self, representation: RepresentationRecord) -> pyarrow.parquet.ParquetFile:
         """Open a Parquet file over HTTP via a signed URL (no local download)."""
-        fs = import_optional_dependency("pyarrow.fs", "analytics")
-        fsspec_http = import_optional_dependency("fsspec.implementations.http", "analytics")
-        pq = import_optional_dependency("pyarrow.parquet", "analytics")
-
-        http_fs = fsspec_http.HTTPFileSystem()
         signed_url = self.__get_signed_url_for_representation_file(representation)
-        return pq.ParquetFile(signed_url, filesystem=fs.PyFileSystem(fs.FSSpecHandler(http_fs)))
+        return parquet_file_from_url(signed_url)
 
     def __cached_outfile_for(self, representation: RepresentationRecord) -> pathlib.Path:
         """Return the local cache path for a representation. Requires ``cache_dir`` to be set."""
@@ -312,25 +275,31 @@ class ParquetTopicReader(TopicReader):
            projects.
         2. Else, if a ``cache_dir`` is configured and the request projects enough
            columns to justify a full download (``>=
-           _COLUMN_COUNT_LOCAL_CACHE_THRESHOLD``), download to cache and use it.
+           COLUMN_COUNT_LOCAL_CACHE_THRESHOLD``), download to cache and use it.
         3. Else, stream via HTTP range requests without writing to disk.
         """
-        if self.__cache_dir is not None and self.__cached_outfile_for(representation).exists():
+        mode = choose_fetch_mode(
+            policy=CachePolicy.ADAPTIVE if self.__cache_dir is not None else CachePolicy.NEVER,
+            already_cached=self.__cache_dir is not None and self.__cached_outfile_for(representation).exists(),
+            estimated_column_count=estimated_column_count,
+        )
+
+        if mode is FetchMode.CACHED:
             logger.debug("Using already-cached Parquet file for representation '%s'", representation.representation_id)
             return self.__parquet_file_from_local_cache(representation)
 
-        if self.__cache_dir is not None and estimated_column_count >= _COLUMN_COUNT_LOCAL_CACHE_THRESHOLD:
+        if mode is FetchMode.DOWNLOAD:
             logger.debug(
                 "Downloading Parquet file to local cache (%d message paths >= %d threshold)",
                 estimated_column_count,
-                _COLUMN_COUNT_LOCAL_CACHE_THRESHOLD,
+                COLUMN_COUNT_LOCAL_CACHE_THRESHOLD,
             )
             return self.__parquet_file_from_local_cache(representation)
 
         logger.debug(
             "Using remote HTTP for Parquet file (%d message paths < %d threshold, or no cache_dir)",
             estimated_column_count,
-            _COLUMN_COUNT_LOCAL_CACHE_THRESHOLD,
+            COLUMN_COUNT_LOCAL_CACHE_THRESHOLD,
         )
         return self.__parquet_file_from_remote_streaming(representation)
 
@@ -348,45 +317,12 @@ class ParquetTopicReader(TopicReader):
 
         outfile = self.__cached_outfile_for(representation)
         if not outfile.exists():
-            self.__download_to_cache(representation, outfile)
-
-        return pq.ParquetFile(outfile)
-
-    def __download_to_cache(self, representation: RepresentationRecord, outfile: pathlib.Path) -> None:
-        """Download the representation's file to ``outfile`` safely under concurrency.
-
-        Acquires a per-path lock to dedupe in-process downloads, double-checks
-        existence (another thread may have completed the download while we were
-        waiting), creates the cache directory lazily, and writes via a uniquely
-        named ``.part`` file followed by :func:`os.replace`. The rename is atomic
-        on POSIX and Windows, so:
-
-        * Readers never see a partial file at ``outfile``.
-        * Two processes racing both produce a complete file; the second
-          ``os.replace`` simply overwrites the first.
-        * If the download raises, the ``.part`` file is removed and ``outfile``
-          is left untouched.
-        """
-        lock = _get_download_lock(str(outfile))
-        with lock:
-            if outfile.exists():
-                return
-
-            outfile.parent.mkdir(parents=True, exist_ok=True)
-            tmpfile = outfile.with_name(f"{outfile.name}.{uuid.uuid4().hex}.part")
-
-            signed_url = self.__get_signed_url_for_representation_file(representation)
-            logger.debug(
-                "Downloading Parquet file for representation '%s' to %s",
-                representation.representation_id,
+            download_to_cache(
+                lambda: self.__get_signed_url_for_representation_file(representation),
                 outfile,
             )
-            try:
-                urllib.request.urlretrieve(signed_url, str(tmpfile))  # noqa: S310 — presigned S3 URL from Roboto API
-                os.replace(tmpfile, outfile)
-            except BaseException:
-                tmpfile.unlink(missing_ok=True)
-                raise
+
+        return pq.ParquetFile(outfile)
 
     def __prepare_read(
         self,
@@ -422,15 +358,24 @@ class ParquetTopicReader(TopicReader):
         estimated_column_count = len(list(mapping.message_paths))
         parquet_file = self.__open_parquet_file(mapping.representation, estimated_column_count)
 
-        columns = resolve_columns(parquet_file.schema_arrow, mapping.message_paths)
+        columns = resolve_columns(
+            parquet_file.schema_arrow,
+            [record.to_field_selection() for record in mapping.message_paths],
+        )
+
+        timestamp_selection = timestamp_message_path.to_field_selection()
 
         # Even if the timestamp column wasn't requested in the column projection list,
         # request the data to enable timestamp filtering
-        include_timestamp_column = timestamp_message_path.source_path in columns
+        include_timestamp_column = timestamp_selection.source_path in columns
         if not include_timestamp_column:
-            columns.append(timestamp_message_path.source_path)
+            columns.append(timestamp_selection.source_path)
 
-        timestamp_field = extract_timestamp_field(parquet_file.schema_arrow, timestamp_message_path)
+        timestamp_field = extract_timestamp_field(
+            parquet_file.schema_arrow,
+            timestamp_selection,
+            unit_hint=timestamp_message_path.metadata.get(MessagePathMetadataWellKnown.Unit.value),
+        )
 
         return _ReadContext(
             parquet_file=parquet_file,

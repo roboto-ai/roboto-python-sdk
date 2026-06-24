@@ -10,9 +10,18 @@ import operator
 import typing
 
 if typing.TYPE_CHECKING:
+    from ..fields import FieldSelection
     from .decoded_message import AttrGetter
-    from .record import MessagePathRecord
 
+
+__all__ = [
+    "Accessor",
+    "Accumulator",
+    "AccessorCache",
+    "PathInSchema",
+    "compile_accessors",
+    "path_crosses_no_sequence",
+]
 
 Accumulator = dict[str, typing.Any]
 """Output dict the accessors write into. Nested keys materialize as nested dicts."""
@@ -20,7 +29,7 @@ Accumulator = dict[str, typing.Any]
 Accessor = typing.Callable[[typing.Any, Accumulator], None]
 """Reads one path's value out of a decoded message and writes it into an :py:data:`Accumulator`.
 
-The accessor is compiled once per ``(message_paths, getter_type)`` and reused for every
+The accessor is compiled once per ``(fields, getter_type)`` and reused for every
 subsequent message in the same read pass. Compilation resolves ROS time-field name
 remapping and sequence boundaries against a sample message, so per-call work is just
 attribute access plus accumulator writes.
@@ -54,35 +63,35 @@ class AccessorCache:
 
     def get_or_compile(
         self,
-        message_paths: "collections.abc.Sequence[MessagePathRecord]",
+        fields: "collections.abc.Sequence[FieldSelection]",
         sample: typing.Any,
         getter: "AttrGetter",
     ) -> list[Accessor]:
-        """Return accessors for these paths, compiling against ``sample`` on first call.
+        """Return accessors for these fields, compiling against ``sample`` on first call.
 
         Compilations that hit an empty sequence in the sample are speculative — the inner
         shape past the empty point can't be observed — and are returned without caching
         so a later message with a non-empty sequence triggers a fresh, complete compile.
         """
         key = _CacheKey(
-            paths=tuple(tuple(record.path_in_schema) for record in message_paths),
+            paths=tuple(tuple(field.path_in_schema) for field in fields),
             getter_type=type(getter),
         )
         accessors = self._cache.get(key)
         if accessors is not None:
             return accessors
-        accessors, fully_resolved = compile_accessors(message_paths, sample, getter)
+        accessors, fully_resolved = compile_accessors(fields, sample, getter)
         if fully_resolved:
             self._cache[key] = accessors
         return accessors
 
 
 def compile_accessors(
-    message_paths: "collections.abc.Sequence[MessagePathRecord]",
+    fields: "collections.abc.Sequence[FieldSelection]",
     sample: typing.Any,
     getter: "AttrGetter",
 ) -> tuple[list[Accessor], bool]:
-    """Compile one accessor per message path. Does not cache; callers manage caching.
+    """Compile one accessor per field. Does not cache; callers manage caching.
 
     Returns a tuple of ``(accessors, fully_resolved)``. ``fully_resolved`` is ``False`` if
     any path traversed an empty sequence in ``sample`` and the inner shape past it had to
@@ -92,8 +101,8 @@ def compile_accessors(
     is_class_getter = _is_class_getter(getter)
     accessors: list[Accessor] = []
     fully_resolved = True
-    for record in message_paths:
-        accessor, path_fully_resolved = _compile_accessor(record.path_in_schema, sample, getter, is_class_getter)
+    for field in fields:
+        accessor, path_fully_resolved = _compile_accessor(field.path_in_schema, sample, getter, is_class_getter)
         accessors.append(accessor)
         if not path_fully_resolved:
             fully_resolved = False
@@ -131,6 +140,28 @@ class _SequenceResolution:
 
 
 _Resolution = typing.Union[_NoneResolution, _SimpleResolution, _SequenceResolution]
+
+
+def path_crosses_no_sequence(
+    path_components: collections.abc.Sequence[str],
+    sample: typing.Any,
+    getter: "AttrGetter",
+) -> bool:
+    """Whether ``path_components`` resolves to a straight attribute chain that never crosses a sequence.
+
+    ``True`` for a :py:class:`_SimpleResolution` (a plain attribute walk) or a
+    :py:class:`_NoneResolution` (an intermediate the sample lacks, which the
+    runtime accessor treats as a no-op write), and only when the resolution was
+    non-speculative — a sequence empty in ``sample`` is guessed as a simple
+    chain, but a later non-empty message would resolve it as a crossing, so the
+    guess cannot be trusted. ``False`` for any sequence crossing.
+
+    A direct-build decode uses this to recognize roots whose every projected
+    leaf produces a flat (struct-shaped) cell per message: a sequence crossing
+    yields a list-valued cell, which the per-leaf assembly does not handle.
+    """
+    resolution, fully_resolved = _resolve_path(list(path_components), sample, getter)
+    return fully_resolved and isinstance(resolution, (_SimpleResolution, _NoneResolution))
 
 
 def _compile_accessor(
@@ -316,14 +347,40 @@ def _build_dict_simple_accessor(path: PathInSchema) -> Accessor:
     return accessor
 
 
+def _fill_list_into(
+    accumulator: Accumulator,
+    pre_parent: PathInSchema,
+    list_attr: str,
+    seq: typing.Iterable[typing.Any],
+    sub_accessor: Accessor,
+) -> None:
+    """Descend (creating dicts) to ``pre_parent`` under ``accumulator``, then fill
+    a list-valued cell at ``list_attr`` by running ``sub_accessor`` over each item
+    of ``seq``. Reuses an existing list at that key so successive paths merge into
+    the same per-element dicts; otherwise backs the cell with a fresh
+    index-growable list."""
+    from .decoded_message import defaultlist
+
+    cur_acc = accumulator
+    for component in pre_parent:
+        sub = cur_acc.get(component)
+        if sub is None:
+            sub = {}
+            cur_acc[component] = sub
+        cur_acc = sub
+    existing = cur_acc.get(list_attr)
+    list_accum = existing if isinstance(existing, list) else defaultlist[dict](factory=dict)
+    for idx, item in enumerate(seq):
+        sub_accessor(item, list_accum[idx])
+    cur_acc[list_attr] = list_accum
+
+
 def _build_sequence_accessor(
     pre_path: PathInSchema,
     sub_resolution: _Resolution,
     getter: "AttrGetter",
     is_class_getter: bool,
 ) -> Accessor:
-    from .decoded_message import defaultlist
-
     sub_accessor = _build_accessor(sub_resolution, getter, is_class_getter)
     pre_parent = pre_path[:-1]
     list_attr = pre_path[-1]
@@ -336,21 +393,7 @@ def _build_sequence_accessor(
                 seq = list_chain(obj)
             except AttributeError:
                 return
-            cur_acc = accumulator
-            for component in pre_parent:
-                sub = cur_acc.get(component)
-                if sub is None:
-                    sub = {}
-                    cur_acc[component] = sub
-                cur_acc = sub
-            existing = cur_acc.get(list_attr)
-            if isinstance(existing, list):
-                list_accum = existing
-            else:
-                list_accum = defaultlist[dict](factory=dict)
-            for idx, item in enumerate(seq):
-                sub_accessor(item, list_accum[idx])
-            cur_acc[list_attr] = list_accum
+            _fill_list_into(accumulator, pre_parent, list_attr, seq, sub_accessor)
 
         return class_sequence_accessor
 
@@ -362,20 +405,6 @@ def _build_sequence_accessor(
             cur_obj = cur_obj[component]
         if not isinstance(cur_obj, collections.abc.Sequence):
             return
-        cur_acc = accumulator
-        for component in pre_parent:
-            sub = cur_acc.get(component)
-            if sub is None:
-                sub = {}
-                cur_acc[component] = sub
-            cur_acc = sub
-        existing = cur_acc.get(list_attr)
-        if isinstance(existing, list):
-            list_accum = existing
-        else:
-            list_accum = defaultlist[dict](factory=dict)
-        for idx, item in enumerate(cur_obj):
-            sub_accessor(item, list_accum[idx])
-        cur_acc[list_attr] = list_accum
+        _fill_list_into(accumulator, pre_parent, list_attr, cur_obj, sub_accessor)
 
     return dict_sequence_accessor

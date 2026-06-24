@@ -10,9 +10,9 @@ import collections.abc
 import math
 import typing
 
-from ....compat import import_optional_dependency
-from ....time import TimeUnit
-from ..record import MessagePathRecord
+from ...compat import import_optional_dependency
+from ...time import TimeUnit
+from ..fields import FieldSelection
 from .timestamp import Timestamp
 
 if typing.TYPE_CHECKING:
@@ -63,11 +63,11 @@ def extract_timestamps(
     timestamp_values: "pyarrow.Array" = table.column(timestamp.field.name).combine_chunks()
     data_type = timestamp.field.type
 
-    # Short-circuit if timestamp message path column is already in target format/unit
+    # Short-circuit if the timestamp field column is already in target format/unit
     if pa.types.is_int64(data_type) and timestamp.unit() == TimeUnit.Nanoseconds:
         return typing.cast("pyarrow.Int64Array", timestamp_values)
 
-    # Derive nanoseconds since unix epoch as int64 from timestamp message path column
+    # Derive nanoseconds since unix epoch as int64 from the timestamp field column
     timestamps_as_ns: "pyarrow.Int64Array"
     if pa.types.is_timestamp(data_type):
         timestamps_as_ns = pc.cast(timestamp_values, pa.timestamp("ns", "UTC"))
@@ -106,10 +106,19 @@ def extract_timestamps(
     return timestamps_as_ns
 
 
-def extract_timestamp_field(schema: "pyarrow.Schema", timestamp_message_path: MessagePathRecord) -> Timestamp:
-    """Aggregate timestamp info into a helper utility for handling time-based data operations."""
-    arrow_field = schema.field(timestamp_message_path.source_path)
-    return Timestamp(field=arrow_field, message_path=timestamp_message_path)
+def extract_timestamp_field(
+    schema: "pyarrow.Schema",
+    timestamp_field: FieldSelection,
+    unit_hint: typing.Optional[str],
+) -> Timestamp:
+    """Aggregate timestamp info into a helper utility for handling time-based data operations.
+
+    ``unit_hint`` carries the recorded unit of the stored values for the case where the
+    Arrow column type does not encode one; callers resolve it from their own field record
+    at the bounded-context boundary.
+    """
+    arrow_field = schema.field(timestamp_field.source_path)
+    return Timestamp(field=arrow_field, unit_hint=unit_hint)
 
 
 def should_read_row_group(
@@ -151,7 +160,7 @@ def should_read_row_group(
 
 def _list_ancestor_column(
     schema: "pyarrow.Schema",
-    path_in_schema: list[str],
+    path_in_schema: collections.abc.Sequence[str],
 ) -> typing.Optional[str]:
     """Return the column path of the nearest list ancestor, or ``None``.
 
@@ -193,7 +202,7 @@ def _list_ancestor_column(
 
 def resolve_columns(
     schema: "pyarrow.Schema",
-    message_paths: collections.abc.Iterable[MessagePathRecord],
+    fields: collections.abc.Iterable[FieldSelection],
 ) -> list[str]:
     """Build a deduplicated list of column names safe for ``read_row_group(columns=...)``.
 
@@ -202,11 +211,10 @@ def resolve_columns(
     wrapper nodes in the physical Parquet schema.  Selecting the parent list column
     already returns its full nested structure.
 
-    This is important because the message-path-to-representation mappings returned by
-    the server contain only *leaf* message paths.  For a column like
-    ``points: list<struct<x, y>>``, only ``points.x`` and ``points.y`` appear in the
-    mapping — the parent ``points`` record is absent.  This function derives the
-    correct parent column name from the child's ``path_in_schema``.
+    This is important because the projected fields contain only *leaf* paths.  For a
+    column like ``points: list<struct<x, y>>``, only ``points.x`` and ``points.y`` are
+    selected — the parent ``points`` field is absent.  This function derives the correct
+    parent column name from the child's ``path_in_schema``.
 
     Children of struct-type columns are preserved because PyArrow can resolve them via
     dot-separated prefix matching (e.g. ``"position.x"`` selects the ``x`` child of
@@ -214,9 +222,9 @@ def resolve_columns(
     """
     columns: list[str] = []
     seen: set[str] = set()
-    for mp in message_paths:
-        ancestor = _list_ancestor_column(schema, mp.path_in_schema)
-        col = ancestor if ancestor is not None else mp.source_path
+    for field in fields:
+        ancestor = _list_ancestor_column(schema, field.path_in_schema)
+        col = ancestor if ancestor is not None else field.source_path
         if col not in seen:
             columns.append(col)
             seen.add(col)

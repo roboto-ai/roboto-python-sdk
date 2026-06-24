@@ -73,19 +73,21 @@ def import_optional_dependency(
         is False, or when the package's version is too old and `errors`
         is ``'warn'`` or ``'ignore'``.
     """
-    if errors not in {"raise", "warn", "ignore"}:
-        raise ValueError(f"Expected errors to be one of 'raise', 'warn', 'ignore', got '{errors}'")
-
-    msg = IMPORT_ERROR_MSG_TEMPLATE.format(module_name=module_name, pip_extra=pip_extra)
     try:
         module = importlib.import_module(module_name)
     except ImportError:
+        msg = IMPORT_ERROR_MSG_TEMPLATE.format(module_name=module_name, pip_extra=pip_extra)
+
         if errors == "raise":
             raise ImportError(msg) from None
 
         if errors == "warn":
             warnings.warn(msg)
+            return None
 
-        return None
+        if errors == "ignore":
+            return None
+
+        raise ValueError(f"Expected errors to be one of 'raise', 'warn', 'ignore', got '{errors}'")
 
     return module

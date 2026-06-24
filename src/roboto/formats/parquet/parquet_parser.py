@@ -10,13 +10,13 @@ import pathlib
 import statistics
 import typing
 
-from ....compat import import_optional_dependency
-from ....exceptions import (
+from ...compat import import_optional_dependency
+from ...exceptions import (
     IngestionException,
     TimestampFieldNotFoundException,
 )
-from ....logging import default_logger
-from ....time import TimeUnit
+from ...logging import default_logger
+from ...time import TimeUnit
 from .timestamp import (
     TimestampInfo,
     is_timestamp_like,

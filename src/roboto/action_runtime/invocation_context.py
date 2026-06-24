@@ -355,6 +355,20 @@ class InvocationContext:
         if self.__input_data_manifest_file is None:
             raise ActionRuntimeException("Couldn't find action input manifest file")
 
+        # Setup is expected to always write the manifest (see prepare_invocation_input_data), even for
+        # a no-input invocation, where it writes an empty manifest. Tolerate a missing file so the
+        # action never crashes deep in the runtime, but log a warning: now that setup always writes the
+        # manifest, an absent file signals a setup regression that would otherwise silently run the
+        # action with empty input.
+        if not self.__input_data_manifest_file.is_file():
+            log.warning(
+                "Action input manifest %s not found; defaulting to empty input. "
+                "Setup is expected to always write this file.",
+                self.__input_data_manifest_file,
+            )
+            return ActionInput()
+
+        # An empty manifest is the legitimate no-input state; resolve it to empty input silently.
         if self.__input_data_manifest_file.stat().st_size == 0:
             return ActionInput()
 

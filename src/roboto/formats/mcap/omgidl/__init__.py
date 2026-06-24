@@ -9,7 +9,7 @@
 Robotics data recorded directly from DDS (e.g. RTI Connext) carries OMG IDL schemas and
 CDR payloads that mix plain CDR with XCDR1- and XCDR2-mutable extensibility. This package
 provides an :py:class:`mcap.decoder.DecoderFactory` that decodes all of those variants,
-for use by :py:class:`~roboto.domain.topics.mcap_reader.McapReader`.
+for use by :py:class:`~roboto.formats.mcap.reader.McapReader`.
 """
 
 from .decoder_factory import (

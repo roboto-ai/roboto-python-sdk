@@ -7,14 +7,14 @@
 import collections.abc
 import typing
 
-from ....compat import import_optional_dependency
-from ....logging import default_logger
-from ..operations import AddMessagePathRequest
-from ..record import (
+from ...compat import import_optional_dependency
+from ...domain.topics.operations import AddMessagePathRequest
+from ...domain.topics.record import (
     CanonicalDataType,
     MessagePathMetadataWellKnown,
     MessagePathStatistic,
 )
+from ...logging import default_logger
 from .parquet_parser import ParquetParser
 from .timestamp import TimestampInfo
 
@@ -307,7 +307,7 @@ def _traverse_field(
         timestamp: Timestamp information.
         depth: Current recursion depth.
         max_depth: Maximum recursion depth.
-        is_inside_list: Whether we are inside a list type (affects child type mapping).
+        is_inside_list: Whether this field descends from a list (affects how statistics data is extracted).
 
     Yields:
         AddMessagePathRequest objects for this field and its children.
@@ -326,14 +326,17 @@ def _traverse_field(
     if field == timestamp.field:
         canonical_data_type = CanonicalDataType.Timestamp
 
-    # For fields inside a list<struct>, numeric types stay as Number (not NumberArray)
-    # because the list parent already indicates the array nature
-
-    # Build path_in_schema for this field
+    # Absolute schema path to this field, used as path_in_schema on every request.
     full_field_path = [column_name] + field_path
 
-    # Handle struct types - yield parent as Object, then recurse into children
+    # Both struct and list<struct> recurse into a struct's children, differing only
+    # in which struct supplies them and whether they count as inside a list. Each
+    # branch resolves these locals so the recursion tail below is written once.
+    struct_children: typing.Optional["pyarrow.StructType"] = None
+    children_inside_list = is_inside_list
+
     if pa.types.is_struct(arrow_type):
+        # Yield the struct parent as an Object, then recurse into its fields.
         yield AddMessagePathRequest(
             canonical_data_type=CanonicalDataType.Object,
             data_type=str(arrow_type),
@@ -341,39 +344,11 @@ def _traverse_field(
             metadata={},
             path_in_schema=full_field_path,
         )
-
-        # Recurse into struct fields if within depth limit
-        if depth < max_depth:
-            struct_type = typing.cast("pyarrow.StructType", arrow_type)
-            for i in range(struct_type.num_fields):
-                child_field = struct_type.field(i)
-                child_field_path = field_path + [child_field.name]
-                yield from _traverse_field(
-                    field=child_field,
-                    path_prefix=message_path,
-                    field_path=child_field_path,
-                    column_name=column_name,
-                    parser=parser,
-                    timestamp=timestamp,
-                    depth=depth + 1,
-                    max_depth=max_depth,
-                    is_inside_list=is_inside_list,
-                )
-        else:
-            logger.warning(
-                "'%s' has nested data beyond the maximum supported depth (%d). "
-                "Its child fields will not be individually searchable or plottable, "
-                "and will instead appear as a raw nested object.",
-                message_path,
-                max_depth,
-            )
-        return
-
-    # Handle list types
-    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
+        struct_children = typing.cast("pyarrow.StructType", arrow_type)
+    elif pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
         value_type = typing.cast("pyarrow.ListType", arrow_type).value_type
 
-        # Yield the list field itself
+        # Yield the list field itself.
         metadata = compute_field_metadata(
             parser=parser,
             column_name=column_name,
@@ -389,53 +364,59 @@ def _traverse_field(
             path_in_schema=full_field_path,
         )
 
-        # For list<struct>, recurse into struct fields
+        # For list<struct>, recurse into the element struct's fields, marking the
+        # children as inside a list.
         if pa.types.is_struct(value_type):
-            if depth < max_depth:
-                struct_type = typing.cast("pyarrow.StructType", value_type)
-                for i in range(struct_type.num_fields):
-                    child_field = struct_type.field(i)
-                    child_field_path = field_path + [child_field.name]
-                    yield from _traverse_field(
-                        field=child_field,
-                        path_prefix=message_path,
-                        field_path=child_field_path,
-                        column_name=column_name,
-                        parser=parser,
-                        timestamp=timestamp,
-                        depth=depth + 1,
-                        max_depth=max_depth,
-                        is_inside_list=True,  # Mark that we're inside a list
-                    )
-            else:
-                logger.warning(
-                    "'%s' has nested data beyond the maximum supported depth (%d). "
-                    "Its child fields will not be individually searchable or plottable, "
-                    "and will instead appear as a raw nested object.",
-                    message_path,
-                    max_depth,
-                )
+            struct_children = typing.cast("pyarrow.StructType", value_type)
+            children_inside_list = True
+    else:
+        # Leaf field: yield it directly (with the timestamp unit when relevant).
+        metadata = compute_field_metadata(
+            parser=parser,
+            column_name=column_name,
+            field_path=field_path,
+            canonical_data_type=canonical_data_type,
+            is_inside_list=is_inside_list,
+        )
+        if field == timestamp.field:
+            metadata[MessagePathMetadataWellKnown.Unit.value] = str(timestamp.unit)
+        yield AddMessagePathRequest(
+            canonical_data_type=canonical_data_type,
+            data_type=str(arrow_type),
+            message_path=message_path,
+            metadata=metadata,
+            path_in_schema=full_field_path,
+        )
         return
 
-    metadata = compute_field_metadata(
-        parser=parser,
-        column_name=column_name,
-        field_path=field_path,
-        canonical_data_type=canonical_data_type,
-        is_inside_list=is_inside_list,
-    )
+    if struct_children is None:
+        # list<non-struct>: nothing further to recurse into.
+        return
 
-    # Special handling for timestamp field metadata
-    if field == timestamp.field:
-        metadata[MessagePathMetadataWellKnown.Unit.value] = str(timestamp.unit)
-
-    yield AddMessagePathRequest(
-        canonical_data_type=canonical_data_type,
-        data_type=str(arrow_type),
-        message_path=message_path,
-        metadata=metadata,
-        path_in_schema=full_field_path,
-    )
+    # Recurse into the struct's children if within the depth limit.
+    if depth < max_depth:
+        for i in range(struct_children.num_fields):
+            child_field = struct_children.field(i)
+            child_field_path = field_path + [child_field.name]
+            yield from _traverse_field(
+                field=child_field,
+                path_prefix=message_path,
+                field_path=child_field_path,
+                column_name=column_name,
+                parser=parser,
+                timestamp=timestamp,
+                depth=depth + 1,
+                max_depth=max_depth,
+                is_inside_list=children_inside_list,
+            )
+    else:
+        logger.warning(
+            "'%s' has nested data beyond the maximum supported depth (%d). "
+            "Its child fields will not be individually searchable or plottable, "
+            "and will instead appear as a raw nested object.",
+            message_path,
+            max_depth,
+        )
 
 
 def generate_message_path_requests(

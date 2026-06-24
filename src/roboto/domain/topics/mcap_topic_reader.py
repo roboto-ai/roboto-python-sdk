@@ -10,14 +10,12 @@ import collections.abc
 import logging
 import typing
 
-import mcap.reader
-
 from ...association import AssociationType
 from ...compat import import_optional_dependency
+from ...formats.mcap import McapReader, open_for_window
 from ...http import RobotoClient
 from ...logging import default_logger
-from .http_range_reader import HttpRangeReader, as_io_bytes
-from .mcap_reader import McapReader
+from ...storage import HttpRangeReader, as_io_bytes
 from .record import (
     MessagePathRepresentationMapping,
     RepresentationStorageFormat,
@@ -122,56 +120,12 @@ class McapTopicReader(TopicReader):
                 file_id = association.association_id
                 signed_url = self.__signed_url_resolver(file_id)
 
-                http_reader = HttpRangeReader(signed_url)
+                http_reader = open_for_window(signed_url, start_time=start_time, end_time=end_time)
                 http_readers.append(http_reader)
 
-                # Phase 1: Read summary to get chunk index (this fetches footer + summary)
-                seeking_reader = mcap.reader.SeekingReader(as_io_bytes(http_reader))
-                summary = seeking_reader.get_summary()
-
-                # Phase 2: Identify chunks needed for the time range and prefetch them
-                if summary and summary.chunk_indexes:
-                    fetch_start: int | None = None
-                    fetch_end: int | None = None
-                    chunk_count = 0
-
-                    for chunk_index in summary.chunk_indexes:
-                        chunk_start_time = chunk_index.message_start_time
-                        chunk_end_time = chunk_index.message_end_time
-
-                        # Skip chunks outside the time range
-                        if start_time is not None and chunk_end_time < start_time:
-                            continue
-                        if end_time is not None and chunk_start_time > end_time:
-                            continue
-
-                        chunk_start = chunk_index.chunk_start_offset
-                        chunk_end = chunk_start + chunk_index.chunk_length - 1
-                        chunk_count += 1
-
-                        if fetch_start is None or chunk_start < fetch_start:
-                            fetch_start = chunk_start
-                        if fetch_end is None or chunk_end > fetch_end:
-                            fetch_end = chunk_end
-
-                    # Prefetch the byte range
-                    if fetch_start is not None and fetch_end is not None:
-                        total_bytes = fetch_end - fetch_start + 1
-                        logger.info(
-                            "Prefetching %d chunks, %.1f MB for file %s (time range: %s - %s)",
-                            chunk_count,
-                            total_bytes / 1024 / 1024,
-                            file_id,
-                            start_time,
-                            end_time,
-                        )
-                        http_reader.prefetch_range(fetch_start, fetch_end)
-
-                # Phase 3: Reset reader position and create McapReader for iteration
-                http_reader.seek(0)
                 mcap_reader = McapReader(
                     stream=as_io_bytes(http_reader),
-                    message_paths=message_path_repr_map.message_paths,
+                    fields=[record.to_field_selection() for record in message_path_repr_map.message_paths],
                     start_time=start_time,
                     end_time=end_time,
                 )
@@ -180,21 +134,21 @@ class McapTopicReader(TopicReader):
             if logger.isEnabledFor(logging.DEBUG):
                 for reader in mcap_readers:
                     logger.debug(
-                        "Reader will pick %r message_paths from data",
-                        reader.message_paths,
+                        "Reader will pick %r fields from data",
+                        reader.field_paths,
                     )
 
             while any(reader.has_next for reader in mcap_readers):
                 full_record = {}
-                timestamp = min(reader.next_timestamp for reader in mcap_readers)
+                log_time = min(reader.next_envelope_timestamp.log_time for reader in mcap_readers)
                 for reader in mcap_readers:
-                    if reader.next_message_is_time_aligned(timestamp):
+                    if reader.next_message_is_time_aligned(log_time):
                         decoded_message = reader.next()
                         if decoded_message is None:
                             continue
                         full_record.update(decoded_message.to_dict())
 
-                yield timestamp, full_record
+                yield log_time, full_record
 
         finally:
             for http_reader in http_readers:

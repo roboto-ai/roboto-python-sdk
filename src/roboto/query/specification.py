@@ -99,7 +99,7 @@ class QuerySpecification(pydantic.BaseModel):
     ``limit``, which is the per-page size.
 
     Only honored for queries executed via Roboto search (the ``QueryTarget`` resource types:
-    collections, datasets, files, sessions, topics, topic message paths, events). Other code
+    collections, datasets, devices, files, sessions, topics, topic message paths, events). Other code
     paths that accept a ``QuerySpecification`` ignore this field.
     """
 
