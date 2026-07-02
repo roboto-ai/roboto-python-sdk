@@ -273,7 +273,10 @@ class ReadPlan(pydantic.BaseModel):
     """The output fields a consumer projects decoded rows to."""
 
     partitions: tuple[ReadPlanPartition, ...] = ()
-    """One entry per partition in the window, each its own fetch-and-interpret plan."""
+    """One entry per partition in the window, each its own fetch-and-interpret plan.
+
+    Ordered by where each file's data begins. This orders whole partitions, not rows.
+    """
 
     @pydantic.field_validator("plan_version")
     @classmethod

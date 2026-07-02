@@ -14,6 +14,7 @@ from ...logging import default_logger
 from ...storage.cache import (
     CachePolicy,
     FetchMode,
+    cached_file_is_current,
     choose_fetch_mode,
     download_to_cache,
 )
@@ -118,9 +119,11 @@ def open_parquet_file(
         estimated_column_count: How many columns the read is expected to
             project; informs the ``ADAPTIVE`` download-vs-stream choice.
         size_bytes: The backing object's size in bytes when the server reports
-            it; ``None`` when unknown. On the STREAM path it lets a known-large
-            file skip the whole-file head probe; on the DOWNLOAD path it verifies
-            the downloaded file is complete before it is promoted to the cache.
+            it; ``None`` when unknown. It gates cache reuse: a present cached file
+            whose size does not match is treated as stale and re-fetched. On the
+            STREAM path it lets a known-large file skip the whole-file head probe;
+            on the DOWNLOAD path it verifies the downloaded file is complete before
+            it is promoted to the cache.
 
     Returns:
         An open ``pyarrow.parquet.ParquetFile``.
@@ -130,7 +133,7 @@ def open_parquet_file(
     effective_policy = policy if cache_outfile is not None else CachePolicy.NEVER
     mode = choose_fetch_mode(
         policy=effective_policy,
-        already_cached=cache_outfile is not None and cache_outfile.exists(),
+        already_cached=cache_outfile is not None and cached_file_is_current(cache_outfile, size_bytes),
         estimated_column_count=estimated_column_count,
     )
 

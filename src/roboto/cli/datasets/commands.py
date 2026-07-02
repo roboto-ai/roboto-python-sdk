@@ -13,6 +13,8 @@ from .import_external_file import (
     import_external_file_command,
 )
 from .list_files import list_files_command
+from .rename_directory import rename_directory_command
+from .rename_file import rename_file_command
 from .search import search_command
 from .show import show_command
 from .update import update_command
@@ -25,6 +27,8 @@ commands = [
     download_files_command,
     import_external_file_command,
     list_files_command,
+    rename_directory_command,
+    rename_file_command,
     show_command,
     search_command,
     update_command,

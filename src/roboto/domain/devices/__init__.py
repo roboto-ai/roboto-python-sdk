@@ -14,6 +14,7 @@ The main components are:
 - :py:class:`Device`: Core device entity for registration, token management, and operations
 - :py:class:`DeviceRecord`: Wire-transmissible representation of device data
 - :py:class:`CreateDeviceRequest`: Request payload for device registration
+- :py:class:`UpdateDeviceRequest`: Request payload for updating a device
 
 Devices are identified by unique device IDs within their organization and can be
 assigned API tokens for authentication. They serve as the primary mechanism for
@@ -27,4 +28,9 @@ from .operations import (
 )
 from .record import DeviceRecord
 
-__all__ = ["CreateDeviceRequest", "Device", "DeviceRecord", "UpdateDeviceRequest"]
+__all__ = [
+    "CreateDeviceRequest",
+    "Device",
+    "DeviceRecord",
+    "UpdateDeviceRequest",
+]

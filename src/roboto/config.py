@@ -32,6 +32,19 @@ _CONFIG_ERROR_SUFFIX = (
 )
 
 
+def resolve_cache_dir(env: RobotoEnv, ensure_exists: bool) -> pathlib.Path:
+    """Resolve the base directory under which the SDK caches files it fetches from Roboto.
+
+    Prefers ``ROBOTO_CACHE_DIR`` from ``env``; absent that, the platform-conventional per-user cache directory.
+    ``ensure_exists`` applies only to the platform default: when true, resolving it also creates the directory on disk.
+    A directory supplied through ``ROBOTO_CACHE_DIR`` is returned as-is and never created here.
+    """
+    if env.cache_dir:
+        return pathlib.Path(env.cache_dir)
+
+    return platformdirs.user_cache_path(appname="roboto", ensure_exists=ensure_exists)
+
+
 class RobotoConfig(pydantic.BaseModel):
     """
     RobotoConfig captures an ``api_key`` and ``endpoint`` required to programmatically
@@ -121,15 +134,7 @@ class RobotoConfig(pydantic.BaseModel):
 
     def get_cache_dir(self) -> pathlib.Path:
         if self.cache_dir is None:
-            default_env = RobotoEnv.default()
-            cache_dir_from_env = pathlib.Path(default_env.cache_dir) if default_env.cache_dir else None
-            if cache_dir_from_env:
-                self.cache_dir = cache_dir_from_env
-            else:
-                self.cache_dir = platformdirs.user_cache_path(
-                    appname="roboto",
-                    ensure_exists=True,
-                )
+            self.cache_dir = resolve_cache_dir(RobotoEnv.default(), ensure_exists=True)
 
         return self.cache_dir
 

@@ -161,6 +161,24 @@ class McapReader:
         message = self.__next_unconsummed_decode_result.message
         return McapEnvelopeTimestamp(log_time=message.log_time, publish_time=message.publish_time)
 
+    @property
+    def schema_encoding(self) -> typing.Optional[str]:
+        """The MCAP Schema-record encoding of the next message to be read.
+
+        The encoding (e.g. ``"ros1msg"``, ``"ros2msg"``, ``"jsonschema"``) identifies
+        the framework or format that produced the messages;
+        :py:func:`roboto.formats.mcap.dialect_from_schema_encoding` maps it to an
+        :py:class:`~roboto.formats.mcap.McapDialect`.
+
+        Returns:
+            The schema record's ``encoding``, or ``None`` if the reader is exhausted
+            or the next message carries no schema (a schemaless channel).
+        """
+        next_decode_result = self.__next_unconsummed_decode_result
+        if next_decode_result is None or next_decode_result.schema is None:
+            return None
+        return next_decode_result.schema.encoding
+
     def next(self) -> typing.Union[DecodedMessage, None]:
         """Read and return the next decoded message.
 

@@ -111,7 +111,6 @@ from .domain.files import (
     QueryFilesRequest,
     UpdateFileRecordRequest,
 )
-from .domain.sessions import Session, SessionFile, SessionFileRecord, SessionRecord
 from .domain.topics import (
     AddMessagePathRepresentationRequest,
     AddMessagePathRequest,
@@ -146,6 +145,12 @@ from .domain.users import (
     UserRecord,
 )
 from .env import RobotoEnv
+from .experimental.sessions import (
+    Session,
+    SessionFile,
+    SessionFileRecord,
+    SessionRecord,
+)
 from .http import BatchRequest, RobotoClient
 from .regionalization import RobotoRegion
 from .roboto_search import RobotoSearch

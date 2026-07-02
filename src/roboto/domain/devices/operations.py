@@ -75,3 +75,27 @@ class UpdateDeviceRequest(pydantic.BaseModel):
     are undefined or not ``Ready`` are rejected with a structured error. Field
     names not mentioned by the changeset are left unchanged.
     """
+
+
+class InferDevicesRequest(pydantic.BaseModel):
+    """Request body for ``POST /v1/devices/infer``.
+
+    Previews which devices a session created from the named files would be attached to: the union of the
+    devices set as ``device_id`` on the files and on their parent datasets. Creates and modifies nothing.
+    """
+
+    model_config = pydantic.ConfigDict(extra="ignore")
+
+    file_ids: list[str]
+
+
+class InferDevicesResponse(pydantic.BaseModel):
+    """Response body for ``POST /v1/devices/infer``.
+
+    Carries the devices a session created from the request's files would be attached to.
+    """
+
+    model_config = pydantic.ConfigDict(extra="ignore")
+
+    device_ids: list[str]
+    """The distinct IDs of the inferred devices, unordered."""

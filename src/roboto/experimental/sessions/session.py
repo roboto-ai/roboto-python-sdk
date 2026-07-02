@@ -7,7 +7,12 @@
 import collections.abc
 import datetime
 import typing
+import urllib.parse
 
+from ...domain.files import File
+from ...domain.metrics.metric import BulkPublishMetricsResult, Metric
+from ...domain.metrics.record import MetricEntry
+from ...domain.topics.record import TopicIdentityRecord
 from ...http import RobotoClient
 from ...sentinels import (
     NotSet,
@@ -15,11 +20,7 @@ from ...sentinels import (
     remove_not_set,
 )
 from ...updates import CustomFieldChangeset, MetadataChangeset, StrSequence
-from ...warnings import experimental
-from ..files import File
-from ..metrics.metric import BulkPublishMetricsResult, Metric
-from ..metrics.record import MetricEntry
-from ..topics.record import TopicIdentityRecord
+from ..topics import SessionContext, Topic
 from .operations import (
     AddFilesRequest,
     AttachToDeviceRequest,
@@ -32,7 +33,6 @@ from .operations import (
 from .record import SessionRecord
 
 
-@experimental
 class Session:
     """An operational time window of a Device.
 
@@ -63,7 +63,7 @@ class Session:
     Examples:
         Create a Session for a drone flight, include a recording, and list its topics:
 
-        >>> from roboto.domain.sessions import Session
+        >>> from roboto.experimental.sessions import Session
         >>> session = Session.create(name="flight-2026-04-23-001", device_ids=["dv_abc"])
         >>> session = session.add_file("fl_0123456789abcdef")
         >>> for topic in session.list_topics():
@@ -97,7 +97,7 @@ class Session:
             description: Optional description of the Session.
             metadata: Optional initial metadata.
                 Sessions are not filterable or sortable by ``metadata`` keys;
-                for queryable structured attributes, define a custom cield on the ``Session`` entity type.
+                for queryable structured attributes, define a custom field on the ``Session`` entity type.
             tags: Optional initial tags.
                 Sessions can be filtered by tag membership but are not sortable by tag.
             custom_fields: Optional initial values for Ready custom fields defined on
@@ -110,7 +110,7 @@ class Session:
             The created Session.
 
         Examples:
-            >>> from roboto.domain.sessions import Session
+            >>> from roboto.experimental.sessions import Session
             >>> session = Session.create(
             ...     name="flight-2026-04-23-001",
             ...     device_ids=["dv_a", "dv_b"],
@@ -153,7 +153,7 @@ class Session:
             Sessions, one at a time, following pagination automatically.
 
         Examples:
-            >>> from roboto.domain.sessions import Session
+            >>> from roboto.experimental.sessions import Session
             >>> for session in Session.for_dataset("ds_abc"):
             ...     print(session.session_id, session.name)
         """
@@ -258,10 +258,9 @@ class Session:
     def custom_fields(self) -> dict[str, typing.Any]:
         """Custom-field values defined on Sessions in this org.
 
-        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` defined
-        for ``(org_id, Session)`` appears as a key. Values that have not been set
-        on this session surface as ``None`` rather than being absent. Empty when
-        no custom fields are defined for the org.
+        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` for the org
+        appears as a key. Values that have not been set on this session surface as ``None``
+        rather than being absent. Empty when no custom fields are defined for the org.
         """
         return self.__record.custom_fields
 
@@ -394,7 +393,7 @@ class Session:
             This Session, refreshed from the server response.
 
         Examples:
-            >>> from roboto.domain.sessions import SessionFile
+            >>> from roboto.experimental.sessions import SessionFile
             >>> session.add_files(
             ...     [
             ...         SessionFile(file_id="fl_aaa"),
@@ -451,6 +450,45 @@ class Session:
             f"v1/sessions/id/{self.session_id}/devices",
             owner_org_id=self.org_id,
             data=DetachFromDeviceRequest(device_id=device_id),
+        )
+
+    def get_topic(self, topic_name: str) -> Topic:
+        """Return the named Topic, scoped to this Session.
+
+        The returned Topic is scoped to this Session's associated files and defaults its
+        read window to this Session's aggregate bounds, so ``get_data*`` reads just this
+        Session's data without an explicit window.
+
+        Args:
+            topic_name: Exact name of the topic to retrieve (e.g. ``"/camera/image"``).
+
+        Returns:
+            The matching :py:class:`~roboto.experimental.topics.Topic`.
+
+        Raises:
+            RobotoNotFoundException: No topic with ``topic_name`` is reachable from this Session
+                (the topic is absent from the org, or exists but does not contribute within this
+                Session's window).
+            RobotoUnauthorizedException: The caller lacks view access to this Session.
+
+        Examples:
+            >>> topic = session.get_topic("/camera/image")
+            >>> for timestamp, record in topic.get_data():
+            ...     print(timestamp, record)
+        """
+        quoted_topic_name = urllib.parse.quote_plus(topic_name)
+        record = self.__roboto_client.get(
+            f"v1/sessions/id/{self.session_id}/topics/name/{quoted_topic_name}",
+            owner_org_id=self.org_id,
+        ).to_record(TopicIdentityRecord)
+        return Topic.from_record(
+            record,
+            roboto_client=self.__roboto_client,
+            session_context=SessionContext(
+                session_id=self.session_id,
+                start_time=self.min_timestamp_ns,
+                end_time=self.max_timestamp_ns,
+            ),
         )
 
     def list_devices(self) -> collections.abc.Generator[str, None, None]:
@@ -516,6 +554,52 @@ class Session:
             roboto_client=self.__roboto_client,
         )
 
+    def list_topics(self) -> collections.abc.Generator[Topic, None, None]:
+        """Iterate the topics reachable from this Session, following pagination.
+
+        Results are range-filtered: a topic is yielded only when the Session's time window overlaps at least
+        one of the topic's timeline extents (:py:class:`~roboto.domain.topics.TimelineExtentRecord`). Results are
+        deduplicated across files and partitions, ordered by ``name`` with ``topic_id`` as a deterministic tiebreaker.
+
+        A yielded Topic is scoped to this Session's files and defaults its read window to this
+        Session's aggregate bounds, so :py:meth:`~roboto.experimental.topics.Topic.get_data`
+        (and the other ``get_data*`` methods) read just this Session's data without an explicit window.
+
+        Yields:
+            :py:class:`~roboto.experimental.topics.Topic` instances.
+
+        Examples:
+            >>> for topic in session.list_topics():
+            ...     for timestamp, record in topic.get_data():
+            ...         print(topic.name, timestamp, record)
+        """
+        next_token: typing.Optional[str] = None
+        while True:
+            query: dict[str, typing.Any] = {}
+            if next_token:
+                query["page_token"] = next_token
+
+            page = self.__roboto_client.get(
+                f"v1/sessions/id/{self.session_id}/topics",
+                owner_org_id=self.org_id,
+                query=query,
+            ).to_paginated_list(TopicIdentityRecord)
+
+            for item in page.items:
+                yield Topic.from_record(
+                    item,
+                    roboto_client=self.__roboto_client,
+                    session_context=SessionContext(
+                        session_id=self.session_id,
+                        start_time=self.min_timestamp_ns,
+                        end_time=self.max_timestamp_ns,
+                    ),
+                )
+
+            next_token = page.next_token
+            if not next_token:
+                break
+
     def publish_metrics(
         self,
         metrics: list[MetricEntry],
@@ -524,9 +608,8 @@ class Session:
         """Record metric values for this Session in a single network call.
 
         Convenience wrapper around :py:meth:`~roboto.domain.metrics.Metric.publish`
-        that supplies this Session's ``session_id`` and ``org_id``. Each
-        ``(metric, session)`` pair is upserted: republishing under the same
-        name replaces the previous value.
+        that supplies this Session's ``session_id`` and ``org_id``. Republishing a
+        metric under the same name replaces its previous value for this Session.
 
         If a metric definition does not already exist for a given name it is
         created automatically.
@@ -575,38 +658,6 @@ class Session:
             caller_org_id=self.org_id,
             roboto_client=self.__roboto_client,
         )
-
-    def list_topics(self) -> collections.abc.Generator[TopicIdentityRecord, None, None]:
-        """Iterate topic identities reachable from this Session, following pagination.
-
-        Results are range-filtered: a topic identity is yielded only when the Session's time window overlaps at least
-        one of the topic's timeline extents (:py:class:`~roboto.domain.topics.TimelineExtentRecord`). Results are
-        deduplicated across files and partitions, ordered by ``name`` with ``topic_id`` as a deterministic tiebreaker.
-
-        Yields:
-            :py:class:`roboto.domain.topics.TopicIdentityRecord` entries.
-
-        Examples:
-            >>> for topic in session.list_topics():
-            ...     print(topic.topic_id, topic.name)
-        """
-        next_token: typing.Optional[str] = None
-        while True:
-            query: dict[str, typing.Any] = {}
-            if next_token:
-                query["page_token"] = next_token
-
-            page = self.__roboto_client.get(
-                f"v1/sessions/id/{self.session_id}/topics",
-                owner_org_id=self.org_id,
-                query=query,
-            ).to_paginated_list(TopicIdentityRecord)
-
-            yield from page.items
-
-            next_token = page.next_token
-            if not next_token:
-                break
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Session":
         """Add or update metadata fields on this Session.
@@ -718,8 +769,8 @@ class Session:
             description: New description for the Session. Set to ``None`` to clear the description.
                 Leave at the default to leave the description unchanged.
             metadata_changeset: Tag and metadata changes to apply (put/remove tags and fields).
-            See :py:meth:`put_tags`, :py:meth:`remove_tags`, :py:meth:`put_metadata`,
-            and :py:meth:`remove_metadata` for shorthand helpers.
+                See :py:meth:`put_tags`, :py:meth:`remove_tags`, :py:meth:`put_metadata`,
+                and :py:meth:`remove_metadata` for shorthand helpers.
             name: New name for the Session. Set to ``None`` to clear the name.
                 Leave at the default to leave the name unchanged.
             custom_fields_changeset: Changes to apply to Ready custom-field values

@@ -6,6 +6,10 @@
 
 """Topics APIs in active refinement; see :py:mod:`roboto.experimental` for the stability contract."""
 
+from .batch_transforms import (
+    TIMESTAMP_FIELD_METADATA_KEY,
+    timestamp_column_index,
+)
 from .operations import (
     FieldAddress,
     ReadPlanRequest,
@@ -26,10 +30,13 @@ from .read_plan import (
     TimeWindow,
 )
 from .record import RepresentationRecord, RepresentationSelector
+from .topic import FieldAddressLike, SessionContext, Topic
 
 __all__ = [
     "PLAN_VERSION",
+    "TIMESTAMP_FIELD_METADATA_KEY",
     "FieldAddress",
+    "FieldAddressLike",
     "ReadPlan",
     "ReadPlanExtent",
     "ReadPlanFieldRef",
@@ -44,5 +51,8 @@ __all__ = [
     "RepresentationPreference",
     "RepresentationRecord",
     "RepresentationSelector",
+    "SessionContext",
     "TimeWindow",
+    "Topic",
+    "timestamp_column_index",
 ]

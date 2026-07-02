@@ -1,5 +1,14 @@
 # Changelog
 
+# 0.50.0
+## Breaking Changes
+- `Session` and its records and operations moved wholesale from `roboto.domain.sessions` to `roboto.experimental.sessions`. The package-root re-exports (`from roboto import Session, SessionFile, SessionFileRecord, SessionRecord`) will keep working; only `roboto.domain.sessions...` imports need updating.
+- `Session.list_topics()` now yields `roboto.experimental.topics.Topic` instances instead of `TopicIdentityRecord`s.
+
+## Features Added
+- Read topic data over a time window (experimental): an evolution of the existing `roboto.domain.topics.Topic.get_data` / `get_data_as_df` reads. Where the existing `roboto.domain.topics.Topic` is scoped to a single file, `roboto.experimental.topics.Topic` is a durable handle to one topic — a single recorded stream of data, such as a sensor channel — that stays valid across every file carrying that stream. Load one with `Topic.from_id("ti_...")`, then read its rows within a time window with `get_data(start_time=..., end_time=...)`, which yields the same `(timestamp, record)` pairs as before — `timestamp` an integer of nanoseconds since the Unix epoch, `record` a dict of the topic's fields. The same window is also available as a pandas DataFrame from `get_data_as_df(...)` and, new on this surface, as Apache Arrow `RecordBatch`es from `get_data_as_record_batches(...)` for columnar processing. Narrow any read to just the fields you need with `fields_include` / `fields_exclude`. Rows come back in the order they were recorded, not necessarily time order. This surface is in progress and may change.
+- `Session.get_topic(topic_name)` (experimental) returns the single topic reachable from a session by exact name in one request, raising `RobotoNotFoundException` when none matches — including when the topic exists in the org but does not contribute within the session's window. It is the by-name complement to `Session.list_topics()`.
+
 # 0.49.0
 ## Breaking Changes
   - `roboto.fs` is renamed to `roboto.storage`. The top-level re-exports (`roboto.FileService`, etc.) are unchanged.
@@ -7,6 +16,10 @@
 
 ## Features Added
   - `QueryTarget.Devices` is now a supported search target. Devices can be queried via `RobotoSearch` with filters, sort, and pagination using the same `QuerySpecification` interface as datasets, events, collections, and sessions.
+  - `Dataset.rename_file(file_id, new_path)` moves or renames a file within a dataset. Pass a `new_path` with fewer components to move the file up the directory tree, the same depth with a different name to rename in place, or a path under a sibling directory to move laterally. The file's storage URI is unchanged; only its logical location shifts.
+  - `Dataset.rename_directory(old_path, new_path)` moves or renames a directory within a dataset, carrying all of its contents along. The same depth-change semantics apply.
+  - CLI: `roboto datasets rename-file -d <dataset-id> -f <file-id> -p <new-path>` exposes `rename_file` from the command line.
+  - CLI: `roboto datasets rename-directory -d <dataset-id> -o <old-path> -p <new-path>` exposes `rename_directory` from the command line.
 
 ## Bugs Fixed
   - Invoking an action with no input data (for example, running it against just a dataset) no longer fails. `prepare_invocation_input_data` now always writes the input manifest, treating no input (`input_data=None`) the same as empty input; previously it skipped the manifest entirely for no-input invocations, so the action later crashed reading it.

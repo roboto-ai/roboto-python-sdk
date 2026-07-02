@@ -11,10 +11,10 @@ import urllib.parse
 
 from ...auth.scope import ApiScope
 from ...exceptions import RobotoDomainException
+from ...experimental.sessions import Session, SessionRecord
 from ...http import RobotoClient
 from ...updates import CustomFieldChangeset, MetadataChangeset
 from ...warnings import experimental
-from ..sessions import Session, SessionRecord
 from ..tokens import (
     CreateTokenRequest,
     Token,

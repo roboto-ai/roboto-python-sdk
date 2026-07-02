@@ -26,6 +26,7 @@ from ...env import RobotoEnv
 from ...exceptions import (
     RobotoDeviceNotFoundException,
 )
+from ...experimental.sessions import Session, SessionFile
 from ...http import PaginatedList, RobotoClient
 from ...logging import default_logger, maybe_pluralize
 from ...paths import excludespec_from_patterns
@@ -53,8 +54,8 @@ from ..files import (
     File,
     FileRecord,
     LazyLookupFile,
+    RenameFileRequest,
 )
-from ..sessions import Session, SessionFile
 from ..topics import Topic
 from .operations import (
     CreateDatasetIfNotExistsRequest,
@@ -1445,6 +1446,27 @@ class Dataset:
         return self
 
     def rename_directory(self, old_path: str, new_path: str) -> DirectoryRecord:
+        """Rename or move a directory within this dataset.
+
+        Both ``old_path`` and ``new_path`` are relative to the dataset root. Pass a
+        ``new_path`` with fewer path components to move the directory up the tree, or
+        a different leaf name at the same depth to rename in place.
+
+        Args:
+            old_path: Current relative path of the directory (e.g. ``"logs/session1"``).
+            new_path: Target relative path of the directory (e.g. ``"session1"`` to move up one level).
+
+        Returns:
+            Updated :py:class:`~roboto.domain.files.DirectoryRecord` reflecting the new path.
+
+        Raises:
+            RobotoNotFoundException: No directory exists at ``old_path``.
+            RobotoInvalidRequestException: ``new_path`` conflicts with an existing node or contains a cycle.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.rename_directory("logs/session1", "session1")
+        """
         response = self.__roboto_client.put(
             f"v1/datasets/{self.dataset_id}/directory/rename",
             data=RenameDirectoryRequest(
@@ -1454,6 +1476,46 @@ class Dataset:
         )
 
         return response.to_record(DirectoryRecord)
+
+    def rename_file(self, file_id: str, new_path: str) -> FileRecord:
+        """Rename or move a file within this dataset.
+
+        ``new_path`` is relative to the dataset root. Pass a path with fewer components
+        to move the file up the tree, a different name at the same depth to rename in
+        place, or a path under a different directory to move sideways.
+
+        The file's storage URI is unchanged; only the logical location in the dataset
+        hierarchy moves.
+
+        Args:
+            file_id: ID of the file to rename or move.
+            new_path: Target relative path for the file within this dataset
+                (e.g. ``"file.bag"`` to move to the root, or ``"other_dir/file.bag"``
+                to move into an existing directory).
+
+        Returns:
+            Updated :py:class:`~roboto.domain.files.FileRecord` reflecting the new path.
+
+        Raises:
+            RobotoNotFoundException: No file with ``file_id`` exists.
+            RobotoInvalidRequestException: ``new_path`` conflicts with an existing file,
+                the parent directory does not exist, or the move would create a cycle.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> record = dataset.rename_file("file_xyz789", "file.bag")
+            >>> record.relative_path
+            'file.bag'
+        """
+        response = self.__roboto_client.put(
+            f"v1/files/{file_id}/rename",
+            data=RenameFileRequest(
+                association_id=self.dataset_id,
+                new_path=new_path,
+            ),
+        )
+
+        return response.to_record(FileRecord)
 
     def upload_directory(
         self,

@@ -229,3 +229,128 @@ def resolve_columns(
             columns.append(col)
             seen.add(col)
     return columns
+
+
+def _build_subtree_trie(
+    paths: collections.abc.Iterable[collections.abc.Sequence[str]],
+) -> dict:
+    """Merge root-relative component sequences into a nested ``dict`` trie.
+
+    Each path's components become a chain of ``dict`` keys; a path that ends at a
+    node leaves it ``{}``, marking "keep this whole subtree". ``leaf_most``
+    upstream guarantees no path is an ancestor of another, so a node is never both
+    terminal and internal.
+    """
+    trie: dict = {}
+    for path in paths:
+        node = trie
+        for component in path:
+            node = node.setdefault(component, {})
+    return trie
+
+
+def _narrow_array(array: "pyarrow.Array", node: dict) -> "pyarrow.Array":
+    """Recursively narrow one Arrow array against a subtree trie *node*.
+
+    An empty *node* keeps the whole subtree (returns the array untouched). For a
+    struct, the array is rebuilt keeping only the children named in *node*
+    (reapplying the struct null mask); a name absent from the struct type is
+    skipped. List levels are transparent to the path (matching the SDK accessor
+    model): recurse into ``array.values`` with the same *node*, then rebuild with
+    the original offsets and the list null mask. Any other type is returned as-is.
+
+    Callers MUST pass freshly-read, non-sliced arrays whose list offsets start at
+    zero, so ``ListArray.values`` aligns with ``ListArray.offsets``.
+    """
+    if not node:
+        return array
+    pa = import_optional_dependency("pyarrow", "analytics")
+    pc = import_optional_dependency("pyarrow.compute", "analytics")
+    type_ = array.type
+    if pa.types.is_struct(type_):
+        names: list[str] = []
+        children: list = []
+        for name, sub in node.items():
+            index = type_.get_field_index(name)
+            if index == -1:
+                continue
+            names.append(name)
+            children.append(_narrow_array(array.field(index), sub))
+        if not names:
+            return array
+        mask = pc.is_null(array) if array.null_count else None
+        return pa.StructArray.from_arrays(children, names=names, mask=mask)
+    if pa.types.is_list(type_) or pa.types.is_large_list(type_):
+        narrowed_values = _narrow_array(array.values, node)
+        from_arrays = pa.LargeListArray.from_arrays if pa.types.is_large_list(type_) else pa.ListArray.from_arrays
+        if array.null_count:
+            return from_arrays(array.offsets, narrowed_values, mask=pc.is_null(array))
+        return from_arrays(array.offsets, narrowed_values)
+    return array
+
+
+def should_narrow_list_nested_fields(
+    schema: "pyarrow.Schema",
+    fields: collections.abc.Iterable[FieldSelection],
+) -> bool:
+    """Return whether :py:func:`narrow_list_nested_fields` would change the table.
+
+    True iff at least one projected field addresses a leaf *inside* a list (its
+    path has a list ancestor). When False, every projected field resolves through
+    structs and scalars alone, so PyArrow's column selection already returns the
+    narrowed shape and the post-read prune is a no-op — callers can skip it.
+
+    Cheap enough to evaluate once per file and hoist the per-row-group narrowing
+    decision out of the decode loop.
+    """
+    return any(_list_ancestor_column(schema, field.path_in_schema) is not None for field in fields)
+
+
+def narrow_list_nested_fields(
+    table: "pyarrow.Table",
+    schema: "pyarrow.Schema",
+    fields: collections.abc.Iterable[FieldSelection],
+) -> "pyarrow.Table":
+    """Prune list-of-struct columns to the projected leaves inside each element.
+
+    PyArrow's prefix-based nested column selection cannot reach through list
+    wrapper nodes, so :py:func:`resolve_columns` reads a list-nested leaf's whole
+    list ancestor column — every element keeps all of its struct fields. This
+    Arrow-native post-read pass narrows each such element down to the requested
+    leaves, leaving every other read path byte-identical.
+
+    A top-level root is narrowed iff at least one of its projected paths has a
+    list ancestor; otherwise the table is returned unchanged (pure struct, scalar,
+    and scalar-list reads never enter the rebuild). Per root, a trie is built from
+    its paths with the root component stripped so non-list-nested siblings the
+    projection also keeps are preserved.
+    """
+    pa = import_optional_dependency("pyarrow", "analytics")
+
+    paths_by_root: dict[str, list[tuple[str, ...]]] = {}
+    roots_needing_narrowing: set[str] = set()
+    for field in fields:
+        path = field.path_in_schema
+        if not path:
+            continue
+        root = path[0]
+        paths_by_root.setdefault(root, []).append(path)
+        if _list_ancestor_column(schema, path) is not None:
+            roots_needing_narrowing.add(root)
+
+    if not roots_needing_narrowing:
+        return table
+
+    result = table
+    for root in roots_needing_narrowing:
+        if root not in result.column_names:
+            continue
+        trie = _build_subtree_trie(path[1:] for path in paths_by_root[root])
+        column = result.column(root)
+        narrowed_chunks = [_narrow_array(chunk, trie) for chunk in column.chunks]
+        if not narrowed_chunks:
+            continue
+        narrowed = pa.chunked_array(narrowed_chunks, type=narrowed_chunks[0].type)
+        index = result.schema.get_field_index(root)
+        result = result.set_column(index, result.schema.field(index).with_type(narrowed.type), narrowed)
+    return result

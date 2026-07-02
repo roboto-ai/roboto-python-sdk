@@ -79,7 +79,7 @@ class TargetEntityType(StrEnum):
     """Field applies to :py:class:`~roboto.domain.events.Event` entities."""
 
     Session = "session"
-    """Field applies to :py:class:`~roboto.domain.sessions.Session` entities."""
+    """Field applies to :py:class:`~roboto.experimental.sessions.Session` entities."""
 
     @property
     def url_safe_value(self) -> str:

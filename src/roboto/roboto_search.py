@@ -17,10 +17,10 @@ from .domain import (
     datasets,
     events,
     files,
-    sessions,
     topics,
 )
 from .env import RobotoEnv
+from .experimental import sessions
 from .http import RobotoClient
 from .query import Query, QueryClient, QueryContentMode, QueryTarget
 from .warnings import experimental

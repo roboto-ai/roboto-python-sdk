@@ -44,6 +44,7 @@ class _Expectation:
     response: StubResponse
     query: typing.Optional[dict[str, typing.Any]] = None
     request_body_matcher: typing.Optional[RequestBodyMatcher] = None
+    owner_org_id: typing.Optional[str] = None
 
 
 class StubRobotoClient(RobotoClient):
@@ -89,8 +90,9 @@ class StubRobotoClient(RobotoClient):
         path: str,
         response: StubResponse,
         query: typing.Optional[dict[str, typing.Any]] = None,
+        owner_org_id: typing.Optional[str] = None,
     ) -> StubRobotoClient:
-        self.__expectations.append(_Expectation("GET", path, response, query))
+        self.__expectations.append(_Expectation("GET", path, response, query, owner_org_id=owner_org_id))
         return self
 
     def expect_post(
@@ -145,7 +147,7 @@ class StubRobotoClient(RobotoClient):
         retry_wait_fn: typing.Optional[typing.Any] = None,
         timeout: typing.Any = None,
     ) -> HttpResponse:
-        return self.__consume_expectation("GET", path, query, None)
+        return self.__consume_expectation("GET", path, query, None, owner_org_id=owner_org_id)
 
     def post(
         self,
@@ -220,6 +222,7 @@ class StubRobotoClient(RobotoClient):
         path: collections.abc.Sequence[str] | str,
         query: typing.Optional[dict[str, typing.Any]],
         body: typing.Any,
+        owner_org_id: typing.Optional[str] = None,
     ) -> HttpResponse:
         """Find and consume a matching expectation, returning its response."""
         normalized_path = self.__normalize_path(path)
@@ -230,6 +233,8 @@ class StubRobotoClient(RobotoClient):
             if self.__normalize_path(expectation.path) != normalized_path:
                 continue
             if expectation.query is not None and expectation.query != query:
+                continue
+            if expectation.owner_org_id is not None and expectation.owner_org_id != owner_org_id:
                 continue
             if expectation.request_body_matcher and not expectation.request_body_matcher(body):
                 continue

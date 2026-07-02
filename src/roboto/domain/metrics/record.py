@@ -111,12 +111,12 @@ class MetricRecord(pydantic.BaseModel):
     min_timestamp_ns: typing.Optional[int] = None
     """Lower bound of the source session's aggregate timestamps, in Unix-epoch
     nanoseconds. ``None`` until the session has at least one file contribution.
-    Mirrors :py:attr:`~roboto.domain.sessions.SessionRecord.min_timestamp_ns`."""
+    Mirrors :py:attr:`~roboto.experimental.sessions.SessionRecord.min_timestamp_ns`."""
 
     max_timestamp_ns: typing.Optional[int] = None
     """Upper bound of the source session's aggregate timestamps, in Unix-epoch
     nanoseconds. ``None`` until the session has at least one file contribution.
-    Mirrors :py:attr:`~roboto.domain.sessions.SessionRecord.max_timestamp_ns`."""
+    Mirrors :py:attr:`~roboto.experimental.sessions.SessionRecord.max_timestamp_ns`."""
 
     value: float
     """Observed numeric value."""

@@ -18,7 +18,9 @@ from .table_transforms import (
     compute_time_filter_mask,
     extract_timestamp_field,
     extract_timestamps,
+    narrow_list_nested_fields,
     resolve_columns,
+    should_narrow_list_nested_fields,
     should_read_row_group,
 )
 from .timestamp import Timestamp
@@ -30,8 +32,10 @@ __all__ = (
     "extract_timestamp_field",
     "extract_timestamps",
     "generate_message_path_requests",
+    "narrow_list_nested_fields",
     "open_parquet_file",
     "parquet_file_from_url",
     "resolve_columns",
+    "should_narrow_list_nested_fields",
     "should_read_row_group",
 )

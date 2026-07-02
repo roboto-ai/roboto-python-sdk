@@ -142,6 +142,9 @@ class ReadPlanRequest(pydantic.BaseModel):
     timeline_source_name: typing.Optional[str] = None
     """Timeline source to resolve partition extents with, by name, or ``None``."""
 
+    session_id: typing.Optional[str] = None
+    """Restrict partition enumeration to this session's contributions; ``None`` reads org-wide."""
+
     @pydantic.model_validator(mode="after")
     def _window_ordered(self) -> ReadPlanRequest:
         if self.end_time < self.start_time:

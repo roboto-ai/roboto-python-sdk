@@ -94,6 +94,29 @@ def choose_fetch_mode(
     return FetchMode.STREAM
 
 
+def cached_file_is_current(path: pathlib.Path, expected_size: typing.Optional[int]) -> bool:
+    """Report whether the cached file can be reused instead of downloaded again.
+
+    Returns ``True`` when the file exists and either its size matches ``expected_size`` or
+    ``expected_size`` is ``None``. A size mismatch means the file's content changed since the
+    cache was written, so the cached bytes are stale and must not be reused; the file is then
+    treated as absent and re-downloaded. ``expected_size`` of ``None`` (no size reported) reuses
+    any existing file.
+
+    Args:
+        path: Local cache path to check.
+        expected_size: The backing file's current size in bytes, or ``None`` when unknown.
+
+    Returns:
+        ``True`` when the cached file may be reused, ``False`` when it is missing or stale.
+    """
+    if not path.exists():
+        return False
+    if expected_size is None:
+        return True
+    return path.stat().st_size == expected_size
+
+
 _download_locks: "weakref.WeakValueDictionary[str, threading.Lock]" = weakref.WeakValueDictionary()
 """In-process registry of per-file download locks, keyed by absolute cache path.
 
@@ -162,7 +185,7 @@ def download_to_cache(
     """
     lock = get_download_lock(str(outfile))
     with lock:
-        if outfile.exists():
+        if cached_file_is_current(outfile, expected_size):
             return
 
         outfile.parent.mkdir(parents=True, exist_ok=True)

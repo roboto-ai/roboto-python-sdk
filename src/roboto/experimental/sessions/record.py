@@ -9,10 +9,7 @@ import typing
 
 import pydantic
 
-from ...warnings import experimental
 
-
-@experimental
 class SessionRecord(pydantic.BaseModel):
     """Wire-format row for a session: an operational time window of a Device such as a drone flight,
     a vehicle drive, or a robot run.
@@ -82,7 +79,6 @@ class SessionRecord(pydantic.BaseModel):
     """
 
 
-@experimental
 class SessionFileRecord(pydantic.BaseModel):
     """Wire-format row for one file's contribution to a Session, optionally clipped to a sub-range of
     the file's recorded time.
