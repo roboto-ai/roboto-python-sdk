@@ -25,7 +25,6 @@ from ...env import RobotoEnv
 from ...exceptions import RobotoInternalException
 from ...http import RobotoClient
 from ...storage import CachePolicy
-from ...storage.cache import cached_file_is_current
 from ...time import Time, to_epoch_nanoseconds
 from . import batch_transforms, plan_execution
 from .decode import (
@@ -410,9 +409,7 @@ class Topic:
                     signed_url_resolver=signed_url_resolver,
                     cache_policy=cache_policy,
                     cache_dir=resolved_cache_dir,
-                ),
-                schema_fields,
-                projection_paths,
+                )
             )
 
             yield from plan_execution.execute_plan(plan, projection_paths, decoder)
@@ -608,9 +605,7 @@ class Topic:
                 fs_node_id = scan_task.object.fs_node_id
                 if scan_task.format == RepresentationStorageFormat.PARQUET:
                     cached_outfile = cache_dir / CACHED_PARQUET_NAME_PATTERN.format(fs_node_id=fs_node_id)
-                    if cache_policy is not CachePolicy.NEVER and cached_file_is_current(
-                        cached_outfile, scan_task.object.size_bytes
-                    ):
+                    if cache_policy is not CachePolicy.NEVER and cached_outfile.exists():
                         continue
                 fs_node_ids.add(fs_node_id)
 
@@ -623,10 +618,7 @@ class Topic:
         }
 
     def __signed_url_for_file(self, fs_node_id: str) -> str:
-        response = self.__roboto_client.get(
-            f"v1/files/{fs_node_id}/signed-url",
-            owner_org_id=self.org_id,
-        )
+        response = self.__roboto_client.get(f"v1/files/{fs_node_id}/signed-url")
         return response.to_dict(json_path=["data", "url"])
 
 

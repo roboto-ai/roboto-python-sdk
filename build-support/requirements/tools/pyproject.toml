@@ -27,6 +27,7 @@ types = [
 [[tool.mypy.overrides]]
 module = [
     "antlr4.*",
+    "av.*",
     "aws_xray_sdk.*",
     "boto3.*",
     "botocore.*",
@@ -181,9 +182,18 @@ convention = "google"
     "S603", # We trust the docker subprocess calls in this script.
 ]
 
-"packages/roboto_service/src/roboto_service/ai/tools/analyze_topic*.py" = [
+"packages/roboto_service/src/roboto_service/ai/tools/topic_data/analyze_topic.py" = [
     "S108", # TODO(ENG-2085): tmp files could leave data behind on disk to be accessed by future callers to the same instance.
     "S608", # TODO(ENG-2086): avoid sql injection
+]
+
+"packages/roboto_service/src/roboto_service/ai/tools/topic_data/data_loading.py" = [
+    "S108", # TODO(ENG-2085): tmp files could leave data behind on disk to be accessed by future callers to the same instance.
+    "S608", # TODO(ENG-2086): avoid sql injection
+]
+
+"packages/roboto_service/src/roboto_service/ai/tools/topic_data/search_logs.py" = [
+    "S608", # Generated SQL runs against an in-process DuckDB over the caller's own topic data; patterns are LIKE-escaped.
 ]
 
 [tool.ruff.lint.isort]

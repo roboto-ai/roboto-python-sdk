@@ -44,6 +44,7 @@ class Skill:
         body: str,
         accessibility: SkillAccessibility = SkillAccessibility.Private,
         tags: typing.Optional[collections.abc.Sequence[str]] = None,
+        relevant_topics: typing.Optional[collections.abc.Sequence[str]] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> Skill:
@@ -60,6 +61,9 @@ class Skill:
         skill in their AI auto-invoke registry.
         Pass ``tags`` to seed the skill's tag list at creation time;
         later edits flow through :class:`UpdateSkillMetadataRequest`.
+        Pass ``relevant_topics`` to record the topic names v1's procedure
+        investigates; the chat AI resolves them to schemas when it loads the
+        skill (see :class:`SkillVersionRecord.relevant_topics`).
 
         Examples:
             >>> skill = Skill.create(
@@ -68,6 +72,7 @@ class Skill:
             ...     body="Step 1: load the dataset summary...",
             ...     accessibility=SkillAccessibility.Org,
             ...     tags=["qa-review", "triage"],
+            ...     relevant_topics=["/imu/data", "/gps/fix"],
             ... )
             >>> skill.skill_id
             'sk_...'
@@ -81,6 +86,7 @@ class Skill:
                 description=description,
                 body=body,
                 tags=list(tags) if tags is not None else [],
+                relevant_topics=list(relevant_topics) if relevant_topics is not None else [],
             ),
             caller_org_id=caller_org_id,
         ).to_record(SkillRecord)
@@ -336,11 +342,16 @@ class Skill:
         version stay on that pin until they explicitly re-pin — the new row does
         not auto-promote.
 
+        Pass ``relevant_topics`` to record the topic names this version's
+        procedure investigates; the chat AI resolves them to schemas when it
+        loads the skill (see :class:`SkillVersionRecord.relevant_topics`).
+
         Examples:
             >>> v2 = skill.create_version(
             ...     CreateSkillVersionRequest(
             ...         description="Run when ...",
             ...         body="Updated procedure ...",
+            ...         relevant_topics=["/imu/data", "/gps/fix"],
             ...     )
             ... )
             >>> v2.version

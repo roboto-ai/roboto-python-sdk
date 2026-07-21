@@ -7,11 +7,7 @@
 import abc
 import collections.abc
 import dataclasses
-import operator
 import typing
-
-import mcap_ros1._vendor.genpy
-import mcap_ros2._dynamic
 
 from ...collection_utils import defaultlist
 
@@ -19,30 +15,27 @@ if typing.TYPE_CHECKING:
     from ..fields import FieldSelection
 
 
-def is_ros1_time_value(val: typing.Any) -> bool:
-    return isinstance(val, mcap_ros1._vendor.genpy.TVal)
+def is_codec_time_value(val: typing.Any) -> bool:
+    """Whether ``val`` is a ROS2 ``Time`` / ``Duration`` decoded by the shared ``mcap_codec`` decoder.
 
-
-def is_ros2_time_value(val: typing.Any) -> bool:
-    """Structural type checking because Time and Duration classes are dynamically generated"""
-    if not hasattr(val, "__slots__"):
-        return False
-
-    slots = getattr(val, "__slots__", [])
-    for field in mcap_ros2._dynamic.TimeDefinition.fields:
-        if field.name not in slots:
-            return False
-
-    return True
+    The codec surfaces ROS2 ``Time`` / ``Duration`` with the schema's own member names -- a plain
+    ``{"sec", "nanosec"}`` dict, no marker type -- so the match is structural. Recognizing it lets
+    the accessor remap a legacy ``nsec`` path component (how topics ingested before the move to
+    wire-true field names recorded the sub-second leaf) onto the codec's ``nanosec`` key; without
+    the remap the nanosecond component is silently dropped. ROS1's ``Time`` is natively
+    ``{"sec", "nsec"}`` and JSON time values likewise use ``nsec``, so neither matches here nor
+    needs a remap.
+    """
+    return isinstance(val, dict) and val.keys() == {"sec", "nanosec"}
 
 
 class AttrGetter(abc.ABC):
-    """Abstract base class for accessing attributes from decoded messages.
+    """Abstract base class for reading attributes from a decoded message.
 
-    Provides a unified interface for extracting attributes from different types of
-    decoded message data, whether they are dictionaries (JSON) or dynamically
-    created classes (ROS1/ROS2). Used by message decoders to handle various
-    message encoding formats in a consistent way.
+    Decoded MCAP messages are dictionaries -- JSON and the shared ``mcap_codec``
+    decoder both materialize to ``dict`` -- so :py:class:`DictAttrGetter` is the
+    only implementation. The abstraction is kept so the accessor compiler takes a
+    getter rather than hard-coding dict access.
     """
 
     @staticmethod
@@ -96,36 +89,14 @@ class AttrGetter(abc.ABC):
         """
 
 
-class ClassAttrGetter(AttrGetter):
-    """Attribute getter for class-based decoded data.
-
-    Handles access to attributes from decoded messages that are represented as
-    dynamically created classes with __slots__ at runtime. This includes ROS1,
-    ROS2, and other message formats that use class-based representations.
-    """
-
-    @staticmethod
-    def get_attribute_names(value):
-        return value.__slots__
-
-    @staticmethod
-    def get_attribute(value, attribute):
-        return getattr(value, attribute)
-
-    @staticmethod
-    def has_attribute(value, attribute: str) -> bool:
-        return hasattr(value, attribute)
-
-    @staticmethod
-    def has_sub_attributes(value):
-        return hasattr(value, "__slots__")
-
-
 class DictAttrGetter(AttrGetter):
-    """Attribute getter for JSON decoded data.
+    """Attribute getter for decoded messages represented as dictionaries.
 
-    Handles access to attributes from JSON decoded messages, which are
-    represented as standard Python dictionaries.
+    Both JSON and the shared ``mcap_codec`` decoder materialize messages and their
+    nested structs as plain dicts. The ``isinstance`` guards let a non-dict value --
+    a JSON ``null``, scalar, or list message, or a scalar leaf reached mid-walk --
+    resolve to "no such attribute" instead of raising, so the accessor compiler
+    simply stops descending.
     """
 
     @staticmethod
@@ -138,22 +109,25 @@ class DictAttrGetter(AttrGetter):
 
     @staticmethod
     def has_attribute(value, attribute: str) -> bool:
-        return attribute in value
+        return isinstance(value, dict) and attribute in value
 
     @staticmethod
     def has_sub_attributes(value):
-        return hasattr(value, "keys")
+        return isinstance(value, dict)
 
 
-# Module-level singletons: the getters carry no per-instance state, so reusing
-# one instance per shape avoids allocating a fresh getter on every `to_dict()`.
-_CLASS_GETTER = ClassAttrGetter()
+# Module-level singleton: the getter carries no per-instance state, so reusing one
+# instance avoids allocating a fresh getter on every `to_dict()`.
 _DICT_GETTER = DictAttrGetter()
 
 
 def getter_for(message: typing.Any) -> AttrGetter:
-    """The shared attribute getter matching a decoded message's shape."""
-    return _DICT_GETTER if isinstance(message, dict) else _CLASS_GETTER
+    """The shared attribute getter for a decoded message.
+
+    Every decoder materializes messages as dicts (and the dict getter resolves a
+    non-dict JSON payload to no attributes), so one getter serves every message.
+    """
+    return _DICT_GETTER
 
 
 Accumulator = dict[str, typing.Any]
@@ -162,37 +136,26 @@ Accumulator = dict[str, typing.Any]
 Accessor = typing.Callable[[typing.Any, Accumulator], None]
 """Reads one path's value out of a decoded message and writes it into an :py:data:`Accumulator`.
 
-The accessor is compiled once per ``(fields, getter_type)`` and reused for every
-subsequent message in the same read pass. Compilation resolves ROS time-field name
-remapping and sequence boundaries against a sample message, so per-call work is just
-attribute access plus accumulator writes.
+The accessor is compiled once per ``fields`` set and reused for every subsequent
+message in the same read pass. Compilation resolves time-field name remapping and
+sequence boundaries against a sample message, so per-call work is just attribute
+access plus accumulator writes.
 """
 
 PathInSchema = tuple[str, ...]
 """One field's path through a message schema, e.g. ``("header", "stamp", "sec")``."""
 
 
-class _CacheKey(typing.NamedTuple):
-    """Identifies a set of compiled accessors.
-
-    Two readers asking for the same paths against different underlying message classes
-    (e.g. ROS1 vs. ROS2 timestamps) get distinct cache entries via ``getter_type``.
-    """
-
-    paths: tuple[PathInSchema, ...]
-    getter_type: type
-
-
 class AccessorCache:
     """Holds compiled :py:data:`Accessor` callables for the lifetime of a single read pass.
 
-    The cache lives on the reader rather than at module scope so that two readers consuming
-    topics that happen to share a ``path_in_schema`` tuple but resolve through different
-    schemas (e.g., ROS1 vs. ROS2 timestamps) cannot pollute each other.
+    The cache lives on the reader rather than at module scope so that two readers
+    projecting the same paths against differently-shaped messages (e.g. a time field
+    present in one topic and absent in another) cannot pollute each other.
     """
 
     def __init__(self) -> None:
-        self._cache: dict[_CacheKey, list[Accessor]] = {}
+        self._cache: dict[tuple[PathInSchema, ...], list[Accessor]] = {}
 
     def get_or_compile(
         self,
@@ -206,10 +169,7 @@ class AccessorCache:
         shape past the empty point can't be observed — and are returned without caching
         so a later message with a non-empty sequence triggers a fresh, complete compile.
         """
-        key = _CacheKey(
-            paths=tuple(tuple(field.path_in_schema) for field in fields),
-            getter_type=type(getter),
-        )
+        key = tuple(tuple(field.path_in_schema) for field in fields)
         accessors = self._cache.get(key)
         if accessors is not None:
             return accessors
@@ -231,19 +191,14 @@ def compile_accessors(
     be guessed. Callers maintaining a cross-message cache should not cache speculative
     compilations, since the next message may need a different shape.
     """
-    is_class_getter = _is_class_getter(getter)
     accessors: list[Accessor] = []
     fully_resolved = True
     for field in fields:
-        accessor, path_fully_resolved = _compile_accessor(field.path_in_schema, sample, getter, is_class_getter)
+        accessor, path_fully_resolved = _compile_accessor(field.path_in_schema, sample, getter)
         accessors.append(accessor)
         if not path_fully_resolved:
             fully_resolved = False
     return accessors, fully_resolved
-
-
-def _is_class_getter(getter: AttrGetter) -> bool:
-    return isinstance(getter, ClassAttrGetter)
 
 
 # Resolution shape: the compile step walks the sample once and produces one of
@@ -298,20 +253,20 @@ def remap_time_fields(
     sample: typing.Any,
     getter: AttrGetter,
 ) -> tuple[Resolution, bool]:
-    """Substitute ROS runtime time-field names into ``resolution``, observed against ``sample``.
+    """Substitute the decoder's runtime time-field name into ``resolution``, observed against ``sample``.
 
-    A schema declares a ROS time struct's leaves by their canonical names (``sec``,
-    ``nsec``), but a decoded ROS1 message exposes ``secs``/``nsecs`` and a ROS2
-    message ``sec``/``nanosec``. This walks ``sample`` along the resolution and
-    rewrites the trailing path components past any time value to the runtime names,
-    so the built accessor reads the right attributes.
+    A legacy topic's message paths address a ROS2 time struct's sub-second leaf as ``nsec``
+    (how it was recorded before the move to wire-true field names), but the shared
+    ``mcap_codec`` decoder now materializes that value as a ``{"sec", "nanosec"}`` dict. This
+    walks ``sample`` along the resolution and rewrites a trailing ``nsec`` past any such time
+    value to ``nanosec``, so the built accessor reads the right key.
 
     Returns ``(remapped, time_resolved)``. ``time_resolved`` is ``False`` only when a
     time-bearing leaf sits past a sequence that is empty in ``sample`` — its element
     cannot be observed, so the runtime names stay a guess and the caller should
     re-resolve against a later, non-empty message. A resolution with no time
-    component is returned unchanged with ``True``. JSON messages (canonical names)
-    are always a no-op.
+    component is returned unchanged with ``True``. Paths that already name the leaf
+    ``nanosec`` (ROS2 wire-true), ROS1 ``nsec``, and JSON ``nsec`` values are all no-ops.
     """
     if isinstance(resolution, _NoneResolution):
         return resolution, True
@@ -328,13 +283,7 @@ def _remap_simple_path(path: list[str], sample: typing.Any, getter: AttrGetter) 
         if index == len(path) - 1:
             return path
         value = getter.get_attribute(current, attr)
-        if is_ros1_time_value(value):
-            for j in range(index + 1, len(path)):
-                if path[j] == "sec":
-                    path[j] = "secs"
-                elif path[j] == "nsec":
-                    path[j] = "nsecs"
-        elif is_ros2_time_value(value):
+        if is_codec_time_value(value):
             for j in range(index + 1, len(path)):
                 if path[j] == "nsec":
                     path[j] = "nanosec"
@@ -374,12 +323,11 @@ def _compile_accessor(
     path_components: collections.abc.Sequence[str],
     sample: typing.Any,
     getter: AttrGetter,
-    is_class_getter: bool,
 ) -> tuple[Accessor, bool]:
     """Returns ``(accessor, fully_resolved)``. ``fully_resolved`` is ``False`` when the path
     crossed an empty sequence and the inner shape past it had to be guessed."""
     resolution, fully_resolved = _resolve_path(list(path_components), sample, getter)
-    return build_accessor(resolution, getter, is_class_getter), fully_resolved
+    return build_accessor(resolution), fully_resolved
 
 
 def _resolve_path(
@@ -387,17 +335,16 @@ def _resolve_path(
     sample: typing.Any,
     getter: AttrGetter,
 ) -> tuple[Resolution, bool]:
-    """Walk ``sample`` along ``path``, classifying each step and remapping ROS time-field names.
+    """Walk ``sample`` along ``path``, classifying each step and remapping the time-field name.
 
     Returns ``(resolution, fully_resolved)``. ``fully_resolved`` is ``False`` if the walk
     crossed a sequence that was empty in ``sample`` and the inner shape past it had to be
     guessed as a simple chain — the caller should not cache the compiled accessor in that
     case, because a later message with a non-empty sequence may require a different shape.
 
-    Mutates ``path`` in place to substitute the dynamic-class field names
-    (``secs``/``nsecs``/``nanosec``) for the canonical message-path names
-    (``sec``/``nsec``) when navigating through a ROS time value. The substituted path is
-    what the runtime accessor uses for attribute access.
+    Mutates ``path`` in place to substitute the ``mcap_codec`` dict's ``nanosec`` for a legacy
+    message-path name ``nsec`` when navigating through a time value. The substituted path is what
+    the runtime accessor uses for attribute access.
     """
     current = sample
 
@@ -417,13 +364,7 @@ def _resolve_path(
         if is_leaf:
             break
 
-        if is_ros1_time_value(value):
-            for j in range(i + 1, len(path)):
-                if path[j] == "sec":
-                    path[j] = "secs"
-                elif path[j] == "nsec":
-                    path[j] = "nsecs"
-        elif is_ros2_time_value(value):
+        if is_codec_time_value(value):
             for j in range(i + 1, len(path)):
                 if path[j] == "nsec":
                     path[j] = "nanosec"
@@ -451,8 +392,6 @@ def _resolve_path(
 
 def build_accessor(
     resolution: Resolution,
-    getter: AttrGetter,
-    is_class_getter: bool,
 ) -> Accessor:
     """Compile a resolution into an :py:data:`Accessor` that reads its path into an accumulator.
 
@@ -463,73 +402,12 @@ def build_accessor(
     if isinstance(resolution, _NoneResolution):
         return _noop_accessor
     if isinstance(resolution, _SimpleResolution):
-        if is_class_getter:
-            return _build_class_simple_accessor(resolution.path)
         return _build_dict_simple_accessor(resolution.path)
-    return _build_sequence_accessor(resolution.pre_path, resolution.sub_resolution, getter, is_class_getter)
+    return _build_sequence_accessor(resolution.pre_path, resolution.sub_resolution)
 
 
 def _noop_accessor(obj: typing.Any, accumulator: Accumulator) -> None:
     return None
-
-
-def _build_class_simple_accessor(path: PathInSchema) -> Accessor:
-    if not path:
-        return _noop_accessor
-
-    chain = operator.attrgetter(".".join(path))
-    parent_path = path[:-1]
-    leaf = path[-1]
-
-    if not parent_path:
-
-        def top_level_accessor(obj: typing.Any, accumulator: Accumulator) -> None:
-            try:
-                accumulator[leaf] = chain(obj)
-            except AttributeError:
-                return
-
-        return top_level_accessor
-
-    def nested_accessor(obj: typing.Any, accumulator: Accumulator) -> None:
-        try:
-            value = chain(obj)
-        except AttributeError:
-            # Fall back to a step-wise walk so any prefix that *does* exist still
-            # materializes intermediate dicts in the accumulator. Preserves the
-            # behavior of the recursive walker that this replaced.
-            _materialize_class_parents(obj, accumulator, parent_path)
-            return
-        cur = accumulator
-        for component in parent_path:
-            sub = cur.get(component)
-            if sub is None:
-                sub = {}
-                cur[component] = sub
-            cur = sub
-        cur[leaf] = value
-
-    return nested_accessor
-
-
-def _materialize_class_parents(
-    obj: typing.Any,
-    accumulator: Accumulator,
-    parent_path: PathInSchema,
-) -> None:
-    cur_obj = obj
-    cur_acc = accumulator
-    for component in parent_path:
-        if not hasattr(cur_obj, component):
-            return
-        sub = cur_acc.get(component)
-        if sub is None:
-            sub = {}
-            cur_acc[component] = sub
-        cur_acc = sub
-        cur_obj = getattr(cur_obj, component)
-        if not hasattr(cur_obj, "__slots__"):
-            return
 
 
 def _build_dict_simple_accessor(path: PathInSchema) -> Accessor:
@@ -586,24 +464,10 @@ def _fill_list_into(
 def _build_sequence_accessor(
     pre_path: PathInSchema,
     sub_resolution: Resolution,
-    getter: AttrGetter,
-    is_class_getter: bool,
 ) -> Accessor:
-    sub_accessor = build_accessor(sub_resolution, getter, is_class_getter)
+    sub_accessor = build_accessor(sub_resolution)
     pre_parent = pre_path[:-1]
     list_attr = pre_path[-1]
-
-    if is_class_getter:
-        list_chain = operator.attrgetter(".".join(pre_path))
-
-        def class_sequence_accessor(obj: typing.Any, accumulator: Accumulator) -> None:
-            try:
-                seq = list_chain(obj)
-            except AttributeError:
-                return
-            _fill_list_into(accumulator, pre_parent, list_attr, seq, sub_accessor)
-
-        return class_sequence_accessor
 
     def dict_sequence_accessor(obj: typing.Any, accumulator: Accumulator) -> None:
         cur_obj = obj

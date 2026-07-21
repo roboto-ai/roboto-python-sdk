@@ -128,31 +128,32 @@ class AgentThread:
         roboto_client: Optional[RobotoClient] = None,
         load_messages: bool = True,
     ) -> AgentThread:
-        """Retrieve an existing agent session by its unique identifier.
+        """Retrieve an existing agent thread by its unique identifier.
 
-        Loads a previously created session from the Roboto platform, allowing
+        Loads a previously created thread from the Roboto platform, allowing
         users to resume conversations and access message history.
 
         Args:
-            thread_id: Unique identifier for the session. Accepts both
-                ``ags_*`` and legacy ``ch_*`` identifiers.
+            thread_id: Unique identifier for the thread. Accepts current
+                ``ath_*`` identifiers as well as legacy ``ags_*`` and ``ch_*``
+                identifiers.
             roboto_client: HTTP client for API communication. If None, uses the default client.
-            load_messages: Whether to load the session's messages. If False, the
-                session's messages will be empty.
+            load_messages: Whether to load the thread's messages. If False, the
+                thread's messages will be empty.
 
         Returns:
-            AgentThread instance representing the existing session.
+            AgentThread instance representing the existing thread.
 
         Raises:
-            RobotoNotFoundException: If the session does not exist.
-            RobotoUnauthorizedException: If the caller lacks permission to access the session.
+            RobotoNotFoundException: If the thread does not exist.
+            RobotoUnauthorizedException: If the caller lacks permission to access the thread.
 
         Examples:
-            Resume an existing session:
+            Resume an existing thread:
 
-            >>> session = AgentThread.from_id("ags_abc123")
-            >>> print(f"Session has {len(session.messages)} messages")
-            Session has 5 messages
+            >>> thread = AgentThread.from_id("ath_abc123")
+            >>> print(f"Thread has {len(thread.messages)} messages")
+            Thread has 5 messages
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         query_params = {"load_messages": load_messages}

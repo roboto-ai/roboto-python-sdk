@@ -29,8 +29,11 @@ from .feedback import (
     category_is_valid_for_sentiment,
 )
 from .record import (
+    AGENT_CONTENT_MODEL_BY_TYPE,
+    AgentCompressionFillerContent,
     AgentContent,
     AgentContentType,
+    AgentDeletedContent,
     AgentErrorContent,
     AgentGoalStatus,
     AgentMessage,
@@ -64,9 +67,12 @@ from .record import (
 )
 
 __all__ = [
+    "AGENT_CONTENT_MODEL_BY_TYPE",
     "AdminUpdateFeedbackRequest",
+    "AgentCompressionFillerContent",
     "AgentContent",
     "AgentContentType",
+    "AgentDeletedContent",
     "AgentErrorContent",
     "AgentErrorEvent",
     "AgentEvent",

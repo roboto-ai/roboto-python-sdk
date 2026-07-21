@@ -1,5 +1,19 @@
 # Changelog
 
+# 0.51.0
+## Breaking Changes
+  - `pip install roboto` no longer installs a `roboto` console script, and `pipx install roboto` / `uvx roboto` / `uv tool install roboto` are no longer supported. Use the standalone CLI binaries (Homebrew, `.deb`, release executables), or `python -m roboto.cli` within a Python environment that has the SDK installed (e.g. `uv run --with roboto python -m roboto.cli ...`). Upgrading the package to this version does not remove a `roboto` executable that an earlier install already placed on your `PATH`; until you remove it, that stale copy keeps shadowing the standalone binary. Run `which -a roboto` to find stray copies, then `pip uninstall roboto` (or `pip install --upgrade roboto`, which now drops the script) in the offending Python environment, and `pipx uninstall roboto` / `uv tool uninstall roboto` for those tools.
+  - `Topic.get_data` / `Topic.get_data_as_df` — `uint8`/octet fields of omgidl/ros2idl (DDS/CDR) topics now decode to `array.array('B')` instead of `bytes`, matching how the decoder already returns other numeric arrays. Code that read these fields as `bytes` should treat them as an `array.array` (call `.tobytes()` to recover the previous value).
+
+## Features Added
+  - `roboto.experimental.video`: a module that turns compressed-video topics into still frames. `decode_frames_in_range(load_messages, start_time, end_time)` decodes the H.264 frames within a time range, walking back to the preceding keyframe when the range starts mid-GOP so the leading delta frames remain decodable. `decode_h264_stream(encoded_frames)` decodes an in-order stream of Annex B-framed frames. Both yield `DecodedVideoFrame` objects that expose `log_time`, `is_keyframe`, `width`, and `height`, and convert to a PIL image via `to_image()` or an RGB numpy array via `to_ndarray()`. The module also exposes dependency-free H.264 bitstream helpers (`find_nal_units`, `is_keyframe`, `NalUnit`, `NalUnitType`). Decoding requires the new `roboto[video]` extra (PyAV, Pillow, numpy). This surface is experimental and may change.
+  - `McapReader` now decodes `msgpack`-encoded MCAP channels (written by Roboto ingestion for compressed-video and similar topics) into nested dict/list/scalar values; previously it left them undecoded. Known limitation: msgpack-numpy ndarray fields (nested maps with binary keys) are not yet unwrapped; every other field of such a message decodes normally.
+  - Layouts can now be grouped into folders. `LayoutRecord`, `CreateLayoutRequest`, and `UpdateLayoutRequest` gain a `folder` field — a free-form label (up to 120 characters) that groups the layout under a named folder; `null` (the default) leaves it ungrouped at the root. On `UpdateLayoutRequest`, omitting `folder` leaves the current folder unchanged, while an explicit `null` moves the layout back to the root.
+  - `RobotoSearch.find_devices(query)` is now available to filter devices using a structured query, yielding `Device` instances.
+
+## Bugs Fixed
+  - Running any `roboto` CLI command no longer prints a spurious Pydantic `UserWarning` about the `model_profile` field conflicting with the protected `model_` namespace. The warning appeared only on Pydantic versions older than 2.10; the agent-thread models that carry `model_profile` now opt out of namespace protection, silencing it on every supported version.
+
 # 0.50.0
 ## Breaking Changes
 - `Session` and its records and operations moved wholesale from `roboto.domain.sessions` to `roboto.experimental.sessions`. The package-root re-exports (`from roboto import Session, SessionFile, SessionFileRecord, SessionRecord`) will keep working; only `roboto.domain.sessions...` imports need updating.
@@ -8,6 +22,10 @@
 ## Features Added
 - Read topic data over a time window (experimental): an evolution of the existing `roboto.domain.topics.Topic.get_data` / `get_data_as_df` reads. Where the existing `roboto.domain.topics.Topic` is scoped to a single file, `roboto.experimental.topics.Topic` is a durable handle to one topic — a single recorded stream of data, such as a sensor channel — that stays valid across every file carrying that stream. Load one with `Topic.from_id("ti_...")`, then read its rows within a time window with `get_data(start_time=..., end_time=...)`, which yields the same `(timestamp, record)` pairs as before — `timestamp` an integer of nanoseconds since the Unix epoch, `record` a dict of the topic's fields. The same window is also available as a pandas DataFrame from `get_data_as_df(...)` and, new on this surface, as Apache Arrow `RecordBatch`es from `get_data_as_record_batches(...)` for columnar processing. Narrow any read to just the fields you need with `fields_include` / `fields_exclude`. Rows come back in the order they were recorded, not necessarily time order. This surface is in progress and may change.
 - `Session.get_topic(topic_name)` (experimental) returns the single topic reachable from a session by exact name in one request, raising `RobotoNotFoundException` when none matches — including when the topic exists in the org but does not contribute within the session's window. It is the by-name complement to `Session.list_topics()`.
+- Skills can now declare the topics their procedure investigates. `Skill.create`, `CreateSkillVersionRequest`, and `UpdateSkillVersionRequest` accept `relevant_topics` (a list of topic names such as `"/imu/data"`), surfaced on `SkillVersionRecord.relevant_topics`. When the chat AI loads a skill with a dataset in scope, it resolves each name to that dataset's topic schema and returns them alongside the skill body in one tool result, sparing a follow-up `get_topic_schema` turn; names not present in the dataset are reported inline and never fail the load. The SDK stores the list as given (the web UI populates it by scanning the body for `/topic` references).
+
+## Internals
+  - `roboto.ai.core` gains two content types on the public `AgentContent` union: `AgentDeletedContent` (`content_type` `deleted`) and `AgentCompressionFillerContent` (`content_type` `compression_filler`), both re-exported from `roboto.ai.core.record` and `roboto.ai.agent_thread`. They are tombstones the server's thread-compression pass writes into a compressed thread variant: `AgentDeletedContent` marks a content block the pass removed, and `AgentCompressionFillerContent` stands in for a message the pass emptied so it keeps its turn and role. Neither carries a payload, and neither appears in the verbatim `original` thread the SDK and UI read; both exist only to type the compressed variant. Groundwork for thread compression; no change to what your reads return.
 
 # 0.49.0
 ## Breaking Changes
@@ -16,10 +34,10 @@
 
 ## Features Added
   - `QueryTarget.Devices` is now a supported search target. Devices can be queried via `RobotoSearch` with filters, sort, and pagination using the same `QuerySpecification` interface as datasets, events, collections, and sessions.
-  - `Dataset.rename_file(file_id, new_path)` moves or renames a file within a dataset. Pass a `new_path` with fewer components to move the file up the directory tree, the same depth with a different name to rename in place, or a path under a sibling directory to move laterally. The file's storage URI is unchanged; only its logical location shifts.
-  - `Dataset.rename_directory(old_path, new_path)` moves or renames a directory within a dataset, carrying all of its contents along. The same depth-change semantics apply.
-  - CLI: `roboto datasets rename-file -d <dataset-id> -f <file-id> -p <new-path>` exposes `rename_file` from the command line.
-  - CLI: `roboto datasets rename-directory -d <dataset-id> -o <old-path> -p <new-path>` exposes `rename_directory` from the command line.
+  - `Dataset.rename_file(file_id, new_path)` moves or renames a file within a dataset. Pass a `new_path` with fewer components to move the file up the directory tree, one of the same depth with a different name to rename it in place, or one under a sibling directory to move it laterally. The file's storage URI is unchanged; only its logical location shifts.
+  - `Dataset.rename_directory(old_path, new_path)` moves or renames a directory within a dataset, carrying all of its contents. The same depth-change semantics apply.
+  - CLI: `roboto datasets rename-file -d <dataset-id> -f <file-id> -p <new-path>` exposes `rename_file` on the command line.
+  - CLI: `roboto datasets rename-directory -d <dataset-id> -o <old-path> -p <new-path>` exposes `rename_directory` on the command line.
 
 ## Bugs Fixed
   - Invoking an action with no input data (for example, running it against just a dataset) no longer fails. `prepare_invocation_input_data` now always writes the input manifest, treating no input (`input_data=None`) the same as empty input; previously it skipped the manifest entirely for no-input invocations, so the action later crashed reading it.

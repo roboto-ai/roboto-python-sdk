@@ -21,8 +21,11 @@ from ..goals import AgentGoal, AgentGoalStatus
 # keeps resolving for downstream consumers (see ``test_core_exports`` and
 # ``roboto_service``).
 from .content import (
+    AGENT_CONTENT_MODEL_BY_TYPE,
+    AgentCompressionFillerContent,
     AgentContent,
     AgentContentType,
+    AgentDeletedContent,
     AgentErrorContent,
     AgentTextContent,
     AgentToolResultContent,
@@ -317,6 +320,12 @@ class AgentThreadRecord(pydantic.BaseModel):
     message history, and synchronization state.
     """
 
+    # ``model_profile`` overlaps Pydantic's reserved ``model_`` namespace, which
+    # emits a ``UserWarning`` at import time on Pydantic < 2.10 (permitted by the
+    # SDK's ``pydantic>=2.5`` floor). Opting out keeps the CLI warning-free
+    # across all supported Pydantic versions.
+    model_config = pydantic.ConfigDict(protected_namespaces=())
+
     thread_id: str = pydantic.Field(
         validation_alias=pydantic.AliasChoices("thread_id", "session_id", "chat_id"),
     )
@@ -427,9 +436,12 @@ class AgentThreadDelta(pydantic.BaseModel):
 # ``AgentGoalStatus`` re-exported above so they stay importable from
 # ``roboto.ai.core.record`` even though they now live in ``content`` / ``goals``.
 __all__ = [
+    "AGENT_CONTENT_MODEL_BY_TYPE",
     "CLIENT_TOOL_NAME_PREFIX",
+    "AgentCompressionFillerContent",
     "AgentContent",
     "AgentContentType",
+    "AgentDeletedContent",
     "AgentErrorContent",
     "AgentGoalStatus",
     "AgentMessage",

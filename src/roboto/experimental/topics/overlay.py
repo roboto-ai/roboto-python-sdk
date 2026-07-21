@@ -88,7 +88,7 @@ def _leaf_paths_under_type(data_type: "pyarrow.DataType", prefix: FieldPath) -> 
     if not pa.types.is_struct(data_type) or data_type.num_fields == 0:
         return []
     leaves: list[FieldPath] = []
-    for field in data_type:
+    for field in typing.cast("pyarrow.StructType", data_type):
         child = prefix + (field.name,)
         if pa.types.is_struct(field.type) and field.type.num_fields > 0:
             leaves.extend(_leaf_paths_under_type(field.type, child))

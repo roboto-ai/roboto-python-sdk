@@ -7,11 +7,10 @@
 from __future__ import annotations
 
 import collections.abc
-import threading
 import typing
 
 from ....domain.topics import RepresentationStorageFormat
-from ....domain.topics.record import FieldPath, SchemaFieldRecord
+from ....domain.topics.record import FieldPath
 from ..read_plan import (
     ReadPlanPartition,
     ReadPlanScanTask,
@@ -20,7 +19,6 @@ from ..read_plan import (
 from .common import DecodedScanTask, ScanTaskDecodeParams
 from .mcap import decode_mcap_batches
 from .parquet import decode_parquet_batches
-from .schema_tree import SchemaTree, build_schema_tree
 
 ScanTaskDecoder = typing.Callable[
     [
@@ -42,8 +40,6 @@ stored-time domain; the executor applies the partition's ``time_offset_ns``.
 
 def make_scan_task_decoder(
     params: ScanTaskDecodeParams,
-    schema_fields: collections.abc.Sequence[SchemaFieldRecord],
-    projection_paths: collections.abc.Sequence[FieldPath],
 ) -> ScanTaskDecoder:
     """Bind execution inputs into a :py:data:`ScanTaskDecoder`.
 
@@ -54,15 +50,12 @@ def make_scan_task_decoder(
     the caller applies the partition's ``time_offset_ns``.
     Rows are filtered to the decoder's ``window`` (inclusive on both ends) and projected to its ``projection_paths``.
 
-    The schema tree needed to decode MCAP is derived from ``schema_fields`` and ``projection_paths``, but only
-    when the plan actually contains an MCAP scan task: the first such task builds it once, under a lock, and the
-    decode workers then share it read-only. A pure-Parquet plan never builds one (Parquet decodes column-wise
-    from its own file footer).
+    MCAP scan tasks decode through the Rust ``mcap_codec`` batch decoder, which reads each column's
+    Arrow type from the file's own embedded schema -- no ingestion-declared schema tree is needed.
+    Parquet decodes column-wise from its own file footer.
 
     Args:
         params: Execution inputs (URL resolution and cache policy).
-        schema_fields: Every declared field for the plan's schema, as returned by the fields GET.
-        projection_paths: The plan's projection as explicit field paths; restricts the schema tree's columns.
 
     Returns:
         A decoder that, given a scan task, its plan partition, an inclusive time window, and the projected
@@ -74,15 +67,6 @@ def make_scan_task_decoder(
         NotImplementedError: The scan task's storage format has no decoder, or
             a Parquet scan task is designated an envelope-derived timestamp.
     """
-    schema_tree: typing.Optional[SchemaTree] = None
-    schema_tree_lock = threading.Lock()
-
-    def resolve_schema_tree() -> SchemaTree:
-        nonlocal schema_tree
-        with schema_tree_lock:
-            if schema_tree is None:
-                schema_tree = build_schema_tree(schema_fields, projection_paths)
-            return schema_tree
 
     def decode(
         scan_task: ReadPlanScanTask,
@@ -93,7 +77,7 @@ def make_scan_task_decoder(
         if scan_task.format == RepresentationStorageFormat.MCAP:
             return DecodedScanTask(
                 batches_factory=lambda: decode_mcap_batches(
-                    scan_task, partition.timestamp, window, projection_paths, resolve_schema_tree(), params
+                    scan_task, partition.timestamp, window, projection_paths, params
                 ),
             )
 

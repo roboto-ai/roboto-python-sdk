@@ -68,6 +68,15 @@ class CreateSkillRequest(pydantic.BaseModel):
     """Initial set of tags. Edits after creation flow through ``UpdateSkillMetadataRequest.put_tags`` /
     ``.remove_tags`` so concurrent updates merge cleanly — see :class:`SkillRecord.tags`."""
 
+    relevant_topics: list[str] = pydantic.Field(default_factory=list)
+    """Topic names v1's procedure investigates (e.g. ``"/imu/data"``), supplied by the
+    caller. Version-scoped content — see :class:`SkillVersionRecord.relevant_topics`.
+    The SDK stores the list as given; it performs no extraction. (The Roboto web UI
+    populates it by scanning the body for ``[[topic]]`` references, but that is a UI
+    convenience, not an SDK guarantee — a direct caller passes whichever names the
+    procedure investigates.) Edit later via
+    :class:`UpdateSkillVersionRequest.relevant_topics`."""
+
     model_config = pydantic.ConfigDict(extra="ignore")
 
 
@@ -114,6 +123,10 @@ class CreateSkillVersionRequest(pydantic.BaseModel):
     body: str
     """Procedure text the model executes when this version is invoked."""
 
+    relevant_topics: list[str] = pydantic.Field(default_factory=list)
+    """Topic names this version's procedure investigates. Version-scoped content —
+    see :class:`SkillVersionRecord.relevant_topics`."""
+
     model_config = pydantic.ConfigDict(extra="ignore")
 
 
@@ -127,6 +140,11 @@ class UpdateSkillVersionRequest(pydantic.BaseModel):
     """New procedure text. Omit (the ``NotSet`` default) to leave unchanged. The
     change applies in place to this version — subscribers pinned to it will see
     the new body on their next AI invocation; there is no per-edit revision."""
+
+    relevant_topics: Union[list[str], NotSetType] = NotSet
+    """New topic-name list. Omit (the ``NotSet`` default) to leave unchanged; pass an
+    empty list to clear all topics. Version-scoped content — see
+    :class:`SkillVersionRecord.relevant_topics`."""
 
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
 

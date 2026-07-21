@@ -1,0 +1,1111 @@
+{
+  "__embedding_model__": "DefaultEmbeddingFunction",
+  "principal.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "RobotoPrincipalType \u2014 Types of principals supported by the Roboto platform."
+  },
+  "types.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "types"
+  },
+  "association.py": {
+    "mtime_ns": 1773698725629063172,
+    "description": "Association \u2014 Use to declare an association between two Roboto entities."
+  },
+  "updates.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "TaglessMetadataChangeset \u2014 Changeset for tagless metadata"
+  },
+  "progress.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "ProgressMonitor \u2014 Progress Monitor for file upload"
+  },
+  "paths.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "path_to_pattern \u2014 Transform a literal path into a Git wildmatch pattern that matches that literal path."
+  },
+  "config.py": {
+    "mtime_ns": 1773698725628063171,
+    "description": "RobotoConfig \u2014 RobotoConfig captures an ``api_key`` and ``endpoint`` required to programmatically interact with Roboto. Multiple profiles can be configured if desired."
+  },
+  "warnings.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "def roboto_default_warning_behavior()"
+  },
+  "waiters.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "wait_for \u2014 Wait for a condition to be truthy."
+  },
+  "regionalization.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "RobotoRegion \u2014 The geographic region of a Roboto resource. Used when configuring org-level default behavior for data storage, in order to ensure that data is close to your users."
+  },
+  "__init__.py": {
+    "mtime_ns": 1773698725629063172,
+    "description": "  init  "
+  },
+  "sentinels.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "NotSetType \u2014 A sentinel value for fields (e.g. kwargs) that are not set, useful when 'None' is a meaningful value."
+  },
+  "roboto_search.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "RobotoSearch \u2014 A high-level interface for querying the Roboto data platform."
+  },
+  "collection_utils.py": {
+    "mtime_ns": 1773698725630063173,
+    "description": "get_by_path \u2014 Access a key path in a mapping. Returns ``None`` if any part of the path is not found or traverses through an object that is not a mapping."
+  },
+  "logging.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "def default_logger(); def maybe_pluralize(word: str, count: int) -> str"
+  },
+  "api_version.py": {
+    "mtime_ns": 1774996678005681136,
+    "description": "RobotoApiVersion \u2014 Enumeration of supported Roboto API versions."
+  },
+  "env.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "RobotoEnvKey \u2014 Environment variable keys available within an action invocation runtime"
+  },
+  "time.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "TimeUnit \u2014 Well-known time units supported for timestamps in recording data."
+  },
+  "action_runtime/file_changeset.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "FilesChangesetItem \u2014 A single row in the file metadata changeset .jsonl file."
+  },
+  "action_runtime/exceptions.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "ActionRuntimeException \u2014 Base class for all exceptions raised by the action_runtime submodule."
+  },
+  "action_runtime/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "  init  "
+  },
+  "action_runtime/prepare.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "Action runtime setup utilities."
+  },
+  "action_runtime/exit_codes.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "ExitCode \u2014 Defined exit codes used by the action runtime. Exception codes are adapted from /usr/include/sysexits.h"
+  },
+  "action_runtime/invocation_context.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "InvocationContext \u2014 A utility for performing common lookups and other operations during a Roboto Action's runtime."
+  },
+  "action_runtime/action_input/file_resolver.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "InputFileResolver \u2014 Resolves file selectors to file entities, if available."
+  },
+  "action_runtime/action_input/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "action_runtime/action_input/input_resolver.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "ActionInputResolver \u2014 Resolves the action invocation input spec to concrete Roboto entities."
+  },
+  "action_runtime/action_input/action_input.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "ActionInput \u2014 Resolved references to input data an Action was given to operate on."
+  },
+  "action_runtime/action_input/topic_resolver.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "InputTopicResolver \u2014 Resolves topic selectors to topic entities, if available."
+  },
+  "exceptions/domain.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "RobotoDomainException \u2014 Expected exceptions from the Roboto domain entity objects."
+  },
+  "exceptions/http.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "class HttpError(Exception): status() -> typing.Optional[http.HTTPStatus]; msg() -> typing.Any; headers() -> dict; class ClientError(HttpError); class ServerError(HttpError)"
+  },
+  "exceptions/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "  init  "
+  },
+  "exceptions/ingestion.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "class IngestionException(Exception); class TimestampFieldNotFoundException(IngestionException)"
+  },
+  "compat/_optional.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "import_optional_dependency \u2014 Import an optional dependency."
+  },
+  "compat/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "  init  "
+  },
+  "compat/_strenum.py": {
+    "mtime_ns": 1773698725630063173,
+    "description": " strenum"
+  },
+  "ai/summary.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "AISummaryStatus \u2014 Status of an AI summary."
+  },
+  "ai/__init__.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "  init  "
+  },
+  "ai/record.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "PromptRequest \u2014 A generic request intended for a natural-language powered endpoint which accepts a human-readable prompt."
+  },
+  "ai/chat/event.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "event"
+  },
+  "ai/chat/__init__.py": {
+    "mtime_ns": 1774755558531916900,
+    "description": "  init  "
+  },
+  "ai/chat/record.py": {
+    "mtime_ns": 1774755558531916900,
+    "description": "ChatToolDetailResponse \u2014 Unsanitized tool request and response details for a chat tool invocation."
+  },
+  "ai/chat/chat.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "Chat \u2014 An interactive AI chat session within the Roboto platform."
+  },
+  "ai/core/context.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "RobotoLLMContext \u2014 Contextual information about what a user is trying to do. May be passed along to Roboto LLM based code paths in order to enrich results"
+  },
+  "ai/core/__init__.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "Core AI abstractions usable by any other submodule within module `roboto.ai`."
+  },
+  "upload_agent/__main__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "def main(); def configure(); def configure_subcommand(args: argparse.Namespace) -> None; def run(auto_create_upload_configs: bool, merge_uploads: bool, default_roboto_upload_file: typing.Optional[pathlib.Path]=None) -> None (+2 more)"
+  },
+  "upload_agent/files.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "UploadConfigFileDatasetSection \u2014 Upload agent config file dataset section"
+  },
+  "upload_agent/agent.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "class UploadAgent: create_upload_configs(); process_uploads(merge_uploads: bool=False) -> collections.abc.Sequence[datasets.Dataset]"
+  },
+  "upload_agent/exceptions.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "class UploadAgentException(Exception)"
+  },
+  "upload_agent/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "Intentionally left blank"
+  },
+  "analytics/__init__.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "  init  "
+  },
+  "analytics/signal_similarity/match.py": {
+    "mtime_ns": 1773816002159367517,
+    "description": "Match \u2014 A subsequence of a target signal that is similar to a query signal."
+  },
+  "analytics/signal_similarity/signal_similarity.py": {
+    "mtime_ns": 1773816002159367517,
+    "description": "find_similar_signals \u2014 Find subsequences of topic data (from ``haystack``) that are similar to ``needle``."
+  },
+  "analytics/signal_similarity/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "image_registry/image_registry.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "ContainerCredentials \u2014 Credentials used by a container"
+  },
+  "image_registry/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "  init  "
+  },
+  "image_registry/http_resources.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "ContainerUploadCredentials \u2014 Container upload credentials"
+  },
+  "image_registry/record.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "ContainerImageRepositoryRecord \u2014 A wire-transmissible representation of a container image repository."
+  },
+  "query/conditions.py": {
+    "mtime_ns": 1774755558532916900,
+    "description": "Comparator \u2014 The comparator to use when comparing a field to a value."
+  },
+  "query/client.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "QueryClient \u2014 A low-level Roboto query client. Prefer :py:class:`~roboto.query.roboto_search.RobotoSearch` for a simpler, more curated query interface."
+  },
+  "query/specification.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "SortDirection \u2014 The direction to sort the results of a query."
+  },
+  "query/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "  init  "
+  },
+  "query/visitor.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "ConditionVisitor \u2014 Query condition visitor"
+  },
+  "query/api.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "QueryTarget \u2014 The type of resource a specific query is requesting."
+  },
+  "pydantic/validators.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "remove_non_noneable_init_args \u2014 Remove keys from ``data`` (e.g., kwargs passed to ``__init__``) set to ``None`` that are not allowed to be ``None`` according to ``model``'s type definition."
+  },
+  "pydantic/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "  init  "
+  },
+  "pydantic/serializers.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "def field_serializer_user_metadata(value: dict[str, typing.Any]) -> UserMetadata"
+  },
+  "notifications/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "  init  "
+  },
+  "notifications/http_resources.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "UpdateNotificationRequest \u2014 Request payload to update a notification"
+  },
+  "notifications/http_client.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "class NotificationsClient: get_notifications() -> dict[str, Any]; update_notification(notification_id: str, org_id: Optional[str]=None, read_status: Optional[str]=None, lifecycle_status: Optional[dict[NotificationChannel, str]]=None) -> Any; batch_update_notifications(updates: list[UpdateNotificationRequest]) -> dict[str, Any]; delete_notification(notification_id: str) -> None"
+  },
+  "notifications/validator.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "NotificationType \u2014 Notification type enum"
+  },
+  "notifications/record.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "NotificationRecord \u2014 A wire-transmissible representation of a notification."
+  },
+  "cli/validation.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "pydantic_validation_handler \u2014 Context manager to catch Pydantic validation errors and print the first error neatly to stderr."
+  },
+  "cli/context.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "class CLIContext: roboto_service_base_url() -> str; roboto_service_base_url(roboto_service_base_url: str) -> None; http_client() -> HttpClient; http_client(http: HttpClient) -> None"
+  },
+  "cli/config.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "is_version_outdated \u2014 Check if the current version is older than the latest version."
+  },
+  "cli/devices.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "generate_device_creds_common_logic \u2014 Used in ``generate-creds`` and ``register``"
+  },
+  "cli/terminal.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "class AnsiColor(StrEnum); def print_error_and_exit(msg: typing.Union[str, list[str]]) -> typing.NoReturn"
+  },
+  "cli/__init__.py": {
+    "mtime_ns": 1773698725632063175,
+    "description": "  init  "
+  },
+  "cli/entry.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "def entry(); def construct_parser(context: typing.Optional[CLIContext]=None) -> argparse.ArgumentParser; def __populate_context(context: CLIContext, parser: argparse.ArgumentParser, profile_override: typing.Optional[str]=None, cache_dir_override: typing.Optional[pathlib.Path]=None)"
+  },
+  "cli/argparse.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "DeprecationAction \u2014 An action that triggers a deprecation error."
+  },
+  "cli/images/list_images.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def list_images(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def list_images_parser(parser: argparse.ArgumentParser) -> None"
+  },
+  "cli/images/login.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def login(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def login_parser(parser: argparse.ArgumentParser) -> None"
+  },
+  "cli/images/delete_image.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def delete_image(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def delete_image_parser(parser: argparse.ArgumentParser) -> None"
+  },
+  "cli/images/commands.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "commands"
+  },
+  "cli/images/delete_repo.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def delete_repository(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def delete_repository_parser(parser: argparse.ArgumentParser) -> None"
+  },
+  "cli/images/pull.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def pull(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def pull_parser(parser: argparse.ArgumentParser) -> None"
+  },
+  "cli/images/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/images/list_repos.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def list_repos(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def list_repos_parser(parser: argparse.ArgumentParser) -> None"
+  },
+  "cli/images/push.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def push(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def push_parser(parser: argparse.ArgumentParser) -> None"
+  },
+  "cli/invocations/logs.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def get_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def stream_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def main(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def get_logs_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/invocations/cancel.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def cancel(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def cancel_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/invocations/show.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def show(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def show_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/invocations/status.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def status(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def status_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/invocations/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/invocations/cancel_all.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "cancel_all \u2014 Iteratively cancel active invocations until the response returns False for has_more or the configured timeout is reached."
+  },
+  "cli/common_args/orgs.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def add_org_arg(parser: argparse.ArgumentParser, arg_help: str=ORG_ARG_HELP); def get_defaulted_org_id(org_id: typing.Optional[str]) -> str"
+  },
+  "cli/common_args/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/common_args/actions.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "ActionReferenceParser \u2014 Parse an action reference string into its org (if given) and action name components."
+  },
+  "cli/extension/cli_extension.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "class RobotoCLIExtension(abc.ABC): get_name() -> str; get_command_sets() -> list[RobotoCommandSet]; get_commands() -> list[tuple[str, RobotoCommand]]; get_context(base_context: CLIContext) -> Any; def apply_roboto_cli_command_extensions(base_command_sets: list[RobotoCommandSet]) -> list[RobotoCommandSet]; def apply_roboto_cli_context_extensions(base_context: CLIContext)"
+  },
+  "cli/extension/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/collections/list.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "def list(args, context: CLIContext, parser: argparse.ArgumentParser)"
+  },
+  "cli/collections/delete.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "def delete(args, context: CLIContext, parser: argparse.ArgumentParser); def delete_setup_parser(parser)"
+  },
+  "cli/collections/shared_helpdoc.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "shared helpdoc"
+  },
+  "cli/collections/create.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def create(args, context: CLIContext, parser: argparse.ArgumentParser); def create_setup_parser(parser)"
+  },
+  "cli/collections/show.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "def show(args, context: CLIContext, parser: argparse.ArgumentParser); def show_setup_parser(parser)"
+  },
+  "cli/collections/update.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def update(args, context: CLIContext, parser: argparse.ArgumentParser); def update_setup_parser(parser)"
+  },
+  "cli/collections/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/collections/list_all.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "def list_all(args, context: CLIContext, parser: argparse.ArgumentParser); def list_all_setup_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/collections/changes.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def show(args, context: CLIContext, parser: argparse.ArgumentParser); def show_setup_parser(parser)"
+  },
+  "cli/actions/delete.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def delete(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def delete_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/actions/create.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "determine_updates \u2014 Create an updates dict matching Action::update kwargs from an ActionConfig and an existing Action."
+  },
+  "cli/actions/init.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def init(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def init_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/actions/show.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def show(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def show_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/actions/update.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def update(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def update_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/actions/list_invocations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def list_invocations(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def invocation_serializer(obj: typing.Any) -> typing.Any; def list_invocations_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/actions/commands.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "commands"
+  },
+  "cli/actions/search.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def search(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def search_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/actions/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/actions/invoke/invoke_hosted_cmd.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Hosted action invocation command."
+  },
+  "cli/actions/invoke/invoke_local_cmd.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Local action invocation command."
+  },
+  "cli/actions/invoke/validation.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Validation utilities."
+  },
+  "cli/actions/invoke/workspace.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "Workspace management utilities."
+  },
+  "cli/actions/invoke/cli_args.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "CLI argument setup utilities."
+  },
+  "cli/actions/invoke/input_parsing.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Input specification parsing utilities."
+  },
+  "cli/actions/invoke/docker_action_runner.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "DockerActionRunner for local action invocation."
+  },
+  "cli/actions/invoke/action_resolution.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Action source resolution utilities."
+  },
+  "cli/actions/invoke/__init__.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Action invocation commands for hosted and local execution."
+  },
+  "cli/secrets/list.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def list_logic(args, context: CLIContext, parser: argparse.ArgumentParser); def list_setup_parser(parser)"
+  },
+  "cli/secrets/delete.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def delete_logic(args, context: CLIContext, parser: argparse.ArgumentParser); def delete_setup_parser(parser)"
+  },
+  "cli/secrets/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/secrets/write.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def write_logic(args, context: CLIContext, parser: argparse.ArgumentParser); def write_setup_parser(parser)"
+  },
+  "cli/secrets/read.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def read_logic(args, context: CLIContext, parser: argparse.ArgumentParser); def read_setup_parser(parser)"
+  },
+  "cli/cache/where.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def where(args, context: CLIContext, parser: argparse.ArgumentParser); def where_setup_parser(parser)"
+  },
+  "cli/cache/commands.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "commands"
+  },
+  "cli/cache/clear.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def clear(args, context: CLIContext, parser: argparse.ArgumentParser); def clear_setup_parser(parser)"
+  },
+  "cli/cache/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/cache/size.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "get_directory_size \u2014 Calculate the total size of a directory in bytes."
+  },
+  "cli/chat/start.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "_print_welcome_banner \u2014 Print a stylized welcome banner using rich components."
+  },
+  "cli/chat/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/orgs/commands.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def generic_org_add_argument(parser, action_to_perform: str=GENERIC_ORG_ONLY_SETUP_PARSER_DEFAULT_HELP); def generic_org_only_setup_parser(action_to_perform: str=GENERIC_ORG_ONLY_SETUP_PARSER_DEFAULT_HELP); def create(args, context: CLIContext, parser: argparse.ArgumentParser); def create_setup_parser(parser) (+23 more)"
+  },
+  "cli/orgs/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/tokens/commands.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def create(args, context: CLIContext, parser: argparse.ArgumentParser); def create_setup_parser(parser); def list(args, context: CLIContext, parser: argparse.ArgumentParser); def show(args, context: CLIContext, parser: argparse.ArgumentParser) (+3 more)"
+  },
+  "cli/tokens/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/users/commands.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def show(args, context: CLIContext, parser: argparse.ArgumentParser); def show_setup_parser(parser); def delete(args, context: CLIContext, parser: argparse.ArgumentParser); def delete_setup_parser(parser) (+2 more)"
+  },
+  "cli/users/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/command/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/command/roboto_command.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "class RobotoCommand(object): name(); command_kwargs(); setup_parser(parser: argparse.ArgumentParser, context: Optional[CLIContext]); class RobotoCommandSet(object): add_to_subparsers(parent_subparsers: Any, context: Optional[CLIContext]) -> None; sort_commands()"
+  },
+  "cli/command/args.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "class KeyValuePairsAction(argparse.Action); def JsonFileOrStrType(arg); def ExistingPathlibPath(arg)"
+  },
+  "cli/datasets/shared_helpdoc.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "shared helpdoc"
+  },
+  "cli/datasets/list_files.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def list_files(args, context: CLIContext, parser: argparse.ArgumentParser); def list_files_setup_parser(parser)"
+  },
+  "cli/datasets/create.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def create(args, context: CLIContext, parser: argparse.ArgumentParser); def create_setup_parser(parser)"
+  },
+  "cli/datasets/show.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def show(args, context: CLIContext, parser: argparse.ArgumentParser); def show_setup_parser(parser)"
+  },
+  "cli/datasets/update.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def update(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None; def update_parser(parser: argparse.ArgumentParser)"
+  },
+  "cli/datasets/commands.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "commands"
+  },
+  "cli/datasets/search.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def search(args, context: CLIContext, parser: argparse.ArgumentParser); def search_setup_parser(parser)"
+  },
+  "cli/datasets/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "cli/datasets/delete_files.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def delete_files(args, context: CLIContext, parser: argparse.ArgumentParser); def delete_files_setup_parser(parser)"
+  },
+  "cli/datasets/upload_files.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def upload_files(args, context: CLIContext, parser: argparse.ArgumentParser); def upload_files_setup_parser(parser)"
+  },
+  "cli/datasets/import_external_file.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def import_external_file(args, context: CLIContext, parser: argparse.ArgumentParser); def import_external_file_setup_parser(parser)"
+  },
+  "cli/datasets/download_files.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def download_files(args, context: CLIContext, parser: argparse.ArgumentParser); def download_files_setup_parser(parser)"
+  },
+  "cli/datasets/delete_dataset.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def delete_dataset(args, context: CLIContext, parser: argparse.ArgumentParser); def delete_dataset_setup_parser(parser)"
+  },
+  "cli/triggers/commands.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def parse_condition(args, context: CLIContext, parser: argparse.ArgumentParser) -> Optional[ConditionType]; def parse_overrides(args, context: CLIContext, parser: argparse.ArgumentParser) -> tuple[Optional[actions.ComputeRequirements], Optional[actions.ContainerParameters]]; def create(args, context: CLIContext, parser: argparse.ArgumentParser); def create_setup_parser(parser) (+8 more)"
+  },
+  "cli/triggers/__init__.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "  init  "
+  },
+  "auth/permissions.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "Permissions \u2014 Enum for permission levels of a Roboto resource. It is a best practice to only request/use the minimum permissions required for a given operation."
+  },
+  "auth/fga.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "AuthZTupleRecord \u2014 Fully qualified record of (user has relation to obj)"
+  },
+  "auth/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "  init  "
+  },
+  "auth/scope.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "ApiScope \u2014 Scopes define the set of APIs a credential holder can access."
+  },
+  "testing/stub_roboto_client.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "StubRobotoClient \u2014 A stub RobotoClient for unit testing that returns pre-configured responses for expected requests."
+  },
+  "testing/fake_http_response_factory.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "FakeHttpResponseFactory \u2014 A factory for creating fake HTTP responses, for use with the roboto.http.HttpClient."
+  },
+  "testing/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "Public testing utilities."
+  },
+  "fs/download_session.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "DownloadSession \u2014 Manages a batch of file downloads with shared credentials."
+  },
+  "fs/upload_transaction.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "class UploadTransaction: completed_upload_node_ids() -> list[str]; transaction_id() -> str; upload_mappings() -> dict[str, str]; await_uploads() -> None; make_credential_provider() -> CredentialProvider; register_upload(file: UploadableFile, future: FutureLike[None]) -> None; class TransactionFile(typing.TypedDict); class UploadableFile(typing.TypedDict)"
+  },
+  "fs/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "fs/credentials.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "RobotoCredentials \u2014 Credentials returned from the Roboto Platform"
+  },
+  "fs/file_service.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "FileService \u2014 Application service for performing upload and download to the Roboto Platform."
+  },
+  "fs/api_operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "AbortTransactionsRequest \u2014 Request payload for aborting file upload transactions."
+  },
+  "fs/object_store/registry.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "class StoreRegistry: register(scheme: str); get_store_for_uri(uri: str, credential_provider: CredentialProvider, **kwargs) -> ObjectStore"
+  },
+  "fs/object_store/object_store.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "FutureLike \u2014 Protocol for future-like objects."
+  },
+  "fs/object_store/__init__.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "  init  "
+  },
+  "fs/object_store/s3.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "ProgressCallbackInvoker \u2014 Invoke a provided callback via a subscriber."
+  },
+  "version/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "def roboto_version() -> str"
+  },
+  "http/requester.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "RobotoTool \u2014 Tool used to access Roboto"
+  },
+  "http/request.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "BatchRequest \u2014 Batched HTTP requests"
+  },
+  "http/roboto_client.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "RobotoClient \u2014 A client for making HTTP requests against Roboto service"
+  },
+  "http/headers.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "def roboto_headers(org_id: Optional[str]=None, user_id: Optional[str]=None, resource_owner_id: Optional[str]=None, additional_headers: Optional[dict[str, str]]=None, api_version: RobotoApiVersion=RobotoApiVersion.latest())"
+  },
+  "http/url_builder.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "class UrlBuilder: build(path: str, query: typing.Optional[dict[str, typing.Any]]=None); url(endpoint: str, path: str, query: typing.Optional[dict[str, typing.Any]]=None) -> str"
+  },
+  "http/__init__.py": {
+    "mtime_ns": 1774996678005681136,
+    "description": "  init  "
+  },
+  "http/constants.py": {
+    "mtime_ns": 1774996678005681136,
+    "description": "constants"
+  },
+  "http/retry.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "default_retry_wait_ms \u2014 Returns sleep time in ms using exponential backoff with full jitter, as described in: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/"
+  },
+  "http/http_client.py": {
+    "mtime_ns": 1774490319013287938,
+    "description": "is_expected_to_be_transient \u2014 Retry predicate that returns True if the exception is expected to be transient."
+  },
+  "http/response.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "BatchResponseElement \u2014 One element of a response to a batch request. This should only ever have data set (in case of a successful operation) or error set (in case of a failed operation). For operations that do not return a response, an empty (data = None, error = None) Batch Response Element will be effectively equivalent to a single requests 204 No Content"
+  },
+  "http/request_decorators.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "BearerTokenDecorator \u2014 Decorates requests with a static, unchanging bearer token."
+  },
+  "domain/__init__.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "  init  "
+  },
+  "domain/collections/collection.py": {
+    "mtime_ns": 1773698725633063176,
+    "description": "Collection \u2014 A higher-level container for grouping datasets together. Collections can also be used to group files from several distinct datasets together."
+  },
+  "domain/collections/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "domain/collections/operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CreateCollectionRequest \u2014 Request payload to create a collection"
+  },
+  "domain/collections/record.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CollectionResourceType \u2014 Type of resource added to a collection"
+  },
+  "domain/events/event.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Event \u2014 Represents an event within the Roboto platform."
+  },
+  "domain/events/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Events domain module for the Roboto SDK."
+  },
+  "domain/events/operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "EventDisplayOptions \u2014 Display options for an event."
+  },
+  "domain/events/record.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "EventRecord \u2014 A wire-transmissible representation of an event."
+  },
+  "domain/actions/scheduled_trigger_operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CreateScheduledTriggerRequest \u2014 Request payload to create a scheduled trigger."
+  },
+  "domain/actions/trigger_record.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "TriggerRecord \u2014 A wire-transmissible representation of a trigger."
+  },
+  "domain/actions/action_record.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "ActionRecord \u2014 A wire-transmissible representation of an action."
+  },
+  "domain/actions/invocation.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Invocation \u2014 An instance of an execution of an action, initiated manually by a user or automatically by a trigger."
+  },
+  "domain/actions/invocation_operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CancelActiveInvocationsRequest \u2014 Request payload to bulk cancel all active invocations within an organization."
+  },
+  "domain/actions/scheduled_trigger.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "ScheduledTrigger \u2014 A trigger that invokes actions on a recurring schedule, e.g. hourly or daily."
+  },
+  "domain/actions/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Actions domain module for the Roboto SDK."
+  },
+  "domain/actions/action.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Action \u2014 A reusable function to process, transform or analyze data in Roboto."
+  },
+  "domain/actions/trigger_operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CreateTriggerRequest \u2014 Request payload to create a new trigger."
+  },
+  "domain/actions/invocation_record.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "InvocationRecord \u2014 A wire-transmissible representation of an invocation."
+  },
+  "domain/actions/trigger_view.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "TriggerView \u2014 Unified data model for all Roboto trigger types."
+  },
+  "domain/actions/trigger.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Trigger \u2014 A rule that automatically invokes an action when specific events or conditions occur."
+  },
+  "domain/actions/action_config.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "ActionConfig \u2014 User-facing model for Action configuration used when creating or updating Actions."
+  },
+  "domain/actions/scheduled_trigger_record.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "ScheduledTriggerRecord \u2014 Wire-transmissible representation of a scheduled trigger."
+  },
+  "domain/actions/stats.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Action statistics functionality for retrieving invocation metrics."
+  },
+  "domain/actions/action_operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CreateActionRequest \u2014 Request payload to create a new action."
+  },
+  "domain/secrets/secret.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Secret \u2014 A secret stored in the Roboto platform's secret management system."
+  },
+  "domain/secrets/__init__.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "  init  "
+  },
+  "domain/secrets/record.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "SecretStoreType \u2014 Type of secret store."
+  },
+  "domain/devices/device.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Device \u2014 A device is a non-human entity that can interact with Roboto on behalf of an organization."
+  },
+  "domain/devices/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Device management for the Roboto platform."
+  },
+  "domain/devices/operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CreateDeviceRequest \u2014 Request payload to create a new device."
+  },
+  "domain/devices/record.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "DeviceRecord \u2014 A wire-transmissible representation of a device."
+  },
+  "domain/orgs/webhook_integration.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "class WebhookProvider(StrEnum); class BeginWebhookIntegrationRequest(pydantic.BaseModel); class UpdateWebhookIntegrationSecretRequest(pydantic.BaseModel): serialize_over_the_wire(value: pydantic.SecretStr) -> str; class UpdateWebhookIntegrationAPIKeyRequest(pydantic.BaseModel): serialize_over_the_wire(value: pydantic.SecretStr) -> str (+2 more)"
+  },
+  "domain/orgs/org.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Org \u2014 A collaborative workspace for multiple Roboto users."
+  },
+  "domain/orgs/__init__.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "  init  "
+  },
+  "domain/orgs/org_records.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "OrgStatus \u2014 Organization status enumeration."
+  },
+  "domain/orgs/org_operations.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "CreateOrgRequest \u2014 Request payload to create an organization."
+  },
+  "domain/orgs/org_invite.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "OrgInvite \u2014 An invitation to join an organization from one user to another."
+  },
+  "domain/orgs/s3_integration.py": {
+    "mtime_ns": 1773816002159367517,
+    "description": "S3BucketIntegrationRecord \u2014 Record representing an S3 bucket integration with a Roboto organization."
+  },
+  "domain/files/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "domain/files/operations.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "DeleteFileRequest \u2014 Request payload for deleting a file from the platform."
+  },
+  "domain/files/file.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "File \u2014 Represents a file within the Roboto platform."
+  },
+  "domain/files/record.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "FileStatus \u2014 Enumeration of possible file status values in the Roboto platform."
+  },
+  "domain/files/lazy_lookup_file.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "LazyLookupFile \u2014 A File subclass that defers instantiation (hydration) of the real File until any non\u2010internal attribute is first accessed."
+  },
+  "domain/layouts/__init__.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "  init  "
+  },
+  "domain/layouts/operations.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "CreateLayoutRequest \u2014 Request payload to create a layout"
+  },
+  "domain/layouts/record.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "LayoutAccessibility \u2014 Controls who can view a layout."
+  },
+  "domain/comments/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Comments module for the Roboto SDK."
+  },
+  "domain/comments/operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CreateCommentRequest \u2014 Request payload for creating a new comment."
+  },
+  "domain/comments/comment.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Comment \u2014 A comment attached to a Roboto platform entity."
+  },
+  "domain/comments/record.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CommentEntityType \u2014 Enumeration of Roboto platform entities that support comments."
+  },
+  "domain/topics/http_range_reader.py": {
+    "mtime_ns": 1773816002159367517,
+    "description": "Seekable HTTP byte-range reader for efficient partial access to remote files."
+  },
+  "domain/topics/message_path.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "MessagePath \u2014 Represents a message path within a topic in the Roboto platform."
+  },
+  "domain/topics/sparse_buffer.py": {
+    "mtime_ns": 1773816002159367517,
+    "description": "Seekable read-only buffer backed by sparse in-memory byte regions."
+  },
+  "domain/topics/topic.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Topic \u2014 Represents a topic within the Roboto platform."
+  },
+  "domain/topics/topic_reader.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "TopicReader \u2014 Private interface for retrieving topic data of a particular format."
+  },
+  "domain/topics/__init__.py": {
+    "mtime_ns": 1773816002159367517,
+    "description": "  init  "
+  },
+  "domain/topics/operations.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "BaseAddRepresentationRequest \u2014 Base request for adding a representation to a topic."
+  },
+  "domain/topics/decoded_message.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "DecodedMessage \u2014 Facade for values returned from message decoders."
+  },
+  "domain/topics/json_decoder_factory.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "JsonDecoderFactory \u2014 Factory for creating JSON message decoders for MCAP readers."
+  },
+  "domain/topics/topic_data_service.py": {
+    "mtime_ns": 1773816002160367519,
+    "description": "TopicDataService \u2014 Internal service for retrieving topic data."
+  },
+  "domain/topics/mcap_topic_reader.py": {
+    "mtime_ns": 1774544072763087244,
+    "description": "McapTopicReader \u2014 Private interface for retrieving topic data stored in MCAP files."
+  },
+  "domain/topics/mcap_reader.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "McapReader \u2014 Reader for processing MCAP files with message path filtering."
+  },
+  "domain/topics/record.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "RepresentationStorageFormat \u2014 Supported storage formats for topic data representations."
+  },
+  "domain/topics/parquet/arrow_to_roboto.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "get_nested_column_data \u2014 Extract data for nested fields from a PyArrow table."
+  },
+  "domain/topics/parquet/table_transforms.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "compute_time_filter_mask \u2014 Compute a boolean mask indicating which rows fall within the specified time range. Returns None if no time filtering is needed (both start_time and end_time are None)."
+  },
+  "domain/topics/parquet/__init__.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "  init  "
+  },
+  "domain/topics/parquet/timestamp.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Timestamp \u2014 Timestamp signal in topic data stored as Parquet. Serves as both a descriptor of that signal and as a utility for projecting it to other time units."
+  },
+  "domain/topics/parquet/parquet_topic_reader.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "ParquetTopicReader \u2014 Private interface for retrieving topic data stored in Parquet files."
+  },
+  "domain/topics/parquet/ingestion.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "def upload_representation_file(file_path: pathlib.Path, association: Association, caller_org_id: typing.Optional[str]=None, roboto_client: typing.Optional[RobotoClient]=None) -> str; def make_topic_filename_safe(name: str, replacement_char: str='_') -> str"
+  },
+  "domain/topics/parquet/parquet_parser.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "class ParquetParser: is_parquet_file(path: pathlib.Path) -> bool; column_count() -> int; fields() -> typing.Generator['pyarrow.Field', None, None]; row_count() -> int; row_group_count() -> int; row_group_size() -> int; find_timestamp_field_by_type() -> 'pyarrow.Field'; extract_timestamp_info(timestamp_column_name: typing.Optional[str]=None, timestamp_unit: typing.Optional[typing.Union[str, TimeUnit]]=None) -> TimestampInfo; get_data_for_column(column_name: str) -> 'pyarrow.Table'; get_timestamp_field_by_name(column_name: str) -> 'pyarrow.Field'; requires_rewrite(timestamp: TimestampInfo) -> bool; rewrite(outfile: pathlib.Path, timestamp: TimestampInfo, target_row_group_size_bytes: int=100 * 1000 * 1000) -> None"
+  },
+  "domain/tokens/token.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "Token \u2014 A token allows users and devices to authenticate requests to Roboto."
+  },
+  "domain/tokens/__init__.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "  init  "
+  },
+  "domain/tokens/operations.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "CreateTokenRequest \u2014 Request payload to create a new token"
+  },
+  "domain/tokens/record.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "TokenContext \u2014 Context for token usage"
+  },
+  "domain/users/user.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "User \u2014 Represents an individual who has access to the Roboto platform."
+  },
+  "domain/users/__init__.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "  init  "
+  },
+  "domain/users/operations.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "CreateUserRequest \u2014 Request payload to create a new user."
+  },
+  "domain/users/record.py": {
+    "mtime_ns": 1773698725635063178,
+    "description": "UserRecord \u2014 A wire-transmissible representation of a user."
+  },
+  "domain/datasets/dataset.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "Dataset \u2014 Represents a dataset within the Roboto platform."
+  },
+  "domain/datasets/__init__.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "  init  "
+  },
+  "domain/datasets/operations.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "CreateDatasetRequest \u2014 Request payload for creating a new dataset."
+  },
+  "domain/datasets/record.py": {
+    "mtime_ns": 1773698725634063177,
+    "description": "DatasetRecord \u2014 Wire-transmissible representation of a dataset in the Roboto platform."
+  },
+  "ai/core/event.py": {
+    "mtime_ns": 1774490319012287937,
+    "description": "AgentStartTextEvent \u2014 Signals the beginning of text generation in a chat response."
+  },
+  "ai/core/record.py": {
+    "mtime_ns": 1774755558531916900,
+    "description": "ModelProfileResponse \u2014 Metadata about an available model profile, returned by the API."
+  }
+}

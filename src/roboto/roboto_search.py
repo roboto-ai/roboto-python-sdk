@@ -15,6 +15,7 @@ from .domain import (
 )
 from .domain import (
     datasets,
+    devices,
     events,
     files,
     topics,
@@ -98,6 +99,28 @@ class RobotoSearch:
                 content_mode=content_mode,
             )
 
+    def find_devices(
+        self,
+        query: typing.Optional[Query] = None,
+        timeout_seconds: float = math.inf,
+    ) -> collections.abc.Generator[devices.Device, None, None]:
+        """Yield ``Device`` objects matching ``query``, one at a time.
+
+        Results stream lazily as you iterate; ``timeout_seconds`` bounds how long
+        iteration waits for results before stopping.
+
+        Examples:
+            >>> from roboto import RobotoSearch
+            >>> searcher = RobotoSearch()
+            >>> for device in searcher.find_devices("tags CONTAINS 'warehouse'"):
+            ...     print(device.device_id)
+        """
+        for result in self.__query_client.submit_query(query, QueryTarget.Devices, timeout_seconds):
+            yield devices.Device(
+                devices.DeviceRecord.model_validate(result),
+                self.__query_client.roboto_client,
+            )
+
     def find_files(
         self,
         query: typing.Optional[Query] = None,
@@ -129,8 +152,8 @@ class RobotoSearch:
         Examples:
             >>> import matplotlib.pyplot as plt
             >>> from roboto import RobotoSearch
-            >>> robosearch = RobotoSearch()
-            >>> for topic in robosearch.find_topics("msgpaths[cpuload.load].max > 0.9"):
+            >>> searcher = RobotoSearch()
+            >>> for topic in searcher.find_topics("msgpaths[cpuload.load].max > 0.9"):
             ...     df = topic.get_data_as_df(message_paths_include=["cpuload.load"])
             ...     plt.plot(df.index, df["cpuload.load"], label=topic.topic_id)
             >>> plt.legend()

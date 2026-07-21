@@ -268,6 +268,7 @@ def _narrow_array(array: "pyarrow.Array", node: dict) -> "pyarrow.Array":
     pc = import_optional_dependency("pyarrow.compute", "analytics")
     type_ = array.type
     if pa.types.is_struct(type_):
+        struct_array = typing.cast("pyarrow.StructArray", array)
         names: list[str] = []
         children: list = []
         for name, sub in node.items():
@@ -275,17 +276,18 @@ def _narrow_array(array: "pyarrow.Array", node: dict) -> "pyarrow.Array":
             if index == -1:
                 continue
             names.append(name)
-            children.append(_narrow_array(array.field(index), sub))
+            children.append(_narrow_array(struct_array.field(index), sub))
         if not names:
             return array
         mask = pc.is_null(array) if array.null_count else None
         return pa.StructArray.from_arrays(children, names=names, mask=mask)
     if pa.types.is_list(type_) or pa.types.is_large_list(type_):
-        narrowed_values = _narrow_array(array.values, node)
+        list_array = typing.cast("pyarrow.ListArray", array)
+        narrowed_values = _narrow_array(list_array.values, node)
         from_arrays = pa.LargeListArray.from_arrays if pa.types.is_large_list(type_) else pa.ListArray.from_arrays
         if array.null_count:
-            return from_arrays(array.offsets, narrowed_values, mask=pc.is_null(array))
-        return from_arrays(array.offsets, narrowed_values)
+            return from_arrays(list_array.offsets, narrowed_values, mask=pc.is_null(array))
+        return from_arrays(list_array.offsets, narrowed_values)
     return array
 
 

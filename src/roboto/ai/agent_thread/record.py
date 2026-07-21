@@ -14,8 +14,11 @@ from ..core import (
     ClientViewingContext,
 )
 from ..core.record import (
+    AGENT_CONTENT_MODEL_BY_TYPE,
+    AgentCompressionFillerContent,
     AgentContent,
     AgentContentType,
+    AgentDeletedContent,
     AgentErrorContent,
     AgentGoalStatus,
     AgentMessage,
@@ -199,6 +202,12 @@ class StartAgentThreadRequest(pydantic.BaseModel):
     Contains the initial messages and configuration for creating a new
     conversation.
     """
+
+    # ``model_profile`` overlaps Pydantic's reserved ``model_`` namespace, which
+    # emits a ``UserWarning`` at import time on Pydantic < 2.10 (permitted by the
+    # SDK's ``pydantic>=2.5`` floor). Opting out keeps the CLI warning-free
+    # across all supported Pydantic versions.
+    model_config = pydantic.ConfigDict(protected_namespaces=())
 
     client_context: Optional[ClientViewingContext] = pydantic.Field(
         default=None,
@@ -387,8 +396,11 @@ class AgentThreadSubject(pydantic.BaseModel):
 
 
 __all__ = [
+    "AGENT_CONTENT_MODEL_BY_TYPE",
+    "AgentCompressionFillerContent",
     "AgentContent",
     "AgentContentType",
+    "AgentDeletedContent",
     "AgentErrorContent",
     "AgentGoalStatus",
     "AgentMessage",

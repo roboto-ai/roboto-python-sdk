@@ -9,7 +9,6 @@ import math
 import typing
 
 import mcap.reader
-import mcap_ros1.decoder
 
 from ..fields import FieldSelection
 from .accessor import AccessorCache
@@ -17,9 +16,11 @@ from .decoded_message import DecodedMessage
 from .json_decoder_factory import (
     JsonDecoderFactory,
 )
-from .omgidl import make_omgidl_decoder_factory
-from .omgidl.decoder_factory import UNDECODABLE_MESSAGE
-from .ros2_decoder import make_ros2_decoder_factory
+from .msgpack_decoder_factory import make_msgpack_decoder_factory
+from .ros_cdr_decoder_factory import (
+    UNDECODABLE_MESSAGE,
+    make_ros_cdr_codec_decoder_factory,
+)
 
 
 class _EndOfStream:
@@ -70,8 +71,8 @@ class McapReader:
     """Reader for processing MCAP files with field projection.
 
     Provides an iterator interface for reading decoded messages from MCAP files,
-    with support for temporal filtering and field selection. Handles
-    multiple encoding formats including JSON, ROS1, and ROS2.
+    with support for temporal filtering and field selection. Handles JSON and
+    the ROS/CDR encodings (``ros1msg`` / ``ros2msg`` / ``ros2idl`` / ``omgidl``).
 
     The reader automatically decodes messages using appropriate decoders and
     filters the output based on the specified fields and time range.
@@ -112,13 +113,16 @@ class McapReader:
             ...         if message:
             ...             print(message.to_dict())
         """
+        # All ROS/CDR encodings (ros1msg / ros2msg / ros2idl / omgidl) route through the shared
+        # mcap_codec decoder. JSON keeps its own pure-Python factory: it preserves json.loads
+        # semantics (None for null fields, plain lists, arbitrary-precision ints), where the
+        # codec's materialization is deliberately CDR-shaped.
         json_decoder = JsonDecoderFactory()
-        ros1_decoder = mcap_ros1.decoder.DecoderFactory()
-        ros2_decoder = make_ros2_decoder_factory()
-        omgidl_decoder = make_omgidl_decoder_factory()
+        msgpack_decoder = make_msgpack_decoder_factory()
+        ros_cdr_codec_decoder = make_ros_cdr_codec_decoder_factory()
         reader = mcap.reader.make_reader(
             stream,
-            decoder_factories=[json_decoder, ros1_decoder, ros2_decoder, omgidl_decoder],
+            decoder_factories=[json_decoder, msgpack_decoder, ros_cdr_codec_decoder],
         )
         self.__message_iterator = reader.iter_decoded_messages(
             start_time=start_time, end_time=end_time, log_time_order=log_time_order
@@ -161,24 +165,6 @@ class McapReader:
         message = self.__next_unconsummed_decode_result.message
         return McapEnvelopeTimestamp(log_time=message.log_time, publish_time=message.publish_time)
 
-    @property
-    def schema_encoding(self) -> typing.Optional[str]:
-        """The MCAP Schema-record encoding of the next message to be read.
-
-        The encoding (e.g. ``"ros1msg"``, ``"ros2msg"``, ``"jsonschema"``) identifies
-        the framework or format that produced the messages;
-        :py:func:`roboto.formats.mcap.dialect_from_schema_encoding` maps it to an
-        :py:class:`~roboto.formats.mcap.McapDialect`.
-
-        Returns:
-            The schema record's ``encoding``, or ``None`` if the reader is exhausted
-            or the next message carries no schema (a schemaless channel).
-        """
-        next_decode_result = self.__next_unconsummed_decode_result
-        if next_decode_result is None or next_decode_result.schema is None:
-            return None
-        return next_decode_result.schema.encoding
-
     def next(self) -> typing.Union[DecodedMessage, None]:
         """Read and return the next decoded message.
 
@@ -210,9 +196,9 @@ class McapReader:
         """Read and return the next message's raw decoded value, advancing the reader.
 
         The raw value is what the format decoder produced -- a dict for
-        JSON-encoded messages, a dynamically created class instance for
-        ROS1/ROS2 -- with no projection applied. Callers that want projected
-        dictionary output use :py:meth:`next` and
+        JSON-encoded messages, and nested ``dict`` / sequence / scalar values
+        for ROS/CDR encodings -- with no projection applied. Callers that want
+        projected dictionary output use :py:meth:`next` and
         :py:meth:`DecodedMessage.to_dict` instead.
 
         A decoded value of ``None`` is a real message (a JSON ``null`` payload)
@@ -248,7 +234,7 @@ class McapReader:
         return next_decode_result.message.log_time == timestamp
 
     def __decode_next(self) -> None:
-        # The omgidl decoder returns UNDECODABLE_MESSAGE for a message it cannot decode (an
+        # The CDR codec decoder returns UNDECODABLE_MESSAGE for a message it cannot decode (an
         # unsupported wstring/wchar in a non-recoverable position) rather than raising, so a single
         # such message does not abort iteration over the rest of the file. Skip past those.
         while True:

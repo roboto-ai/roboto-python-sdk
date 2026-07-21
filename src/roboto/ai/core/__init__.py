@@ -22,8 +22,11 @@ from .event import (
     AgentToolUseEvent,
 )
 from .record import (
+    AGENT_CONTENT_MODEL_BY_TYPE,
+    AgentCompressionFillerContent,
     AgentContent,
     AgentContentType,
+    AgentDeletedContent,
     AgentErrorContent,
     AgentMessage,
     AgentMessageStatus,
@@ -39,8 +42,11 @@ from .record import (
 )
 
 __all__ = [
+    "AGENT_CONTENT_MODEL_BY_TYPE",
+    "AgentCompressionFillerContent",
     "AgentContent",
     "AgentContentType",
+    "AgentDeletedContent",
     "AgentErrorContent",
     "AgentErrorEvent",
     "AgentEvent",

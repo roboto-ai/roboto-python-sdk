@@ -30,6 +30,9 @@ class LayoutRecord(pydantic.BaseModel):
     accessibility: LayoutAccessibility = LayoutAccessibility.User
     created: datetime.datetime
     created_by: str
+
+    # Folder this layout is grouped under; ``None`` means ungrouped, shown at the root of its accessibility scope.
+    folder: str | None = None
     layout_definition: dict[str, typing.Any]
     layout_id: str
     modified: datetime.datetime

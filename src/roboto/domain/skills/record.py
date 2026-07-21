@@ -66,6 +66,16 @@ class SkillVersionRecord(pydantic.BaseModel):
     body: str
     """The procedure text the model executes when the skill is invoked."""
 
+    relevant_topics: list[str] = pydantic.Field(default_factory=list)
+    """Topic names this version's procedure investigates (e.g. ``"/imu/data"``).
+
+    Version-scoped content, not skill-level metadata — they track the ``body``,
+    so a new version may reference a different set. When the chat AI loads this
+    skill and is given a dataset scope, it resolves each name to a topic schema
+    and returns them alongside the body in the same ``load_skill`` tool result,
+    sparing a follow-up ``get_topic_schema`` turn. Names only; field-level
+    references live in the ``body`` text. Empty when the author listed none."""
+
     created: datetime.datetime
     modified: datetime.datetime
 

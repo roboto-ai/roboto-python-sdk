@@ -21,19 +21,16 @@ from .accessor import (
     sequence_resolution,
     simple_resolution,
 )
-from .dialect import McapDialect, dialect_from_schema_encoding
 from .fetch import open_for_window
 from .reader import END_OF_STREAM, McapReader
 
 __all__ = (
     "Accessor",
     "END_OF_STREAM",
-    "McapDialect",
     "McapReader",
     "Resolution",
     "build_accessor",
     "compile_accessors",
-    "dialect_from_schema_encoding",
     "getter_for",
     "none_resolution",
     "open_for_window",

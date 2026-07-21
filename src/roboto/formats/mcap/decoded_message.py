@@ -22,13 +22,12 @@ class DecodedMessage:
     of their original encoding format or source. Handles the conversion of decoded
     message data into dictionary format suitable for analysis and processing.
 
-    A decoded message may be one of several types:
-    - A dictionary when the message data is encoded as JSON
-    - A dynamically created class when the message data is encoded as ROS1, ROS2 (CDR), or other binary formats
+    A decoded message is a nested ``dict`` / sequence / scalar value: JSON channels and the
+    shared ``mcap_codec`` decoder (which handles the ROS1, ROS2/CDR, and IDL encodings) both
+    materialize to ``dict``, so one dictionary interface serves every encoding.
 
-    This class abstracts away the differences between these formats and provides
-    consistent access to message data through a dictionary interface, filtering
-    the output based on the specified fields.
+    This class filters that decoded value down to the specified fields and presents it
+    through a consistent dictionary interface.
     """
 
     __message: typing.Any
@@ -79,8 +78,9 @@ class DecodedMessage:
         """Wrap a decoded message for dictionary conversion.
 
         Args:
-            msg: The decoded message, either a dict (JSON-encoded) or a dynamically
-                created class with ``__slots__`` (ROS1/ROS2 binary encoding).
+            msg: The decoded message -- a nested ``dict`` / sequence / scalar value. JSON
+                channels and the shared ``mcap_codec`` decoder (ROS1, ROS2/CDR, IDL) both
+                materialize to ``dict``.
             fields: Fields to extract from the message.
             accessor_cache: Optional cache that lets repeated decodes from the same
                 read pass skip per-message accessor compilation. The reader owns the
