@@ -108,10 +108,6 @@ Pre-built binaries for every version are on the [releases](https://github.com/ro
 
 The CLI provides the `roboto` command line utility. List available commands with `roboto -h`, or see the complete [CLI reference](https://docs.roboto.ai/reference/cli.html) documentation.
 
-> [!NOTE]
->
-> `pip install roboto` does not install a `roboto` executable. In a Python environment with the SDK installed, run the CLI as `python -m roboto.cli`.
-
 #### Linux
 
 - Go to the [latest release](https://github.com/roboto-ai/roboto-python-sdk/releases/latest) page for this package

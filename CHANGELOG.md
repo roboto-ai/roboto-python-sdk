@@ -1,5 +1,11 @@
 # Changelog
 
+# 0.52.0
+## Features Added
+  - `roboto.experimental.video` now decodes H.265 (HEVC), VP9, and AV1 compressed-video topics in addition to H.264. A new `decode_stream(encoded_frames, codec)` decodes an in-order stream of encoded frames for any supported codec, and `decode_frames_in_range` gains a `codec` argument (defaulting to H.264). Pass one of the exported codec descriptors (`H264`, `H265`, `VP9`, `AV1`) as `codec`, or resolve one from a message's `format` field with `resolve_codec(format)`, which returns `None` for formats without a decode path; `supported_formats()` returns the format tokens that have one. `decode_h264_stream` behaves as before and is now a wrapper over `decode_stream`.
+  - `roboto.experimental.video` gains dependency-free bitstream-inspection helpers for the new codecs, mirroring the existing H.264 helpers: `roboto.experimental.video.h265` (`find_nal_units`, `is_keyframe`, `NalUnitType`), `roboto.experimental.video.vp9` (`is_keyframe`), and `roboto.experimental.video.av1` (`find_obus`, `is_keyframe`, `Obu`, `ObuType`).
+  - Restored the `roboto` console script removed in 0.51.0: `pip install roboto` installs the `roboto` command again, and `pipx install roboto`, `uvx roboto`, and `uv tool install roboto` are supported. The standalone CLI binaries (Homebrew, `.deb`, release executables) remain the recommended way to install the CLI, and `python -m roboto.cli` continues to work in any Python environment with the SDK installed.
+
 # 0.51.0
 ## Breaking Changes
   - `pip install roboto` no longer installs a `roboto` console script, and `pipx install roboto` / `uvx roboto` / `uv tool install roboto` are no longer supported. Use the standalone CLI binaries (Homebrew, `.deb`, release executables), or `python -m roboto.cli` within a Python environment that has the SDK installed (e.g. `uv run --with roboto python -m roboto.cli ...`). Upgrading the package to this version does not remove a `roboto` executable that an earlier install already placed on your `PATH`; until you remove it, that stale copy keeps shadowing the standalone binary. Run `which -a roboto` to find stray copies, then `pip uninstall roboto` (or `pip install --upgrade roboto`, which now drops the script) in the offending Python environment, and `pipx uninstall roboto` / `uv tool uninstall roboto` for those tools.

@@ -21,11 +21,11 @@ import collections.abc
 import itertools
 import typing
 
+from .codec import H264, VideoCodec
 from .decoder import (
     DecodedVideoFrame,
-    decode_h264_stream,
+    decode_stream,
 )
-from .h264 import is_keyframe
 
 MessageRangeLoader = typing.Callable[[int, int], collections.abc.Iterable[tuple[int, bytes]]]
 """Loads a topic's ``(log_time, data)`` messages for a ``(start_time, end_time)`` range.
@@ -47,8 +47,9 @@ def decode_frames_in_range(
     start_time: int,
     end_time: int,
     keyframe_lookback_ns: int = DEFAULT_KEYFRAME_LOOKBACK_NS,
+    codec: VideoCodec = H264,
 ) -> collections.abc.Generator[DecodedVideoFrame, None, None]:
-    """Decode the H.264 video frames of a time range.
+    """Decode the compressed-video frames of a time range.
 
     Frames in the range that are undecodable — e.g. delta frames whose keyframe
     lies further back than ``keyframe_lookback_ns`` — are silently omitted; no
@@ -63,6 +64,10 @@ def decode_frames_in_range(
             through to ``load_messages``.
         keyframe_lookback_ns: Upper bound on how far before ``start_time`` to
             search for the keyframe that anchors the range's leading delta frames.
+        codec: The codec of every loaded frame (defaults to H.264); supplies
+            keyframe detection and the PyAV decoder. Resolve it from the
+            stream's ``format`` token via
+            :py:func:`~roboto.experimental.video.resolve_codec`.
 
     Yields:
         One :py:class:`~roboto.experimental.video.DecodedVideoFrame` per
@@ -85,10 +90,12 @@ def decode_frames_in_range(
         return
 
     prefix: list[tuple[int, bytes]] = []
-    if not is_keyframe(first[1]):
-        prefix = _load_gop_prefix(load_messages, before=first[0], keyframe_lookback_ns=keyframe_lookback_ns)
+    if not codec.is_keyframe(first[1]):
+        prefix = _load_gop_prefix(
+            load_messages, before=first[0], keyframe_lookback_ns=keyframe_lookback_ns, codec=codec
+        )
 
-    for decoded in decode_h264_stream(itertools.chain(prefix, [first], messages)):
+    for decoded in decode_stream(itertools.chain(prefix, [first], messages), codec):
         if decoded.log_time >= start_time:
             yield decoded
 
@@ -97,6 +104,7 @@ def _load_gop_prefix(
     load_messages: MessageRangeLoader,
     before: int,
     keyframe_lookback_ns: int,
+    codec: VideoCodec,
 ) -> list[tuple[int, bytes]]:
     """Load the frames from the nearest keyframe before ``before`` up to (excluding) ``before``.
 
@@ -109,6 +117,6 @@ def _load_gop_prefix(
 
     candidates = [(log_time, data) for log_time, data in load_messages(lookback_start, before) if log_time < before]
     for i in range(len(candidates) - 1, -1, -1):
-        if is_keyframe(candidates[i][1]):
+        if codec.is_keyframe(candidates[i][1]):
             return candidates[i:]
     return []

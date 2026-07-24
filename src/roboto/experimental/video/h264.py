@@ -11,12 +11,18 @@ splitting a frame's data into NAL units and detecting keyframes (IDR slices).
 It neither decodes video nor parses variable-length (Exp-Golomb) fields —
 the decoder reads everything else (dimensions, reference frame count, ...)
 from the in-band parameter sets.
+
+The start-code scan shared with H.265 lives in :py:mod:`.annexb`; this module
+adds the H.264 specifics: a 1-byte NAL header carrying a 5-bit type.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import enum
+
+from .annexb import NalUnit, nal_payload_bounds
+
+__all__ = ["NalUnit", "NalUnitType", "find_nal_units", "is_keyframe"]
 
 _NAL_UNIT_TYPE_MASK = 0x1F
 
@@ -33,51 +39,6 @@ class NalUnitType(enum.IntEnum):
     SEI = 6
     SEQUENCE_PARAMETER_SET = 7
     PICTURE_PARAMETER_SET = 8
-
-
-@dataclasses.dataclass(frozen=True)
-class NalUnit:
-    """One NAL unit split out of an Annex B-framed H.264 frame."""
-
-    type: int
-    """``nal_unit_type`` from the unit's header byte."""
-
-    data: bytes
-    """The unit's bytes: header byte included, start code excluded."""
-
-
-def _nal_payload_bounds(data: bytes) -> list[tuple[int, int]]:
-    """Locate every NAL unit payload as a ``(start, end)`` byte range.
-
-    Handles both 3-byte (``00 00 01``) and 4-byte (``00 00 00 01``) start codes.
-    Zero-length units are skipped.
-    """
-    length = len(data)
-    payload_starts: list[int] = []
-    boundary_starts: list[int] = []
-    i = 0
-    while i + 3 <= length:
-        if data[i] != 0x00 or data[i + 1] != 0x00:
-            i += 1
-            continue
-        if data[i + 2] == 0x01:
-            boundary_starts.append(i)
-            payload_starts.append(i + 3)
-            i += 3
-            continue
-        if i + 4 <= length and data[i + 2] == 0x00 and data[i + 3] == 0x01:
-            boundary_starts.append(i)
-            payload_starts.append(i + 4)
-            i += 4
-            continue
-        i += 1
-
-    bounds: list[tuple[int, int]] = []
-    for j, payload_start in enumerate(payload_starts):
-        end = boundary_starts[j + 1] if j + 1 < len(boundary_starts) else length
-        if end > payload_start:
-            bounds.append((payload_start, end))
-    return bounds
 
 
 def find_nal_units(data: bytes) -> list[NalUnit]:
@@ -98,7 +59,7 @@ def find_nal_units(data: bytes) -> list[NalUnit]:
     """
     return [
         NalUnit(type=data[start] & _NAL_UNIT_TYPE_MASK, data=bytes(data[start:end]))
-        for start, end in _nal_payload_bounds(data)
+        for start, end in nal_payload_bounds(data)
     ]
 
 
@@ -115,4 +76,4 @@ def is_keyframe(data: bytes) -> bool:
     Returns:
         True when the frame contains an IDR slice.
     """
-    return any(data[start] & _NAL_UNIT_TYPE_MASK == NalUnitType.IDR_SLICE for start, _ in _nal_payload_bounds(data))
+    return any(data[start] & _NAL_UNIT_TYPE_MASK == NalUnitType.IDR_SLICE for start, _ in nal_payload_bounds(data))

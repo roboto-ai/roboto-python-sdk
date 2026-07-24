@@ -60,6 +60,9 @@ examples = [
     "pillow~=10.4",
 ]
 
+[project.scripts]
+roboto = "roboto.cli:entry"
+
 [project.urls]
 Documentation = "https://docs.roboto.ai"
 Homepage = "https://www.roboto.ai"
