@@ -114,6 +114,32 @@ class Skill:
         return cls(record=record, roboto_client=roboto_client)
 
     @classmethod
+    def get_summary(
+        cls,
+        skill_id: str,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> SkillSummary:
+        """Load one skill's summary: the skill, its latest version, and your subscription.
+
+        The single-skill counterpart of :py:meth:`list_for_org`. Prefer it over
+        filtering that listing when you already know the ``skill_id`` — it costs
+        one row instead of the whole org's skills.
+
+        Raises:
+            RobotoNotFoundException: No skill with this id exists, or the caller
+                cannot see it (visibility-gated, same as :py:meth:`from_id`).
+
+        Examples:
+            >>> summary = Skill.get_summary("sk_abc123")
+            >>> summary.latest_version.version
+            3
+            >>> summary.subscription is None  # not subscribed
+            True
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        return roboto_client.get(f"v1/skills/id/{skill_id}/summary").to_record(SkillSummary)
+
+    @classmethod
     def from_name(
         cls,
         name: str,

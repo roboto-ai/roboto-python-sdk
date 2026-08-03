@@ -23,8 +23,16 @@ from .http_client import (
     HttpClient,
     HttpError,
     ServerError,
+    is_expected_to_be_transient,
 )
-from .request import BatchRequest
+from .options import (
+    HttpClientOptions,
+    HttpLoggingOptions,
+    HttpRetryOptions,
+    RetryPredicate,
+    never_retry,
+)
+from .request import BatchRequest, HttpRequest
 from .request_decorators import (
     BearerTokenDecorator,
     SigV4AuthDecorator,
@@ -57,7 +65,11 @@ __all__ = (
     "ClientError",
     "DEFAULT_HTTP_TIMEOUT",
     "HttpClient",
+    "HttpClientOptions",
     "HttpError",
+    "HttpLoggingOptions",
+    "HttpRequest",
+    "HttpRetryOptions",
     "InvalidPaginationTokenError",
     "ORG_OVERRIDE_HEADER",
     "ORG_OVERRIDE_QUERY_PARAM",
@@ -68,7 +80,10 @@ __all__ = (
     "RESOURCE_OWNER_OVERRIDE_HEADER",
     "RESOURCE_OWNER_OVERRIDE_QUERY_PARAM",
     "ROBOTO_REQUESTER_HEADER",
+    "RetryPredicate",
     "ServerError",
+    "is_expected_to_be_transient",
+    "never_retry",
     "SigV4AuthDecorator",
     "StreamedList",
     "USER_OVERRIDE_HEADER",

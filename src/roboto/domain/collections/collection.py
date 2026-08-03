@@ -76,6 +76,7 @@ class Collection:
         dataset_ids: typing.Optional[collections.abc.Collection[str]] = None,
         event_ids: typing.Optional[collections.abc.Collection[str]] = None,
         file_ids: typing.Optional[collections.abc.Collection[str]] = None,
+        session_ids: typing.Optional[collections.abc.Collection[str]] = None,
         tags: Optional[list[str]] = None,
         custom_fields: Optional[dict[str, typing.Any]] = None,
         roboto_client: typing.Optional["RobotoClient"] = None,
@@ -108,6 +109,14 @@ class Collection:
                 [
                     CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=file_id)
                     for file_id in file_ids
+                ]
+            )
+
+        if session_ids:
+            normalized_resources.extend(
+                [
+                    CollectionResourceRef(resource_type=CollectionResourceType.Session, resource_id=session_id)
+                    for session_id in session_ids
                 ]
             )
 
@@ -189,6 +198,14 @@ class Collection:
     def collection_id(self) -> str:
         return self.__record.collection_id
 
+    @property
+    def name(self) -> typing.Optional[str]:
+        return self.__record.name
+
+    @property
+    def description(self) -> typing.Optional[str]:
+        return self.__record.description
+
     @staticmethod
     def _resource_id(resource: typing.Any, id_field: str) -> str | None:
         # On the wire path resources are plain dicts (Pydantic deserializes list[Any] from JSON as dicts).
@@ -221,6 +238,14 @@ class Collection:
             resource_id
             for resource in self.__record.resources.get(CollectionResourceType.File, [])
             if (resource_id := self._resource_id(resource, "file_id")) is not None
+        ]
+
+    @property
+    def sessions(self) -> list[str]:
+        return [
+            resource_id
+            for resource in self.__record.resources.get(CollectionResourceType.Session, [])
+            if (resource_id := self._resource_id(resource, "session_id")) is not None
         ]
 
     @property
@@ -262,15 +287,26 @@ class Collection:
             add_resources=[CollectionResourceRef(resource_id=file_id, resource_type=CollectionResourceType.File)]
         )
 
+    def add_session(self, session_id: str) -> "Collection":
+        return self.update(
+            add_resources=[CollectionResourceRef(resource_id=session_id, resource_type=CollectionResourceType.Session)]
+        )
+
     def changes(
         self, from_version: Optional[int] = None, to_version: Optional[int] = None
     ) -> collections.abc.Generator["CollectionChangeRecord", None, None]:
+        """Yield this collection's revision history, oldest change first.
+
+        Version 0 is a real collection version, so ``0`` is a bound like any other:
+        ``from_version=0`` starts at the beginning, and ``to_version=0`` selects the
+        empty range. Omit a bound to leave that end open.
+        """
         query: dict[str, typing.Any] = {}
 
-        if from_version:
+        if from_version is not None:
             query["from_version"] = from_version
 
-        if to_version:
+        if to_version is not None:
             query["to_version"] = to_version
 
         # Currently this only returns a single page
@@ -307,6 +343,13 @@ class Collection:
     def remove_event(self, event_id: str) -> "Collection":
         return self.update(
             remove_resources=[CollectionResourceRef(resource_id=event_id, resource_type=CollectionResourceType.Event)]
+        )
+
+    def remove_session(self, session_id: str) -> "Collection":
+        return self.update(
+            remove_resources=[
+                CollectionResourceRef(resource_id=session_id, resource_type=CollectionResourceType.Session)
+            ]
         )
 
     def update(

@@ -18,6 +18,7 @@ class CollectionResourceType(StrEnum):
     Dataset = "dataset"
     Event = "event"
     File = "file"
+    Session = "session"
 
 
 class CollectionContentMode(StrEnum):

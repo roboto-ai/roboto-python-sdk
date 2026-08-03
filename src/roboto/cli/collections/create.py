@@ -21,11 +21,12 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
     has_datasets = bool(args.dataset_id)
     has_events = bool(args.event_id)
     has_files = bool(args.file_id)
+    has_sessions = bool(args.session_id)
 
     # 1. Reject mixed resource types
-    provided_resource_kinds = sum([has_datasets, has_events, has_files])
+    provided_resource_kinds = sum([has_datasets, has_events, has_files, has_sessions])
     if provided_resource_kinds > 1:
-        parser.error("Cannot mix --dataset-id, --event-id, and --file-id in a single collection.")
+        parser.error("Cannot mix --dataset-id, --event-id, --file-id, and --session-id in a single collection.")
 
     # 2. Infer resource_type from provided IDs
     if has_datasets:
@@ -34,6 +35,8 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
         inferred_type = CollectionResourceType.Event
     elif has_files:
         inferred_type = CollectionResourceType.File
+    elif has_sessions:
+        inferred_type = CollectionResourceType.Session
     else:
         inferred_type = None
 
@@ -69,6 +72,10 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
     if has_files:
         resources.extend(
             CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=f) for f in args.file_id
+        )
+    if has_sessions:
+        resources.extend(
+            CollectionResourceRef(resource_type=CollectionResourceType.Session, resource_id=s) for s in args.session_id
         )
 
     collection = Collection.create(
@@ -109,11 +116,17 @@ def create_setup_parser(parser):
         action="extend",
     )
     parser.add_argument(
+        "--session-id",
+        nargs="+",
+        help="Initial sessions to add to this collection.",
+        action="extend",
+    )
+    parser.add_argument(
         "--resource-type",
-        choices=["file", "dataset", "event"],
+        choices=["file", "dataset", "event", "session"],
         help=(
             "The type of resources this collection holds. "
-            "Inferred from --file-id, --dataset-id, or --event-id if not provided. "
+            "Inferred from --file-id, --dataset-id, --event-id, or --session-id if not provided. "
             "Defaults to 'file' with a warning when neither is given."
         ),
     )

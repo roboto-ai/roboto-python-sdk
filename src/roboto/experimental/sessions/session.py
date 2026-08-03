@@ -30,7 +30,7 @@ from .operations import (
     SessionFile,
     SessionUpdate,
 )
-from .record import SessionRecord
+from .record import SessionFileView, SessionRecord
 
 
 class Session:
@@ -512,12 +512,13 @@ class Session:
             if not next_token:
                 break
 
-    def list_files(self) -> collections.abc.Generator[SessionFile, None, None]:
+    def list_files(self) -> collections.abc.Generator[SessionFileView, None, None]:
         """Iterate this Session's file contributions, following pagination automatically.
 
         Yields:
-            :py:class:`SessionFile` entries, each carrying its optional ``range_min_timestamp_ns`` /
-            ``range_max_timestamp_ns`` sub-window bounds.
+            :py:class:`SessionFileView` entries, each carrying the contribution's optional
+            ``range_min_timestamp_ns`` / ``range_max_timestamp_ns`` sub-window bounds plus
+            display fields of the contributing file (name, dataset, tags, size, ...).
         """
         next_token: typing.Optional[str] = None
         while True:
@@ -529,7 +530,7 @@ class Session:
                 f"v1/sessions/id/{self.session_id}/files",
                 owner_org_id=self.org_id,
                 query=query,
-            ).to_paginated_list(SessionFile)
+            ).to_paginated_list(SessionFileView)
 
             yield from page.items
 

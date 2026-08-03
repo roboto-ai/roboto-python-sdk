@@ -13,7 +13,11 @@ from .operations import (
     SessionFile,
     SessionUpdate,
 )
-from .record import SessionFileRecord, SessionRecord
+from .record import (
+    SessionFileRecord,
+    SessionFileView,
+    SessionRecord,
+)
 from .session import Session
 
 __all__ = (
@@ -25,6 +29,7 @@ __all__ = (
     "Session",
     "SessionFile",
     "SessionFileRecord",
+    "SessionFileView",
     "SessionRecord",
     "SessionUpdate",
 )

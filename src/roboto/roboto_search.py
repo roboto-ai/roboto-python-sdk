@@ -202,6 +202,8 @@ class RobotoSearch:
           include at least one file from the given dataset. ``=`` / ``!=`` only.
         - ``device.device_id`` (alias ``device.id``) — matches sessions attached
           to the given device. ``=`` / ``!=`` only.
+        - ``collection.collection_id`` (alias ``collection.id``) — matches sessions
+          that are a member of the given collection. ``=`` / ``!=`` only.
         - ``metric.<name>`` (alias ``metrics.<name>``) — matches sessions by a session
           metric named ``<name>``; dots are part of the metric name (e.g.
           ``metric.cpu.load.max``). Accepts value and existence comparators.

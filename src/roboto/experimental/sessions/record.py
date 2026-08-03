@@ -125,3 +125,56 @@ class SessionFileRecord(pydantic.BaseModel):
 
     session_id: str
     """Identifier of the session this file contributes to."""
+
+
+class SessionFileView(pydantic.BaseModel):
+    """One row of the ``GET /v1/sessions/id/<session_id>/files`` response: a file's
+    contribution to a Session joined with display fields of the file itself.
+
+    The contribution fields (``file_id`` plus the optional clipping range, in
+    Unix-epoch nanoseconds under the range contract documented on
+    :py:class:`SessionFileRecord`) come from the session's composition; every
+    other field is a read-only projection the service resolves from the file
+    row at listing time. The projected fields describe the file — e.g.
+    ``created`` is when the file was created, not when it joined the session —
+    and are never part of a write.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    created: typing.Optional[datetime.datetime] = None
+    """When the contributing file was created."""
+
+    dataset_id: typing.Optional[str] = None
+    """ID of the dataset that contains the contributing file."""
+
+    file_id: str
+    """Stable, unique identifier of the contributing file."""
+
+    modified: typing.Optional[datetime.datetime] = None
+    """When the contributing file was last modified."""
+
+    name: typing.Optional[str] = None
+    """Filename of the contributing file (the final segment of ``relative_path``)."""
+
+    origination: typing.Optional[str] = None
+    """Provenance of the contributing file, e.g. an invocation id or upload source."""
+
+    range_max_timestamp_ns: typing.Optional[int] = None
+    """Upper bound (inclusive) of the file's contribution, in Unix-epoch nanoseconds.
+    ``None`` means the contribution extends to the end of the file's recorded time window;
+    paired with ``range_min_timestamp_ns``."""
+
+    range_min_timestamp_ns: typing.Optional[int] = None
+    """Lower bound (inclusive) of the file's contribution, in Unix-epoch nanoseconds.
+    ``None`` means the contribution starts at the beginning of the file's recorded time window;
+    paired with ``range_max_timestamp_ns``."""
+
+    relative_path: typing.Optional[str] = None
+    """Path of the contributing file within its dataset."""
+
+    size: typing.Optional[int] = None
+    """Size of the contributing file in bytes."""
+
+    tags: list[str] = pydantic.Field(default_factory=list)
+    """Tags on the contributing file."""

@@ -20,6 +20,9 @@ from .retry import (
 
 Model = typing.TypeVar("Model")
 
+ALWAYS_SCRUBBED_HEADERS = frozenset({"authorization"})
+"""Header names, lowercase, whose values are always scrubbed from rendered requests."""
+
 
 class HttpRequest:
     url: str
@@ -49,11 +52,22 @@ class HttpRequest:
             self.headers["Content-Type"] = "application/json"
 
     def __repr__(self) -> str:
+        return self.describe()
+
+    def describe(self, scrub_headers: typing.Collection[str] = ()) -> str:
+        """Render the request for logging, with sensitive header values replaced by ``*``.
+
+        Args:
+            scrub_headers: Header names, compared case-insensitively, to scrub in addition to
+                :py:data:`ALWAYS_SCRUBBED_HEADERS`.
+        """
+        scrub = ALWAYS_SCRUBBED_HEADERS.union(header.lower() for header in scrub_headers)
+        headers = {key: "*" if key.lower() in scrub else value for key, value in self.headers.items()}
         return (
             f"HttpRequest("
             f"url={self.url}, "
             f"method={self.method}, "
-            f"headers={self.headers}, "
+            f"headers={headers}, "
             f"data={self.data}, "
             f"idempotent={self.idempotent}"
             ")"

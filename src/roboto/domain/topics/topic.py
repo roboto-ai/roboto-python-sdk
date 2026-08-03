@@ -997,6 +997,14 @@ class Topic:
         Notes:
             Requires installing this package using the ``roboto[analytics]`` extra.
 
+            An array-typed message path (for example a ``float32[3]`` acceleration) becomes a
+            single column whose values are lists. Individual array elements are not addressable
+            on their own — neither as separate DataFrame columns nor as message paths in
+            ``message_paths_include`` / ``message_paths_exclude``. Filter by the array's path
+            and unpack the column with numpy, as in the example below. ``np.stack`` requires
+            every row to have the same length; a variable-length array path (for example a
+            point cloud) must instead be processed row-wise, e.g. with ``df[col].map(...)``.
+
         Examples:
             >>> topic = Topic.from_name_and_file("/imu/data", "file_abc123")
             >>> df = topic.get_data_as_df()
@@ -1012,6 +1020,11 @@ class Topic:
             ... )
             >>> print(df_filtered.columns.tolist())
             ['angular_velocity.x', 'angular_velocity.y']
+
+            >>> # Unpack a fixed-length array-typed path (a list-valued column) into a numpy array
+            >>> import numpy as np
+            >>> df_accel = topic.get_data_as_df(message_paths_include=["acceleration"])
+            >>> xyz = np.stack(df_accel["acceleration"].to_numpy())  # shape (N, 3)
 
         Tip:
             For many topics, parallelize with a thread pool:

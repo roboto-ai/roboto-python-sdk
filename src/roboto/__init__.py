@@ -149,6 +149,7 @@ from .experimental.sessions import (
     Session,
     SessionFile,
     SessionFileRecord,
+    SessionFileView,
     SessionRecord,
 )
 from .http import BatchRequest, RobotoClient
@@ -268,6 +269,7 @@ __all__ = [
     "Session",
     "SessionFile",
     "SessionFileRecord",
+    "SessionFileView",
     "SessionRecord",
     "SetActionAccessibilityRequest",
     "SetContainerInfoRequest",

@@ -22,13 +22,32 @@ from .shared_helpdoc import COLLECTION_ID_HELP
 
 
 def update(args, context: CLIContext, parser: argparse.ArgumentParser):
-    provided_add_kinds = sum([bool(args.add_dataset_id), bool(args.add_event_id), bool(args.add_file_id)])
+    provided_add_kinds = sum(
+        [
+            bool(args.add_dataset_id),
+            bool(args.add_event_id),
+            bool(args.add_file_id),
+            bool(args.add_session_id),
+        ]
+    )
     if provided_add_kinds > 1:
-        parser.error("Cannot mix --add-dataset-id, --add-event-id, and --add-file-id in a single update.")
+        parser.error(
+            "Cannot mix --add-dataset-id, --add-event-id, --add-file-id, and --add-session-id in a single update."
+        )
 
-    provided_remove_kinds = sum([bool(args.remove_dataset_id), bool(args.remove_event_id), bool(args.remove_file_id)])
+    provided_remove_kinds = sum(
+        [
+            bool(args.remove_dataset_id),
+            bool(args.remove_event_id),
+            bool(args.remove_file_id),
+            bool(args.remove_session_id),
+        ]
+    )
     if provided_remove_kinds > 1:
-        parser.error("Cannot mix --remove-dataset-id, --remove-event-id, and --remove-file-id in a single update.")
+        parser.error(
+            "Cannot mix --remove-dataset-id, --remove-event-id, --remove-file-id, "
+            "and --remove-session-id in a single update."
+        )
 
     collection = Collection.from_id(
         collection_id=args.collection_id,
@@ -60,6 +79,14 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
             ]
         )
 
+    if args.add_session_id:
+        add_resources.extend(
+            [
+                CollectionResourceRef(resource_type=CollectionResourceType.Session, resource_id=session_id)
+                for session_id in args.add_session_id
+            ]
+        )
+
     remove_resources: list[CollectionResourceRef] = []
     if args.remove_dataset_id:
         remove_resources.extend(
@@ -82,6 +109,14 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
             [
                 CollectionResourceRef(resource_type=CollectionResourceType.File, resource_id=file_id)
                 for file_id in args.remove_file_id
+            ]
+        )
+
+    if args.remove_session_id:
+        remove_resources.extend(
+            [
+                CollectionResourceRef(resource_type=CollectionResourceType.Session, resource_id=session_id)
+                for session_id in args.remove_session_id
             ]
         )
 
@@ -124,6 +159,12 @@ def update_setup_parser(parser):
         action="extend",
     )
     parser.add_argument(
+        "--add-session-id",
+        nargs="+",
+        help="Sessions to add to this collection.",
+        action="extend",
+    )
+    parser.add_argument(
         "--remove-dataset-id",
         nargs="+",
         help="Datasets to remove from this collection.",
@@ -139,6 +180,12 @@ def update_setup_parser(parser):
         "--remove-file-id",
         nargs="+",
         help="Files to remove from this collection.",
+        action="extend",
+    )
+    parser.add_argument(
+        "--remove-session-id",
+        nargs="+",
+        help="Sessions to remove from this collection.",
         action="extend",
     )
     parser.add_argument(

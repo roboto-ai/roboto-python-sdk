@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import collections
 import json
 from typing import Any, Optional, Type
 
@@ -72,9 +73,16 @@ class RobotoDomainException(Exception):
         if error_code is None or inner_message is None:
             raise ValueError("Need 'error_code' and 'message' available.")
 
-        for subclass in RobotoDomainException.__subclasses__():
+        # Breadth-first walk of the full subclass tree so nested subclasses
+        # (e.g. RobotoLayoutConflictException under RobotoConflictException)
+        # resolve too. Breadth-first keeps direct subclasses winning over
+        # deeper ones if two classes ever share an error_code.
+        subclass_queue = collections.deque(RobotoDomainException.__subclasses__())
+        while subclass_queue:
+            subclass = subclass_queue.popleft()
             if subclass.__name__ == error_code:
                 return subclass(message=inner_message, headers=headers, **kwargs)
+            subclass_queue.extend(subclass.__subclasses__())
 
         raise ValueError("Unrecognized error code 'error_code'")
 
@@ -121,6 +129,8 @@ class RobotoDomainException(Exception):
             if message is not None and "RobotoDatasetNotFoundException" in message:
                 return RobotoDatasetNotFoundException(error.msg, headers=error.headers)
             return RobotoNotFoundException(error.msg, headers=error.headers)
+        if error.status == 409:
+            return RobotoConflictException(error.msg, headers=error.headers)
         if 500 <= error.status < 600:
             return RobotoServiceException(error.msg, headers=error.headers)
         raise error
@@ -320,6 +330,38 @@ class RobotoLayoutConflictException(RobotoConflictException):
     def to_dict(self) -> dict[str, Any]:
         result = super().to_dict()
         result["error"]["conflicting_layouts"] = self.conflicting_layouts
+        return result
+
+
+class RobotoDashboardRevisionConflictException(RobotoConflictException):
+    """
+    Thrown when a dashboard definition write carries a base revision that no longer matches
+    the stored one — someone replaced the definition after the requester loaded it, so
+    applying the write would erase their edit.
+
+    Carries the server's current dashboard record, read under the same row lock that
+    rejected the write, so a client can show both sides and let the user resolve without a
+    second round trip.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        current_dashboard: dict[str, Any],
+        stack_trace: list[str] = [],
+        headers: dict[str, str] = {},
+        *args,
+        **kwargs,
+    ):
+        super().__init__(message, stack_trace, headers, *args, **kwargs)
+        self.current_dashboard = current_dashboard
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        # The payload key must match this class's ``current_dashboard`` constructor
+        # parameter: RobotoDomainException.from_json splats the error body into the
+        # constructor, so renaming one without the other breaks SDK deserialization.
+        result["error"]["current_dashboard"] = self.current_dashboard
         return result
 
 

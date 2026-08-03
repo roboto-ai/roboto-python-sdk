@@ -341,6 +341,12 @@ class AgentThreadRecord(pydantic.BaseModel):
     created_by: str
     """User ID of the person who created this agent thread."""
 
+    created_by_principal: Optional[str] = None
+    """Serialized :py:class:`~roboto.principal.RobotoPrincipal` (``"ptype:id"``) that started
+    this thread, e.g. ``"user:jo@example.com"`` or ``"invocation:iv_123"``. Unlike
+    :py:attr:`created_by`, this preserves whether the thread was driven by a person, a
+    device, or an action invocation. ``None`` on threads created before this field existed."""
+
     org_id: str
     """Organization ID that owns this agent thread."""
 

@@ -7,7 +7,7 @@
 """Video APIs in active refinement; see :py:mod:`roboto.experimental` for the stability contract.
 
 Decodes compressed-video topic data (one encoded frame per MCAP message, as
-written by Roboto ingestion for ``foxglove.CompressedVideo`` and compatible
+written by Roboto ingestion for ``CompressedVideo`` and compatible
 schemas) into still frames on demand. Supported codecs are enumerated by
 :py:func:`supported_formats` (H.264, H.265, VP9, and AV1 today). Decoding
 requires the ``roboto[video]`` extra; the per-codec bitstream-inspection
