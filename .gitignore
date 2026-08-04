@@ -28,3 +28,5 @@ cdk/cdk.context.json
 **/venv/
 **/.ipynb_checkpoints
 
+# misc
+**/.serena
