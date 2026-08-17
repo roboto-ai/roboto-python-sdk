@@ -48,7 +48,10 @@ from .task import (
 class ThreadVisibility(StrEnum):
     """Read-scope for an :class:`AgentThreadRecord`.
 
-    Set at thread creation time and immutable for the life of the thread.
+    Set when the thread is created, and changed afterwards only by the thread's creator,
+    via :meth:`roboto.ai.agent_thread.AgentThread.set_visibility` (``POST /v1/ai/threads/<thread_id>/visibility``).
+    Roboto admins read every thread but cannot re-scope one they did not create.
+
     Import as :class:`roboto.ai.agent_thread.ThreadVisibility`.
     """
 

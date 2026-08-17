@@ -19,6 +19,7 @@ from .api_operations import (
     BeginUploadRequest,
     BeginUploadResponse,
     ReportUploadProgressRequest,
+    ReportUploadProgressResponseItem,
 )
 from .cache import CachePolicy
 from .credentials import RobotoCredentials
@@ -38,6 +39,7 @@ __all__ = (
     "FileService",
     "HttpRangeReader",
     "ReportUploadProgressRequest",
+    "ReportUploadProgressResponseItem",
     "RobotoCredentials",
     "SparseBuffer",
     "as_io_bytes",

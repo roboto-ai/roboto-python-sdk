@@ -21,7 +21,12 @@ from ..exceptions import RobotoInternalException
 from ..http import RobotoClient
 from ..logging import default_logger
 from ..version import roboto_version
-from .api_operations import BeginUploadRequest, BeginUploadResponse, ReportUploadProgressRequest
+from .api_operations import (
+    BeginUploadRequest,
+    BeginUploadResponse,
+    ReportUploadProgressRequest,
+    ReportUploadProgressResponseItem,
+)
 from .credentials import RobotoCredentials
 from .object_store import (
     CredentialProvider,
@@ -71,7 +76,7 @@ class UploadTransaction:
         self.__transaction_id: typing.Optional[str] = None
         self.__upload_mappings: typing.Optional[dict[str, str]] = None
 
-        self.__completed_upload_node_ids: list[str] = []
+        self.__completed_uploads: dict[pathlib.Path, str] = {}
 
         self.__pending_uploads: list[tuple[UploadableFile, FutureLike[None]]] = []
 
@@ -122,7 +127,7 @@ class UploadTransaction:
 
         The caller must call register_upload() for each file after initiating
         the S3 transfer. The await_uploads() call at batch boundaries will handle
-        waiting for completion and flushing progress.
+        waiting for completion and reporting progress.
         """
         for batch_start in range(0, len(self.__items), self.__batch_size):
             batch = self.__items[batch_start : batch_start + self.__batch_size]
@@ -137,8 +142,15 @@ class UploadTransaction:
             self.await_uploads()
 
     @property
-    def completed_upload_node_ids(self) -> list[str]:
-        return self.__completed_upload_node_ids
+    def completed_uploads(self) -> dict[pathlib.Path, str]:
+        """Mapping from each uploaded local path to the ID of the file record it created.
+
+        Populated from the ``{uri, file_id}`` pairs in progress-report responses, and complete for every
+        upload already reported to ``PUT v1/files/upload/<id>/progress``, which :py:meth:`await_uploads` does
+        at each batch boundary. A pair set that does not correspond one-to-one with the reported uploads
+        raises instead of degrading the mapping.
+        """
+        return self.__completed_uploads
 
     @property
     def transaction_id(self) -> str:
@@ -165,6 +177,9 @@ class UploadTransaction:
             ExceptionGroup: If any uploads fail, an ExceptionGroup containing all
                            upload errors is raised after reporting successfully
                            completed uploads.
+            RobotoInternalException: If the server's progress response reports
+                           (uri, file_id) pairs that do not correspond one-to-one
+                           with the uploads reported to it.
         """
         if not self.__pending_uploads:
             return
@@ -182,7 +197,7 @@ class UploadTransaction:
 
         # Report successfully completed uploads to the API
         if completed:
-            self.__flush(completed)
+            self.__report_progress(completed)
 
         self.__pending_uploads.clear()
 
@@ -216,7 +231,7 @@ class UploadTransaction:
     def __finalize(self):
         self.__roboto_client.put(f"v1/files/upload/{self.transaction_id}/complete")
 
-    def __flush(self, batch: list[UploadableFile]):
+    def __report_progress(self, batch: list[UploadableFile]):
         manifest_items = [file["upload_uri"] for file in batch]
         response = self.__roboto_client.put(
             f"v1/files/upload/{self.transaction_id}/progress",
@@ -224,5 +239,22 @@ class UploadTransaction:
                 manifest_items=manifest_items,
             ),
         )
-        node_ids = response.to_string_list()
-        self.__completed_upload_node_ids.extend(node_ids)
+        pairs = response.to_record_list(ReportUploadProgressResponseItem)
+
+        # The service owes one (uri, file_id) pair per reported URI. Anything else would leave the
+        # path -> file-ID mapping incomplete, so it fails here, before any state is recorded, rather
+        # than surfacing later as paths silently missing from the mapping FileService.upload and
+        # Dataset.upload_files return.
+        local_path_by_uri = {file["upload_uri"]: file["local_path"] for file in batch}
+        unmatched_uris = sorted(pair.uri for pair in pairs if pair.uri not in local_path_by_uri)
+        missing_uris = sorted(set(local_path_by_uri) - {pair.uri for pair in pairs})
+        if unmatched_uris or missing_uris:
+            raise RobotoInternalException(
+                "The Roboto service's upload progress response does not correspond one-to-one with the "
+                "uploads reported to it, so uploaded paths cannot be reliably matched to the file records "
+                f"they created. Reported URIs with no response pair: {missing_uris or 'none'}. "
+                f"Response URIs matching no reported upload: {unmatched_uris or 'none'}."
+            )
+
+        for pair in pairs:
+            self.__completed_uploads[local_path_by_uri[pair.uri]] = pair.file_id

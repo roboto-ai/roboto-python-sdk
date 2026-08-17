@@ -64,6 +64,7 @@ from .record import (
     StartAgentThreadRequest,
     SubmitToolResultsRequest,
     ThreadVisibility,
+    UpdateThreadVisibilityRequest,
 )
 
 __all__ = [
@@ -120,6 +121,7 @@ __all__ = [
     "StartAgentThreadRequest",
     "SubmitFeedbackRequest",
     "SubmitToolResultsRequest",
+    "UpdateThreadVisibilityRequest",
     "UserFeedbackRecord",
     "category_is_valid_for_sentiment",
     "client_tool",

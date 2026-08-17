@@ -57,7 +57,20 @@ class FileService:
         device_id: typing.Optional[str] = None,
         caller_org_id: typing.Optional[str] = None,
         on_progress: typing.Optional[OnProgress] = None,
-    ) -> list[str]:
+    ) -> dict[pathlib.Path, str]:
+        """Upload the given files and return which file record each one created.
+
+        Returns:
+            Mapping from each uploaded local path to the ID of the file record it created.
+
+        Raises:
+            ValueError: If two of the given files resolve to the same destination path: their
+                uploads would overwrite each other and only one could appear in the returned
+                mapping. Files without a ``destination_paths`` entry are destined for their own
+                basename, so two like-named files from different directories collide unless given
+                distinct destinations.
+            OSError: If a given file cannot be read.
+        """
         items: list[TransactionFile] = []
         for local_path in files:
             try:
@@ -74,14 +87,37 @@ class FileService:
             )
 
         if not items:
-            return []
+            return {}
+
+        # Destination collisions are checked over the full item list, before the loop below splits
+        # it into batch_size slices; each UploadTransaction receives one slice, so no transaction
+        # could see a collision that spans two batches. Two paths sharing one destination collapse
+        # to a single upload URI: their transfers race for the same object and only one can appear
+        # in the returned path -> file-ID mapping.
+        local_paths_by_destination: dict[str, list[pathlib.Path]] = collections.defaultdict(list)
+        for item in items:
+            local_paths_by_destination[item["destination_path"]].append(item["local_path"])
+        collisions = {
+            destination: local_paths
+            for destination, local_paths in local_paths_by_destination.items()
+            if len(local_paths) > 1
+        }
+        if collisions:
+            details = "; ".join(
+                f"{destination!r} <- {', '.join(str(local_path) for local_path in local_paths)}"
+                for destination, local_paths in sorted(collisions.items())
+            )
+            raise ValueError(
+                f"Multiple files resolve to the same upload destination: {details}. "
+                "Give each file a distinct destination via destination_paths."
+            )
 
         # GM(2025-11-19)
         # For reasons related to OpenFGA scalability/throughput,
         # upload transactions are currently limited to 500 files.
         # Until that is fixed, implement batching by creating multiple transactions.
         # When that is lifted, batching is already handled by the UploadTransaction.
-        completed_upload_node_ids: list[str] = []
+        completed_uploads: dict[pathlib.Path, str] = {}
         for batch_start in range(0, len(items), batch_size):
             item_batch = items[batch_start : batch_start + batch_size]
 
@@ -105,9 +141,9 @@ class FileService:
                         future = object_store.put(file["local_path"], file["upload_uri"], on_progress=on_progress)
                         txn.register_upload(file, future)
 
-                completed_upload_node_ids.extend(txn.completed_upload_node_ids)
+                completed_uploads.update(txn.completed_uploads)
 
-        return completed_upload_node_ids
+        return completed_uploads
 
     def download(
         self,

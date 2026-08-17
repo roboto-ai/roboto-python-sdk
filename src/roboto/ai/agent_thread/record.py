@@ -375,6 +375,17 @@ class ForkAgentThreadRequest(pydantic.BaseModel):
     """Highest message sequence number (inclusive) to copy into the new thread."""
 
 
+class UpdateThreadVisibilityRequest(pydantic.BaseModel):
+    """Request payload for re-scoping who may read an agent thread.
+
+    Sent to ``POST /v1/ai/threads/<thread_id>/visibility`` by
+    :meth:`roboto.ai.agent_thread.AgentThread.set_visibility`.
+    """
+
+    visibility: ThreadVisibility
+    """Read-scope the thread has once the call returns."""
+
+
 class AgentThreadSubject(pydantic.BaseModel):
     """Canonical record of an entity an :class:`AgentThread` applies to.
 
@@ -431,4 +442,5 @@ __all__ = [
     "ThreadVisibility",
     "StartAgentThreadRequest",
     "SubmitToolResultsRequest",
+    "UpdateThreadVisibilityRequest",
 ]

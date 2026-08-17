@@ -30,7 +30,7 @@ claude mcp add --transport http roboto https://mcp.roboto.ai/mcp
 - **Read-only by design** — a curated set of search, retrieval, and analysis tools; nothing exposed over MCP can modify your data.
 - **All of your organizations, one connection** — if you belong to several orgs, ask the AI to call `whoami` and `set_active_org` to switch between them.
 
-See [Connect AI Apps to Roboto](https://docs.roboto.ai/user-guides/connect-to-roboto-mcp.html) for setup instructions per client, and the [Roboto MCP Server](https://docs.roboto.ai/learn/ai/mcp-server.html) docs for everything the AI can do once connected.
+See [Use the Roboto MCP Server](https://docs.roboto.ai/user-guides/use-roboto-mcp-server.html) for setup instructions per client, and the [Roboto MCP Server](https://docs.roboto.ai/learn/ai/mcp-server.html) docs for everything the AI can do once connected.
 
 ## Data Formats
 
@@ -89,6 +89,28 @@ python -m venv .venv && .venv\Scripts\activate
 ```
 
 Then re-run `pip install roboto`.
+
+**Optional features:**
+
+`pip install roboto` installs the core SDK. Some functionality depends on heavier third-party libraries that ship as optional [extras](https://packaging.python.org/en/latest/tutorials/installing-packages/#installing-extras), so you install them only when you need them:
+
+| Extra | Install | Enables |
+|---|---|---|
+| `analytics` | `pip install 'roboto[analytics]'` | Searching for similar signals (`roboto.analytics.find_similar_signals`) and reading topic data into pandas DataFrames (`Topic.get_data_as_df`, `MessagePath.get_data_as_df`). Adds `fsspec`, `numpy`, `orjson`, `pandas`, `pyarrow`, and `stumpy`. |
+| `ingestion` | `pip install 'roboto[ingestion]'` | Parsing and writing topic data as Parquet, e.g. when building ingestion actions. Adds `pandas` and `pyarrow`. |
+| `video` | `pip install 'roboto[video]'` | Extracting frames from video files (`roboto.experimental.video`). Adds `av`, `numpy`, and `pillow`. |
+
+Without the matching extra, these code paths raise an `ImportError` naming the extra to install. For example, calling `find_similar_signals` without the `analytics` extra raises:
+
+```
+ImportError: Missing optional dependency 'stumpy'. Re-install roboto using pip or conda with 'roboto[analytics]' to install a compatible version.
+```
+
+The `examples` extra provides the tooling needed to run the SDK's example notebooks, namely `ipython`, `jupyter`, `matplotlib`, and `pillow`. Use `pip install 'roboto[examples]'` before trying out the included examples.
+
+> [!IMPORTANT]
+>
+> Quote the package spec when installing an extra. Zsh (the default shell on macOS) treats the square brackets as a glob pattern, so an unquoted `pip install roboto[analytics]` fails with `zsh: no matches found: roboto[analytics]`. Quoting the spec (`pip install 'roboto[analytics]'`) avoids the error.
 
 **Authentication (required):**
 
@@ -235,7 +257,7 @@ See the [notebooks](https://github.com/roboto-ai/roboto-python-sdk/tree/main/exa
 For more information, check out:
 * [General Docs](https://docs.roboto.ai/)
 * [AI Agents](https://docs.roboto.ai/learn/ai/index.html)
-* [Connect AI Apps to Roboto (MCP)](https://docs.roboto.ai/user-guides/connect-to-roboto-mcp.html)
+* [Use the Roboto MCP Server](https://docs.roboto.ai/user-guides/use-roboto-mcp-server.html)
 * [User Guides](https://docs.roboto.ai/user-guides/index.html)
 * [Example Notebooks](https://github.com/roboto-ai/roboto-python-sdk/tree/main/examples)
 * [SDK Reference](https://docs.roboto.ai/reference/python-sdk.html)

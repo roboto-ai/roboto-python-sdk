@@ -221,6 +221,26 @@ class MessagePath:
         return self.__record.org_id
 
     @property
+    def p25(self) -> PreComputedStat:
+        """25th percentile of the values observed for this message path."""
+        return self.__get_statistic(MessagePathStatistic.P25)
+
+    @property
+    def p75(self) -> PreComputedStat:
+        """75th percentile of the values observed for this message path."""
+        return self.__get_statistic(MessagePathStatistic.P75)
+
+    @property
+    def p95(self) -> PreComputedStat:
+        """95th percentile of the values observed for this message path."""
+        return self.__get_statistic(MessagePathStatistic.P95)
+
+    @property
+    def p99(self) -> PreComputedStat:
+        """99th percentile of the values observed for this message path."""
+        return self.__get_statistic(MessagePathStatistic.P99)
+
+    @property
     def path(self) -> str:
         """Dot-delimited path to the attribute (e.g., 'pose.position.x')."""
         return self.__record.message_path
@@ -229,6 +249,11 @@ class MessagePath:
     def record(self) -> MessagePathRecord:
         """Underlying MessagePathRecord for this message path."""
         return self.__record
+
+    @property
+    def stddev(self) -> PreComputedStat:
+        """Standard deviation of the values observed for this message path."""
+        return self.__get_statistic(MessagePathStatistic.Stddev)
 
     @property
     def topic_id(self) -> str:

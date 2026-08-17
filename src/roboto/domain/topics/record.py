@@ -299,13 +299,26 @@ class CanonicalDataType(enum.Enum):
 
 
 class MessagePathStatistic(enum.Enum):
-    """Statistics computed by Roboto in our standard ingestion actions."""
+    """Statistics computed by Roboto in our standard ingestion actions.
+
+    Which of these a given message path actually carries depends on the ingestion path that
+    produced it, so treat every one as optional: read them with ``metadata.get(...)`` or through
+    the corresponding :py:class:`~roboto.domain.topics.MessagePath` property, both of which yield
+    ``None`` when the statistic was never written, and never assume a missing value means zero.
+    Indexing :py:attr:`~roboto.domain.topics.MessagePathRecord.metadata` directly raises
+    ``KeyError`` for a statistic that was never written.
+    """
 
     Count = "count"
     Max = "max"
     Mean = "mean"
     Median = "median"
     Min = "min"
+    P25 = "p25"
+    P75 = "p75"
+    P95 = "p95"
+    P99 = "p99"
+    Stddev = "stddev"
 
 
 class MessagePathMetadataWellKnown(StrEnum):
@@ -727,11 +740,8 @@ class TopicPartitionRecord(pydantic.BaseModel):
     """One file's contribution to a logical topic.
 
     Pairs a topic identity with a file and carries the per-contribution facts that vary by file:
-    the schema used (``schema_id``), message count, device provenance, and,
-    for formats that pack multiple logical groups into one file, sub-file segmentation
-    (``segment_index``, ``segment_name``) and row-level storage bounds (``data_from_index``, ``data_to_index``).
-    Row bounds are half-open ``[data_from_index, data_to_index)``, matching Python slice semantics; both are set
-    together for a row-bounded partition, or both are ``None`` when the partition covers the whole file.
+    the schema used (``schema_id``), device provenance, and the ``data_range`` locating the
+    contribution inside its file, for formats that pack several slices of data into one shared file.
     A partition references a file, not a specific version; reads always resolve to the current version.
     """
 
@@ -739,17 +749,17 @@ class TopicPartitionRecord(pydantic.BaseModel):
 
     created: typing.Optional[datetime.datetime] = None
     created_by: str
-    data_from_index: typing.Optional[int] = None
-    """
-    Inclusive lower bound of this partition's row range within the file, or ``None`` if
-    the partition covers the whole file. Must be set if and only if ``data_to_index`` is set.
-    """
+    data_range: typing.Optional[tuple[int, int]] = None
+    """The slice of the file this partition's data occupies, as ``(start, end)``, or ``None`` for
+    the whole file.
 
-    data_to_index: typing.Optional[int] = None
-    """
-    Exclusive upper bound of this partition's row range within the file, forming a half-open
-    range ``[data_from_index, data_to_index)``. ``None`` if the partition covers the whole file.
-    Must be set if and only if ``data_from_index`` is set, and strictly greater than it.
+    Values are in the file's native addressing: stored-row positions (counted from 0) for tabular
+    files, nanoseconds of media time for video. The pair does not record which addressing applies;
+    the file's format fixes it, so a reader interprets the values by the file's format. ``start`` is the
+    first covered position and ``end`` is one past the last, like a Python slice. The platform also treats
+    ``start`` as the partition's identity within its (topic, file): re-declaring a slice that begins at
+    the same place updates the existing partition rather than creating a second one overlapping it, since
+    the place a slice begins is stable across re-ingest.
     """
 
     device_id: typing.Optional[str] = None
@@ -758,45 +768,27 @@ class TopicPartitionRecord(pydantic.BaseModel):
     fs_node_id: str
     """ID of the file this partition's data lives in."""
 
-    message_count: typing.Optional[int] = None
-    """Number of messages this partition contributes, if known."""
-
     modified: typing.Optional[datetime.datetime] = None
     modified_by: str
     org_id: str
     schema_id: str
     """ID of the schema this contribution conforms to."""
 
-    segment_index: int = 0
-    """
-    Zero-based index of the logical segment within the file this partition represents.
-    0 for formats that hold a single logical group per file.
-    """
-
-    segment_name: typing.Optional[str] = None
-    """Optional human-readable name for this segment, when the file format names its segments."""
-
     topic_id: str
     """ID of the topic identity this contribution belongs to."""
 
     topic_part_id: str
 
-    @pydantic.model_validator(mode="after")
-    def _check_data_index_range(self) -> "TopicPartitionRecord":
-        # Row-level storage bounds are half-open [data_from_index, data_to_index),
-        # matching LeRobot's dataset_from_index / dataset_to_index and Python
-        # slice semantics. Either both are set (a row-bounded partition) or
-        # both are NULL (the whole file is this partition's data).
-        from_idx = self.data_from_index
-        to_idx = self.data_to_index
-        if (from_idx is None) != (to_idx is None):
-            raise ValueError(
-                "data_from_index and data_to_index must both be set or both be None "
-                f"(got data_from_index={from_idx!r}, data_to_index={to_idx!r})"
-            )
-        if from_idx is not None and to_idx is not None and from_idx >= to_idx:
-            raise ValueError(
-                "data_from_index must be strictly less than data_to_index "
-                f"(got data_from_index={from_idx!r}, data_to_index={to_idx!r})"
-            )
-        return self
+    @pydantic.field_validator("data_range")
+    @classmethod
+    def _check_data_range(cls, data_range: typing.Optional[tuple[int, int]]) -> typing.Optional[tuple[int, int]]:
+        # For tabular files the half-open convention matches LeRobot's dataset_from_index /
+        # dataset_to_index, so declarations derived from LeRobot metadata pass through unchanged.
+        if data_range is not None:
+            start, end = data_range
+            if start < 0 or end <= start:
+                raise ValueError(
+                    "data_range must be a pair of non-negative positions with start < end "
+                    f"(start is included, end is excluded), got {data_range!r}"
+                )
+        return data_range

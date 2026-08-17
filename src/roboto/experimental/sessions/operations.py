@@ -95,12 +95,29 @@ class AttachToDeviceRequest(pydantic.BaseModel):
 
 
 class SessionFile(pydantic.BaseModel):
-    """A file's contribution to a session, optionally narrowed to a time range.
+    """A file's contribution to a session, optionally narrowed by a time window, a data range, or both.
 
-    ``range_min_timestamp_ns`` and ``range_max_timestamp_ns`` are absolute nanoseconds since the Unix epoch,
-    the same coordinate system in which the session's aggregate bounds are expressed.
-    Leaving both bounds as ``None`` contributes the whole file's time window.
-    Both bounds must be set together or both omitted; half-open windows are rejected.
+    The two are validated separately; setting one neither requires nor constrains the other.
+
+    Time window (``range_min_timestamp_ns`` and ``range_max_timestamp_ns``):
+
+    * Values are nanoseconds since the Unix epoch, measured the same way as the session's own time bounds.
+    * Set both or set neither; a window with only one bound is rejected.
+    * The window is the closed interval ``[range_min_timestamp_ns, range_max_timestamp_ns]``; both
+      endpoints are included. Leaving both unset contributes the file's whole time window.
+
+    Data range (``data_range``):
+
+    * Use when one file is shared by several sessions (for example, a LeRobot v3 data file).
+    * ``(start, end)``: ``start`` is the first covered position; ``end`` is one past the last. Values
+      are in the file's own units — stored-row positions (counted from 0) for tabular files,
+      nanoseconds of media time for video.
+    * Leaving it unset covers the whole file.
+    * The range admits topic partitions (the stored pieces of the file's individual data streams)
+      one at a time: a topic's partition of the file is admitted only when its positions sit
+      entirely inside the range, so a session with several topics in the file has each partition
+      admitted independently. The range does not cut into a partition, and a partition extending
+      past either end of the range is not admitted.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -108,6 +125,7 @@ class SessionFile(pydantic.BaseModel):
     file_id: str
     range_min_timestamp_ns: typing.Optional[int] = None
     range_max_timestamp_ns: typing.Optional[int] = None
+    data_range: typing.Optional[tuple[int, int]] = None
 
     @pydantic.model_validator(mode="after")
     def _check_range(self) -> "SessionFile":
@@ -119,6 +137,11 @@ class SessionFile(pydantic.BaseModel):
             and self.range_min_timestamp_ns > self.range_max_timestamp_ns
         ):
             raise ValueError("range_min_timestamp_ns must be <= range_max_timestamp_ns")
+        if self.data_range is not None and not (0 <= self.data_range[0] < self.data_range[1]):
+            raise ValueError(
+                "data_range must be a pair of non-negative positions with start < end; "
+                "start is included, end is excluded"
+            )
         return self
 
 

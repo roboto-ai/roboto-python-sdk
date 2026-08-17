@@ -7,11 +7,10 @@
 from ..command import RobotoCommandSet
 from .delete import delete_command
 from .list import list_command
-from .read import read_command
 from .write import write_command
 
 command_set = RobotoCommandSet(
     name="secrets",
     help="Manage secure secrets registered with Roboto. These are typically 3rd party API keys to power integrations.",
-    commands=[delete_command, read_command, write_command, list_command],
+    commands=[delete_command, list_command, write_command],
 )

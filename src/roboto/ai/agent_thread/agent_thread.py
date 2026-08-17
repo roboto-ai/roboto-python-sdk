@@ -53,6 +53,8 @@ from .record import (
     SendMessageRequest,
     StartAgentThreadRequest,
     SubmitToolResultsRequest,
+    ThreadVisibility,
+    UpdateThreadVisibilityRequest,
 )
 
 OnEvent = collections.abc.Callable[[AgentEvent], None]
@@ -392,6 +394,11 @@ class AgentThread:
         return self.__record.status
 
     @property
+    def visibility(self) -> ThreadVisibility:
+        """Read scope for this thread: creator-only (``PRIVATE``) or open to the thread's org (``ORG``)."""
+        return self.__record.visibility
+
+    @property
     def goals(self) -> list[AgentThreadGoalView]:
         """Goals declared across this thread's turns, oldest first.
 
@@ -650,6 +657,34 @@ class AgentThread:
         # with status=None, so record.status stays CLIENT_TOOL_TURN. Without this flip, run() re-dispatches the
         # same tool_uses and re-POSTs; the second POST hits ROBOTO_TURN and raises RobotoInvalidRequestException.
         self.__record.status = AgentThreadStatus.ROBOTO_TURN
+        return self
+
+    def set_visibility(self, visibility: ThreadVisibility) -> AgentThread:
+        """Re-scope who may read this thread.
+
+        Only the thread's creator may call this. Roboto admins can read every
+        thread but cannot re-scope one they did not create. Setting the
+        visibility a thread already has is accepted and leaves it unchanged.
+
+        Args:
+            visibility: ``ThreadVisibility.ORG`` to open the thread to every
+                member of the thread's organization, or
+                ``ThreadVisibility.PRIVATE`` to restrict it back to its
+                creator.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            RobotoNotFoundException: If the thread does not exist.
+            RobotoUnauthorizedException: If the caller is not a member of the
+                thread's org, or is a member but did not create the thread.
+        """
+        self.__roboto_client.post(
+            f"v1/ai/threads/{self.__record.thread_id}/visibility",
+            data=UpdateThreadVisibilityRequest(visibility=visibility),
+        )
+        self.__record.visibility = visibility
         return self
 
     def invoke_skill(self, skill_id: str, version: Optional[int] = None) -> AgentThread:

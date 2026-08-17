@@ -75,7 +75,11 @@ class MetricDefinitionRecord(pydantic.BaseModel):
     """Unique name for this metric."""
 
     description: typing.Optional[str] = None
-    """Human-readable description of what the metric measures and its units."""
+    """Human-readable description of what the metric measures."""
+
+    unit: typing.Optional[str] = None
+    """Unit of measure for every value recorded under this metric, e.g. ``"%"``,
+    ``"ms"``, ``"m/s"``. Free-form and unvalidated; ``None`` means unitless."""
 
     created_by: str
     """User or service account that created this metric definition."""
@@ -121,6 +125,11 @@ class MetricRecord(pydantic.BaseModel):
     value: float
     """Observed numeric value."""
 
+    unit: typing.Optional[str] = None
+    """Unit of measure for :py:attr:`value`. Resolved server-side from the parent
+    :py:class:`MetricDefinitionRecord`, like :py:attr:`name`, so callers can label
+    a value without a second lookup. ``None`` means unitless."""
+
     device_id: typing.Optional[str] = None
     """Device that produced the data."""
 
@@ -160,6 +169,10 @@ class NumericAggregateMetricRecord(AggregateMetricRecord):
     value: float
     """Aggregated result for this bucket."""
 
+    unit: typing.Optional[str] = None
+    """Unit of measure for :py:attr:`value`, resolved from the aggregated metric's
+    definition alongside :py:attr:`~AggregateMetricRecord.name`. ``None`` means unitless."""
+
     aggregation: NumericAggregation
     """Aggregation function that was applied to produce this record."""
 
@@ -174,6 +187,14 @@ class NumericAggregateMetricsResponse(pydantic.BaseModel):
     """Period buckets returned by the aggregation, sorted by start_time ascending."""
 
 
+# OpenTelemetry caps a metric instrument's unit at 63 characters; the 64th byte
+# is reserved for the ``\0`` terminator so units fit a fixed 64-byte buffer. We
+# adopt the same limit. Scoped to the ``str`` member so it composes with the
+# ``NotSet`` union on the update request (``NotSet`` passes through unconstrained).
+# https://opentelemetry.io/docs/specs/otel/metrics/api/#instrument-unit
+MetricUnit = typing.Annotated[str, pydantic.Field(max_length=63)]
+
+
 class CreateMetricDefinitionRequest(pydantic.BaseModel):
     """Request payload to create a metric definition."""
 
@@ -181,7 +202,11 @@ class CreateMetricDefinitionRequest(pydantic.BaseModel):
     """Unique metric name."""
 
     description: typing.Optional[str] = None
-    """Human-readable description of what the metric measures and its units."""
+    """Human-readable description of what the metric measures."""
+
+    unit: typing.Optional[MetricUnit] = None
+    """Unit of measure for values recorded under this metric, e.g. ``"%"``, ``"ms"``.
+    Capped at 63 characters. ``None`` means unitless."""
 
 
 class UpdateMetricDefinitionRequest(pydantic.BaseModel):
@@ -189,6 +214,10 @@ class UpdateMetricDefinitionRequest(pydantic.BaseModel):
 
     description: typing.Optional[typing.Union[NotSetType, str]] = NotSet
     """New description, ``None`` to clear, or :py:data:`~roboto.sentinels.NotSet` to leave unchanged."""
+
+    unit: typing.Optional[typing.Union[NotSetType, MetricUnit]] = NotSet
+    """New unit of measure (max 63 characters), ``None`` to clear, or
+    :py:data:`~roboto.sentinels.NotSet` to leave unchanged."""
 
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)
 

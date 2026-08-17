@@ -157,6 +157,12 @@ convention = "google"
 "build-support/src/**/*_test.py" = [
     "S101", # Asserts allowed in test files.
 ]
+"scripts/test_*.py" = [
+    # `scripts` is itself a source root, so its tests sit beside the scripts they cover rather
+    # than under a `test/` directory the patterns above would match.
+    "D", # Tests don't need docstring conventions enforced.
+    "S101", # Asserts allowed in test files.
+]
 "**/test/**/helpers.py" = [
     "S112", # Allow try-except-continue in test helper code.
 ]

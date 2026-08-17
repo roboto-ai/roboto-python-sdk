@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import datetime
+import re
 from typing import Annotated, Literal, Optional, TypeAlias, Union
+import unicodedata
 import urllib.parse
 
 import pydantic
@@ -115,8 +117,21 @@ class CustomFieldType(StrEnum):
     """A point in time. Supports equality, range filtering, and sort."""
 
 
-EnumValue: TypeAlias = Annotated[str, pydantic.StringConstraints(min_length=1, max_length=256)]
-"""One allowed value of an :py:attr:`CustomFieldType.Enum` field. Non-empty, up to 256 characters."""
+# Python does not count U+FEFF as whitespace; including it keeps a pasted byte-order mark from
+# surviving into a value that otherwise looks clean.
+_ENUM_VALUE_WHITESPACE_RUN = re.compile(r"[\s\uFEFF]+")
+
+
+def _normalize_enum_value(value: str) -> str:
+    """Return the canonical spelling of an enum value.
+
+    Composes to Unicode NFC, collapses runs of whitespace to a single space, and strips
+    whitespace from either end. A byte-order mark (U+FEFF) counts as whitespace.
+
+    Applied both when a field declares its allowed values and when a value is matched against
+    them, e.g. in search. The two must agree.
+    """
+    return _ENUM_VALUE_WHITESPACE_RUN.sub(" ", unicodedata.normalize("NFC", value)).strip()
 
 
 @experimental
@@ -130,7 +145,7 @@ class EnumFieldOptions(pydantic.BaseModel):
     field_type: Literal[CustomFieldType.Enum] = CustomFieldType.Enum
     """Discriminator that identifies this options payload as belonging to an enum field."""
 
-    enum_values: list[EnumValue] = pydantic.Field(min_length=1)
+    enum_values: list[str] = pydantic.Field(min_length=1)
     """Allowed values for the field. Must contain at least one value."""
 
     @pydantic.model_validator(mode="after")

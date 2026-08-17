@@ -80,20 +80,25 @@ class SessionRecord(pydantic.BaseModel):
 
 
 class SessionFileRecord(pydantic.BaseModel):
-    """Wire-format row for one file's contribution to a Session, optionally clipped to a sub-range of
-    the file's recorded time.
+    """Wire-format row for one file's contribution to a Session.
 
-    The clipping range is expressed in Unix-epoch nanoseconds,
-    the same coordinate system as the parent Session's aggregate bounds.
+    Time window contract (``range_min_timestamp_ns`` and ``range_max_timestamp_ns``):
 
-    Range contract:
-
-    1. ``range_min_timestamp_ns`` and ``range_max_timestamp_ns`` are set together or both ``None``;
-       half-open windows are not a supported product concept and are rejected on write.
+    1. Set together or both ``None``; a window with only one bound is rejected on write.
     2. When both are ``None``, the file contributes its whole recorded time window.
-    3. When both are set, ``range_min_timestamp_ns <= range_max_timestamp_ns``, and consumers
-       iterating session data must clamp the file's data to that
-       ``[range_min_timestamp_ns, range_max_timestamp_ns]`` window.
+    3. When both are set, ``range_min_timestamp_ns <= range_max_timestamp_ns``. Consumers iterating
+       session data must keep only the file's data inside the closed interval
+       ``[range_min_timestamp_ns, range_max_timestamp_ns]``.
+    4. Values are nanoseconds since the Unix epoch, measured the same way as the parent Session's own bounds.
+
+    Data range contract (``data_range``):
+
+    1. ``None`` means the contribution covers the whole file.
+    2. ``(start, end)``: ``start`` is the first covered position; ``end`` is one past the last, with
+       ``0 <= start < end``. Values are in the file's own units — stored-row positions (counted from
+       0) for tabular files, nanoseconds of media time for video.
+    3. Used when one file is shared by several sessions; the range names the slice of the
+       file that belongs to this session.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -103,6 +108,11 @@ class SessionFileRecord(pydantic.BaseModel):
 
     created_by: str
     """User ID or service account that added this file to the session."""
+
+    data_range: typing.Optional[tuple[int, int]] = None
+    """The slice of the file covered by this contribution, as ``(start, end)`` in the file's own
+    units, or ``None`` when the contribution covers the whole file. ``start`` is the first covered
+    position; ``end`` is one past the last."""
 
     fs_node_id: str
     """Identifier of the contributing file."""
@@ -131,11 +141,12 @@ class SessionFileView(pydantic.BaseModel):
     """One row of the ``GET /v1/sessions/id/<session_id>/files`` response: a file's
     contribution to a Session joined with display fields of the file itself.
 
-    The contribution fields (``file_id`` plus the optional clipping range, in
-    Unix-epoch nanoseconds under the range contract documented on
-    :py:class:`SessionFileRecord`) come from the session's composition; every
-    other field is a read-only projection the service resolves from the file
-    row at listing time. The projected fields describe the file — e.g.
+    The contribution fields (``file_id`` plus the optional time window,
+    ``range_min_timestamp_ns`` / ``range_max_timestamp_ns`` in Unix-epoch
+    nanoseconds, and the optional ``data_range`` slice, both under
+    the contracts documented on :py:class:`SessionFileRecord`) come from the
+    session's composition; every other field is a read-only projection the
+    service resolves from the file row at listing time. The projected fields describe the file — e.g.
     ``created`` is when the file was created, not when it joined the session —
     and are never part of a write.
     """
@@ -144,6 +155,11 @@ class SessionFileView(pydantic.BaseModel):
 
     created: typing.Optional[datetime.datetime] = None
     """When the contributing file was created."""
+
+    data_range: typing.Optional[tuple[int, int]] = None
+    """The slice of the file covered by this contribution, as ``(start, end)`` in the file's own
+    units, or ``None`` when the contribution covers the whole file. ``start`` is the first covered
+    position; ``end`` is one past the last."""
 
     dataset_id: typing.Optional[str] = None
     """ID of the dataset that contains the contributing file."""

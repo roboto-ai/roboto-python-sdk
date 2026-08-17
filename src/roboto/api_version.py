@@ -45,6 +45,11 @@ class RobotoApiVersion(StrEnum):
     versions continue to receive ``session_id`` in response bodies and can keep calling the
     legacy ``/v1/ai/chats`` paths, which are soft-deprecated aliases on the same handlers."""
 
+    v2026_07_05 = "2026-07-05"
+    """``PUT /v1/files/upload/<id>/progress`` responds with ``{uri, file_id}`` pairs instead of a
+    bare file-id list, so upload clients can tell which created file belongs to which uploaded
+    path. Clients on older API versions continue to receive the bare id list."""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the latest available API version.
@@ -52,7 +57,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent API version supported by the platform.
         """
-        return RobotoApiVersion.v2026_05_20
+        return RobotoApiVersion.v2026_07_05
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

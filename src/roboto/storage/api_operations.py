@@ -103,3 +103,21 @@ class ReportUploadProgressRequest(pydantic.BaseModel):
 
     manifest_items: list[str]
     """List of file URIs that have completed upload."""
+
+
+class ReportUploadProgressResponseItem(pydantic.BaseModel):
+    """One file marked available by a progress report.
+
+    The service returns one item per reported URI that matched a file of the transaction, and omits
+    URIs that matched none; the omission does not fail the request on the server side.
+    :py:class:`~roboto.storage.upload_transaction.UploadTransaction` is stricter with the response it
+    receives: every URI it reports comes from the transaction's own upload mappings, so a missing pair
+    means client and service disagree about the transaction's contents, and it raises
+    ``RobotoInternalException``.
+    """
+
+    uri: str
+    """Upload URI of the file, matching an entry of the request's ``manifest_items``."""
+
+    file_id: str
+    """Identifier of the file record marked available."""

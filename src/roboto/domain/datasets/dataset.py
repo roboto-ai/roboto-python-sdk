@@ -1607,20 +1607,34 @@ class Dataset:
         max_batch_size: int = MAX_FILES_PER_MANIFEST,
         print_progress: bool = True,
         device_id: typing.Optional[str] = None,
-    ):
-        """
-        Upload multiple files to the dataset.
-        If `file_destination_paths` is not provided, files will be uploaded to the top-level of the dataset.
+    ) -> dict[pathlib.Path, str]:
+        """Upload multiple files to the dataset.
 
-        Example:
+        If ``file_destination_paths`` is not provided, files will be uploaded to the top-level of the dataset.
+
+        Args:
+            files: Local files to upload.
+            file_destination_paths: Mapping from local path to destination path within the dataset.
+                Files not in the mapping upload to the dataset's top level under their own name.
+            max_batch_size: Maximum number of files per upload transaction.
+            print_progress: Whether to display an upload progress bar.
+            device_id: Optional identifier of the device that generated this data.
+
+        Returns:
+            Mapping from each uploaded local path to the ID of the file record it created.
+
+        Examples:
+            >>> import pathlib
             >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset(...)
-            >>> dataset.upload_files(
-            ...     [pathlib.Path("/path/to/file.txt"), ...],
-            ...     destination_paths={
+            >>> dataset = datasets.Dataset.from_id("ds_abc123")
+            >>> file_ids = dataset.upload_files(
+            ...     [pathlib.Path("/path/to/file.txt")],
+            ...     file_destination_paths={
             ...         pathlib.Path("/path/to/file.txt"): "foo/bar.txt",
             ...     },
             ... )
+            >>> file_ids[pathlib.Path("/path/to/file.txt")]
+            'fl_0123456789abcdef'
         """
 
         file_count = len(list(files))
@@ -1633,7 +1647,7 @@ class Dataset:
             else NoopProgressMonitor()
         )
         with progress_monitor:
-            self.__file_service.upload(
+            return self.__file_service.upload(
                 files=files,
                 association=Association.dataset(self.dataset_id),
                 destination_paths=file_destination_paths,

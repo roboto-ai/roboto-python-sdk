@@ -111,6 +111,7 @@ class MetricDefinition:
         cls,
         name: str,
         description: typing.Optional[str] = None,
+        unit: typing.Optional[str] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "MetricDefinition":
@@ -122,7 +123,10 @@ class MetricDefinition:
                 ``_``, ``~``). Dots are conventional namespace separators, e.g.
                 ``cpu.usage_pct``.
             description: Optional human-readable description of what the metric
-                measures and its units.
+                measures.
+            unit: Optional unit of measure for values recorded under this
+                metric, e.g. ``"%"``, ``"ms"``, ``"m/s"``. Free-form and
+                unvalidated. Omit for a unitless metric.
             caller_org_id: Organization to create the definition in. Defaults
                 to the authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
@@ -138,10 +142,11 @@ class MetricDefinition:
         Examples:
             >>> MetricDefinition.create(
             ...     name="cpu.usage_max",
-            ...     description="Peak CPU usage percentage recorded during the session.",
+            ...     description="Peak CPU usage recorded during the session.",
+            ...     unit="%",
             ... )
         """
-        request = CreateMetricDefinitionRequest(name=name, description=description)
+        request = CreateMetricDefinitionRequest(name=name, description=description, unit=unit)
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.post(
             "v1/metrics/definition/",
@@ -196,18 +201,21 @@ class MetricDefinition:
     def update(
         self,
         description: typing.Optional[typing.Union[NotSetType, str]] = NotSet,
+        unit: typing.Optional[typing.Union[NotSetType, str]] = NotSet,
     ) -> None:
-        """Update the description of this definition.
+        """Update the mutable attributes of this definition.
 
         Args:
             description: New human-readable description, ``None`` to clear, or
                 :py:data:`~roboto.sentinels.NotSet` to leave unchanged.
+            unit: New unit of measure, ``None`` to clear, or
+                :py:data:`~roboto.sentinels.NotSet` to leave unchanged.
 
         Examples:
             >>> definition = MetricDefinition.get("cpu.usage_max")
-            >>> definition.update(description="Peak CPU usage percentage recorded during the session.")
+            >>> definition.update(description="Peak CPU usage recorded during the session.", unit="%")
         """
-        request = remove_not_set(UpdateMetricDefinitionRequest(description=description))
+        request = remove_not_set(UpdateMetricDefinitionRequest(description=description, unit=unit))
         self.__record = self.__roboto_client.put(
             f"v1/metrics/definition/{urllib.parse.quote(self.__record.name, safe='')}",
             data=request,
@@ -245,6 +253,10 @@ class MetricDefinition:
     @property
     def description(self) -> typing.Optional[str]:
         return self.__record.description
+
+    @property
+    def unit(self) -> typing.Optional[str]:
+        return self.__record.unit
 
 
 @experimental
@@ -620,6 +632,10 @@ class Metric:
     @property
     def value(self) -> float:
         return self.__record.value
+
+    @property
+    def unit(self) -> typing.Optional[str]:
+        return self.__record.unit
 
     @property
     def session_id(self) -> str:

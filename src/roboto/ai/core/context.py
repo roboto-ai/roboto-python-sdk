@@ -35,6 +35,15 @@ class ClientViewingContext(pydantic.BaseModel):
     file_ids: list[str] = pydantic.Field(default_factory=list)
     """IDs of files the user is currently viewing or has selected."""
 
+    collection_ids: list[str] = pydantic.Field(default_factory=list)
+    """IDs of collections the user is currently viewing or has selected."""
+
+    device_ids: list[str] = pydantic.Field(default_factory=list)
+    """IDs of devices the user is currently viewing or has selected.
+
+    Device IDs are user-chosen rather than minted by Roboto, so unlike the
+    other fields here a value may look like anything at all."""
+
     visualizer_state: Optional[dict[str, Any]] = None
     """State of the visualizer, when the user composed the message from the
     visualizer view. A relatively opaque JSON blob."""
