@@ -9,6 +9,8 @@ import typing
 
 import pydantic
 
+from ...pydantic.serializers import field_serializer_custom_field_values
+
 
 class DeviceRecord(pydantic.BaseModel):
     """A wire-transmissible representation of a device.
@@ -49,3 +51,7 @@ class DeviceRecord(pydantic.BaseModel):
 
     tags: list[str] = pydantic.Field(default_factory=list)
     """List of tags associated with this device."""
+
+    @pydantic.field_serializer("custom_fields", when_used="json")
+    def _serialize_custom_fields(self, custom_fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        return field_serializer_custom_field_values(custom_fields)

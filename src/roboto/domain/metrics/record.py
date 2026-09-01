@@ -13,6 +13,7 @@ from pydantic import ConfigDict
 from roboto.sentinels import NotSet, NotSetType
 
 from ...compat import StrEnum
+from ...query import ConditionType
 
 
 class AggregationPeriod(StrEnum):
@@ -319,6 +320,15 @@ class QueryMetricsRequest(pydantic.BaseModel):
     max_results: int = pydantic.Field(default=MAX_METRIC_LIST_RESULTS, le=MAX_METRIC_LIST_RESULTS, gt=0)
     """Maximum number of data points to return. Must be between 1 and :py:data:`MAX_METRIC_LIST_RESULTS` (10,000)."""
 
+    descending: bool = False
+    """Return the most recent data points first, instead of the oldest first.
+
+    Ordering is by the column selected by ``time_filter``, with ``session_id`` as
+    a deterministic tiebreaker. A page token is bound to the direction that
+    issued it: replaying one with a different ``descending`` value is rejected
+    with :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`, because the
+    keyset cursor is only meaningful in the direction it was emitted from."""
+
     include_device_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet
     """Filter to observations from specific device IDs, ``None`` for null device_id only."""
 
@@ -329,6 +339,40 @@ class QueryMetricsRequest(pydantic.BaseModel):
 
     include_invocation_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet
     """Filter to observations from specific invocation IDs, ``None`` for null invocation_id only."""
+
+    condition: typing.Optional[ConditionType] = None
+    """Condition, or nested group of conditions, narrowing which data points are returned.
+
+    Every field must be prefixed with the entity it filters on, singular or plural; a bare field name such as
+    ``name`` is rejected. The available fields are:
+
+    - ``session.<field>``: ``session_id`` (alias ``id``), ``name``, ``min_timestamp_ns`` (alias ``start_time``),
+      ``max_timestamp_ns`` (alias ``end_time``), ``duration``, ``created``, ``created_by``, ``modified``,
+      ``modified_by``, ``tags``. The two timestamp bounds accept anything
+      :py:func:`~roboto.time.to_epoch_nanoseconds` converts; ``duration`` takes an integer count of nanoseconds.
+    - ``device.<field>``: ``device_id`` (alias ``id``), ``tags``, ``created``, ``created_by``, ``modified``,
+      ``modified_by``, ``metadata`` (including dotted paths beneath it). Reads the device that published the data
+      point, not the devices attached to its session.
+    - ``session.custom.<name>`` / ``device.custom.<name>`` / ``collection.custom.<name>``: a custom field in the
+      ``Ready`` state.
+    - ``collection.collection_id`` (alias ``collection.id``): the data point's session belongs to that collection.
+      ``Equals`` and ``NotEquals`` only.
+
+    A session belongs to any number of collections, so a ``collection.*`` condition quantifies over that set: a
+    data point matches when its session belongs to at least one collection satisfying the condition. A negated
+    comparator (``NotEquals``, ``NotContains``, ``NotLike``) means the session belongs to no collection satisfying
+    the positive form, so a session in no collection at all matches every negated collection condition. ``IsNull``
+    and ``NotExists`` likewise mean no collection the session belongs to carries a value for the field.
+
+    A data point published without a device matches a ``device.*`` condition only under ``IsNull`` and
+    ``NotExists``. Every other comparator asks what the device's field holds, ``NotEquals``, ``NotContains``,
+    and ``NotLike`` included, so a data point with no device, or a device carrying no value for the field, is
+    excluded. Write ``device.<field> NotEquals x OR device.<field> IsNull`` to match both.
+
+    Any other field, a comparator the field's type does not accept, a value the field cannot convert, or a
+    :py:attr:`~roboto.query.ConditionOperator.Not` group raises
+    :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`.
+    """
 
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)
 
@@ -368,5 +412,15 @@ class AggregateMetricsRequest(pydantic.BaseModel):
 
     include_invocation_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet
     """Filter to observations from specific invocation IDs, ``None`` for null invocation_id only."""
+
+    condition: typing.Optional[ConditionType] = None
+    """Condition, or nested group of conditions, narrowing which data points are aggregated.
+
+    Applied to individual data points rather than to bucket results, so it changes each bucket's
+    value and total. A period whose data points are all filtered out yields no bucket at all, so a
+    filtered aggregation can return fewer buckets than an unfiltered one over the same window. See
+    :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the accepted fields and the
+    treatment of data points published without a device.
+    """
 
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)

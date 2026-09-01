@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import datetime
 import decimal
 import typing
 
@@ -20,3 +21,13 @@ def field_serializer_user_metadata(value: dict[str, typing.Any]) -> UserMetadata
             raise ValueError(f"Illegal metadata element with key '{k}',  type {type(v)}")
 
     return value
+
+
+def field_serializer_custom_field_values(value: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """Render a custom-field value map for JSON, spelling UTC as ``+00:00``.
+
+    Pydantic's own JSON encoding gives a UTC ``datetime`` a ``Z`` suffix, which
+    ``datetime.datetime.fromisoformat`` rejects before Python 3.11. This SDK supports
+    Python 3.10, where only the numeric offset ``datetime.isoformat`` emits parses.
+    """
+    return {k: v.isoformat() if isinstance(v, datetime.datetime) else v for k, v in value.items()}

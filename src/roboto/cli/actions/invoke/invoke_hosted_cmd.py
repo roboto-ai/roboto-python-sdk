@@ -33,11 +33,14 @@ from .input_parsing import (
 
 
 def invoke_hosted(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
-    """Invoke an action on the hosted Roboto platform."""
-    # Validate input specification
+    """Queue an invocation of a platform-hosted action and print the new invocation's ID.
+
+    Runs when a user invokes ``roboto actions invoke``. Returns once the platform accepts the invocation,
+    not when the action finishes running. Input flags that conflict, or that name a file path without a
+    dataset, abort with a usage error before anything is submitted.
+    """
     validate_input_specification(args, parser)
 
-    # Load action from platform
     owner_org_id = args.action.owner if args.action.owner else args.org
     action = actions.Action.from_name(
         name=args.action.name,
@@ -46,11 +49,12 @@ def invoke_hosted(args: argparse.Namespace, context: CLIContext, parser: argpars
         roboto_client=context.roboto_client,
     )
 
-    # Parse compute and container overrides
     compute_requirements = parse_compute_requirements(args, action.compute_requirements)
     container_parameters = parse_container_overrides(args, action.container_parameters)
 
-    # Merge log level into container parameters
+    # Every invocation carries the CLI's --log-level (default ERROR) into the action container as
+    # ROBOTO_LOG_LEVEL, overwriting whatever the action or --env set. parse_container_overrides returns
+    # None when no container flag was given, so there may be no ContainerParameters yet to hold it.
     if container_parameters is None:
         container_parameters = actions.ContainerParameters()
 
@@ -58,24 +62,20 @@ def invoke_hosted(args: argparse.Namespace, context: CLIContext, parser: argpars
     env_vars[RobotoEnvKey.LogLevel.value] = args.log_level
     container_parameters.env_vars = env_vars
 
-    # Determine upload destination
-    upload_destination: typing.Union[actions.InvocationUploadDestination, None] = None
+    upload_destination: typing.Optional[actions.InvocationUploadDestination] = None
     if args.output_dataset_id:
         upload_destination = actions.InvocationUploadDestination.dataset(args.output_dataset_id)
 
-    # Parse input specification
     invocation_input = parse_input_spec(args)
 
-    # Determine data source parameters based on input type
-    # Only set these for dataset-based input (--dataset + --file-path)
-    # For query-based input (--file-query, --topic-query), leave as None
-    data_source_id = None
-    data_source_type = None
+    # --dataset is also recorded in the data source fields, which are the invocation's only record of
+    # the dataset when --file-path is omitted and parse_input_spec returns None.
+    data_source_id: typing.Optional[str] = None
+    data_source_type: typing.Optional[actions.InvocationDataSourceType] = None
     if args.dataset_id:
         data_source_id = args.dataset_id
         data_source_type = actions.InvocationDataSourceType.Dataset
 
-    # Invoke action on platform
     invocation = action.invoke(
         input_data=invocation_input,
         data_source_id=data_source_id,
@@ -90,7 +90,7 @@ def invoke_hosted(args: argparse.Namespace, context: CLIContext, parser: argpars
         caller_org_id=args.org,
     )
 
-    print(f"Queued invocation of '{action.record.reference!r}'. Invocation ID: '{invocation.id}'")
+    print(f"Queued invocation of '{action.record.reference}'. Invocation ID: '{invocation.id}'")
 
 
 def invoke_parser(parser: argparse.ArgumentParser) -> None:

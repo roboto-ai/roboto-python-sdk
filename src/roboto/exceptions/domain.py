@@ -179,6 +179,24 @@ class RobotoUnauthorizedException(RobotoDomainException):
         return 401
 
 
+class RobotoThreadReadOnlyException(RobotoDomainException):
+    """
+    Thrown when adding to an agent thread that another surface owns.
+
+    A thread with an ``origin`` is mirrored into a conversation Roboto does not own, so
+    appending to it over the API would leave that mirror incomplete.
+
+    Not an authorization failure, and deliberately not nested under
+    ``RobotoUnauthorizedException``: the caller may read, cancel, and rate the thread, and
+    forking it yields a writable copy. Nothing about their identity would change the answer,
+    so a client should offer the fork rather than send them to re-authenticate.
+    """
+
+    @property
+    def http_status_code(self) -> int:
+        return 403
+
+
 class RobotoAuthenticationFailureException(RobotoDomainException):
     """
     Thrown when authentication fails

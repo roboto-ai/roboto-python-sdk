@@ -8,6 +8,13 @@ resource(
     source="py.typed",
 )
 
+# Read by a test in this package and by a Vitest test in web-ui, which compare the filter
+# vocabulary across the two hand-maintained schemas. There is no codegen between them.
+resource(
+    name="filter_comparators",
+    source="query/filter_comparators.json",
+)
+
 pex_binary(
     name="admin-agent",
     dependencies=[

@@ -25,6 +25,7 @@ from ...association import Association
 from ...env import RobotoEnv
 from ...exceptions import (
     RobotoDeviceNotFoundException,
+    RobotoInternalException,
 )
 from ...experimental.sessions import Session, SessionFile
 from ...http import PaginatedList, RobotoClient
@@ -491,6 +492,9 @@ class Dataset:
         for ``(org_id, Dataset)`` appears as a key. Values that have not been set
         on this dataset surface as ``None`` rather than being absent. Empty when
         no custom fields are defined for the org.
+
+        A :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is returned
+        as an ISO 8601 string.
         """
         return self.__record.custom_fields
 
@@ -1574,6 +1578,19 @@ class Dataset:
         Upload a single file to the dataset.
         If `file_destination_path` is not provided, the file will be uploaded to the top-level of the dataset.
 
+        Args:
+            file_path: Local file to upload.
+            file_destination_path: Destination path within the dataset. Defaults to the file's
+                own name at the dataset's top level.
+            print_progress: Whether to display an upload progress bar.
+            device_id: Optional identifier of the device that generated this data.
+
+        Returns:
+            The file record the upload created.
+
+        Raises:
+            RobotoInternalException: The upload reported success without reporting a file ID.
+
         Example:
             >>> from roboto.domain import datasets
             >>> dataset = datasets.Dataset(...)
@@ -1585,17 +1602,22 @@ class Dataset:
         if not file_destination_path:
             file_destination_path = file_path.name
 
-        self.upload_files(
+        uploaded_file_ids = self.upload_files(
             [file_path],
             {file_path: file_destination_path},
             print_progress=print_progress,
             device_id=device_id,
         )
 
+        file_id = uploaded_file_ids.get(file_path)
+        if file_id is None:
+            raise RobotoInternalException(
+                f"Upload of '{file_path}' to '{self.dataset_id}' completed without reporting a file ID."
+            )
+
         return LazyLookupFile(
-            lambda: File.from_path_and_dataset_id(
-                file_destination_path,
-                self.dataset_id,
+            lambda: File.from_id(
+                file_id,
                 roboto_client=self.__roboto_client,
             )
         )

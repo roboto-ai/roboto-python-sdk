@@ -10,6 +10,7 @@ import typing
 import pydantic
 
 from ...compat import StrEnum
+from ...pydantic.serializers import field_serializer_custom_field_values
 
 
 class CollectionResourceType(StrEnum):
@@ -60,6 +61,10 @@ class CollectionRecord(pydantic.BaseModel):
     updated: datetime.datetime
     updated_by: str
     org_id: str
+
+    @pydantic.field_serializer("custom_fields", when_used="json")
+    def _serialize_custom_fields(self, custom_fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        return field_serializer_custom_field_values(custom_fields)
 
 
 class CollectionChangeSet(pydantic.BaseModel):

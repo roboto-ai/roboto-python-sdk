@@ -9,8 +9,10 @@ import typing
 
 import pydantic
 
+from ...compat import StrEnum
 from ...query import (
     QueryTarget,
+    SavedFilters,
     SortDirection,
 )
 
@@ -21,6 +23,21 @@ VIEW_SCHEME_V1: typing.Final = "view_v1"
 
 VIEW_SCHEMA_VERSION_V1: typing.Final[int] = 1
 """Value stored in the ``schema_version`` column for a :data:`VIEW_SCHEME_V1` definition."""
+
+
+class ViewVisibility(StrEnum):
+    """Who a View is visible to: asked for when it is created, reported when it is read.
+
+    Governs who can *see* a View, never who can change it. An ``organization`` View is
+    readable by the whole org and still editable only by its author, anyone granted
+    ``editor`` on it, and org admins.
+    """
+
+    Private = "private"
+    """Visible to its author, anyone later granted access directly, and the org's admins."""
+
+    Organization = "organization"
+    """Visible to every member of the owning org."""
 
 
 class ViewDisplay(pydantic.BaseModel):
@@ -61,11 +78,14 @@ class ViewDefinition(pydantic.BaseModel):
     date filter resolves it to fixed instants. A stored query would show the week the View was
     saved forever after, presented as though it were live.
 
-    The practical consequence is that a structured View is only executable by a client that
-    understands ``filters`` — today, the web UI. A RoboQL View is executable anywhere, since its
-    text needs no client-side reconstruction. Making structured Views executable server-side
-    means first teaching ``Comparator`` about relative dates; a later ``view_v2`` could then
-    carry a query that stays correct.
+    Intent is nonetheless recorded in a typed form — :class:`~roboto.query.SavedFilters` — so
+    that anything able to call the API can create a View, not only a client that already knows
+    the filter UI's internal shape. Executing one still needs a translation step, and today the
+    web UI is what performs it; a RoboQL View needs none, since its text runs anywhere.
+
+    Making structured Views executable server-side means first teaching ``Comparator`` what
+    ``FilterOnlyComparator`` currently covers (ENG-2957). A later ``view_v2`` could then carry a
+    query directly, and ``filters`` would fold into it.
 
     ``target`` is deliberately absent. It is a column on the ``views`` table, and duplicating
     it here would create two sources of truth that can disagree.
@@ -82,33 +102,61 @@ class ViewDefinition(pydantic.BaseModel):
     """The RoboQL text the author wrote, when the View came from RoboQL rather than filter controls.
 
     RoboQL has no relative-date syntax, so this text does not go stale — it means the same thing
-    whenever it is run, and a backend can execute it directly. ``None`` for Views built from
-    structured filters.
+    whenever it is run, and a backend can execute it directly.
+
+    ``None`` for a View built from structured filters, and also for one that filters nothing at
+    all — see :attr:`filters`.
     """
 
-    filters: typing.Optional[dict[str, typing.Any]] = None
-    """The filter controls the author built, in the client's own representation.
+    filters: typing.Optional[SavedFilters] = None
+    """The filter controls the author built.
 
     Serves the same purpose as ``roboql`` for Views built from filter controls rather than typed
     queries: it records what the author expressed, so a client can rebuild the query on load
     rather than replaying a translation that has since gone stale.
 
-    Deliberately untyped, unlike the rest of this model. The shape belongs to the client that
-    writes it and no backend code reads it; mirroring it here would create a second definition to
-    keep in lockstep with the original, which is the drift this schema exists to avoid. ``None``
-    for RoboQL Views.
+    This and ``roboql`` are alternatives, not a pair: at most one is ever set. Both are ``None``
+    for a View that filters nothing, which is a legitimate thing to save — it captures a column
+    layout and a sort over the unfiltered list. So ``None`` here does not imply the View is a
+    RoboQL one.
+
+    Typed rather than an opaque blob, so that a View is something any caller can construct. An
+    untyped shape would leave an SDK user, the CLI, or an agent with nothing to build against
+    and no way to learn they got it wrong — the row would store, and only fail later when a
+    client tried to render it. That would make Views a web-UI feature rather than a platform one.
+
+    The cost is a definition that must agree with the filter UI's own. That agreement was always
+    required; it was simply unchecked before, and is now enforced where the data enters.
     """
 
     display: ViewDisplay = pydantic.Field(default_factory=ViewDisplay)
     """Presentation state to restore when the View is loaded: columns, sort, and page size."""
+
+    @pydantic.model_validator(mode="after")
+    def _one_form_of_intent_at_most(self) -> "ViewDefinition":
+        """Reject a definition carrying both a RoboQL string and structured filters.
+
+        The two record the same thing in different forms, so a View holding both is ambiguous:
+        a client has to choose one silently, and two clients may choose differently. Enforced
+        here rather than left to convention because the column has no database constraint, and
+        an unvalidated shape stores happily and misbehaves whenever the View is next read —
+        which is the failure this model exists to prevent.
+
+        Carrying neither is fine, and means the View filters nothing.
+        """
+        if self.roboql is not None and self.filters is not None:
+            raise ValueError("a View records either RoboQL text or structured filters, not both")
+        return self
 
 
 class ViewRecord(pydantic.BaseModel):
     """A wire-transmissible representation of a View.
 
     A View is a named, org-scoped, shareable search over one resource type. Who may see or edit
-    it is held in the authorization service rather than on this record, so there is no
-    accessibility field here.
+    it is held in the authorization service rather than in the table this record is read from.
+    :attr:`visibility` is the one part of that answer carried here, because a client cannot
+    otherwise separate a caller's own Views from their team's without a request per row; every
+    finer-grained grant stays behind the access endpoint.
     """
 
     view_id: str
@@ -145,3 +193,11 @@ class ViewRecord(pydantic.BaseModel):
 
     modified_by: str
     """User who last changed the View. Surfaced in the picker so a shared View can be judged."""
+
+    visibility: typing.Optional[ViewVisibility] = None
+    """Who can see this View, or ``None`` when it has not been resolved.
+
+    Every API response carrying a View fills this in. ``None`` means only that the question
+    was not asked — it does not mean private, and a client treating it as private would show
+    a shared View under a personal heading.
+    """

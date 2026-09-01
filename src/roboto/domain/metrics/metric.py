@@ -14,6 +14,7 @@ from roboto.warnings import experimental
 
 from ...http import RobotoClient
 from ...logging import default_logger
+from ...query import ConditionType
 from ...sentinels import NotSet, NotSetType, remove_not_set
 from ...time import Time, to_epoch_nanoseconds
 from .record import (
@@ -314,7 +315,7 @@ class Metric:
                 When omitted, Roboto attempts to infer a device from the session's
                 attached devices. If the session has more than 1 device, device_id
                 must be provided explicitly for each metric, or a
-                :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`:
+                :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`
                 will be raised.
             caller_org_id: Organization context for the request. Defaults to
                 the authenticated caller's organization.
@@ -332,7 +333,7 @@ class Metric:
                 does not exist in the caller's organization.
             :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`:
                 ``device_id`` was omitted and the session has more than
-                one attached devices.
+                one attached device.
 
         Examples:
             Publish with an explicit device:
@@ -414,9 +415,11 @@ class Metric:
         end_time: typing.Optional[Time] = None,
         time_filter: MetricTimeFilter = MetricTimeFilter.EndTime,
         max_results: int = MAX_METRIC_LIST_RESULTS,
+        descending: bool = False,
         include_device_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet,
         include_session_ids: typing.Union[list[str], NotSetType] = NotSet,
         include_invocation_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet,
+        condition: typing.Optional[ConditionType] = None,
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Metric", None, None]:
@@ -443,11 +446,19 @@ class Metric:
                 start time or end time. Defaults to end time.
             max_results: Page size — number of data points per HTTP request.
                 Total results are unbounded; pagination is automatic.
+            descending: Yield the most recent sessions first instead of the
+                oldest first. Applies across the whole result set, not just
+                within a page.
             include_device_ids: Restrict to specific device IDs, or ``None``
                 to match only rows with no ``device_id``.
             include_session_ids: Restrict to specific session IDs.
             include_invocation_ids: Restrict to specific invocation IDs, or
                 ``None`` to match only rows with no ``invocation_id``.
+            condition: Restrict to data points whose session, producing device, or session's
+                collections match this ``Condition`` or ``ConditionGroup``. See
+                :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the accepted
+                fields, and for how collection conditions evaluate when a session belongs to
+                several collections or to none.
             owner_org_id: Organization that owns the metric data. Defaults to
                 the authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
@@ -455,11 +466,16 @@ class Metric:
 
         Yields:
             One :py:class:`Metric` per matching session, sorted by session
-            time ascending with ``session_id`` as a deterministic tiebreaker.
+            time — ascending by default, descending when ``descending`` is set —
+            with ``session_id`` as a deterministic tiebreaker.
 
         Raises:
             :py:exc:`~roboto.exceptions.RobotoNotFoundException`: No metric
                 with this ``name`` exists in the organization.
+            :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`: ``condition``
+                references a field or comparator the request does not accept, or a custom field
+                that is either undefined in your organization or defined but not in the ``Ready``
+                state.
 
         Examples:
             Query a metric over a single day, passing ``datetime`` directly:
@@ -482,6 +498,47 @@ class Metric:
             ...         end_time="2026-05-02T00:00:00Z",
             ...     )
             ... )
+
+            Take just the 10 most recent sessions:
+
+            >>> import itertools
+            >>> recent = list(itertools.islice(Metric.query(name="cpu.usage_max", descending=True), 10))
+
+            Restrict to data points from ``production``-tagged sessions that either ran in the
+            EMEA region or were produced by a device at the Berlin site. Both custom fields,
+            ``region`` on Sessions and ``site`` on Devices, must be defined by your organization
+            and moved to ``Ready``; the query raises if either has not been:
+
+            >>> from roboto.query import Comparator, Condition, ConditionGroup, ConditionOperator
+            >>> for m in Metric.query(
+            ...     name="cpu.usage_max",
+            ...     condition=ConditionGroup(
+            ...         operator=ConditionOperator.And,
+            ...         conditions=[
+            ...             Condition(
+            ...                 field="session.tags",
+            ...                 comparator=Comparator.Contains,
+            ...                 value="production",
+            ...             ),
+            ...             ConditionGroup(
+            ...                 operator=ConditionOperator.Or,
+            ...                 conditions=[
+            ...                     Condition(
+            ...                         field="session.custom.region",
+            ...                         comparator=Comparator.Equals,
+            ...                         value="emea",
+            ...                     ),
+            ...                     Condition(
+            ...                         field="device.custom.site",
+            ...                         comparator=Comparator.Equals,
+            ...                         value="berlin",
+            ...                     ),
+            ...                 ],
+            ...             ),
+            ...         ],
+            ...     ),
+            ... ):
+            ...     print(m.session_id, m.value)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = QueryMetricsRequest(
@@ -490,9 +547,11 @@ class Metric:
             start_time_ns=to_epoch_nanoseconds(start_time) if start_time is not None else None,
             end_time_ns=to_epoch_nanoseconds(end_time) if end_time is not None else None,
             max_results=max_results,
+            descending=descending,
             include_device_ids=include_device_ids,
             include_session_ids=include_session_ids,
             include_invocation_ids=include_invocation_ids,
+            condition=condition,
         )
         next_token: typing.Optional[str] = None
         while True:
@@ -524,6 +583,7 @@ class Metric:
         include_device_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet,
         include_session_ids: typing.Union[list[str], NotSetType] = NotSet,
         include_invocation_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet,
+        condition: typing.Optional[ConditionType] = None,
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> list[NumericAggregateMetricRecord]:
@@ -558,6 +618,14 @@ class Metric:
             include_session_ids: Restrict to specific session IDs.
             include_invocation_ids: Restrict to specific invocation IDs, or
                 ``None`` to match only rows with no ``invocation_id``.
+            condition: Restrict the aggregated data points to those whose session, producing
+                device, or session's collections match this ``Condition`` or
+                ``ConditionGroup``. It narrows what each bucket aggregates without moving the
+                window's period boundaries; a bucket left with no matching data points is omitted
+                from the result. See
+                :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the accepted
+                fields, and for how collection conditions evaluate when a session belongs to
+                several collections or to none.
             owner_org_id: Organization that owns the metric data. Defaults to
                 the authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
@@ -571,6 +639,10 @@ class Metric:
         Raises:
             :py:exc:`~roboto.exceptions.RobotoNotFoundException`: No metric
                 with this ``name`` exists in the organization.
+            :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`: ``condition``
+                references a field or comparator the request does not accept, or a custom field
+                that is either undefined in your organization or defined but not in the ``Ready``
+                state.
 
         Examples:
             Daily max CPU usage over a month, passing ``datetime`` directly:
@@ -589,6 +661,30 @@ class Metric:
             ...     end_time=datetime.datetime(2026, 6, 1, tzinfo=datetime.timezone.utc),
             ... ):
             ...     print(bucket.start_time, bucket.value)
+
+            The same aggregation over data points published from a device in the ``delivery``
+            fleet. The Device custom field ``fleet`` must be defined by your organization and moved
+            to ``Ready``; the aggregation raises if it has not been. A data point published without
+            a device carries no ``fleet``, so ``Equals`` drops it, and ``NotEquals`` drops it too:
+            only ``IsNull`` and ``NotExists`` match a data point with no device. See
+            :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the full field and
+            comparator rules:
+
+            >>> from roboto.query import Comparator, Condition
+            >>> delivery_buckets = Metric.aggregate(
+            ...     name="cpu.usage_max",
+            ...     period=AggregationPeriod.Daily,
+            ...     aggregation=NumericAggregation.Max,
+            ...     start_time="2026-05-01T00:00:00Z",
+            ...     end_time="2026-06-01T00:00:00Z",
+            ...     condition=Condition(
+            ...         field="device.custom.fleet",
+            ...         comparator=Comparator.Equals,
+            ...         value="delivery",
+            ...     ),
+            ... )
+            >>> for bucket in delivery_buckets:
+            ...     print(bucket.start_time, bucket.end_time, bucket.value, bucket.total)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = AggregateMetricsRequest(
@@ -601,6 +697,7 @@ class Metric:
             include_device_ids=include_device_ids,
             include_session_ids=include_session_ids,
             include_invocation_ids=include_invocation_ids,
+            condition=condition,
         )
         return (
             roboto_client.post(

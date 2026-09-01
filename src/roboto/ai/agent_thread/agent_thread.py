@@ -50,6 +50,7 @@ from .record import (
     ClientToolSpec,
     ForkAgentThreadRequest,
     InvokeSkillSpec,
+    PinThreadRequest,
     SendMessageRequest,
     StartAgentThreadRequest,
     SubmitToolResultsRequest,
@@ -554,6 +555,8 @@ class AgentThread:
         Raises:
             RobotoInvalidRequestException: If the message format is invalid.
             RobotoUnauthorizedException: If the caller lacks permission to send messages.
+            RobotoThreadReadOnlyException: If the thread was started on another surface
+                (see :attr:`AgentThreadRecord.origin`). Fork it to keep going.
         """
         if message is None and not goals and not invoke_skills:
             raise ValueError("AgentThread.send requires at least one of 'message', 'goals', or 'invoke_skills'.")
@@ -612,6 +615,8 @@ class AgentThread:
         Raises:
             RobotoInvalidRequestException: If the text is empty or invalid.
             RobotoUnauthorizedException: If the caller lacks permission to send messages.
+            RobotoThreadReadOnlyException: If the thread was started on another surface
+                (see :attr:`AgentThreadRecord.origin`). Fork it to keep going.
         """
         return self.send(
             AgentMessage.text(text=text, role=AgentRole.USER),
@@ -685,6 +690,49 @@ class AgentThread:
             data=UpdateThreadVisibilityRequest(visibility=visibility),
         )
         self.__record.visibility = visibility
+        return self
+
+    def set_pinned(self, pinned: bool) -> AgentThread:
+        """Pin or unpin this thread for the calling user.
+
+        A pin is a personal bookmark: it promotes the thread to the top of the
+        caller's chat sidebar and is invisible to everyone else. Anyone who may
+        read the thread may pin it, including teammates on a thread whose
+        visibility is ``ORG``.
+
+        Setting the state the thread already has is accepted and changes
+        nothing; re-pinning in particular does not move the thread back to the
+        top of the pinned block.
+
+        Leaves :py:attr:`~roboto.ai.agent_thread.AgentThreadRecord.pinned_at`
+        untouched on this instance's record: only the thread listing and search
+        endpoints populate that field.
+
+        Args:
+            pinned: ``True`` to pin, ``False`` to unpin.
+
+        Returns:
+            Self for method chaining.
+
+        Raises:
+            RobotoNotFoundException: If the thread does not exist.
+            RobotoUnauthorizedException: If the caller is not a member of the
+                thread's org, or the thread is private and the caller did not
+                create it.
+
+        Examples:
+            Pin a thread to the top of your sidebar:
+
+            >>> thread.set_pinned(True)
+
+            Unpin it again:
+
+            >>> thread.set_pinned(False)
+        """
+        self.__roboto_client.post(
+            f"v1/ai/threads/{self.__record.thread_id}/pin",
+            data=PinThreadRequest(pinned=pinned),
+        )
         return self
 
     def invoke_skill(self, skill_id: str, version: Optional[int] = None) -> AgentThread:
@@ -1121,12 +1169,15 @@ class AgentThread:
     def fork(self, message_sequence_num: int) -> AgentThread:
         """Fork this session's history up to a specific message into a new session owned by the caller.
 
-        Available to the session's creator (forking their own session) and to
-        Roboto admins (``is_roboto_admin``) forking anyone's session. The new
+        Fork access mirrors read access: anyone who can read the source
+        session can fork it. A ``ThreadVisibility.ORG``-visible session can
+        be forked by any member of its org; a ``ThreadVisibility.PRIVATE``
+        session can be forked only by its creator or a Roboto admin. The new
         session carries the source session's ``org_id`` so tool calls resolve
-        against the source org's data. The new session is owned by the caller,
-        so admin forks of a customer session never appear in the customer's
-        session list.
+        against the source org's data, and is always created with
+        ``ThreadVisibility.PRIVATE`` visibility, owned by the caller,
+        regardless of the source's visibility — so forks never appear in
+        another member's session list.
 
         Args:
             message_sequence_num: Highest message sequence number (inclusive) to copy.
@@ -1136,8 +1187,9 @@ class AgentThread:
 
         Raises:
             RobotoUnauthorizedException: If the caller is not a member of the
-                source session's org, or is a member but is neither the source
-                session's creator nor a Roboto admin.
+                source session's org, or the source session is
+                ``ThreadVisibility.PRIVATE`` and the caller is neither its
+                creator nor a Roboto admin.
             RobotoInvalidRequestException: If ``message_sequence_num`` is out
                 of range or points at a message still generating.
         """

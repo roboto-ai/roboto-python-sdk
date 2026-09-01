@@ -11,6 +11,7 @@ from .action_input import (
 )
 from .file_resolver import InputFileResolver
 from .input_resolver import ActionInputResolver
+from .session_resolver import InputSessionResolver
 from .topic_resolver import InputTopicResolver
 
 __all__ = (
@@ -19,5 +20,6 @@ __all__ = (
     "ActionInputRecord",
     "ActionInputResolver",
     "InputFileResolver",
+    "InputSessionResolver",
     "InputTopicResolver",
 )

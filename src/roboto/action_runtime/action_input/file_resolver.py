@@ -12,13 +12,19 @@ from ...domain.datasets import Dataset
 from ...domain.files import File
 from ...http import RobotoClient
 from ...logging import default_logger
+from ...query.roboql_literal import as_roboql_string_literal
 from ...roboto_search import RobotoSearch
 
 log = default_logger()
 
 
 class InputFileResolver:
-    """Resolves file selectors to file entities, if available."""
+    """Looks up the files an action invocation runs on, from the file selectors declared as its inputs.
+
+    A selector names files by ID, by name, by path within a dataset, or with a RoboQL query; every field it
+    populates is looked up and the matches are returned together. ``resolve_all`` returns each file once, while
+    ``resolve`` repeats a file that matches on more than one field.
+    """
 
     def __init__(
         self,
@@ -45,6 +51,10 @@ class InputFileResolver:
         return all_files
 
     def resolve(self, selector: FileSelector) -> list[File]:
+        """Looks up the files one selector names.
+
+        A ``dataset_id`` narrows the lookup only alongside ``paths``; every other field ignores it, with a warning.
+        """
         files: list[File] = []
 
         if selector.dataset_id and selector.paths:
@@ -93,7 +103,9 @@ class InputFileResolver:
         return list(self.roboto_search.find_files(query))
 
     def _resolve_from_names(self, file_names: list[str]) -> list[File]:
-        query = " OR ".join(f'path LIKE "{file_name}"' for file_name in file_names)
+        # as_roboql_string_literal escapes only backslashes and double quotes,
+        # so a `%` or `_` in a name reaches the query intact and LIKE matches it as a wildcard.
+        query = " OR ".join(f"path LIKE {as_roboql_string_literal(file_name)}" for file_name in file_names)
         return self._resolve_from_query(query)
 
     @staticmethod

@@ -15,6 +15,7 @@ import pydantic
 
 from ...domain.files import File, FileRecord
 from ...domain.topics import Topic, TopicRecord
+from ...experimental.sessions import Session, SessionRecord
 from ...http import RobotoClient
 
 DEFAULT_INPUT_FILE = pathlib.Path.cwd() / "action_input.json"
@@ -26,6 +27,8 @@ class ActionInputRecord(pydantic.BaseModel):
     files: collections.abc.Sequence[tuple[FileRecord, typing.Optional[pathlib.Path]]] = pydantic.Field(
         default_factory=list
     )
+
+    sessions: collections.abc.Sequence[SessionRecord] = pydantic.Field(default_factory=list)
 
     topics: collections.abc.Sequence[TopicRecord] = pydantic.Field(default_factory=list)
 
@@ -58,6 +61,11 @@ class ActionInput:
     - Optional[Path] is the local file path if the file has been downloaded
     """
 
+    sessions: collections.abc.Sequence[Session] = dataclasses.field(default_factory=list)
+    """
+    Sessions passed as input data to an action invocation.
+    """
+
     topics: collections.abc.Sequence[Topic] = dataclasses.field(default_factory=list)
     """
     Topics passed as input data to an action invocation.
@@ -69,6 +77,7 @@ class ActionInput:
 
         return cls(
             files=[(File(file_rec, roboto_client), path) for file_rec, path in record.files],
+            sessions=[Session(session_rec, roboto_client) for session_rec in record.sessions],
             topics=[Topic(topic_rec, roboto_client) for topic_rec in record.topics],
         )
 

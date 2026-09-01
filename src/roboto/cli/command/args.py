@@ -78,3 +78,23 @@ def ExistingPathlibPath(arg):
     if not path.exists():
         raise argparse.ArgumentTypeError(f"Provided path '{arg}' does not exist!")
     return path
+
+
+def NonBlankString(arg: str) -> str:
+    """argparse ``type`` that rejects an empty or whitespace-only flag value.
+
+    A blank value ends argument parsing with ``error: argument <flag>: may not be blank``, which names the flag
+    the user needs to correct.
+
+    Args:
+        arg: Value argparse read for the flag.
+
+    Returns:
+        ``arg`` exactly as given, including any leading or trailing whitespace.
+
+    Raises:
+        argparse.ArgumentTypeError: If ``arg`` is empty or consists entirely of whitespace.
+    """
+    if not arg.strip():
+        raise argparse.ArgumentTypeError("may not be blank")
+    return arg

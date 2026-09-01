@@ -1,0 +1,71 @@
+{
+  "boolean": [
+    "EQUALS",
+    "IS_NOT_NULL",
+    "IS_NULL"
+  ],
+  "date": [
+    "BETWEEN",
+    "GREATER_THAN",
+    "IS_NOT_NULL",
+    "IS_NULL",
+    "LAST_30_DAYS",
+    "LAST_7_DAYS",
+    "LAST_90_DAYS",
+    "LESS_THAN",
+    "THIS_MONTH",
+    "TODAY"
+  ],
+  "enum": [
+    "EQUALS",
+    "IS_NOT_NULL",
+    "IS_NULL",
+    "NOT_EQUALS"
+  ],
+  "identity": [
+    "IS_ANY_DEVICE",
+    "IS_ANY_INTEGRATION",
+    "IS_ANY_INVOCATION",
+    "IS_ANY_ORG",
+    "IS_ANY_USER",
+    "IS_DEVICE",
+    "IS_INTEGRATION",
+    "IS_INVOCATION",
+    "IS_ORG",
+    "IS_USER"
+  ],
+  "metric": [
+    "EQUALS",
+    "GREATER_THAN",
+    "GREATER_THAN_OR_EQUAL",
+    "IS_NOT_NULL",
+    "IS_NULL",
+    "LESS_THAN",
+    "LESS_THAN_OR_EQUAL",
+    "NOT_EQUALS"
+  ],
+  "numeric": [
+    "EQUALS",
+    "GREATER_THAN",
+    "GREATER_THAN_OR_EQUAL",
+    "IS_NOT_NULL",
+    "IS_NULL",
+    "LESS_THAN",
+    "LESS_THAN_OR_EQUAL",
+    "NOT_EQUALS"
+  ],
+  "set": [
+    "CONTAINS",
+    "NOT_CONTAINS"
+  ],
+  "string": [
+    "CONTAINS",
+    "EQUALS",
+    "IS_NOT_NULL",
+    "IS_NULL",
+    "LIKE",
+    "NOT_CONTAINS",
+    "NOT_EQUALS",
+    "NOT_LIKE"
+  ]
+}

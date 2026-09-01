@@ -13,7 +13,10 @@ from ...sentinels import (
     NotSet,
     NotSetType,
 )
-from .record import ViewDefinition
+from .record import (
+    ViewDefinition,
+    ViewVisibility,
+)
 
 MAX_VIEW_NAME_LENGTH: typing.Final[int] = 120
 """Longest permitted View name, matching the limit layouts uses."""
@@ -30,6 +33,20 @@ class CreateViewRequest(pydantic.BaseModel):
 
     definition: ViewDefinition
     """The query and presentation state to save."""
+
+    visibility: ViewVisibility = ViewVisibility.Private
+    """Who the View is visible to once created.
+
+    Private by default. A View is a saved search someone arrived at while working, and most
+    are of no interest to anyone else; publishing every one of them to the whole org on the
+    author's behalf is the harder default to undo, since by the time they notice, their
+    colleagues have already seen it. Sharing afterwards is one call to the access endpoint,
+    and is reserved to the author.
+
+    Only these two tiers exist at creation. Granting one named colleague access is a
+    per-user grant, which the access endpoint handles and which no create-time field could
+    express without duplicating it.
+    """
 
 
 class UpdateViewRequest(pydantic.BaseModel):

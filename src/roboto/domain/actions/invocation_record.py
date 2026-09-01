@@ -160,6 +160,13 @@ class DataSelector(pydantic.BaseModel):
     """Dataset ID, needed for backward compatibility purposes.
     Prefer RoboQL: dataset_id = <the ID in double quotes>"""
 
+    @pydantic.field_validator("ids", "names", mode="after")
+    @classmethod
+    def _dedupe(cls, value: typing.Optional[list[str]]) -> typing.Optional[list[str]]:
+        if value is None:
+            return None
+        return list(dict.fromkeys(value))
+
     @pydantic.model_validator(mode="after")
     def ensure_not_empty(self) -> DataSelector:
         if not any([self.query, self.ids, self.names]):
@@ -204,6 +211,9 @@ class InvocationInput(pydantic.BaseModel):
     files: typing.Optional[typing.Union[FileSelector, list[FileSelector]]] = None
     """File selectors."""
 
+    sessions: typing.Optional[typing.Union[DataSelector, list[DataSelector]]] = None
+    """Session selectors."""
+
     topics: typing.Optional[typing.Union[DataSelector, list[DataSelector]]] = None
     """Topic selectors."""
 
@@ -213,30 +223,41 @@ class InvocationInput(pydantic.BaseModel):
             [
                 self.files,
                 self.topics,
+                self.sessions,
             ]
         ):
-            raise ValueError("At least one input field must be provided!")
+            raise ValueError("At least one invocation input selector must be provided!")
 
         return self
 
     @classmethod
     def from_dataset_file_paths(cls, dataset_id: str, file_paths: list[str]) -> InvocationInput:
+        """Specify file input by dataset ID and dataset-relative file paths or globs."""
         return cls(files=FileSelector(dataset_id=dataset_id, paths=file_paths))
+
+    @classmethod
+    def from_session_id(cls, session_id: str) -> InvocationInput:
+        """Specify session input by session ID."""
+        return cls(sessions=DataSelector(ids=[session_id]))
 
     @classmethod
     def file_query(cls, roboql_query: str) -> InvocationInput:
         """Specify file inputs using a RoboQL query."""
-
         return cls(files=FileSelector(query=roboql_query))
+
+    @classmethod
+    def session_query(cls, roboql_query: str) -> InvocationInput:
+        """Specify session inputs using a RoboQL query."""
+        return cls(sessions=DataSelector(query=roboql_query))
 
     @classmethod
     def topic_query(cls, roboql_query: str) -> InvocationInput:
         """Specify topic inputs using a RoboQL query."""
-
         return cls(topics=DataSelector(query=roboql_query))
 
     @property
     def safe_files(self) -> list[FileSelector]:
+        """File selectors as a list. Empty if no such selectors are specified."""
         if self.files is None:
             return []
 
@@ -253,7 +274,16 @@ class InvocationInput(pydantic.BaseModel):
         return list(res)
 
     @property
+    def safe_sessions(self) -> list[DataSelector]:
+        """Session selectors as a list. Empty if no such selectors are specified."""
+        if self.sessions is None:
+            return []
+
+        return self.sessions if isinstance(self.sessions, list) else [self.sessions]
+
+    @property
     def safe_topics(self) -> list[DataSelector]:
+        """Topic selectors as a list. Empty if no such selectors are specified."""
         if self.topics is None:
             return []
 

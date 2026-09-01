@@ -216,8 +216,9 @@ class RobotoSearch:
 
         The four time-window fields accept any shape :py:data:`roboto.time.Time`
         permits — integer epoch nanoseconds, float / Decimal / ``<sec>.<nsec>`` string
-        seconds, ISO8601 strings, or tz-aware ``datetime`` — and the server normalizes
-        the value to epoch nanoseconds before the comparison runs.
+        seconds, ISO8601 strings, or a ``datetime`` (read as UTC when it carries no
+        timezone) — and the server normalizes the value to epoch nanoseconds before the
+        comparison runs.
 
         Sortable fields: ``session_id``, ``min_timestamp_ns``, and ``duration``.
         """

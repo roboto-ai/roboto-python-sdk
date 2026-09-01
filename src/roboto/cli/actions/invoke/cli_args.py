@@ -12,51 +12,79 @@ hosted and local invocation commands.
 
 import argparse
 
-from ...command import KeyValuePairsAction
+from ...command import (
+    KeyValuePairsAction,
+    NonBlankString,
+)
 
 
 def add_input_specification_args(parser: argparse.ArgumentParser) -> None:
-    """Add input specification argument groups to parser.
+    """Register the optional flags that select an action invocation's input data.
 
-    Adds two mutually exclusive groups:
-    1. Query-based input (--file-query, --topic-query)
-    2. Dataset + file paths input (--dataset, --file-path)
+    Two argument groups are added, each rendered as its own section of ``--help`` output:
+
+    1. Selector-based input: ``--file-query``, ``--session-id``, ``--session-query``, ``--topic-query``
+    2. Dataset and file path input: ``--dataset``, ``--file-path``
+
+    A user may supply flags from one group or the other, not both, and ``--file-path`` requires ``--dataset``.
+    argparse enforces neither rule, so a command that adds these flags must also pass its parsed arguments
+    through ``validate_input_specification``.
+
+    Args:
+        parser: Parser for ``roboto actions invoke`` or ``roboto actions invoke-local``.
     """
-    # Query-based input arguments
-    query_group = parser.add_argument_group(
-        "Query-Based Input",
+    selector_group = parser.add_argument_group(
+        "Selector-Based Input",
         description=(
-            "Specify input data with a RoboQL query. Mutually exclusive with 'dataset file path'-based input."
+            "Specify input data with a RoboQL query or by session ID. "
+            "Mutually exclusive with dataset and file path-based input."
         ),
     )
-    query_group.add_argument(
+    selector_group.add_argument(
         "--file-query",
         required=False,
+        type=NonBlankString,
         dest="file_query",
         help="RoboQL query to select input files.",
     )
-    query_group.add_argument(
+    selector_group.add_argument(
+        "--session-id",
+        required=False,
+        type=NonBlankString,
+        action="append",
+        dest="session_ids",
+        help="Unique identifier for a session to use as input. Can be specified multiple times for multiple sessions.",
+    )
+    selector_group.add_argument(
+        "--session-query",
+        required=False,
+        type=NonBlankString,
+        dest="session_query",
+        help="RoboQL query to select input sessions.",
+    )
+    selector_group.add_argument(
         "--topic-query",
         required=False,
+        type=NonBlankString,
         dest="topic_query",
         help="RoboQL query to select input topics.",
     )
 
-    # Dataset and file path-based input arguments
     dataset_group = parser.add_argument_group(
         "Dataset and File Path-Based Input",
         description=(
-            "Specify input data with a dataset id and one or more file paths. "
-            "Mutually exclusive with query-based input."
+            "Specify input data with a dataset ID and one or more file paths. "
+            "Mutually exclusive with selector-based input."
         ),
     )
     dataset_group.add_argument(
         "--dataset",
         required=False,
+        type=NonBlankString,
         action="store",
         dest="dataset_id",
         help=(
-            "Unique identifier for dataset to use as data source for this invocation. "
+            "Unique identifier for a dataset to use as the data source for this invocation. "
             "Required if --file-path is provided."
         ),
     )
@@ -64,7 +92,7 @@ def add_input_specification_args(parser: argparse.ArgumentParser) -> None:
     dataset_group.add_argument(
         "--file-path",
         required=False,
-        type=str,
+        type=NonBlankString,
         action="append",
         dest="file_paths",
         help=(

@@ -10,6 +10,8 @@ from typing import Any, Optional
 
 import pydantic
 
+from ...pydantic.serializers import field_serializer_custom_field_values
+
 
 def make_backwards_compatible_placeholder_storage_ctx() -> dict[str, typing.Any]:
     """
@@ -101,3 +103,7 @@ class DatasetRecord(pydantic.BaseModel):
 
     storage_location: str = "S3"
     """Deprecated storage location field maintained for backwards compatibility. Always defaults to 'S3'."""
+
+    @pydantic.field_serializer("custom_fields", when_used="json")
+    def _serialize_custom_fields(self, custom_fields: dict[str, Any]) -> dict[str, Any]:
+        return field_serializer_custom_field_values(custom_fields)

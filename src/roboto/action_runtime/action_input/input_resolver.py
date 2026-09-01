@@ -16,6 +16,7 @@ from ...association import Association
 from ...domain.actions import InvocationInput
 from ...domain.files import File
 from ...domain.topics import Topic
+from ...experimental.sessions import Session
 from ...http import RobotoClient
 from ...logging import default_logger, maybe_pluralize
 from ...progress import NoopProgressMonitor, TqdmProgressMonitor
@@ -23,6 +24,7 @@ from ...roboto_search import RobotoSearch
 from ...storage import DownloadableFile, FileService
 from .action_input import ActionInputRecord
 from .file_resolver import InputFileResolver
+from .session_resolver import InputSessionResolver
 from .topic_resolver import InputTopicResolver
 
 log = default_logger()
@@ -49,6 +51,7 @@ class ActionInputResolver:
 
         return cls(
             file_resolver=InputFileResolver(roboto_client, roboto_search),
+            session_resolver=InputSessionResolver(roboto_client, roboto_search),
             topic_resolver=InputTopicResolver(roboto_client, roboto_search),
             file_service=FileService(roboto_client=roboto_client),
         )
@@ -56,10 +59,20 @@ class ActionInputResolver:
     def __init__(
         self,
         file_resolver: InputFileResolver,
+        session_resolver: InputSessionResolver,
         topic_resolver: InputTopicResolver,
         file_service: FileService,
     ):
+        """
+        Args:
+            file_resolver: Resolves the input spec's file selectors.
+            session_resolver: Resolves the input spec's session selectors.
+            topic_resolver: Resolves the input spec's topic selectors.
+            file_service: Downloads resolved files; used only when ``resolve_input_spec`` is called with
+                ``download=True``.
+        """
         self.__file_resolver = file_resolver
+        self.__session_resolver = session_resolver
         self.__topic_resolver = topic_resolver
         self.__file_service = file_service
 
@@ -69,10 +82,10 @@ class ActionInputResolver:
         download: bool = False,
         download_path: typing.Optional[pathlib.Path] = None,
     ) -> ActionInputRecord:
-        """This method takes an InvocationInput containing data selectors (e.g., for files and topics)
-        and resolves them to concrete entities.
+        """Resolve the input spec's file, session, and topic selectors to the entities they match.
 
-        Optionally downloads files to a local path.
+        When the spec asks for files, sessions, or topics and none match, that category comes back empty
+        with a logged warning rather than an error.
 
         Args:
             input_spec: Input specification containing data selectors.
@@ -86,6 +99,7 @@ class ActionInputResolver:
             ActionInputRecord containing:
             - files: List of (FileRecord, Optional[Path]) tuples. Path is None if download=False,
               otherwise contains the local path where the file was downloaded.
+            - sessions: List of SessionRecord instances.
             - topics: List of TopicRecord instances.
 
         Examples:
@@ -114,11 +128,17 @@ class ActionInputResolver:
         """
         files: list[File] = []
         topics: list[Topic] = []
+        sessions: list[Session] = []
 
         if input_spec.files:
             files = self.__file_resolver.resolve_all(input_spec.safe_files)
             if not files:
                 log.warning("No files matched the provided input specification.")
+
+        if input_spec.sessions:
+            sessions = self.__session_resolver.resolve_all(input_spec.safe_sessions)
+            if not sessions:
+                log.warning("No sessions matched the provided input specification.")
 
         if input_spec.topics:
             topics = self.__topic_resolver.resolve_all(input_spec.safe_topics)
@@ -139,8 +159,18 @@ class ActionInputResolver:
                     "See: https://docs.roboto.ai/reference/python-sdk/roboto/domain/topics/topic/index.html"
                 )
 
+            if sessions:
+                log.warning(
+                    "Session data cannot be downloaded during action invocation setup. "
+                    "Use session.get_topic(name) or session.list_topics() in your action code to reach a "
+                    "session's topics, then get_data() or get_data_as_df() on each. Topics obtained this way "
+                    "read only the session's data by default. "
+                    "See: https://docs.roboto.ai/reference/python-sdk/roboto/experimental/sessions/session/index.html"
+                )
+
         return ActionInputRecord(
             files=[(file.record, path) for file, path in resolved_files],
+            sessions=[session.record for session in sessions],
             topics=[topic.record for topic in topics],
         )
 

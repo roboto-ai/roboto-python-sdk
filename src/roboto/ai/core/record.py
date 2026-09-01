@@ -45,6 +45,27 @@ from .task import (
 )
 
 
+class ThreadOrigin(StrEnum):
+    """The surface an :class:`AgentThreadRecord` was started from, and the one that owns it.
+
+    Distinct from :py:attr:`AgentThreadRecord.created_by_principal`, which records *who*
+    started a thread. This records where the conversation lives, which is what decides whether
+    it can be added to over the API.
+
+    Import as :class:`roboto.ai.agent_thread.ThreadOrigin`.
+    """
+
+    API = "api"
+    """Started through Roboto itself -- the web app, the CLI, the SDK, or a direct REST call.
+
+    These surfaces read the thread back from Roboto rather than mirroring it somewhere else, so
+    there is nothing for a new turn to fall out of sync with and the thread stays writable.
+    """
+
+    SLACK = "slack"
+    """Started by mentioning @Roboto in Slack, and mirrored into that Slack conversation."""
+
+
 class ThreadVisibility(StrEnum):
     """Read-scope for an :class:`AgentThreadRecord`.
 
@@ -395,6 +416,27 @@ class AgentThreadRecord(pydantic.BaseModel):
     through ``POST /v1/ai/threads``. Forks do not inherit this field —
     a fork is its own thread."""
 
+    origin: Optional[ThreadOrigin] = None
+    """The surface that owns this thread.
+
+    Set by Roboto when the thread is created; it cannot be supplied by a caller. A thread owned
+    by a surface outside Roboto refuses new messages over the API, raising
+    :class:`~roboto.exceptions.RobotoThreadReadOnlyException`; reading, cancelling, and rating
+    it stay open, and a fork does not inherit the origin, so the copy is writable.
+
+    ``None`` on threads created before this field existed, and equivalent to
+    :attr:`ThreadOrigin.API` — every surface that predates the field was Roboto's own. It stays
+    nullable until those rows are backfilled."""
+
+    pinned_at: Optional[datetime.datetime] = None
+    """When the calling user pinned this thread, or ``None`` if they have not.
+
+    A pin is a personal bookmark, so two users reading the same thread see
+    different values here. Pin and unpin through
+    :meth:`roboto.ai.agent_thread.AgentThread.set_pinned`. Only
+    ``GET /v1/ai/threads`` and ``POST /v1/ai/threads/search`` report it; reads
+    of a single thread leave it ``None`` whatever the pin state."""
+
     goals: Optional[list[AgentThreadGoalRecord]] = None
     """Goals declared across this thread's turns, ordered by the turn
     that declared them. ``None`` means goals were not loaded for this
@@ -471,5 +513,6 @@ __all__ = [
     "AgentToolUseContent",
     "ClientToolSpec",
     "ModelProfileResponse",
+    "ThreadOrigin",
     "ThreadVisibility",
 ]

@@ -9,6 +9,8 @@ import typing
 
 import pydantic
 
+from ...pydantic.serializers import field_serializer_custom_field_values
+
 
 class SessionRecord(pydantic.BaseModel):
     """Wire-format row for a session: an operational time window of a Device such as a drone flight,
@@ -77,6 +79,10 @@ class SessionRecord(pydantic.BaseModel):
     Sessions can be filtered by tag membership (e.g., ``tags CONTAINS '<tag>'``)
     but are not sortable by tag.
     """
+
+    @pydantic.field_serializer("custom_fields", when_used="json")
+    def _serialize_custom_fields(self, custom_fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        return field_serializer_custom_field_values(custom_fields)
 
 
 class SessionFileRecord(pydantic.BaseModel):

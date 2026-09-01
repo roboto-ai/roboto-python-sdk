@@ -10,6 +10,7 @@ import typing
 import pydantic
 
 from ...association import Association
+from ...pydantic.serializers import field_serializer_custom_field_values
 from .operations import EventDisplayOptions
 
 
@@ -127,3 +128,7 @@ class EventRecord(pydantic.BaseModel):
             and set(self.tags) == set(other.tags)
             and self.display_options == other.display_options
         )
+
+    @pydantic.field_serializer("custom_fields", when_used="json")
+    def _serialize_custom_fields(self, custom_fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        return field_serializer_custom_field_values(custom_fields)

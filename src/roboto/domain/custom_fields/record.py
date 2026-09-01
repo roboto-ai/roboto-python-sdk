@@ -114,7 +114,19 @@ class CustomFieldType(StrEnum):
     """A free-form string value. Supports equality, substring, and sort."""
 
     Timestamp = "timestamp"
-    """A point in time. Supports equality, range filtering, and sort."""
+    """A point in time. Supports equality, range filtering, and sort.
+
+    Values may be given as a ``datetime``, an ISO 8601 string, an ``int`` of nanoseconds since the
+    Unix epoch, or a ``float``, ``decimal.Decimal`` or numeric string of seconds since it. A string
+    is read as seconds whenever it parses as a number, so the all-digit date ``20260101`` names a
+    moment in 1970 rather than a day in 2026.
+
+    A value carrying no time zone, whether a naive ``datetime`` or an ISO 8601 string with no
+    offset, is read as UTC; a date with no time, such as ``2026-05-14``, resolves to midnight UTC.
+    Sub-microsecond precision is not retained.
+
+    Values are returned as ISO 8601 strings, which ``datetime.datetime.fromisoformat`` parses.
+    """
 
 
 # Python does not count U+FEFF as whitespace; including it keeps a pasted byte-order mark from

@@ -47,9 +47,9 @@ class Comparator(StrEnum):
             return "="
         elif self is Comparator.NotEquals:
             return "!="
-        elif self is Comparator.GreaterThanOrEqual:
-            return ">"
         elif self is Comparator.GreaterThan:
+            return ">"
+        elif self is Comparator.GreaterThanOrEqual:
             return ">="
         elif self is Comparator.LessThan:
             return "<"

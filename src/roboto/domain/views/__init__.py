@@ -21,6 +21,7 @@ from .record import (
     ViewDefinition,
     ViewDisplay,
     ViewRecord,
+    ViewVisibility,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "ViewDefinition",
     "ViewDisplay",
     "ViewRecord",
+    "ViewVisibility",
 ]

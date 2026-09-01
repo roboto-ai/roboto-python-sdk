@@ -50,6 +50,12 @@ class RobotoApiVersion(StrEnum):
     bare file-id list, so upload clients can tell which created file belongs to which uploaded
     path. Clients on older API versions continue to receive the bare id list."""
 
+    v2026_08_10 = "2026-08-10"
+    """``GET /v1/datasets/tags``, ``GET /v1/events/tags``, and ``GET /v1/files/tags`` respond with a
+    paginated ``{items, next_token}`` object (with optional ``search``/``limit``/``page_token``
+    query parameters) instead of a bare string list, so tag autocomplete scales past the unique-tag
+    cap. Clients on older API versions continue to receive the bare list."""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the latest available API version.
@@ -57,7 +63,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent API version supported by the platform.
         """
-        return RobotoApiVersion.v2026_07_05
+        return RobotoApiVersion.v2026_08_10
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

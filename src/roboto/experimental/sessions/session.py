@@ -261,6 +261,9 @@ class Session:
         Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` for the org
         appears as a key. Values that have not been set on this session surface as ``None``
         rather than being absent. Empty when no custom fields are defined for the org.
+
+        A :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is returned
+        as an ISO 8601 string.
         """
         return self.__record.custom_fields
 

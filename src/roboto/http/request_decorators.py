@@ -46,7 +46,17 @@ class BearerTokenDecorator:
 
 
 class SigV4AuthDecorator:
-    __credentials: ReadOnlyCredentials
+    __credentials: Optional[ReadOnlyCredentials]
+    """Explicitly supplied credentials, or ``None`` to resolve them per request.
+
+    ``None`` is the important case for a long-lived process. Role credentials -- a Fargate
+    task's, an EC2 instance's -- are temporary and rotate; a snapshot taken once at
+    construction goes stale after a few hours, and every request signed with it is then
+    rejected as expired until the process restarts. Resolving per request lets botocore hand
+    over whatever is current.
+    """
+
+    __session: Optional[boto3.Session]
     __region: str
     __service: str
 
@@ -76,9 +86,18 @@ class SigV4AuthDecorator:
         credentials: Optional[ReadOnlyCredentials] = None,
         region: Optional[str] = None,
     ):
-        self.__credentials = credentials if credentials else SigV4AuthDecorator.lookup_credentials()
+        self.__credentials = credentials
+        # One session, reused: it owns botocore's credential resolver, which refreshes role
+        # credentials in the background. A new session per request would re-resolve from
+        # scratch every time and lose that caching.
+        self.__session = None if credentials else boto3.Session()
         self.__region = region if region else SigV4AuthDecorator.lookup_region()
         self.__service = service
+
+        if self.__session is not None:
+            # Fail at construction, not at the first request: a process with no credentials at
+            # all is misconfigured, and finding that out here is far easier to diagnose.
+            SigV4AuthDecorator.lookup_credentials()
 
     def __call__(self, request: HttpRequest) -> HttpRequest:
         if "Host" not in request.headers:
@@ -86,6 +105,26 @@ class SigV4AuthDecorator:
 
         aws_request = AWSRequest(method=request.method.upper(), url=request.url, data=request.body)
         aws_request.context["payload_signing_enabled"] = True
-        SigV4Auth(self.__credentials, self.__service, self.__region).add_auth(aws_request)
+        SigV4Auth(self.__current_credentials(), self.__service, self.__region).add_auth(aws_request)
         request.append_headers(dict(aws_request.headers.items()))
         return request
+
+    def __current_credentials(self) -> ReadOnlyCredentials:
+        """The credentials to sign this request with.
+
+        Explicit ones are returned as given -- a caller that supplied credentials owns their
+        lifetime. Otherwise the session is asked afresh, which is what picks up a rotation.
+        """
+        if self.__credentials is not None:
+            return self.__credentials
+
+        if self.__session is None:
+            raise RuntimeError("No AWS credentials found")
+
+        creds = self.__session.get_credentials()
+        if creds is None:
+            # Reachable despite the construction-time check: credentials can be withdrawn from
+            # under a running process, and signing with nothing would fail less legibly.
+            raise RuntimeError("No AWS credentials found")
+
+        return creds.get_frozen_credentials()

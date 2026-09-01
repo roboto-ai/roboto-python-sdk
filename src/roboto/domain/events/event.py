@@ -573,6 +573,9 @@ class Event:
         for ``(org_id, Event)`` appears as a key. Values that have not been set
         on this event surface as ``None`` rather than being absent. Empty when
         no custom fields are defined for the org.
+
+        A :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is returned
+        as an ISO 8601 string.
         """
         return self.__record.custom_fields
 

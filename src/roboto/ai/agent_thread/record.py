@@ -38,6 +38,7 @@ from ..core.record import (
     AgentToolResultContent,
     AgentToolUseContent,
     ClientToolSpec,
+    ThreadOrigin,
     ThreadVisibility,
 )
 from ..goals import AgentGoal
@@ -386,6 +387,13 @@ class UpdateThreadVisibilityRequest(pydantic.BaseModel):
     """Read-scope the thread has once the call returns."""
 
 
+class PinThreadRequest(pydantic.BaseModel):
+    """Request body for ``POST /v1/ai/threads/<thread_id>/pin``, which pins or unpins a thread for the caller."""
+
+    pinned: bool
+    """Pin state the thread should have for the calling user after the call."""
+
+
 class AgentThreadSubject(pydantic.BaseModel):
     """Canonical record of an entity an :class:`AgentThread` applies to.
 
@@ -438,7 +446,9 @@ __all__ = [
     "ClientToolSpec",
     "ForkAgentThreadRequest",
     "InvokeSkillSpec",
+    "PinThreadRequest",
     "SendMessageRequest",
+    "ThreadOrigin",
     "ThreadVisibility",
     "StartAgentThreadRequest",
     "SubmitToolResultsRequest",
