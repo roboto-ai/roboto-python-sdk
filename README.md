@@ -91,74 +91,7 @@ python -m roboto.cli users whoami
 
 See the complete [SDK documentation](https://docs.roboto.ai/reference/python-sdk.html).
 
-### CLI
-
-To use Roboto from the command line without the Python SDK, install the standalone CLI.
-
-Pre-built binaries for every version are on the [releases](https://github.com/roboto-ai/roboto-python-sdk/releases) page of this package. We build for Linux (`aarch64`, `x86_64`), macOS (`aarch64`, `x86_64`), and Windows (`x86_64`). See per-platform installation instructions below.
-
-The CLI provides the `roboto` command line utility. List available commands with `roboto -h`, or see the complete [CLI reference](https://docs.roboto.ai/reference/cli.html) documentation.
-
-#### Linux
-
-- Go to the [latest release](https://github.com/roboto-ai/roboto-python-sdk/releases/latest) page for this package
-- (apt) Download the relevant `roboto` `.deb` file for your platform
-  - e.g. `roboto-linux-x86_64_0.9.2.deb` (not a `roboto-agent` release)
-  - Double-click the downloaded `.deb` file to install it with `apt`
-- (non-apt) Download the relevant `roboto` file for your platform
-  - e.g. `roboto-linux-x86_64` (not a `roboto-agent` release)
-  - Move the downloaded file to `/usr/local/bin` or another directory on your `PATH`
-
-Coming soon: direct `apt-get install` support
-
-#### macOS
-
-Install with the [Homebrew](https://brew.sh/) package manager:
-
-```bash
-brew install roboto-ai/tap/roboto
-```
-
-Or download the relevant Mac binary, e.g. `roboto-macos-aarch64`, from the [latest release](https://github.com/roboto-ai/roboto-python-sdk/releases/latest) page.
-
-#### Windows
-
-- Go to the [latest release](https://github.com/roboto-ai/roboto-python-sdk/releases/latest) page for this package
-- Download the `roboto-windows-x86_64.exe` file
-- Move the downloaded `.exe` to a folder on your `PATH`, like `C:\Program Files\`
-
-#### Upgrade CLI
-
-The CLI automatically checks for updates and notifies you when a new version is available.
-
-Homebrew users can upgrade by running `brew upgrade roboto`. If you installed a `.deb` or a standalone executable, download the latest version and replace the old one.
-
 ## Getting Started
-
-Use the CLI for quick tasks: creating datasets, uploading or downloading files, and running actions. Use the Python SDK for full platform coverage, data analysis, and integration with your other tools.
-
-### CLI Example
-
-The example below creates a new dataset and uploads a file to it. In a Python environment with the SDK installed, the same commands are available via `python -m roboto.cli`.
-
-```bash
-> roboto datasets create --tag boston
-{
-  "administrator": "Roboto",
-  "created": "2024-09-25T22:22:48.271387Z",
-  "created_by": "benji@roboto.ai",
-  "dataset_id": "ds_9ggdi910gntp",
-  ...
-  "tags": [
-    "boston"
-  ]
-}
-
-> roboto datasets upload-files -d ds_9ggdi910gntp -p scene57.bag
-100.0%|█████████████████████████ | 58.9M/58.9M | 2.62MB/s | 00:23 | Src: 1 file
-```
-
-### Python Example
 
 The example below accesses topic data from an ingested ROS bag file:
 
@@ -220,6 +153,71 @@ for event in thread.events():
 The same agents are available in the web app's AI Chat and on the command line via `roboto chat start`.
 
 See the [notebooks](https://github.com/roboto-ai/roboto-python-sdk/tree/main/examples) directory for complete examples!
+
+## CLI
+
+Use the CLI for quick tasks: creating datasets, uploading or downloading files, and running actions. Use the Python SDK for full platform coverage, data analysis, and integration with your other tools.
+
+To use Roboto from the command line without the Python SDK, install the standalone CLI.
+
+Pre-built binaries for every version are on the [releases](https://github.com/roboto-ai/roboto-python-sdk/releases) page of this package. We build for Linux (`aarch64`, `x86_64`), macOS (`aarch64`, `x86_64`), and Windows (`x86_64`). See per-platform installation instructions below.
+
+The CLI provides the `roboto` command line utility. List available commands with `roboto -h`, or see the complete [CLI reference](https://docs.roboto.ai/reference/cli.html) documentation.
+
+### Linux
+
+- Go to the [latest release](https://github.com/roboto-ai/roboto-python-sdk/releases/latest) page for this package
+- (apt) Download the relevant `roboto` `.deb` file for your platform
+  - e.g. `roboto-linux-x86_64_0.9.2.deb` (not a `roboto-agent` release)
+  - Double-click the downloaded `.deb` file to install it with `apt`
+- (non-apt) Download the relevant `roboto` file for your platform
+  - e.g. `roboto-linux-x86_64` (not a `roboto-agent` release)
+  - Move the downloaded file to `/usr/local/bin` or another directory on your `PATH`
+
+Coming soon: direct `apt-get install` support
+
+### macOS
+
+Install with the [Homebrew](https://brew.sh/) package manager:
+
+```bash
+brew install roboto-ai/tap/roboto
+```
+
+Or download the relevant Mac binary, e.g. `roboto-macos-aarch64`, from the [latest release](https://github.com/roboto-ai/roboto-python-sdk/releases/latest) page.
+
+### Windows
+
+- Go to the [latest release](https://github.com/roboto-ai/roboto-python-sdk/releases/latest) page for this package
+- Download the `roboto-windows-x86_64.exe` file
+- Move the downloaded `.exe` to a folder on your `PATH`, like `C:\Program Files\`
+
+### Upgrade CLI
+
+The CLI automatically checks for updates and notifies you when a new version is available.
+
+Homebrew users can upgrade by running `brew upgrade roboto`. If you installed a `.deb` or a standalone executable, download the latest version and replace the old one.
+
+### Example
+
+The example below creates a new dataset and uploads a file to it. In a Python environment with the SDK installed, the same commands are available via `python -m roboto.cli`.
+
+```bash
+> roboto datasets create --tag boston
+{
+  "administrator": "Roboto",
+  "created": "2024-09-25T22:22:48.271387Z",
+  "created_by": "benji@roboto.ai",
+  "dataset_id": "ds_9ggdi910gntp",
+  ...
+  "tags": [
+    "boston"
+  ]
+}
+
+> roboto datasets upload-files -d ds_9ggdi910gntp -p scene57.bag
+100.0%|█████████████████████████ | 58.9M/58.9M | 2.62MB/s | 00:23 | Src: 1 file
+```
 
 ## Connect Your AI Tools
 
