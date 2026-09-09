@@ -18,20 +18,6 @@ You can also let AI agents do the analysis: they search your data, dig into sign
 
 See below for supported data formats, installation instructions, and getting started [examples](#getting-started).
 
-## Connect Your AI Tools
-
-The hosted Roboto MCP server brings Roboto to the AI you already work in. Connect it once, and Claude Code, Claude Desktop, Codex, Cursor, VS Code, or any other client that speaks the [Model Context Protocol](https://modelcontextprotocol.io) can search your Roboto data, explore datasets and files, and analyze topic data mid-conversation:
-
-```bash
-claude mcp add --transport http roboto https://mcp.roboto.ai/mcp
-```
-
-- **You authenticate as yourself** — sign in with your browser or use a personal access token; every tool call runs with your own permissions.
-- **Read-only by design** — a curated set of search, retrieval, and analysis tools; nothing exposed over MCP can modify your data.
-- **All of your organizations, one connection** — if you belong to several orgs, ask the AI to call `whoami` and `set_active_org` to switch between them.
-
-See [Use the Roboto MCP Server](https://docs.roboto.ai/user-guides/use-roboto-mcp-server.html) for setup instructions per client, and the [Roboto MCP Server](https://docs.roboto.ai/learn/ai/mcp-server.html) docs for everything the AI can do once connected.
-
 ## Data Formats
 
 Roboto ingests the following formats, each with a corresponding action in the [Action Hub](https://app.roboto.ai/actions/hub).
@@ -251,6 +237,20 @@ for event in thread.events():
 The same agents are available in the web app's AI Chat and on the command line via `roboto chat start`.
 
 See the [notebooks](https://github.com/roboto-ai/roboto-python-sdk/tree/main/examples) directory for complete examples!
+
+## Connect Your AI Tools
+
+The hosted Roboto MCP server brings Roboto to the AI you already work in. Connect it once, and Claude Code, Claude Desktop, Codex, Cursor, VS Code, or any other client that speaks the [Model Context Protocol](https://modelcontextprotocol.io) can search your Roboto data, explore datasets and files, and analyze topic data mid-conversation:
+
+```bash
+claude mcp add --transport http roboto https://mcp.roboto.ai/mcp
+```
+
+- **You authenticate as yourself** — sign in with your browser or use a personal access token; every tool call runs with your own permissions.
+- **Read-only by design** — a curated set of search, retrieval, and analysis tools; nothing exposed over MCP can modify your data.
+- **All of your organizations, one connection** — if you belong to several orgs, ask the AI to call `whoami` and `set_active_org` to switch between them.
+
+See [Use the Roboto MCP Server](https://docs.roboto.ai/user-guides/use-roboto-mcp-server.html) for setup instructions per client, and the [Roboto MCP Server](https://docs.roboto.ai/learn/ai/mcp-server.html) docs for everything the AI can do once connected.
 
 ## Learn More
 
