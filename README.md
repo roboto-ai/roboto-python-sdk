@@ -18,23 +18,6 @@ You can also let AI agents do the analysis: they search your data, dig into sign
 
 See below for supported data formats, installation instructions, and getting started [examples](#getting-started).
 
-## Data Formats
-
-Roboto ingests the following formats, each with a corresponding action in the [Action Hub](https://app.roboto.ai/actions/hub).
-
-| Format            | Extensions        | Status | Action                  |
-| ----------------- | ----------------- | ------ | ----------------------- |
-| **ROS 2**         | `.mcap`, `.db3`   | ✅      | `ros_ingestion`         |
-| **ROS 1**         | `.bag`            | ✅      | `ros_ingestion`         |
-| **PX4**           | `.ulg`            | ✅      | `ulog_ingestion`        |
-| **Parquet**       | `.parquet`        | ✅      | `parquet_ingestion`     |
-| **CSV**           | `.csv`            | ✅      | `csv_ingestion`         |
-| **ArduPilot**     | `.bin`, `.log`, `.tlog` | ✅ | `ardupilot_ingestion`   |
-| **Video**         | `.mp4`, `.avi`, `.mkv`  | ✅ | `video_ingestion`       |
-| **Journal**       | `.log`            | ✅      | `journal_log_ingestion` |
-
-Roboto can also support custom formats. [Reach out](https://www.roboto.ai/contact) to discuss your use case.
-
 ## Install Roboto
 
 To use the Roboto SDK or CLI:
@@ -251,6 +234,23 @@ claude mcp add --transport http roboto https://mcp.roboto.ai/mcp
 - **All of your organizations, one connection** — if you belong to several orgs, ask the AI to call `whoami` and `set_active_org` to switch between them.
 
 See [Use the Roboto MCP Server](https://docs.roboto.ai/user-guides/use-roboto-mcp-server.html) for setup instructions per client, and the [Roboto MCP Server](https://docs.roboto.ai/learn/ai/mcp-server.html) docs for everything the AI can do once connected.
+
+## Data Formats
+
+Roboto ingests the following formats, each with a corresponding action in the [Action Hub](https://app.roboto.ai/actions/hub).
+
+| Format            | Extensions        | Status | Action                  |
+| ----------------- | ----------------- | ------ | ----------------------- |
+| **ROS 2**         | `.mcap`, `.db3`   | ✅      | `ros_ingestion`         |
+| **ROS 1**         | `.bag`            | ✅      | `ros_ingestion`         |
+| **PX4**           | `.ulg`            | ✅      | `ulog_ingestion`        |
+| **Parquet**       | `.parquet`        | ✅      | `parquet_ingestion`     |
+| **CSV**           | `.csv`            | ✅      | `csv_ingestion`         |
+| **ArduPilot**     | `.bin`, `.log`, `.tlog` | ✅ | `ardupilot_ingestion`   |
+| **Video**         | `.mp4`, `.avi`, `.mkv`  | ✅ | `video_ingestion`       |
+| **Journal**       | `.log`            | ✅      | `journal_log_ingestion` |
+
+Roboto can also support custom formats. [Reach out](https://www.roboto.ai/contact) to discuss your use case.
 
 ## Learn More
 
