@@ -2,21 +2,13 @@
 
 [Roboto](https://www.roboto.ai/) is the analytics engine for Physical AI: ingest, search, and analyze your robotics data at scale, and put AI agents to work on it 🤖
 
+Most robotics teams start with manual review: visualizing logs and replaying data. That approach alone doesn't scale; your fleet generates more data than your team can ever review. Roboto helps you go from raw logs to root cause 🚀 Ingest ROS 1, ROS 2, PX4, ArduPilot, Parquet, CSV, video, and journal logs (see [Data Formats](#data-formats)), query data across your fleet, define custom actions to post-process it, and let AI agents search, triage, and summarize it for you.
+
 This package is the official Python SDK for Roboto. The `roboto` command line utility is distributed separately as standalone binaries (see [CLI](#cli) below).
 
 If this is your first time using Roboto, start with the [docs](https://docs.roboto.ai/) and the [core concepts](https://docs.roboto.ai/learn/concepts.html).
 
 <img src="https://github.com/user-attachments/assets/5f9a87e5-9012-4ec4-9a67-abf5ef733f5b" width="700"/>
-
-## Why Roboto?
-
-Most robotics teams start with manual review: visualizing logs and replaying data. But that approach alone doesn't scale; your fleet generates more data than your team can ever review. Roboto helps you go from raw logs to root cause 🚀
-
-Ingest logs in every major robotics format, query data across your fleet, and define custom actions to post-process it: identify events, generate KPIs, and more.
-
-You can also let AI agents do the analysis: they search your data, dig into signals, summarize and triage datasets, and detect events, whether in the Roboto web app, through this SDK, or from the [AI tools you already use](#connect-your-ai-tools).
-
-See below for supported data formats, installation instructions, and getting started [examples](#getting-started).
 
 ## Install Roboto
 
