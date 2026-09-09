@@ -10,24 +10,26 @@ If this is your first time using Roboto, start with the [docs](https://docs.robo
 
 <img src="https://github.com/user-attachments/assets/5f9a87e5-9012-4ec4-9a67-abf5ef733f5b" width="700"/>
 
-## Install Roboto
+## Install
 
-To use the Roboto SDK or CLI:
-
-- Sign up at [app.roboto.ai](https://app.roboto.ai) and create an access token ([docs](https://docs.roboto.ai/getting-started/programmatic-access.html))
-- Save your access token to `~/.roboto/config.json`
-
-### Python
-
-The Roboto Python SDK is available on [PyPI](https://pypi.org/project/roboto/).
-
-**Requirements:** Python 3.10+
-
-**Installation:**
+- The Roboto Python SDK is available on [PyPI](https://pypi.org/project/roboto/).
+- **Requirements:** Python 3.10+ 
 
 ```shell
 pip install roboto
 ```
+
+Then authenticate:
+
+1. Sign up at [app.roboto.ai](https://app.roboto.ai) and create an access token ([docs](https://docs.roboto.ai/getting-started/programmatic-access.html))
+2. Save your access token to `~/.roboto/config.json`
+3. Verify your credentials are configured correctly:
+
+```shell
+python -m roboto.cli users whoami
+```
+
+See the complete [SDK documentation](https://docs.roboto.ai/reference/python-sdk.html).
 
 > [!TIP]
 >
@@ -72,16 +74,6 @@ The `examples` extra provides the tooling needed to run the SDK's example notebo
 > [!IMPORTANT]
 >
 > Quote the package spec when installing an extra. Zsh (the default shell on macOS) treats the square brackets as a glob pattern, so an unquoted `pip install roboto[analytics]` fails with `zsh: no matches found: roboto[analytics]`. Quoting the spec (`pip install 'roboto[analytics]'`) avoids the error.
-
-**Authentication (required):**
-
-The SDK uses the access token you saved above; if you haven't created one yet, see [Setting up programmatic access](https://docs.roboto.ai/getting-started/programmatic-access.html). Verify your credentials are configured correctly:
-
-```shell
-python -m roboto.cli users whoami
-```
-
-See the complete [SDK documentation](https://docs.roboto.ai/reference/python-sdk.html).
 
 ## Getting Started
 
