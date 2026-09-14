@@ -44,6 +44,23 @@ class ClientViewingContext(pydantic.BaseModel):
     Device IDs are user-chosen rather than minted by Roboto, so unlike the
     other fields here a value may look like anything at all."""
 
+    display_time_anchor_ns: Optional[int] = None
+    """Epoch nanoseconds the client renders as t=0, set only while the user is
+    reading timestamps as an elapsed count from that instant, and ``None``
+    otherwise.
+
+    Informational, like every field here: it lets the agent resolve a bare
+    relative time the user types ("around 65 s") to an absolute instant, and the
+    agent still reports absolute nanoseconds back."""
+
+    display_time_anchor_label: Optional[str] = None
+    """What the client shows the user as the name of that t=0 — "Start of
+    workspace", or a picked timestamp rendered as local time.
+
+    Informational, like every field here: it lets the agent name the instant an
+    offset is counted from, rather than leaving the reader to guess. ``None``
+    whenever ``display_time_anchor_ns`` is ``None``."""
+
     visualizer_state: Optional[dict[str, Any]] = None
     """State of the visualizer, when the user composed the message from the
     visualizer view. A relatively opaque JSON blob."""

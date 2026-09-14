@@ -379,15 +379,12 @@ class Metric:
     def get_by_session(
         cls,
         session_id: str,
-        owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> list["Metric"]:
         """Return every metric published to ``session_id``.
 
         Args:
             session_id: Session whose metrics to fetch.
-            owner_org_id: Organization that owns the session. Defaults to the
-                authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
                 configured in the environment.
 
@@ -403,7 +400,6 @@ class Metric:
         roboto_client = RobotoClient.defaulted(roboto_client)
         records = roboto_client.get(
             f"v1/metrics/session/{session_id}/",
-            owner_org_id=owner_org_id,
         ).to_record_list(MetricRecord)
         return [cls(r, roboto_client) for r in records]
 
@@ -420,6 +416,7 @@ class Metric:
         include_session_ids: typing.Union[list[str], NotSetType] = NotSet,
         include_invocation_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet,
         condition: typing.Optional[ConditionType] = None,
+        group_by: typing.Optional[str] = None,
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Metric", None, None]:
@@ -459,6 +456,11 @@ class Metric:
                 :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the accepted
                 fields, and for how collection conditions evaluate when a session belongs to
                 several collections or to none.
+            group_by: Field whose value each yielded data point carries under
+                :py:attr:`~roboto.domain.metrics.MetricRecord.group_key`, for separating the points
+                into a series per distinct value. Does not change which data points are returned;
+                see :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.group_by` for the accepted
+                fields.
             owner_org_id: Organization that owns the metric data. Defaults to
                 the authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
@@ -472,10 +474,10 @@ class Metric:
         Raises:
             :py:exc:`~roboto.exceptions.RobotoNotFoundException`: No metric
                 with this ``name`` exists in the organization.
-            :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`: ``condition``
-                references a field or comparator the request does not accept, or a custom field
-                that is either undefined in your organization or defined but not in the ``Ready``
-                state.
+            :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`: ``condition`` or
+                ``group_by`` references a field or comparator the request does not accept, or a
+                custom field that is either undefined in your organization or defined but not in
+                the ``Ready`` state.
 
         Examples:
             Query a metric over a single day, passing ``datetime`` directly:
@@ -539,6 +541,13 @@ class Metric:
             ...     ),
             ... ):
             ...     print(m.session_id, m.value)
+
+            Separate the data points by the device that published them:
+
+            >>> from collections import defaultdict
+            >>> by_device = defaultdict(list)
+            >>> for m in Metric.query(name="cpu.usage_max", group_by="device.device_id"):
+            ...     by_device[m.group_key].append(m.value)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = QueryMetricsRequest(
@@ -552,6 +561,7 @@ class Metric:
             include_session_ids=include_session_ids,
             include_invocation_ids=include_invocation_ids,
             condition=condition,
+            group_by=group_by,
         )
         next_token: typing.Optional[str] = None
         while True:
@@ -584,6 +594,7 @@ class Metric:
         include_session_ids: typing.Union[list[str], NotSetType] = NotSet,
         include_invocation_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet,
         condition: typing.Optional[ConditionType] = None,
+        group_by: typing.Optional[str] = None,
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> list[NumericAggregateMetricRecord]:
@@ -626,6 +637,13 @@ class Metric:
                 :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the accepted
                 fields, and for how collection conditions evaluate when a session belongs to
                 several collections or to none.
+            group_by: Split each period bucket by the distinct values of this field, one record
+                per (period, value) pair. Accepts ``device.device_id`` and String, Enum, or
+                Boolean custom fields on sessions and devices (``session.custom.<name>``,
+                ``device.custom.<name>``); any other field is rejected. Data points carrying no
+                value for the field come back under a null
+                :py:attr:`~roboto.domain.metrics.NumericAggregateMetricRecord.group_key` rather
+                than being dropped. Defaults to no split.
             owner_org_id: Organization that owns the metric data. Defaults to
                 the authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
@@ -634,15 +652,17 @@ class Metric:
         Returns:
             One :py:class:`NumericAggregateMetricRecord` per period bucket that
             contains at least one observation, sorted by ``start_time``
-            ascending.
+            ascending. Under ``group_by``, one per (bucket, distinct value)
+            pair instead, each naming its value in ``group_key``.
 
         Raises:
             :py:exc:`~roboto.exceptions.RobotoNotFoundException`: No metric
                 with this ``name`` exists in the organization.
             :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`: ``condition``
-                references a field or comparator the request does not accept, or a custom field
-                that is either undefined in your organization or defined but not in the ``Ready``
-                state.
+                references a field or comparator the request does not accept; ``condition`` or
+                ``group_by`` references a custom field that is either undefined in your
+                organization or defined but not in the ``Ready`` state; or ``group_by`` names a
+                field that cannot be a series.
 
         Examples:
             Daily max CPU usage over a month, passing ``datetime`` directly:
@@ -685,6 +705,20 @@ class Metric:
             ... )
             >>> for bucket in delivery_buckets:
             ...     print(bucket.start_time, bucket.end_time, bucket.value, bucket.total)
+
+            One line per robot rather than one line for the fleet. Buckets aggregating data points
+            published without a device come back with ``group_key`` set to ``None``:
+
+            >>> per_device = Metric.aggregate(
+            ...     name="cpu.usage_max",
+            ...     period=AggregationPeriod.Daily,
+            ...     aggregation=NumericAggregation.Max,
+            ...     start_time="2026-05-01T00:00:00Z",
+            ...     end_time="2026-06-01T00:00:00Z",
+            ...     group_by="device.device_id",
+            ... )
+            >>> for bucket in per_device:
+            ...     print(bucket.group_key, bucket.start_time, bucket.value)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = AggregateMetricsRequest(
@@ -698,6 +732,7 @@ class Metric:
             include_session_ids=include_session_ids,
             include_invocation_ids=include_invocation_ids,
             condition=condition,
+            group_by=group_by,
         )
         return (
             roboto_client.post(
@@ -745,6 +780,10 @@ class Metric:
     @property
     def invocation_id(self) -> typing.Optional[str]:
         return self.__record.invocation_id
+
+    @property
+    def group_key(self) -> typing.Optional[str]:
+        return self.__record.group_key
 
     @property
     def published(self) -> datetime.datetime:

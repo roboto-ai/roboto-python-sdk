@@ -103,7 +103,6 @@ class Topic:
     def from_id(
         cls,
         topic_id: str,
-        owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
         session_context: typing.Optional[SessionContext] = None,
     ) -> Topic:
@@ -111,8 +110,6 @@ class Topic:
 
         Args:
             topic_id: Identifier of the topic (``ti_*``).
-            owner_org_id: Organization that owns the topic. If omitted,
-                defaults to the caller's organization.
             roboto_client: Roboto client instance. Uses the default if omitted.
             session_context: Optional. When provided, scopes topic operations to the
                 session's files and defaults the read window to the session's
@@ -122,8 +119,8 @@ class Topic:
             The loaded topic.
 
         Raises:
-            RobotoNotFoundException: No topic with this id exists in the org.
-            RobotoUnauthorizedException: The caller cannot search topics in the org.
+            RobotoNotFoundException: No topic with this id exists.
+            RobotoUnauthorizedException: The caller lacks topic view access in the org that owns the topic.
 
         Examples:
             >>> from roboto.experimental.topics import Topic
@@ -134,7 +131,6 @@ class Topic:
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(
             f"v2/topics/id/{topic_id}",
-            owner_org_id=owner_org_id,
         ).to_record(TopicIdentityRecord)
         return cls(record, roboto_client, session_context=session_context)
 
@@ -532,7 +528,6 @@ class Topic:
 
         return self.__roboto_client.get(
             f"v2/topics/schema/id/{plan.schema_.schema_id}/fields",
-            owner_org_id=self.org_id,
         ).to_record_list(SchemaFieldRecord)
 
     def __resolve_read_plan(
@@ -578,7 +573,6 @@ class Topic:
         return self.__roboto_client.post(
             f"v2/topics/id/{self.topic_id}/read-plan",
             data=request,
-            owner_org_id=self.org_id,
         ).to_record(ReadPlan)
 
     def __prefetch_signed_urls(

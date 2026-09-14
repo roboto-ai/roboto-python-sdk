@@ -53,6 +53,7 @@ from .record import (
     RepresentationSelector,
     RepresentationStorageFormat,
     TopicRecord,
+    TopicTimeBounds,
 )
 from .topic_data_service import TopicDataService
 from .topic_reader import Timestamp
@@ -527,6 +528,47 @@ class Topic:
             else:
                 break
 
+    @classmethod
+    def get_time_bounds_by_association(
+        cls,
+        association: Association,
+        owner_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> TopicTimeBounds:
+        """Get the earliest start and latest end across every topic of a file or dataset.
+
+        The same aggregate you would reach by folding ``start_time`` and ``end_time`` over the
+        topics of that file or dataset, computed server-side in one request instead of one per
+        page of topics.
+
+        Args:
+            association: The file or dataset whose topics are aggregated, e.g.
+                ``Association.file("file_abc123")``.
+            owner_org_id: Organization ID to scope the lookup. If None, uses caller's org.
+            roboto_client: HTTP client for API communication. If None, uses the default client.
+
+        Returns:
+            Bounds in nanoseconds since the Unix epoch. Both fields are None when the
+            association holds no topics, and either is None when no topic of the association
+            carries that timestamp.
+
+        Raises:
+            RobotoUnauthorizedException: Caller lacks permission to access the file or dataset.
+
+        Examples:
+            >>> from roboto.association import Association
+            >>> bounds = Topic.get_time_bounds_by_association(Association.file("file_abc123"))
+            >>> print(bounds.start_time, bounds.end_time)
+            1722870127699468923 1722870187004821001
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        encoded_association = association.url_encode()
+
+        return roboto_client.get(
+            f"v1/topics/association/{encoded_association}/time-bounds",
+            owner_org_id=owner_org_id,
+        ).to_record(TopicTimeBounds)
+
     def __init__(
         self,
         record: TopicRecord,
@@ -841,11 +883,7 @@ class Topic:
         if self.schema_id is None:
             return None
 
-        return TopicSchema.from_id(
-            self.schema_id,
-            owner_org_id=self.org_id,
-            roboto_client=self.__roboto_client,
-        )
+        return TopicSchema.from_id(self.schema_id, roboto_client=self.__roboto_client)
 
     def get_data(
         self,

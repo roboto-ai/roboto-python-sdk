@@ -46,21 +46,19 @@ class TopicSchema:
     def from_id(
         cls,
         schema_id: str,
-        owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "TopicSchema":
         """Retrieve a schema by its ID.
 
         Args:
             schema_id: Unique identifier of the schema to retrieve.
-            owner_org_id: Organization that owns the schema. Required when the caller belongs to multiple orgs.
             roboto_client: HTTP client for API communication. If None, uses the default client.
 
         Returns:
             A :py:class:`TopicSchema` for the given ``schema_id``.
 
         Raises:
-            RobotoNotFoundException: No schema with this ID exists in the scoped org.
+            RobotoNotFoundException: No schema with this ID exists.
 
         Examples:
             >>> from roboto.domain.topics import TopicSchema
@@ -71,11 +69,9 @@ class TopicSchema:
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(
             f"v2/topics/schema/id/{schema_id}",
-            owner_org_id=owner_org_id,
         ).to_record(TopicSchemaRecord)
         fields = roboto_client.get(
             f"v2/topics/schema/id/{schema_id}/fields",
-            owner_org_id=owner_org_id,
         ).to_record_list(SchemaFieldRecord)
         return cls(record, fields, roboto_client)
 

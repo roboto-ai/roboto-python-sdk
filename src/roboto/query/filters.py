@@ -39,11 +39,11 @@ that work already has to visit every consumer of ``Comparator``.
 """
 
 import datetime
-import enum
 import typing
 
 import pydantic
 
+from ..compat import StrEnum
 from ..principal import RobotoPrincipalType
 from .conditions import Comparator
 
@@ -61,7 +61,7 @@ MetricField: typing.TypeAlias = typing.Annotated[str, pydantic.StringConstraints
 """A metric's dot-delimited path, carrying its ``metric.`` prefix."""
 
 
-class FilterOnlyComparator(enum.StrEnum):
+class FilterOnlyComparator(StrEnum):
     """Operators a saved filter needs that :class:`~roboto.query.Comparator` cannot express.
 
     Every member is a gap in the query language, and this enum is the list of them. It is
@@ -90,7 +90,7 @@ class FilterOnlyComparator(enum.StrEnum):
     """
 
 
-class IdentityComparator(enum.StrEnum):
+class IdentityComparator(StrEnum):
     """Operators over a principal-valued field, where the operator names a principal type.
 
     An audit column such as ``created_by`` stores a fully-qualified principal —
@@ -166,7 +166,7 @@ IDENTITY_PRESET_COMPARATORS: typing.Final[frozenset[IdentityComparator]] = froze
 """The ``IS_ANY_<TYPE>`` half. Valueless: the comparator alone carries the predicate."""
 
 
-class FilterMatchMode(enum.StrEnum):
+class FilterMatchMode(StrEnum):
     """How separate filters combine."""
 
     And = "AND"

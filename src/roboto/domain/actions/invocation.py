@@ -34,6 +34,18 @@ from .invocation_record import (
     SourceProvenance,
 )
 
+_QUERYABLE_DATA_SOURCE_FIELDS = frozenset({"data_source_id", "data_source_type"})
+"""Condition fields naming an invocation's data source.
+
+:py:class:`~roboto.domain.actions.InvocationRecord` nests both under ``data_source``, but the
+invocations query API accepts them only in this flat form: it refuses a condition on
+``data_source`` or on ``data_source.data_source_id``.
+
+``data_source_id`` matches an invocation's recorded data source, which is set only when its
+invoker names one. ``data_source_type`` matches every invocation for as long as
+:py:class:`~roboto.domain.actions.InvocationDataSourceType` has a single member.
+"""
+
 
 class Invocation:
     """An instance of an execution of an action, initiated manually by a user or automatically by a trigger.
@@ -115,6 +127,8 @@ class Invocation:
 
         Raises:
             ValueError: If the query specification contains unknown fields.
+            RobotoIllegalArgumentException: If the query filters or sorts on a field the
+                invocations API does not accept.
             RobotoUnauthorizedException: If the caller lacks permission to query invocations.
 
         Examples:
@@ -123,22 +137,43 @@ class Invocation:
             >>> for invocation in Invocation.query():
             ...     print(f"Invocation: {invocation.id}")
 
+            Query invocations whose data source is a given dataset:
+
+            >>> from roboto.query import Comparator, Condition, QuerySpecification
+            >>> spec = QuerySpecification(
+            ...     condition=Condition(
+            ...         field="data_source_id",
+            ...         comparator=Comparator.Equals,
+            ...         value="ds_abc123",
+            ...     )
+            ... )
+            >>> for invocation in Invocation.query(spec):
+            ...     print(invocation.id)
+
             Query completed invocations:
 
-            >>> from roboto.query import QuerySpecification
             >>> from roboto.domain.actions import InvocationStatus
-            >>> spec = QuerySpecification().where("current_status").equals(InvocationStatus.Completed)
+            >>> spec = QuerySpecification(
+            ...     condition=Condition(
+            ...         field="last_status",
+            ...         comparator=Comparator.Equals,
+            ...         value=InvocationStatus.Completed.value,
+            ...     )
+            ... )
             >>> completed = list(Invocation.query(spec))
 
-            Query recent invocations:
+            Query the ten most recent invocations. Neither ``limit`` nor ``max_results`` caps an
+            invocation query, so take the first ten from the generator:
 
-            >>> spec = QuerySpecification().order_by("created", ascending=False).limit(10)
-            >>> recent = list(Invocation.query(spec))
+            >>> import itertools
+            >>> from roboto.query import SortDirection
+            >>> spec = QuerySpecification(sort_by="created", sort_direction=SortDirection.Descending)
+            >>> recent = list(itertools.islice(Invocation.query(spec), 10))
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         spec = spec or QuerySpecification()
 
-        known = set(InvocationRecord.model_fields.keys())
+        known = set(InvocationRecord.model_fields.keys()) | _QUERYABLE_DATA_SOURCE_FIELDS
         actual = set()
         for field in spec.fields():
             # Support dot notation for nested fields
