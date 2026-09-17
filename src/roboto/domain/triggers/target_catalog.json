@@ -1,0 +1,14 @@
+{
+  "invoke_action": {
+    "subject_types": [
+      "dataset",
+      "file"
+    ]
+  },
+  "start_agent": {
+    "subject_types": null
+  },
+  "send_slack_message": {
+    "subject_types": null
+  }
+}

@@ -17,25 +17,14 @@ time — a relative window resolves to fixed instants, a range becomes two compa
 multi-select becomes an OR group — and the flattening has no inverse. A View storing the
 translated query would show the week it was saved, forever, presented as though it were live.
 
-**This model is temporary by design.** :class:`FilterOnlyComparator` lists exactly what
-``Comparator`` cannot yet express. As that gap closes (ENG-2957), members are deleted from it
-one at a time; when it is empty, a saved filter is expressible as a plain ``QuerySpecification``
-and this module can be retired in favour of one.
+:class:`FilterOnlyComparator` lists exactly what ``Comparator`` cannot express. Members leave
+it as ``Comparator`` grows to cover them; when it is empty, a saved filter is expressible as a
+plain ``QuerySpecification``.
 
-**On the per-variant comparator lists below.** ``roboql.model.core`` declares its own
-``*_FIELD_COMPARATORS`` sets over the same ``Comparator`` enum, and four of them
-(``STRING_``, ``NUMERIC_``, ``ENUM_``, ``TAG_``) are identical to the sets here. The
-overlap is not accidental, but the two are answering different questions: roboql states
-what the *query language* supports for a field type, while these state what the *filter
-UI* offers, which is deliberately narrower — a date filter presents ``<``, ``>`` and
-``BETWEEN`` where ``DATETIME_FIELD_COMPARATORS`` carries all six ordering and equality
-operators, and a boolean presents ``EQUALS`` alone. So they are expected to diverge
-further, not converge.
-
-They cannot currently be shared in any case: ``roboql`` imports from ``roboto``, so
-reusing its constants here would be a cycle. Merging them means moving those constants
-into this package, which is tracked as ENG-2982 and is best done alongside ENG-2957 —
-that work already has to visit every consumer of ``Comparator``.
+**On the per-variant comparator lists below.** They state what a filter control offers for a
+field type, which is narrower than what the query language accepts for the same field: a date
+filter presents ``<``, ``>`` and ``BETWEEN`` where a query supports all six ordering and
+equality operators, and a boolean filter presents ``EQUALS`` alone.
 """
 
 import datetime
@@ -51,8 +40,8 @@ METRIC_FIELD_PREFIX: typing.Final[str] = "metric."
 """Prefix distinguishing a user-defined metric from an ordinary numeric property.
 
 Metric filters store the prefixed form so that ``field`` means the same thing here as it does
-in a :class:`~roboto.query.Condition`, and so the eventual migration to a query copies the
-field across rather than special-casing it.
+in a :class:`~roboto.query.Condition`, and translating a filter into a query copies the field
+across rather than special-casing it.
 """
 
 METRIC_FIELD_PATTERN: typing.Final[str] = r"^metric\..+"
@@ -64,13 +53,12 @@ MetricField: typing.TypeAlias = typing.Annotated[str, pydantic.StringConstraints
 class FilterOnlyComparator(StrEnum):
     """Operators a saved filter needs that :class:`~roboto.query.Comparator` cannot express.
 
-    Every member is a gap in the query language, and this enum is the list of them. It is
-    deliberately the complement of ``Comparator`` rather than a superset: a member here that
-    ``Comparator`` *can* express is a stale entry, and a test asserts the two never overlap.
+    Every member is a gap in the query language, and this enum is the list of them. It is the
+    complement of ``Comparator``, never a superset: a member here that ``Comparator`` *can*
+    express is a stale entry.
 
-    The intended lifecycle is deletion. As ``Comparator`` grows to cover these (ENG-2957),
-    members are removed one at a time; the wire values are unchanged by that move, so filters
-    saved beforehand keep parsing. When this enum is empty, the work is done.
+    Members are removed one at a time as ``Comparator`` grows to cover them. The wire values do
+    not change when that happens, so filters saved beforehand keep parsing.
     """
 
     Between = "BETWEEN"
@@ -103,9 +91,9 @@ class IdentityComparator(StrEnum):
     value-bearing ``IS_<TYPE>`` and a valueless ``IS_ANY_<TYPE>``.
 
     Separate from :class:`FilterOnlyComparator` because these are not gaps in the query
-    language. Both halves are expressible today — ``IS_<TYPE>`` as ``EQUALS`` against each
-    picked principal, ``IS_ANY_<TYPE>`` as ``LIKE '<type>:%'`` — so ENG-2957 will never delete
-    them. They are a filter-UI affordance, and they outlive the gap enum.
+    language. Both halves are expressible as a query today — ``IS_<TYPE>`` as ``EQUALS`` against
+    each picked principal, ``IS_ANY_<TYPE>`` as ``LIKE '<type>:%'`` — so they are never removed.
+    They are a filter-control affordance, and they outlive the gap enum.
     """
 
     # Value-bearing: match specific principals of the type. The values are principals of that
@@ -242,9 +230,9 @@ def _is_valueless(comparator: typing.Any) -> bool:
 def _principal_type(value: str) -> typing.Optional[RobotoPrincipalType]:
     """The principal type a ``<type>:<id>`` string names, or ``None`` if it names none.
 
-    Deliberately not :py:meth:`roboto.principal.RobotoPrincipal.from_string`, which indexes
-    into the split and raises ``IndexError`` for a value carrying no colon. Inside a validator
-    that would surface as a 500 rather than the rejection it is.
+    Not :py:meth:`roboto.principal.RobotoPrincipal.from_string`, which indexes into the split
+    and raises ``IndexError`` for a value carrying no colon; inside a validator that surfaces
+    as a server error rather than as the rejection it is.
     """
     principal_type, separator, identifier = value.partition(":")
     if not separator or not identifier:
@@ -339,9 +327,8 @@ class MetricFilter(_FilterBase):
     Denormalized for display: the filter chip renders it beside the value ("path_deviation >
     1.5 m") without looking the definition up. ``None`` when the definition declares no unit.
 
-    Being a copy, it goes stale if the definition's unit later changes — a saved View would
-    render the old one. Tolerable while it is only a label, and an argument for ``view_v2``
-    resolving it from the definition rather than storing it. See ENG-2957.
+    Being a copy, it goes stale if the definition's unit later changes: a saved View renders
+    the unit the filter was built with, not the current one.
     """
     comparator: typing.Literal[
         Comparator.Equals,

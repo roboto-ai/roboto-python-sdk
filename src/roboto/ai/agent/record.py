@@ -5,41 +5,26 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import datetime
-import re
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 import pydantic
 
 from ...compat import StrEnum
 from ...domain.collections.record import CollectionResourceType
 from ...sentinels import NotSet, NotSetType
+from ...templating import VARIABLE_NAME_RE, collect_placeholders
 from ..agent_thread.record import StartAgentThreadRequest, ThreadVisibility
 from ..core import AnalysisScope
 
-_PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}")
-"""Recognizes ``{{name}}`` placeholders. Names start with a letter or
-underscore; dots are allowed so dotted names (``{{dataset.id}}``,
-``{{dataset.name}}``) work as a namespace convention for entity-bound
-expansion by upstream context providers (triggers, smart-UI auto-fill).
-The resolver treats the full dotted string as one opaque key — a caller
-holding an entity flattens it into ``{"dataset.id": ds.id, ...}`` before
-invoking."""
-
-_VARIABLE_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
-"""Mirrors :data:`_PLACEHOLDER_RE` so every declared variable name is
-referenceable by ``{{name}}``."""
-
 
 class TemplateVariableType(StrEnum):
-    """How a variable is interpreted by the invoke-page UI and the invoke-time
-    existence validator.
+    """How a variable's value is interpreted when an agent is launched.
 
-    The substitution engine itself is type-agnostic: every value gets spliced
-    in as a string. The type drives two separate consumers: the UI picks a
-    richer input control (dataset picker, device picker), and the service-side
-    invoke handler runs an existence check on typed values so a bad id fails
-    at the invoke boundary instead of inside the agent's first tool call.
-    See :data:`roboto_service.routes.ai_router._VALUE_VALIDATORS`.
+    Substitution itself is type-agnostic: every value is spliced in as a string. The
+    type drives two things a caller can observe — the Roboto web app picks a richer
+    input control (dataset picker, device picker), and a typed value is checked for
+    existence when the agent is launched, so a bad id is rejected up front rather than
+    inside the agent's first tool call.
     """
 
     STRING = "string"
@@ -72,8 +57,8 @@ class TemplateVariable(pydantic.BaseModel):
     """
 
     name: str
-    """Lookup key for substitution. Must match :data:`_VARIABLE_NAME_RE`; see
-    that pattern for the dotted-name namespace convention. Two variables sharing
+    """Lookup key for substitution. Must match :data:`~roboto.templating.VARIABLE_NAME_RE`;
+    see that pattern for the dotted-name namespace convention. Two variables sharing
     a prefix (``dataset.id`` + ``dataset.name``) without an upstream expander
     produce two unlinked inputs at invoke time — that's a UI-authoring footgun,
     not an SDK contract."""
@@ -101,9 +86,9 @@ class TemplateVariable(pydantic.BaseModel):
     @pydantic.field_validator("name")
     @classmethod
     def _validate_name(cls, value: str) -> str:
-        if not _VARIABLE_NAME_RE.match(value):
+        if not VARIABLE_NAME_RE.match(value):
             raise ValueError(
-                f"TemplateVariable name {value!r} must match {_VARIABLE_NAME_RE.pattern!r}: "
+                f"TemplateVariable name {value!r} must match {VARIABLE_NAME_RE.pattern!r}: "
                 "start with a letter or underscore, then letters, digits, underscores, or dots. "
                 "Dotted names are a namespace convention for entity-bound expansion at the "
                 "caller boundary; the resolver itself treats the full dotted name as one opaque key."
@@ -165,8 +150,8 @@ class AgentRecord(pydantic.BaseModel):
     request_template: StartAgentThreadRequest
     """The body that will be cloned and resolved into a real
     :class:`StartAgentThreadRequest` at invoke time. Any string leaf may
-    contain ``{{name}}`` placeholders; non-string fields cannot be templated
-    in v1 (the substitution engine never visits them)."""
+    contain ``{{name}}`` placeholders; non-string fields cannot be templated,
+    because substitution visits string leaves only."""
 
     variables: list[TemplateVariable] = pydantic.Field(default_factory=list)
     """Declared variables. The set of names here must equal the set of
@@ -227,31 +212,7 @@ def extract_placeholders(body: StartAgentThreadRequest) -> set[str]:
     needing per-field logic. Only string *values* are scanned; dict keys are
     intentionally ignored so key-collision footguns never arise.
     """
-    raw = body.model_dump(mode="json")
-    found: set[str] = set()
-    _collect_placeholders(raw, found)
-    return found
-
-
-def _collect_placeholders(node: Any, sink: set[str]) -> None:
-    if isinstance(node, str):
-        for match in _PLACEHOLDER_RE.finditer(node):
-            sink.add(match.group(1))
-    elif isinstance(node, list):
-        for item in node:
-            _collect_placeholders(item, sink)
-    elif isinstance(node, dict):
-        for key, value in node.items():
-            # The resolver never substitutes into dict keys (templating a key
-            # would silently produce duplicate keys that overwrite each other),
-            # so reject placeholder syntax in keys at save time rather than
-            # passing it through as a literal.
-            if isinstance(key, str) and _PLACEHOLDER_RE.search(key):
-                raise ValueError(
-                    f"Placeholder syntax is not permitted in dict keys: found {key!r}. "
-                    "Move the ``{{...}}`` placeholder into the value or rename the key."
-                )
-            _collect_placeholders(value, sink)
+    return collect_placeholders(body.model_dump(mode="json"))
 
 
 class CreateAgentRequest(pydantic.BaseModel):

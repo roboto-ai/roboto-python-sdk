@@ -15,8 +15,10 @@ The main classes in this module are:
 
 - :py:class:`~roboto.domain.actions.Action`: A reusable function to process data
 - :py:class:`~roboto.domain.actions.Invocation`: An execution instance of an action
-- :py:class:`~roboto.domain.actions.Trigger`: A rule that automatically invokes actions
-- :py:class:`~roboto.domain.actions.ScheduledTrigger`: A trigger that invokes an action periodically
+- :py:class:`~roboto.domain.actions.Trigger` and
+  :py:class:`~roboto.domain.actions.ScheduledTrigger`: the legacy trigger model, deprecated.
+  Triggers now live in :mod:`roboto.domain.triggers`; the classes here remain only so
+  existing code keeps working, and read only the triggers the old model can express.
 
 Examples:
     Basic action invocation:

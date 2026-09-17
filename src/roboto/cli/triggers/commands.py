@@ -1,124 +1,82 @@
-# Copyright (c) 2024 Roboto Technologies, Inc.
+# Copyright (c) 2026 Roboto Technologies, Inc.
 #
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import argparse
-import json
-from typing import Any, Optional
+"""The ``roboto triggers`` command set: subscribe to platform events or a schedule,
+filter with a condition, and dispatch one or more targets."""
 
-from ...domain import actions
+import argparse
+import datetime
+import json
+import typing
+
+import pydantic
+
+from ...domain.platform_events import (
+    DEFAULT_PLATFORM_EVENT_CATALOG,
+    OncePer,
+    PlatformEventType,
+)
+from ...domain.triggers import (
+    Trigger,
+    TriggerDryRunGateStatus,
+    TriggerTargetSpec,
+)
 from ...query import (
-    Comparator,
     Condition,
     ConditionGroup,
-    ConditionOperator,
     ConditionType,
-    QuerySpecification,
-)
-from ...sentinels import (
-    NotSet,
-    is_set,
-    value_or_not_set,
 )
 from ..command import (
     JsonFileOrStrType,
-    KeyValuePairsAction,
     RobotoCommand,
     RobotoCommandSet,
 )
-from ..common_args import (
-    ActionTimeoutArg,
-    add_action_reference_arg,
-    add_compute_requirements_args,
-    add_container_parameters_args,
-    add_org_arg,
-    parse_compute_requirements,
-    parse_container_overrides,
-)
+from ..common_args import add_org_arg
 from ..context import CLIContext
 
 NAME_PARAM_HELP = "The unique name used to reference a trigger."
-ACTION_PARAM_HELP = "Partially or fully qualified reference to the action to be triggered."
 
 
-def parse_condition(args, context: CLIContext, parser: argparse.ArgumentParser) -> Optional[ConditionType]:
-    if args.condition_json and (args.required_tag or args.required_metadata):
-        parser.error(
-            "Can only specify '--condition-json' or a combination of '--required-tag' and "
-            + "'--required-metadata' expressions, providing both does not work."
-        )
-
-    if args.condition_json:
-        condition_json: dict[str, Any] = args.condition_json
-        if "operator" in condition_json.keys():
-            return ConditionGroup.model_validate(condition_json)
-        elif "comparator" in condition_json.keys():
-            return Condition.model_validate(condition_json)
-        else:
-            parser.error("Provided '--condition-json' could not be parsed as a Condition or a ConditionGroup.")
-
-    if args.required_tag or args.required_metadata:
-        conditions = []
-        if args.required_tag:
-            for tag in args.required_tag:
-                conditions.append(Condition(field="tags", comparator=Comparator.Contains, value=tag))
-
-        if args.required_metadata:
-            for key, value in args.required_metadata.items():
-                conditions.append(
-                    Condition(
-                        field=f"metadata.{key}",
-                        comparator=Comparator.Equals,
-                        value=value,
-                    )
-                )
-
-        return ConditionGroup(operator=ConditionOperator.And, conditions=conditions)
-
-    return None
+def _parse_condition(condition_json: typing.Optional[dict], parser: argparse.ArgumentParser) -> ConditionType | None:
+    if condition_json is None:
+        return None
+    if "operator" in condition_json:
+        return ConditionGroup.model_validate(condition_json)
+    if "comparator" in condition_json:
+        return Condition.model_validate(condition_json)
+    parser.error("Provided '--condition-json' could not be parsed as a Condition or a ConditionGroup.")
 
 
-def parse_overrides(
-    args, context: CLIContext, parser: argparse.ArgumentParser
-) -> tuple[Optional[actions.ComputeRequirements], Optional[actions.ContainerParameters]]:
-    if args.action is None:
-        return None, None
+_TARGETS_ADAPTER = pydantic.TypeAdapter(list[TriggerTargetSpec])
 
-    owner_org_id = args.action.owner if args.action.owner else args.org
-    action = actions.Action.from_name(
-        name=args.action.name,
-        digest=args.action.digest,
-        owner_org_id=owner_org_id,
-        roboto_client=context.roboto_client,
-    )
 
-    compute_requirement_overrides = parse_compute_requirements(args, action.compute_requirements)
-
-    container_overrides = parse_container_overrides(args, action.container_parameters)
-
-    return compute_requirement_overrides, container_overrides
+def _parse_targets(targets_json: typing.Any, parser: argparse.ArgumentParser) -> list[TriggerTargetSpec]:
+    if isinstance(targets_json, dict):
+        targets_json = [targets_json]
+    if not isinstance(targets_json, list):
+        parser.error("Provided '--targets-json' must be a JSON object or a JSON list of target specs.")
+    try:
+        return _TARGETS_ADAPTER.validate_python(targets_json)
+    except pydantic.ValidationError as exc:
+        parser.error(f"Provided '--targets-json' is not a valid list of target specs: {exc}")
 
 
 def create(args, context: CLIContext, parser: argparse.ArgumentParser):
-    condition = parse_condition(args, context, parser)
-
-    compute_requirement_overrides, container_overrides = parse_overrides(args, context, parser)
-
-    trigger = actions.Trigger.create(
+    if args.schedule is None and (not args.on or args.once_per is None):
+        parser.error("Provide either '--schedule', or '--on' together with '--once-per'.")
+    if args.schedule is not None and (args.on or args.once_per is not None):
+        parser.error("'--schedule' cannot be combined with '--on' or '--once-per'.")
+    trigger = Trigger.create(
         name=args.name,
-        action_name=args.action.name,
-        action_owner_id=args.action.owner,
-        action_digest=args.action.digest,
-        additional_inputs=args.additional_inputs,
-        compute_requirement_overrides=compute_requirement_overrides,
-        container_parameter_overrides=container_overrides,
-        condition=condition,
-        for_each=args.for_each,
-        parameter_values=args.parameter_value,
-        required_inputs=args.input_data,
-        timeout=args.timeout,
+        events=[PlatformEventType(event) for event in args.on] if args.on else None,
+        once_per=OncePer(args.once_per) if args.once_per is not None else None,
+        schedule=args.schedule,
+        targets=_parse_targets(args.targets_json, parser),
+        condition=_parse_condition(args.condition_json, parser),
+        enabled=not args.disabled,
         caller_org_id=args.org,
         roboto_client=context.roboto_client,
     )
@@ -127,334 +85,199 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 def create_setup_parser(parser):
     parser.add_argument("--name", type=str, required=True, help=NAME_PARAM_HELP)
-    add_action_reference_arg(
-        parser,
-        positional=False,
-        required=True,
-        arg_help=ACTION_PARAM_HELP,
-    )
     parser.add_argument(
-        "--required-inputs",
-        required=True,
-        dest="input_data",
-        type=str,
+        "--on",
         nargs="+",
         action="extend",
-        help="""\
-        One or many file patterns for data to download from the data source. Examples:
-        front camera images, ``--required-inputs '**/cam_front/*.jpg'``;
-        front and rear camera images, ``--required-inputs'**/cam_front/*.jpg' --required-inputs '**/cam_rear/*.jpg'``;
-        all data, ``--required-inputs '**/*'``.
-        """,
+        choices=sorted(member.value for member in DEFAULT_PLATFORM_EVENT_CATALOG.subscribable_types()),
+        help="One or more platform event types the trigger subscribes to (with '--once-per').",
     )
     parser.add_argument(
-        "--additional-inputs",
-        dest="additional_inputs",
+        "--once-per",
+        choices=[member.value for member in OncePer],
+        help="What the trigger fires at most once per: the occurrence, or an entity the event names.",
+    )
+    parser.add_argument(
+        "--schedule",
         type=str,
-        nargs="+",
-        action="extend",
-        help="""\
-        One or many file patterns for data to download from the data source which is NOT considered as part of
-        trigger evaluation. Example: front camera images, ``--additional-inputs '**/cam_front/*.jpg'``.""",
+        help="A five-field cron expression (UTC) to fire on instead of events, e.g. '0 9 * * 1'.",
     )
     parser.add_argument(
-        "--parameter-value",
-        required=False,
-        metavar="<PARAMETER_NAME>=<PARAMETER_VALUE>",
-        nargs="*",
-        action=KeyValuePairsAction,
+        "--targets-json",
+        required=True,
+        type=JsonFileOrStrType,
         help=(
-            "Zero or more ``<parameter_name>=<parameter_value>`` pairs to pass to the invocation. "
-            "``parameter_value`` is parsed as JSON."
+            "Inline JSON or a path to a JSON file with the trigger's target spec(s): one object or a list, "
+            'each discriminated on "type" (invoke_action | start_agent | send_slack_message). Example: '
+            '\'[{"type": "start_agent", "target_id": "analyze", "agent_id": "ag_123"}]\'.'
         ),
-    )
-    parser.add_argument(
-        "--timeout",
-        required=False,
-        action=ActionTimeoutArg,
-        help="Optional timeout for an action in minutes, defaults to 30 minutes or 12 hours depending on tier.",
-    )
-    add_org_arg(parser=parser)
-    add_compute_requirements_args(parser)
-    add_container_parameters_args(parser)
-    parser.add_argument(
-        "--for-each",
-        type=actions.TriggerForEachPrimitive,
-        help="Primitive against which this trigger will spawn invocations.",
-        default=actions.TriggerForEachPrimitive.Dataset,
-        choices=[x.value for x in actions.TriggerForEachPrimitive],
     )
     parser.add_argument(
         "--condition-json",
         type=JsonFileOrStrType,
-        help="Inline JSON or a reference to a JSON file "
-        + "which expresses a dataset metadata and tag condition which must be met for this trigger "
-        + "to run against a given dataset. If provided, 'required-tag' and 'required-metadata' cannot "
-        + "be provided.",
+        help="Inline JSON or a path to a JSON file with a Condition/ConditionGroup over the event namespace.",
     )
-    parser.add_argument(
-        "--required-tag",
-        nargs="*",
-        action="extend",
-        help="Dataset tags which must be present for "
-        + "this trigger to run against a given dataset. If provided, these are used to construct a "
-        + "trigger condition, and as such they cannot be used if 'condition-json' is specified.",
-    )
-    parser.add_argument(
-        "--required-metadata",
-        nargs="*",
-        action=KeyValuePairsAction,
-        help="Dataset metadata "
-        + "``key=value`` conditions which all must be met for this trigger to run against a given dataset. "
-        + "If provided, these are used to construct a trigger condition, and as such they cannot be "
-        + "used if ``condition-json`` is specified.",
-    )
+    parser.add_argument("--disabled", action="store_true", help="Create the trigger disabled.")
+    add_org_arg(parser=parser)
 
 
 def update(args, context: CLIContext, parser: argparse.ArgumentParser):
-    if args.enabled and args.disabled:
-        parser.error("Cannot set both --enabled and --disabled!")
-
-    if (args.condition_json or args.required_tag or args.required_metadata) and args.clear_condition:
-        parser.error(
-            "Cannot specify a condition via '--required-tag', '--required-metadata', or '--condition-json', and "
-            + "also clear the condition with '--clear-condition'."
-        )
-
-    condition = parse_condition(args, context, parser)
-
-    compute_requirement_overrides, container_overrides = parse_overrides(args, context, parser)
-
-    trigger = actions.Trigger.from_name(
-        name=args.trigger_name,
-        owner_org_id=args.org,
-        roboto_client=context.roboto_client,
-    )
-
-    action_name = args.action.name if args.action else None
-    action_owner_id = args.action.owner if args.action else None
-    action_digest = args.action.digest if args.action else None
-    updates: dict[str, Any] = {
-        "action_name": value_or_not_set(action_name),
-        "action_owner_id": value_or_not_set(action_owner_id),
-        "action_digest": value_or_not_set(action_digest),
-        "required_inputs": value_or_not_set(args.required_inputs),
-        "condition": None if args.clear_condition else value_or_not_set(condition),
-        "additional_inputs": value_or_not_set(args.additional_inputs),
-        "parameter_values": value_or_not_set(args.parameter_value),
-        "compute_requirement_overrides": value_or_not_set(compute_requirement_overrides),
-        "container_parameter_overrides": value_or_not_set(container_overrides),
-        "for_each": value_or_not_set(args.for_each),
-        "timeout": args.timeout,
-    }
-
-    if args.enabled:
-        updates["enabled"] = True
-    elif args.disabled:
-        updates["enabled"] = False
-    else:
-        updates["enabled"] = NotSet
-
-    compacted_updates: dict[str, Any] = {k: v for k, v in updates.items() if is_set(v)}
-    update_trigger_request = actions.UpdateTriggerRequest.model_validate(compacted_updates)
-    trigger.update(**update_trigger_request.model_dump(exclude_unset=True))
+    if args.schedule is not None and (args.on or args.once_per is not None):
+        parser.error("'--schedule' cannot be combined with '--on' or '--once-per'.")
+    trigger = Trigger.from_name(name=args.name, owner_org_id=args.org, roboto_client=context.roboto_client)
+    updates: dict[str, typing.Any] = {}
+    if args.on:
+        updates["events"] = [PlatformEventType(event) for event in args.on]
+    if args.once_per is not None:
+        updates["once_per"] = OncePer(args.once_per)
+    if args.schedule is not None:
+        updates["schedule"] = args.schedule
+    if args.targets_json is not None:
+        updates["targets"] = _parse_targets(args.targets_json, parser)
+    if args.clear_condition:
+        updates["condition"] = None
+    elif args.condition_json is not None:
+        updates["condition"] = _parse_condition(args.condition_json, parser)
+    if not updates:
+        parser.error("Provide at least one field to update.")
+    trigger.update(**updates)
     print(json.dumps(trigger.to_dict(), indent=2))
 
 
 def update_setup_parser(parser):
-    parser.add_argument("trigger_name", type=str, help=NAME_PARAM_HELP)
-    add_action_reference_arg(
-        parser,
-        positional=False,
-        required=False,
-        arg_help=ACTION_PARAM_HELP,
-    )
+    parser.add_argument("name", type=str, help=NAME_PARAM_HELP)
     parser.add_argument(
-        "--required-inputs",
-        dest="required_inputs",
-        type=str,
+        "--on",
         nargs="+",
         action="extend",
-        help="""\
-        One or many file patterns for data to download from the data source. Examples:
-        front camera images, ``--required-inputs '**/cam_front/*.jpg'``;
-        front and rear camera images, ``--required-inputs '**/cam_front/*.jpg' --required-inputs '**/cam_rear/*.jpg'``;
-        all data, ``--required-inputs '**/*'``.
-        """,
+        choices=sorted(member.value for member in DEFAULT_PLATFORM_EVENT_CATALOG.subscribable_types()),
+        help="Replace the subscribed event types. Keeps the current '--once-per' unless that is given too.",
     )
     parser.add_argument(
-        "--additional-inputs",
-        dest="additional_inputs",
+        "--once-per",
+        choices=[member.value for member in OncePer],
+        help="Replace what the trigger fires once per, keeping the current event subscription.",
+    )
+    parser.add_argument(
+        "--schedule",
         type=str,
-        nargs="+",
-        action="extend",
-        help="""\
-        One or many file patterns for data to download from the data source which is NOT considered as part of
-        trigger evaluation. Example:
-        front camera images, ``--additional-inputs '**/cam_front/*.jpg'``.""",
+        help="Replace the firing source with this five-field UTC cron expression.",
     )
-
     parser.add_argument(
-        "--timeout",
-        required=False,
-        action=ActionTimeoutArg,
-        type=lambda s: s if s != "null" else None,
-        default=NotSet,
-        help="Optional timeout for an action in minutes, defaults to 30 minutes or 12 hours depending on tier.",
-    )
-    add_org_arg(parser=parser)
-    add_compute_requirements_args(parser)
-    add_container_parameters_args(parser)
-    parser.add_argument(
-        "--condition-json",
+        "--targets-json",
         type=JsonFileOrStrType,
-        help="Inline JSON or a reference to a JSON file "
-        + "which expresses a dataset metadata and tag condition which must be met for this trigger "
-        + "to run against a given dataset. If provided, 'required-tag' and 'required-metadata' cannot "
-        + "be provided.",
-    )
-    parser.add_argument(
-        "--required-tag",
-        nargs="*",
-        action="extend",
-        help="Dataset tags which must be present for "
-        + "this trigger to run against a given dataset. If provided, these are used to construct a "
-        + "trigger condition, and as such they cannot be used if 'condition-json' is specified.",
-    )
-    parser.add_argument(
-        "--required-metadata",
-        nargs="*",
-        action=KeyValuePairsAction,
-        help="Dataset metadata "
-        + "key=value conditions which all must be met for this trigger to run against a given dataset. "
-        + "If provided, these are used to construct a trigger condition, and as such they cannot be "
-        + "used if 'condition-json' is specified.",
-    )
-    parser.add_argument(
-        "--for-each",
-        type=actions.TriggerForEachPrimitive,
-        help="Primitive against which this trigger will spawn invocations.",
-        choices=[x.value for x in actions.TriggerForEachPrimitive],
-    )
-    parser.add_argument("--enabled", action="store_true", help="Enables this trigger")
-    parser.add_argument("--disabled", action="store_true", help="Disables this trigger")
-    parser.add_argument("--clear-condition", action="store_true", help="Sets the condition to None")
-    parser.add_argument(
-        "--parameter-value",
-        required=False,
-        metavar="<PARAMETER_NAME>=<PARAMETER_VALUE>",
-        nargs="*",
-        action=KeyValuePairsAction,
         help=(
-            "Zero or more ``<parameter_name>=<parameter_value>`` pairs to pass to the invocation. "
-            "``parameter_value`` is parsed as JSON. "
+            "Replace the target list. Same shape as 'create'. A target whose id is referenced by existing "
+            "dispatches must keep that id."
         ),
     )
+    condition = parser.add_mutually_exclusive_group()
+    condition.add_argument(
+        "--condition-json",
+        type=JsonFileOrStrType,
+        help="Replace the condition. Inline JSON or a path to a JSON file.",
+    )
+    condition.add_argument("--clear-condition", action="store_true", help="Remove the condition entirely.")
+    add_org_arg(parser=parser)
 
 
 def get(args, context: CLIContext, parser: argparse.ArgumentParser):
-    trigger = actions.Trigger.from_name(
-        name=args.trigger_name,
-        owner_org_id=args.org,
-        roboto_client=context.roboto_client,
-    )
+    trigger = Trigger.from_name(name=args.name, owner_org_id=args.org, roboto_client=context.roboto_client)
     print(json.dumps(trigger.to_dict(), indent=2))
 
 
 def get_setup_parser(parser):
-    parser.add_argument("trigger_name", type=str, help=NAME_PARAM_HELP)
+    parser.add_argument("name", type=str, help=NAME_PARAM_HELP)
     add_org_arg(parser=parser)
 
 
-def search(args, context: CLIContext, parser: argparse.ArgumentParser):
-    conditions: list[Condition] = []
-    if args.name:
-        conditions.append(
-            Condition(
-                field="name",
-                comparator=Comparator.Equals,
-                value=args.name,
-            )
-        )
-
-    if args.action:
-        if args.action.name:
-            conditions.append(
-                Condition(
-                    field="action.name",
-                    comparator=Comparator.Equals,
-                    value=args.action.name,
-                )
-            )
-
-        if args.action.digest:
-            conditions.append(
-                Condition(
-                    field="action.digest",
-                    comparator=Comparator.Equals,
-                    value=args.action.digest,
-                )
-            )
-
-        if args.action.owner:
-            conditions.append(
-                Condition(
-                    field="action.owner",
-                    comparator=Comparator.Equals,
-                    value=args.action.owner,
-                )
-            )
-
-    condition = (
-        None
-        if len(conditions) == 0
-        else ConditionGroup(
-            conditions=conditions,
-            operator=ConditionOperator.And,
-        )
-    )
-
-    query = QuerySpecification(condition=condition)
-
-    results = actions.Trigger.query(
-        query,
-        owner_org_id=args.org,
-        roboto_client=context.roboto_client,
-    )
-    for trigger in results:
-        print(json.dumps(trigger.to_dict(), indent=2))
+def list_triggers(args, context: CLIContext, parser: argparse.ArgumentParser):
+    records = [
+        trigger.to_dict() for trigger in Trigger.list(owner_org_id=args.org, roboto_client=context.roboto_client)
+    ]
+    print(json.dumps(records, indent=2))
 
 
-def search_setup_parser(parser):
-    parser.add_argument(
-        "--name",
-        required=False,
-        action="store",
-        help="Query by trigger name. Must provide an exact match; patterns are not accepted.",
-    )
+def list_setup_parser(parser):
+    add_org_arg(parser=parser)
 
-    add_action_reference_arg(
-        parser,
-        positional=False,
-        required=False,
-        arg_help="Query by partially or fully qualified reference to the action to be triggered.",
-    )
 
+def _set_enabled(args, context: CLIContext, enabled: bool):
+    trigger = Trigger.from_name(name=args.name, owner_org_id=args.org, roboto_client=context.roboto_client)
+    trigger.set_enabled(enabled)
+    print(f"Trigger '{args.name}' is now {'enabled' if enabled else 'disabled'}.")
+
+
+def enable(args, context: CLIContext, parser: argparse.ArgumentParser):
+    _set_enabled(args, context, enabled=True)
+
+
+def disable(args, context: CLIContext, parser: argparse.ArgumentParser):
+    _set_enabled(args, context, enabled=False)
+
+
+def name_org_setup_parser(parser):
+    parser.add_argument("name", type=str, help=NAME_PARAM_HELP)
     add_org_arg(parser=parser)
 
 
 def delete(args, context: CLIContext, parser: argparse.ArgumentParser):
-    trigger = actions.Trigger.from_name(
-        name=args.trigger_name,
-        owner_org_id=args.org,
-        roboto_client=context.roboto_client,
-    )
+    trigger = Trigger.from_name(name=args.name, owner_org_id=args.org, roboto_client=context.roboto_client)
     trigger.delete()
-    print(f"Successfully deleted trigger '{args.trigger_name}'")
+    print(f"Successfully deleted trigger '{args.name}'")
 
 
-def delete_setup_parser(parser):
-    parser.add_argument("trigger_name", type=str, help=NAME_PARAM_HELP)
+def dry_run(args, context: CLIContext, parser: argparse.ArgumentParser):
+    trigger = Trigger.from_name(name=args.name, owner_org_id=args.org, roboto_client=context.roboto_client)
+    trace = trigger.dry_run(
+        dataset_id=args.dataset_id,
+        file_id=args.file_id,
+        invocation_id=args.invocation_id,
+        session_id=args.session_id,
+        event_id=args.event_id,
+        event_type=PlatformEventType(args.on) if args.on else None,
+        scheduled_for=args.scheduled_for,
+    )
+    print(trace.verdict)
+    for gate in trace.gates:
+        marker = {
+            TriggerDryRunGateStatus.Passed: "PASS",
+            TriggerDryRunGateStatus.Failed: "FAIL",
+            TriggerDryRunGateStatus.NotEvaluated: "SKIP",
+        }[gate.status]
+        print(f"  [{marker}] {gate.gate.value}: {gate.detail or ''}")
+        for leaf in gate.condition_leaves or []:
+            print(
+                f"         {leaf.field} {leaf.comparator.value} {leaf.expected!r} "
+                f"-- actual: {leaf.actual!r} ({'ok' if leaf.passed else 'miss'})"
+            )
+        for target in gate.targets or []:
+            reason = f" -- {target.reason}" if target.reason else ""
+            print(f"         target {target.target_id}: {'accepts' if target.accepted else 'declines'}{reason}")
+
+
+def dry_run_setup_parser(parser):
+    parser.add_argument("name", type=str, help=NAME_PARAM_HELP)
+    subject = parser.add_mutually_exclusive_group()
+    subject.add_argument("--dataset-id", type=str, help="Synthesize an event about this dataset.")
+    subject.add_argument("--file-id", type=str, help="Synthesize an event about this file.")
+    subject.add_argument("--invocation-id", type=str, help="Synthesize an event about this invocation.")
+    subject.add_argument("--session-id", type=str, help="Synthesize an event about this session.")
+    subject.add_argument("--event-id", type=str, help="Synthesize a platform event about this event.")
+    subject.add_argument(
+        "--scheduled-for",
+        type=datetime.datetime.fromisoformat,
+        help=(
+            "For a schedule-fired trigger: the UTC minute to pretend the schedule fired at "
+            "(ISO 8601, e.g. 2026-09-16T15:00:00Z). Defaults to the schedule's next occurrence; "
+            "a schedule-fired trigger takes no entity reference."
+        ),
+    )
+    parser.add_argument(
+        "--on",
+        choices=[member.value for member in PlatformEventType],
+        help="Which subscribed platform event type to synthesize; defaults to the first compatible with the reference.",
+    )
     add_org_arg(parser=parser)
 
 
@@ -462,43 +285,105 @@ create_command = RobotoCommand(
     name="create",
     logic=create,
     setup_parser=create_setup_parser,
-    command_kwargs={
-        "help": "Creates a trigger to automatically invoke an action on datasets when certain criteria are met"
-    },
-)
-
-get_command = RobotoCommand(
-    name="get",
-    logic=get,
-    setup_parser=get_setup_parser,
-    command_kwargs={"help": "Looks up a specific trigger by name"},
-)
-
-delete_command = RobotoCommand(
-    name="delete",
-    logic=delete,
-    setup_parser=delete_setup_parser,
-    command_kwargs={"help": "Deletes a trigger with a given name"},
-)
-
-search_command = RobotoCommand(
-    name="search",
-    logic=search,
-    setup_parser=search_setup_parser,
-    command_kwargs={"help": "Searches for triggers that match a given condition. Constrained to a single org."},
+    command_kwargs={"help": "Creates a trigger subscribing to platform events with one or more targets."},
 )
 
 update_command = RobotoCommand(
     name="update",
     logic=update,
     setup_parser=update_setup_parser,
-    command_kwargs={"help": "Updates one or more fields of an existing trigger."},
+    command_kwargs={"help": "Changes a trigger's firing source, condition, or targets."},
 )
 
-commands = [create_command, get_command, delete_command, search_command, update_command]
+get_command = RobotoCommand(
+    name="get",
+    logic=get,
+    setup_parser=get_setup_parser,
+    command_kwargs={"help": "Looks up a trigger by name."},
+)
+
+list_command = RobotoCommand(
+    name="list",
+    logic=list_triggers,
+    setup_parser=list_setup_parser,
+    command_kwargs={"help": "Lists every trigger in the org, event-fired and scheduled."},
+)
+
+enable_command = RobotoCommand(
+    name="enable",
+    logic=enable,
+    setup_parser=name_org_setup_parser,
+    command_kwargs={"help": "Enables a trigger."},
+)
+
+disable_command = RobotoCommand(
+    name="disable",
+    logic=disable,
+    setup_parser=name_org_setup_parser,
+    command_kwargs={"help": "Disables a trigger."},
+)
+
+delete_command = RobotoCommand(
+    name="delete",
+    logic=delete,
+    setup_parser=name_org_setup_parser,
+    command_kwargs={"help": "Deletes a trigger."},
+)
+
+dry_run_command = RobotoCommand(
+    name="dry-run",
+    logic=dry_run,
+    setup_parser=dry_run_setup_parser,
+    command_kwargs={"help": "Explains whether a trigger would fire for an entity, gate by gate."},
+)
+
+
+def sample(args, context: CLIContext, parser: argparse.ArgumentParser):
+    samples = Trigger.platform_event_samples(roboto_client=context.roboto_client)
+    sample = samples[PlatformEventType(args.event_type)]
+    if args.paths:
+        for path in sample.paths:
+            print(path)
+        return
+    print(json.dumps({"event": sample.event, "namespace": sample.namespace}, indent=2))
+
+
+def sample_setup_parser(parser):
+    parser.add_argument(
+        "event_type",
+        choices=[member.value for member in PlatformEventType],
+        help="The event type to show a sample of.",
+    )
+    parser.add_argument(
+        "--paths",
+        action="store_true",
+        help="Print only the {{root.path}} names a condition or template may reference, one per line.",
+    )
+
+
+sample_command = RobotoCommand(
+    name="sample",
+    logic=sample,
+    setup_parser=sample_setup_parser,
+    command_kwargs={
+        "help": "Shows a realistic, fully dereferenced sample of an event type: what conditions and templates can see."
+    },
+)
+
+commands = [
+    create_command,
+    update_command,
+    get_command,
+    list_command,
+    enable_command,
+    disable_command,
+    delete_command,
+    dry_run_command,
+    sample_command,
+]
 
 command_set = RobotoCommandSet(
     name="triggers",
-    help="Create and edit triggers to automatically invoke actions on datasets.",
+    help="Create and manage event-driven triggers (platform events, conditions, multi-target).",
     commands=commands,
 )

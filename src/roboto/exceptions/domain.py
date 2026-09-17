@@ -186,7 +186,7 @@ class RobotoThreadReadOnlyException(RobotoDomainException):
     A thread with an ``origin`` is mirrored into a conversation Roboto does not own, so
     appending to it over the API would leave that mirror incomplete.
 
-    Not an authorization failure, and deliberately not nested under
+    Not an authorization failure, and not a subclass of
     ``RobotoUnauthorizedException``: the caller may read, cancel, and rate the thread, and
     forking it yields a writable copy. Nothing about their identity would change the answer,
     so a client should offer the fork rather than send them to re-authenticate.
@@ -529,10 +529,8 @@ class RobotoContextTooLongException(RobotoDomainException):
     Thrown when the conversation context (messages, system prompt, tool results) exceeds
     the model's context window limit.
 
-    Internal heuristic estimates and the model's context limit are recorded in
-    structured CloudWatch logs (see ``BedrockLLMBackbone``); they are deliberately
-    not surfaced through this exception. Callers that need usage telemetry should
-    consume it through dedicated channels rather than introspecting the error.
+    The token estimate and the model's context limit are not carried on the exception, so a
+    caller cannot read usage numbers off it.
     """
 
     def __init__(

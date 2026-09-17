@@ -102,7 +102,16 @@ def _validate_field_options(options: CustomFieldOptions) -> CustomFieldOptions:
 
 
 ValidatedCustomFieldOptions: TypeAlias = Annotated[CustomFieldOptions, pydantic.AfterValidator(_validate_field_options)]
-"""Custom field options as supplied when a field is defined - tidied and checked."""
+"""Custom field options as supplied when a field is defined or updated - tidied and checked."""
+
+
+def check_options_match_field_type(field_type: CustomFieldType, options: Optional[CustomFieldOptions]) -> None:
+    """Raise ``ValueError`` if ``options`` are missing for, or don't belong to, a field of ``field_type``."""
+    if field_type == CustomFieldType.Enum and options is None:
+        raise ValueError(f"options are required for field_type '{CustomFieldType.Enum}'")
+
+    if options is not None and options.field_type != field_type:
+        raise ValueError(f"field_type is '{field_type}', but field_options are for '{options.field_type}'")
 
 
 @experimental
@@ -169,14 +178,7 @@ class CreateCustomFieldRequest(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def check_options_match_field_type(self) -> CreateCustomFieldRequest:
-        if self.field_type == CustomFieldType.Enum and self.options is None:
-            raise ValueError(f"options are required for field_type '{CustomFieldType.Enum}'")
-
-        if self.options is not None and self.options.field_type != self.field_type:
-            raise ValueError(
-                f"field_type is '{self.field_type}', but field_options are for '{self.options.field_type}'"
-            )
-
+        check_options_match_field_type(self.field_type, self.options)
         return self
 
 
@@ -221,6 +223,16 @@ class UpdateCustomFieldRequest(pydantic.BaseModel):
 
     Leave as :py:obj:`~roboto.sentinels.NotSet` to leave unchanged. Surrounding whitespace is
     removed, and text that is empty once stripped clears the attribute.
+    """
+
+    options: Union[ValidatedCustomFieldOptions, NotSetType] = NotSet
+    """Replacement type-specific configuration for the field.
+
+    Leave as :py:obj:`~roboto.sentinels.NotSet` to leave unchanged. Must be for the field's
+    ``field_type``. For an enum field, the new ``enum_values`` must include every existing value:
+    values can be added but not removed. Values are tidied and capped exactly as they are at creation.
+    A value that repeats an earlier one in ``enum_values``, once tidied, is discarded rather than
+    rejected, so re-sending a value the field already has changes nothing and raises nothing.
     """
 
     model_config = pydantic.ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)

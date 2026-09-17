@@ -56,6 +56,14 @@ class RobotoApiVersion(StrEnum):
     query parameters) instead of a bare string list, so tag autocomplete scales past the unique-tag
     cap. Clients on older API versions continue to receive the bare list."""
 
+    v2026_08_27 = "2026-08-27"
+    """``/v1/triggers`` speaks the v2 trigger shape (``events``/``once_per``/``targets`` from
+    :mod:`roboto.domain.triggers`) instead of the legacy ``causes``/``for_each``/action-column
+    shape, and rejects a caller-supplied ``service_user_id``. Clients on older API versions keep
+    the legacy shape: their creates and updates are translated onto v2 triggers, responses are
+    projected back, and triggers with no legacy representation (multiple targets, non-action
+    targets, new event types) are filtered from lists and 404 on direct reads."""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the latest available API version.
@@ -63,7 +71,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent API version supported by the platform.
         """
-        return RobotoApiVersion.v2026_08_10
+        return RobotoApiVersion.v2026_08_27
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

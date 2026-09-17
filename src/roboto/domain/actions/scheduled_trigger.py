@@ -9,6 +9,7 @@ from __future__ import annotations
 import collections.abc
 import datetime
 import typing
+import warnings
 
 import cron_converter
 
@@ -43,6 +44,7 @@ from .scheduled_trigger_operations import (
 from .scheduled_trigger_record import (
     ScheduledTriggerRecord,
 )
+from .trigger import _LEGACY_TRIGGER_API_VERSION_HEADERS
 from .trigger_record import (
     TriggerEvaluationRecord,
 )
@@ -107,6 +109,12 @@ class TriggerSchedule:
 
 class ScheduledTrigger:
     """A trigger that invokes actions on a recurring schedule, e.g. hourly or daily.
+
+    .. deprecated::
+        This is the legacy trigger model, kept so existing code keeps working. It cannot
+        express triggers made with the current model (several targets, agent or Slack
+        targets, platform events beyond files and datasets) and will be removed. Use
+        :class:`roboto.domain.triggers.Trigger`, which reads and edits every trigger.
 
     Schedules are currently specified using standard Cron expressions, with times in UTC.
     A handful of common schedules are provided by the :py:class:`TriggerSchedule` class.
@@ -301,6 +309,12 @@ class ScheduledTrigger:
         record: ScheduledTriggerRecord,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> None:
+        warnings.warn(
+            "roboto.domain.actions.ScheduledTrigger is the legacy trigger model and will be removed; "
+            "use roboto.domain.triggers.Trigger.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -499,6 +513,7 @@ class ScheduledTrigger:
                 f"v1/triggers/{self.name}/evaluations",
                 query=query_params,
                 owner_org_id=self.org_id,
+                headers=dict(_LEGACY_TRIGGER_API_VERSION_HEADERS),
             ).to_paginated_list(TriggerEvaluationRecord)
 
             for record in result_page.items:

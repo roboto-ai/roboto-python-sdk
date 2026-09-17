@@ -50,10 +50,8 @@ Every declared goal expands into a prompt block injected via the in-memory
 ``<goals>`` section *and* an active achieve-tool registered with Bedrock for
 the turn. A runaway list crowds out the model's context budget and inflates
 the per-invocation tool count without making the goals easier for the LLM
-to reason about. Five is a deliberate, conservative cap for v1: in practice
-specialized agents declare one or two goals at a time. Lift the ceiling
-intentionally (with new tests covering large-fan-out behavior) rather than
-quietly raising it on demand."""
+to reason about. In practice, specialized agents declare one or two goals at a
+time; a turn declaring more than five is rejected."""
 
 MAX_AVAILABLE_SKILLS = 100
 """Hard ceiling on the size of a thread's explicit ``available_skills`` set.

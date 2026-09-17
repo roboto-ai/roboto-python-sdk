@@ -7,9 +7,12 @@
 import collections.abc
 import datetime
 import typing
+import warnings
 
+from ...api_version import RobotoApiVersion
 from ...exceptions import RobotoConflictException
 from ...http import RobotoClient
+from ...http.constants import API_VERSION_HEADER
 from ...query import (
     Comparator,
     Condition,
@@ -43,9 +46,22 @@ from .trigger_record import (
     TriggerRecord,
 )
 
+_LEGACY_TRIGGER_API_VERSION_HEADERS = {API_VERSION_HEADER: RobotoApiVersion.v2026_08_10.value}
+"""As of API version v2026_08_27, ``/v1/triggers`` speaks the events/``once_per``/
+``targets`` shape (:mod:`roboto.domain.triggers`). This class speaks the older
+``causes``/``for_each`` shape, so it pins its shape-bearing calls to the last API
+version that serves it. Use :class:`roboto.domain.triggers.Trigger` for the current
+model."""
+
 
 class Trigger:
     """A rule that automatically invokes an action when specific events or conditions occur.
+
+    .. deprecated::
+        This is the legacy trigger model, kept so existing code keeps working. It cannot
+        express triggers made with the current model (several targets, agent or Slack
+        targets, platform events beyond files and datasets) and will be removed. Use
+        :class:`roboto.domain.triggers.Trigger`, which reads and edits every trigger.
 
     Triggers enable automated data processing workflows by monitoring for specific
     events (like new datasets being created) and automatically invoking actions
@@ -120,6 +136,7 @@ class Trigger:
                 f"v1/triggers/dataset/id/{dataset_id}/evaluations",
                 query=query_params,
                 owner_org_id=owner_org_id,
+                headers=dict(_LEGACY_TRIGGER_API_VERSION_HEADERS),
             ).to_paginated_list(TriggerEvaluationRecord)
             for record in paginated_results.items:
                 yield record
@@ -249,6 +266,7 @@ class Trigger:
             "v1/triggers",
             data=request,
             caller_org_id=caller_org_id,
+            headers=dict(_LEGACY_TRIGGER_API_VERSION_HEADERS),
         )
         record = response.to_record(TriggerRecord)
         return cls(record, roboto_client)
@@ -264,6 +282,7 @@ class Trigger:
         response = roboto_client.get(
             f"v1/triggers/{name}",
             owner_org_id=owner_org_id,
+            headers=dict(_LEGACY_TRIGGER_API_VERSION_HEADERS),
         )
         record = response.to_record(TriggerRecord)
         return cls(record, roboto_client)
@@ -284,6 +303,7 @@ class Trigger:
                 data=spec,
                 owner_org_id=owner_org_id,
                 idempotent=True,
+                headers=dict(_LEGACY_TRIGGER_API_VERSION_HEADERS),
             )
             paginated_results = response.to_paginated_list(TriggerRecord)
             for record in paginated_results.items:
@@ -298,6 +318,12 @@ class Trigger:
         record: TriggerRecord,
         roboto_client: typing.Optional[RobotoClient] = None,
     ):
+        warnings.warn(
+            "roboto.domain.actions.Trigger is the legacy trigger model and will be removed; "
+            "use roboto.domain.triggers.Trigger.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -356,6 +382,7 @@ class Trigger:
         self.__roboto_client.delete(
             f"v1/triggers/{self.name}",
             owner_org_id=self.org_id,
+            headers=dict(_LEGACY_TRIGGER_API_VERSION_HEADERS),
         )
 
     def disable(self):
@@ -388,6 +415,7 @@ class Trigger:
                 f"v1/triggers/{self.name}/evaluations",
                 query=query_params,
                 owner_org_id=self.org_id,
+                headers=dict(_LEGACY_TRIGGER_API_VERSION_HEADERS),
             )
             paginated_results = response.to_paginated_list(TriggerEvaluationRecord)
             for record in paginated_results.items:
@@ -482,6 +510,7 @@ class Trigger:
             f"v1/triggers/{self.name}",
             data=request,
             owner_org_id=self.org_id,
+            headers=dict(_LEGACY_TRIGGER_API_VERSION_HEADERS),
         )
         record = response.to_record(TriggerRecord)
         self.__record = record
