@@ -35,6 +35,7 @@ from .record import (
     TopicPartitionRecord,
     TopicRecord,
     TopicSchemaRecord,
+    TopicTimeBounds,
     TransformationKind,
 )
 from .topic import Topic
@@ -73,6 +74,7 @@ __all__ = (
     "TopicRecord",
     "TopicSchema",
     "TopicSchemaRecord",
+    "TopicTimeBounds",
     "TransformationKind",
     "UpdateMessagePathRequest",
     "UpdateTopicRequest",

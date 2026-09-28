@@ -68,8 +68,8 @@ class ViewDisplay(pydantic.BaseModel):
 class ViewDefinition(pydantic.BaseModel):
     """The saved contents of a View: what its author searched for, and how they were shown it.
 
-    Persisted as JSON in the ``views.definition`` column. That column has no database
-    constraint, so this model is the only thing enforcing the shape.
+    Stored as JSON, with no schema constraint behind it: this model is the only thing
+    enforcing the shape.
 
     **A View records intent, not a query.** It holds what the author expressed — filter controls
     or RoboQL text — and the client rebuilds an executable query from that on load. It does not
@@ -80,22 +80,19 @@ class ViewDefinition(pydantic.BaseModel):
 
     Intent is nonetheless recorded in a typed form — :class:`~roboto.query.SavedFilters` — so
     that anything able to call the API can create a View, not only a client that already knows
-    the filter UI's internal shape. Executing one still needs a translation step, and today the
-    web UI is what performs it; a RoboQL View needs none, since its text runs anywhere.
+    how a filter control is shaped. A filter-backed View still has to be translated into a query
+    before it runs, and the Roboto web app is what does that; a RoboQL View needs no
+    translation, since its text runs anywhere.
 
-    Making structured Views executable server-side means first teaching ``Comparator`` what
-    ``FilterOnlyComparator`` currently covers (ENG-2957). A later ``view_v2`` could then carry a
-    query directly, and ``filters`` would fold into it.
-
-    ``target`` is deliberately absent. It is a column on the ``views`` table, and duplicating
-    it here would create two sources of truth that can disagree.
+    A View's search target is not part of this definition. The View itself carries it, and
+    repeating it here would let the two disagree.
     """
 
     scheme: typing.Literal["view_v1"] = VIEW_SCHEME_V1
     """Version tag for this definition's shape.
 
-    A future ``view_v2`` becomes a separate model, letting readers dispatch on this field and
-    upgrade old rows instead of misreading them as the current version.
+    Readers dispatch on this field, so a definition saved in a later shape is recognized as
+    such instead of being misread as this one.
     """
 
     roboql: typing.Optional[str] = None

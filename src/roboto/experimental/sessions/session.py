@@ -139,14 +139,12 @@ class Session:
     def for_dataset(
         cls,
         dataset_id: str,
-        owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Session", None, None]:
         """Iterate Sessions whose composition includes any file in the given dataset.
 
         Args:
             dataset_id: Dataset whose sessions to list.
-            owner_org_id: Org that owns the dataset. Required when the caller belongs to multiple orgs.
             roboto_client: Optional RobotoClient; defaults to the ambient one.
 
         Yields:
@@ -167,7 +165,6 @@ class Session:
 
             results = roboto_client.get(
                 f"v1/datasets/{dataset_id}/sessions",
-                owner_org_id=owner_org_id,
                 query=query,
             ).to_paginated_list(SessionRecord)
 
@@ -218,23 +215,30 @@ class Session:
     def from_id(
         cls,
         session_id: str,
-        owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Session":
         """Load a Session by ID.
 
         Args:
             session_id: Session primary key.
-            owner_org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
             roboto_client: Optional RobotoClient; defaults to the ambient one.
 
         Returns:
             The Session.
+
+        Raises:
+            RobotoNotFoundException: No session with this ID exists.
+            RobotoUnauthorizedException: The caller lacks view access to the org that owns the session.
+
+        Examples:
+            >>> from roboto.experimental.sessions import Session
+            >>> session = Session.from_id("se_abc123")
+            >>> session.name
+            'flight-2026-04-23-001'
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(
             f"v1/sessions/id/{session_id}",
-            owner_org_id=owner_org_id,
         ).to_record(SessionRecord)
         return cls(record=record, roboto_client=roboto_client)
 
@@ -411,7 +415,6 @@ class Session:
         record = self.__roboto_client.post(
             f"v1/sessions/id/{self.session_id}/files",
             data=AddFilesRequest(files=list(files)),
-            owner_org_id=self.org_id,
         ).to_record(SessionRecord)
         self.__record = record
         return self
@@ -433,14 +436,12 @@ class Session:
         self.__roboto_client.post(
             f"v1/sessions/id/{self.session_id}/devices",
             data=AttachToDeviceRequest(device_id=device_id),
-            owner_org_id=self.org_id,
         )
 
     def delete(self) -> None:
         """Delete this Session. Its file contributions and device attachments are removed alongside it."""
         self.__roboto_client.delete(
             f"v1/sessions/id/{self.session_id}",
-            owner_org_id=self.org_id,
         )
 
     def detach_from_device(self, device_id: str) -> None:
@@ -451,7 +452,6 @@ class Session:
         """
         self.__roboto_client.delete(
             f"v1/sessions/id/{self.session_id}/devices",
-            owner_org_id=self.org_id,
             data=DetachFromDeviceRequest(device_id=device_id),
         )
 
@@ -482,7 +482,6 @@ class Session:
         quoted_topic_name = urllib.parse.quote_plus(topic_name)
         record = self.__roboto_client.get(
             f"v1/sessions/id/{self.session_id}/topics/name/{quoted_topic_name}",
-            owner_org_id=self.org_id,
         ).to_record(TopicIdentityRecord)
         return Topic.from_record(
             record,
@@ -504,7 +503,6 @@ class Session:
 
             page = self.__roboto_client.get(
                 f"v1/sessions/id/{self.session_id}/devices",
-                owner_org_id=self.org_id,
                 query=query,
             ).to_dict(json_path=["data"])
 
@@ -531,7 +529,6 @@ class Session:
 
             page = self.__roboto_client.get(
                 f"v1/sessions/id/{self.session_id}/files",
-                owner_org_id=self.org_id,
                 query=query,
             ).to_paginated_list(SessionFileView)
 
@@ -554,7 +551,6 @@ class Session:
         """
         return Metric.get_by_session(
             session_id=self.session_id,
-            owner_org_id=self.org_id,
             roboto_client=self.__roboto_client,
         )
 
@@ -585,7 +581,6 @@ class Session:
 
             page = self.__roboto_client.get(
                 f"v1/sessions/id/{self.session_id}/topics",
-                owner_org_id=self.org_id,
                 query=query,
             ).to_paginated_list(TopicIdentityRecord)
 
@@ -722,7 +717,6 @@ class Session:
         """
         record = self.__roboto_client.delete(
             f"v1/sessions/id/{self.session_id}/files",
-            owner_org_id=self.org_id,
             data=RemoveFilesRequest(file_ids=list(file_ids)),
         ).to_record(SessionRecord)
         self.__record = record
@@ -798,7 +792,6 @@ class Session:
         record = self.__roboto_client.put(
             f"v1/sessions/id/{self.session_id}",
             data=request,
-            owner_org_id=self.org_id,
         ).to_record(SessionRecord)
         self.__record = record
         return self

@@ -1,0 +1,1987 @@
+{
+  "file.uploaded": {
+    "event_type": "file.uploaded",
+    "event": {
+      "id": "evt:fl_q8v2n6ty4mcs:file.uploaded",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "file.uploaded",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "file_id": "fl_q8v2n6ty4mcs",
+        "transaction_id": "tx_5jw8r3ne2kpq"
+      },
+      "subject": "roboto://file/fl_q8v2n6ty4mcs"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:fl_q8v2n6ty4mcs:file.uploaded",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://file/fl_q8v2n6ty4mcs",
+        "type": "file.uploaded",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "dataset": {
+        "created": "2026-08-28T12:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "description": "Autonomous warehouse loop, morning shift. Two laps of route B with the new lidar mount.",
+        "device_id": "rover-07",
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "route": "warehouse-loop-b",
+          "operator": "mchen",
+          "firmware": "4.12.1",
+          "weather": "indoor"
+        },
+        "custom_fields": {},
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 warehouse loop 2026-08-28",
+        "org_id": "og_k3m8w2rq7nxd",
+        "roboto_record_version": 0,
+        "tags": [
+          "validated",
+          "nightly",
+          "lidar-v2"
+        ],
+        "administrator": "Roboto",
+        "storage_ctx": {
+          "bucket_name": "NOT_SET",
+          "iam_role_arn": "NOT_SET",
+          "key_prefix": "NOT_SET"
+        },
+        "storage_location": "S3"
+      },
+      "file": {
+        "association_id": "ds_7h2k9m4qxp3w",
+        "created": "2026-08-28T13:52:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "description": "Second lap, full sensor suite.",
+        "device_id": "rover-07",
+        "file_id": "fl_q8v2n6ty4mcs",
+        "fs_type": "file",
+        "ingestion_status": "ingested",
+        "metadata": {
+          "lap": 2,
+          "sensors": [
+            "lidar",
+            "imu",
+            "camera_front"
+          ]
+        },
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "lap_02.mcap",
+        "org_id": "og_k3m8w2rq7nxd",
+        "origination": "roboto upload",
+        "parent_id": null,
+        "relative_path": "logs/lap_02.mcap",
+        "size": 734003200,
+        "status": "available",
+        "storage_type": "uploaded",
+        "tags": [
+          "mcap",
+          "lap-02"
+        ],
+        "upload_id": "tx_5jw8r3ne2kpq",
+        "uri": "s3://acme-robotics-roboto/ds_7h2k9m4qxp3w/logs/lap_02.mcap",
+        "version": 1
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "dataset.created",
+      "dataset.created_by",
+      "dataset.dataset_id",
+      "dataset.description",
+      "dataset.device_id",
+      "dataset.metadata",
+      "dataset.metadata.vehicle_id",
+      "dataset.metadata.route",
+      "dataset.metadata.operator",
+      "dataset.metadata.firmware",
+      "dataset.metadata.weather",
+      "dataset.custom_fields",
+      "dataset.modified",
+      "dataset.modified_by",
+      "dataset.name",
+      "dataset.org_id",
+      "dataset.roboto_record_version",
+      "dataset.tags",
+      "dataset.administrator",
+      "dataset.storage_ctx",
+      "dataset.storage_ctx.bucket_name",
+      "dataset.storage_ctx.iam_role_arn",
+      "dataset.storage_ctx.key_prefix",
+      "dataset.storage_location",
+      "file.association_id",
+      "file.created",
+      "file.created_by",
+      "file.description",
+      "file.device_id",
+      "file.file_id",
+      "file.fs_type",
+      "file.ingestion_status",
+      "file.metadata",
+      "file.metadata.lap",
+      "file.metadata.sensors",
+      "file.modified",
+      "file.modified_by",
+      "file.name",
+      "file.org_id",
+      "file.origination",
+      "file.parent_id",
+      "file.relative_path",
+      "file.size",
+      "file.status",
+      "file.storage_type",
+      "file.tags",
+      "file.upload_id",
+      "file.uri",
+      "file.version"
+    ]
+  },
+  "dataset.upload_completed": {
+    "event_type": "dataset.upload_completed",
+    "event": {
+      "id": "evt:ds_7h2k9m4qxp3w:dataset.upload_completed",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "dataset.upload_completed",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "transaction_id": "tx_5jw8r3ne2kpq"
+      },
+      "subject": "roboto://dataset/ds_7h2k9m4qxp3w"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:ds_7h2k9m4qxp3w:dataset.upload_completed",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://dataset/ds_7h2k9m4qxp3w",
+        "type": "dataset.upload_completed",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "dataset": {
+        "created": "2026-08-28T12:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "description": "Autonomous warehouse loop, morning shift. Two laps of route B with the new lidar mount.",
+        "device_id": "rover-07",
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "route": "warehouse-loop-b",
+          "operator": "mchen",
+          "firmware": "4.12.1",
+          "weather": "indoor"
+        },
+        "custom_fields": {},
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 warehouse loop 2026-08-28",
+        "org_id": "og_k3m8w2rq7nxd",
+        "roboto_record_version": 0,
+        "tags": [
+          "validated",
+          "nightly",
+          "lidar-v2"
+        ],
+        "administrator": "Roboto",
+        "storage_ctx": {
+          "bucket_name": "NOT_SET",
+          "iam_role_arn": "NOT_SET",
+          "key_prefix": "NOT_SET"
+        },
+        "storage_location": "S3"
+      },
+      "upload": {
+        "transaction_id": "tx_5jw8r3ne2kpq"
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "dataset.created",
+      "dataset.created_by",
+      "dataset.dataset_id",
+      "dataset.description",
+      "dataset.device_id",
+      "dataset.metadata",
+      "dataset.metadata.vehicle_id",
+      "dataset.metadata.route",
+      "dataset.metadata.operator",
+      "dataset.metadata.firmware",
+      "dataset.metadata.weather",
+      "dataset.custom_fields",
+      "dataset.modified",
+      "dataset.modified_by",
+      "dataset.name",
+      "dataset.org_id",
+      "dataset.roboto_record_version",
+      "dataset.tags",
+      "dataset.administrator",
+      "dataset.storage_ctx",
+      "dataset.storage_ctx.bucket_name",
+      "dataset.storage_ctx.iam_role_arn",
+      "dataset.storage_ctx.key_prefix",
+      "dataset.storage_location",
+      "upload.transaction_id"
+    ]
+  },
+  "file.ingested": {
+    "event_type": "file.ingested",
+    "event": {
+      "id": "evt:fl_q8v2n6ty4mcs:file.ingested",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "file.ingested",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "file_id": "fl_q8v2n6ty4mcs",
+        "transaction_id": "tx_5jw8r3ne2kpq"
+      },
+      "subject": "roboto://file/fl_q8v2n6ty4mcs"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:fl_q8v2n6ty4mcs:file.ingested",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://file/fl_q8v2n6ty4mcs",
+        "type": "file.ingested",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "dataset": {
+        "created": "2026-08-28T12:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "description": "Autonomous warehouse loop, morning shift. Two laps of route B with the new lidar mount.",
+        "device_id": "rover-07",
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "route": "warehouse-loop-b",
+          "operator": "mchen",
+          "firmware": "4.12.1",
+          "weather": "indoor"
+        },
+        "custom_fields": {},
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 warehouse loop 2026-08-28",
+        "org_id": "og_k3m8w2rq7nxd",
+        "roboto_record_version": 0,
+        "tags": [
+          "validated",
+          "nightly",
+          "lidar-v2"
+        ],
+        "administrator": "Roboto",
+        "storage_ctx": {
+          "bucket_name": "NOT_SET",
+          "iam_role_arn": "NOT_SET",
+          "key_prefix": "NOT_SET"
+        },
+        "storage_location": "S3"
+      },
+      "file": {
+        "association_id": "ds_7h2k9m4qxp3w",
+        "created": "2026-08-28T13:52:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "description": "Second lap, full sensor suite.",
+        "device_id": "rover-07",
+        "file_id": "fl_q8v2n6ty4mcs",
+        "fs_type": "file",
+        "ingestion_status": "ingested",
+        "metadata": {
+          "lap": 2,
+          "sensors": [
+            "lidar",
+            "imu",
+            "camera_front"
+          ]
+        },
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "lap_02.mcap",
+        "org_id": "og_k3m8w2rq7nxd",
+        "origination": "roboto upload",
+        "parent_id": null,
+        "relative_path": "logs/lap_02.mcap",
+        "size": 734003200,
+        "status": "available",
+        "storage_type": "uploaded",
+        "tags": [
+          "mcap",
+          "lap-02"
+        ],
+        "upload_id": "tx_5jw8r3ne2kpq",
+        "uri": "s3://acme-robotics-roboto/ds_7h2k9m4qxp3w/logs/lap_02.mcap",
+        "version": 1
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "dataset.created",
+      "dataset.created_by",
+      "dataset.dataset_id",
+      "dataset.description",
+      "dataset.device_id",
+      "dataset.metadata",
+      "dataset.metadata.vehicle_id",
+      "dataset.metadata.route",
+      "dataset.metadata.operator",
+      "dataset.metadata.firmware",
+      "dataset.metadata.weather",
+      "dataset.custom_fields",
+      "dataset.modified",
+      "dataset.modified_by",
+      "dataset.name",
+      "dataset.org_id",
+      "dataset.roboto_record_version",
+      "dataset.tags",
+      "dataset.administrator",
+      "dataset.storage_ctx",
+      "dataset.storage_ctx.bucket_name",
+      "dataset.storage_ctx.iam_role_arn",
+      "dataset.storage_ctx.key_prefix",
+      "dataset.storage_location",
+      "file.association_id",
+      "file.created",
+      "file.created_by",
+      "file.description",
+      "file.device_id",
+      "file.file_id",
+      "file.fs_type",
+      "file.ingestion_status",
+      "file.metadata",
+      "file.metadata.lap",
+      "file.metadata.sensors",
+      "file.modified",
+      "file.modified_by",
+      "file.name",
+      "file.org_id",
+      "file.origination",
+      "file.parent_id",
+      "file.relative_path",
+      "file.size",
+      "file.status",
+      "file.storage_type",
+      "file.tags",
+      "file.upload_id",
+      "file.uri",
+      "file.version"
+    ]
+  },
+  "file.metadata_updated": {
+    "event_type": "file.metadata_updated",
+    "event": {
+      "id": "evt:fl_q8v2n6ty4mcs:file.metadata_updated",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "file.metadata_updated",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "file_id": "fl_q8v2n6ty4mcs",
+        "changeset": {
+          "put_tags": [
+            "validated",
+            "nightly"
+          ],
+          "remove_tags": [
+            "needs-review"
+          ],
+          "put_fields": {
+            "vehicle_id": "rover-07",
+            "route": "warehouse-loop-b"
+          },
+          "remove_fields": null,
+          "replace_all": false
+        }
+      },
+      "subject": "roboto://file/fl_q8v2n6ty4mcs"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:fl_q8v2n6ty4mcs:file.metadata_updated",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://file/fl_q8v2n6ty4mcs",
+        "type": "file.metadata_updated",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "changed": {
+        "vehicle_id": "rover-07",
+        "route": "warehouse-loop-b"
+      },
+      "dataset": {
+        "created": "2026-08-28T12:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "description": "Autonomous warehouse loop, morning shift. Two laps of route B with the new lidar mount.",
+        "device_id": "rover-07",
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "route": "warehouse-loop-b",
+          "operator": "mchen",
+          "firmware": "4.12.1",
+          "weather": "indoor"
+        },
+        "custom_fields": {},
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 warehouse loop 2026-08-28",
+        "org_id": "og_k3m8w2rq7nxd",
+        "roboto_record_version": 0,
+        "tags": [
+          "validated",
+          "nightly",
+          "lidar-v2"
+        ],
+        "administrator": "Roboto",
+        "storage_ctx": {
+          "bucket_name": "NOT_SET",
+          "iam_role_arn": "NOT_SET",
+          "key_prefix": "NOT_SET"
+        },
+        "storage_location": "S3"
+      },
+      "file": {
+        "association_id": "ds_7h2k9m4qxp3w",
+        "created": "2026-08-28T13:52:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "description": "Second lap, full sensor suite.",
+        "device_id": "rover-07",
+        "file_id": "fl_q8v2n6ty4mcs",
+        "fs_type": "file",
+        "ingestion_status": "ingested",
+        "metadata": {
+          "lap": 2,
+          "sensors": [
+            "lidar",
+            "imu",
+            "camera_front"
+          ]
+        },
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "lap_02.mcap",
+        "org_id": "og_k3m8w2rq7nxd",
+        "origination": "roboto upload",
+        "parent_id": null,
+        "relative_path": "logs/lap_02.mcap",
+        "size": 734003200,
+        "status": "available",
+        "storage_type": "uploaded",
+        "tags": [
+          "mcap",
+          "lap-02"
+        ],
+        "upload_id": "tx_5jw8r3ne2kpq",
+        "uri": "s3://acme-robotics-roboto/ds_7h2k9m4qxp3w/logs/lap_02.mcap",
+        "version": 1
+      },
+      "tag": {
+        "added": [
+          "validated",
+          "nightly"
+        ],
+        "removed": [
+          "needs-review"
+        ]
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "changed.vehicle_id",
+      "changed.route",
+      "dataset.created",
+      "dataset.created_by",
+      "dataset.dataset_id",
+      "dataset.description",
+      "dataset.device_id",
+      "dataset.metadata",
+      "dataset.metadata.vehicle_id",
+      "dataset.metadata.route",
+      "dataset.metadata.operator",
+      "dataset.metadata.firmware",
+      "dataset.metadata.weather",
+      "dataset.custom_fields",
+      "dataset.modified",
+      "dataset.modified_by",
+      "dataset.name",
+      "dataset.org_id",
+      "dataset.roboto_record_version",
+      "dataset.tags",
+      "dataset.administrator",
+      "dataset.storage_ctx",
+      "dataset.storage_ctx.bucket_name",
+      "dataset.storage_ctx.iam_role_arn",
+      "dataset.storage_ctx.key_prefix",
+      "dataset.storage_location",
+      "file.association_id",
+      "file.created",
+      "file.created_by",
+      "file.description",
+      "file.device_id",
+      "file.file_id",
+      "file.fs_type",
+      "file.ingestion_status",
+      "file.metadata",
+      "file.metadata.lap",
+      "file.metadata.sensors",
+      "file.modified",
+      "file.modified_by",
+      "file.name",
+      "file.org_id",
+      "file.origination",
+      "file.parent_id",
+      "file.relative_path",
+      "file.size",
+      "file.status",
+      "file.storage_type",
+      "file.tags",
+      "file.upload_id",
+      "file.uri",
+      "file.version",
+      "tag.added",
+      "tag.removed"
+    ]
+  },
+  "dataset.metadata_updated": {
+    "event_type": "dataset.metadata_updated",
+    "event": {
+      "id": "evt:ds_7h2k9m4qxp3w:dataset.metadata_updated",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "dataset.metadata_updated",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "changeset": {
+          "put_tags": [
+            "validated",
+            "nightly"
+          ],
+          "remove_tags": [
+            "needs-review"
+          ],
+          "put_fields": {
+            "vehicle_id": "rover-07",
+            "route": "warehouse-loop-b"
+          },
+          "remove_fields": null,
+          "replace_all": false
+        }
+      },
+      "subject": "roboto://dataset/ds_7h2k9m4qxp3w"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:ds_7h2k9m4qxp3w:dataset.metadata_updated",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://dataset/ds_7h2k9m4qxp3w",
+        "type": "dataset.metadata_updated",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "changed": {
+        "vehicle_id": "rover-07",
+        "route": "warehouse-loop-b"
+      },
+      "dataset": {
+        "created": "2026-08-28T12:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "description": "Autonomous warehouse loop, morning shift. Two laps of route B with the new lidar mount.",
+        "device_id": "rover-07",
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "route": "warehouse-loop-b",
+          "operator": "mchen",
+          "firmware": "4.12.1",
+          "weather": "indoor"
+        },
+        "custom_fields": {},
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 warehouse loop 2026-08-28",
+        "org_id": "og_k3m8w2rq7nxd",
+        "roboto_record_version": 0,
+        "tags": [
+          "validated",
+          "nightly",
+          "lidar-v2"
+        ],
+        "administrator": "Roboto",
+        "storage_ctx": {
+          "bucket_name": "NOT_SET",
+          "iam_role_arn": "NOT_SET",
+          "key_prefix": "NOT_SET"
+        },
+        "storage_location": "S3"
+      },
+      "tag": {
+        "added": [
+          "validated",
+          "nightly"
+        ],
+        "removed": [
+          "needs-review"
+        ]
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "changed.vehicle_id",
+      "changed.route",
+      "dataset.created",
+      "dataset.created_by",
+      "dataset.dataset_id",
+      "dataset.description",
+      "dataset.device_id",
+      "dataset.metadata",
+      "dataset.metadata.vehicle_id",
+      "dataset.metadata.route",
+      "dataset.metadata.operator",
+      "dataset.metadata.firmware",
+      "dataset.metadata.weather",
+      "dataset.custom_fields",
+      "dataset.modified",
+      "dataset.modified_by",
+      "dataset.name",
+      "dataset.org_id",
+      "dataset.roboto_record_version",
+      "dataset.tags",
+      "dataset.administrator",
+      "dataset.storage_ctx",
+      "dataset.storage_ctx.bucket_name",
+      "dataset.storage_ctx.iam_role_arn",
+      "dataset.storage_ctx.key_prefix",
+      "dataset.storage_location",
+      "tag.added",
+      "tag.removed"
+    ]
+  },
+  "dataset.created": {
+    "event_type": "dataset.created",
+    "event": {
+      "id": "evt:ds_7h2k9m4qxp3w:dataset.created",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "dataset.created",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "dataset_id": "ds_7h2k9m4qxp3w"
+      },
+      "subject": "roboto://dataset/ds_7h2k9m4qxp3w"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:ds_7h2k9m4qxp3w:dataset.created",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://dataset/ds_7h2k9m4qxp3w",
+        "type": "dataset.created",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "dataset": {
+        "created": "2026-08-28T12:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "description": "Autonomous warehouse loop, morning shift. Two laps of route B with the new lidar mount.",
+        "device_id": "rover-07",
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "route": "warehouse-loop-b",
+          "operator": "mchen",
+          "firmware": "4.12.1",
+          "weather": "indoor"
+        },
+        "custom_fields": {},
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 warehouse loop 2026-08-28",
+        "org_id": "og_k3m8w2rq7nxd",
+        "roboto_record_version": 0,
+        "tags": [
+          "validated",
+          "nightly",
+          "lidar-v2"
+        ],
+        "administrator": "Roboto",
+        "storage_ctx": {
+          "bucket_name": "NOT_SET",
+          "iam_role_arn": "NOT_SET",
+          "key_prefix": "NOT_SET"
+        },
+        "storage_location": "S3"
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "dataset.created",
+      "dataset.created_by",
+      "dataset.dataset_id",
+      "dataset.description",
+      "dataset.device_id",
+      "dataset.metadata",
+      "dataset.metadata.vehicle_id",
+      "dataset.metadata.route",
+      "dataset.metadata.operator",
+      "dataset.metadata.firmware",
+      "dataset.metadata.weather",
+      "dataset.custom_fields",
+      "dataset.modified",
+      "dataset.modified_by",
+      "dataset.name",
+      "dataset.org_id",
+      "dataset.roboto_record_version",
+      "dataset.tags",
+      "dataset.administrator",
+      "dataset.storage_ctx",
+      "dataset.storage_ctx.bucket_name",
+      "dataset.storage_ctx.iam_role_arn",
+      "dataset.storage_ctx.key_prefix",
+      "dataset.storage_location"
+    ]
+  },
+  "dataset.tag_added": {
+    "event_type": "dataset.tag_added",
+    "event": {
+      "id": "evt:ds_7h2k9m4qxp3w:dataset.tag_added",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "dataset.tag_added",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "tags_added": [
+          "validated",
+          "nightly"
+        ]
+      },
+      "subject": "roboto://dataset/ds_7h2k9m4qxp3w"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:ds_7h2k9m4qxp3w:dataset.tag_added",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://dataset/ds_7h2k9m4qxp3w",
+        "type": "dataset.tag_added",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "dataset": {
+        "created": "2026-08-28T12:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "description": "Autonomous warehouse loop, morning shift. Two laps of route B with the new lidar mount.",
+        "device_id": "rover-07",
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "route": "warehouse-loop-b",
+          "operator": "mchen",
+          "firmware": "4.12.1",
+          "weather": "indoor"
+        },
+        "custom_fields": {},
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 warehouse loop 2026-08-28",
+        "org_id": "og_k3m8w2rq7nxd",
+        "roboto_record_version": 0,
+        "tags": [
+          "validated",
+          "nightly",
+          "lidar-v2"
+        ],
+        "administrator": "Roboto",
+        "storage_ctx": {
+          "bucket_name": "NOT_SET",
+          "iam_role_arn": "NOT_SET",
+          "key_prefix": "NOT_SET"
+        },
+        "storage_location": "S3"
+      },
+      "tag": {
+        "added": [
+          "validated",
+          "nightly"
+        ],
+        "removed": []
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "dataset.created",
+      "dataset.created_by",
+      "dataset.dataset_id",
+      "dataset.description",
+      "dataset.device_id",
+      "dataset.metadata",
+      "dataset.metadata.vehicle_id",
+      "dataset.metadata.route",
+      "dataset.metadata.operator",
+      "dataset.metadata.firmware",
+      "dataset.metadata.weather",
+      "dataset.custom_fields",
+      "dataset.modified",
+      "dataset.modified_by",
+      "dataset.name",
+      "dataset.org_id",
+      "dataset.roboto_record_version",
+      "dataset.tags",
+      "dataset.administrator",
+      "dataset.storage_ctx",
+      "dataset.storage_ctx.bucket_name",
+      "dataset.storage_ctx.iam_role_arn",
+      "dataset.storage_ctx.key_prefix",
+      "dataset.storage_location",
+      "tag.added",
+      "tag.removed"
+    ]
+  },
+  "invocation.completed": {
+    "event_type": "invocation.completed",
+    "event": {
+      "id": "evt:iv_2x9pd7wk5rhf:invocation.completed",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "invocation.completed",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "invocation_id": "iv_2x9pd7wk5rhf",
+        "action_name": "ros-ingest",
+        "action_owner_id": "og_k3m8w2rq7nxd",
+        "status": 5
+      },
+      "subject": "roboto://invocation/iv_2x9pd7wk5rhf"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:iv_2x9pd7wk5rhf:invocation.completed",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://invocation/iv_2x9pd7wk5rhf",
+        "type": "invocation.completed",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "action": {
+        "name": "ros-ingest",
+        "org_id": "og_k3m8w2rq7nxd",
+        "digest": "sha256:9f1c2e7b4a0d8c6f3e5b1a7d2c4f8e6a0b3d5c7e9f1a2b4c6d8e0f2a4b6c8d0e"
+      },
+      "invocation": {
+        "created": "2026-08-28T14:20:11Z",
+        "data_source": {
+          "data_source_type": "Dataset",
+          "data_source_id": "ds_7h2k9m4qxp3w"
+        },
+        "input_data": [
+          "**/*.mcap"
+        ],
+        "rich_input_data": null,
+        "upload_destination": null,
+        "invocation_id": "iv_2x9pd7wk5rhf",
+        "idempotency_id": null,
+        "compute_requirements": {
+          "vCPU": 2048,
+          "memory": 4096,
+          "gpu": false,
+          "storage": 21
+        },
+        "container_parameters": {
+          "command": null,
+          "entry_point": null,
+          "env_vars": null,
+          "workdir": null
+        },
+        "last_heartbeat": "2026-08-28T14:32:11Z",
+        "last_status": 5,
+        "org_id": "og_k3m8w2rq7nxd",
+        "parameter_values": {
+          "topics": "/lidar/points,/imu/data",
+          "downsample_hz": 10
+        },
+        "provenance": {
+          "action": {
+            "name": "ros-ingest",
+            "org_id": "og_k3m8w2rq7nxd",
+            "digest": "sha256:9f1c2e7b4a0d8c6f3e5b1a7d2c4f8e6a0b3d5c7e9f1a2b4c6d8e0f2a4b6c8d0e"
+          },
+          "executable": {
+            "container_image_uri": "123456789012.dkr.ecr.us-west-2.amazonaws.com/ros-ingest:1.4.0",
+            "container_image_digest": "sha256:0c8e4f2a6b1d3e5f7a9c1b3d5e7f9a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3f"
+          },
+          "source": {
+            "source_type": "Trigger",
+            "source_id": "tr_3nq7wk2mx9pd"
+          }
+        },
+        "status": [
+          {
+            "status": 0,
+            "detail": null,
+            "timestamp": "2026-08-28T14:20:11Z"
+          },
+          {
+            "status": 3,
+            "detail": null,
+            "timestamp": "2026-08-28T14:21:11Z"
+          },
+          {
+            "status": 5,
+            "detail": null,
+            "timestamp": "2026-08-28T14:32:11Z"
+          }
+        ],
+        "duration": "PT11M48S",
+        "timeout": 3600
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "action.name",
+      "action.org_id",
+      "action.digest",
+      "invocation.created",
+      "invocation.data_source",
+      "invocation.data_source.data_source_type",
+      "invocation.data_source.data_source_id",
+      "invocation.input_data",
+      "invocation.rich_input_data",
+      "invocation.upload_destination",
+      "invocation.invocation_id",
+      "invocation.idempotency_id",
+      "invocation.compute_requirements",
+      "invocation.compute_requirements.vCPU",
+      "invocation.compute_requirements.memory",
+      "invocation.compute_requirements.gpu",
+      "invocation.compute_requirements.storage",
+      "invocation.container_parameters",
+      "invocation.container_parameters.command",
+      "invocation.container_parameters.entry_point",
+      "invocation.container_parameters.env_vars",
+      "invocation.container_parameters.workdir",
+      "invocation.last_heartbeat",
+      "invocation.last_status",
+      "invocation.org_id",
+      "invocation.parameter_values",
+      "invocation.parameter_values.topics",
+      "invocation.parameter_values.downsample_hz",
+      "invocation.provenance",
+      "invocation.provenance.action",
+      "invocation.provenance.action.name",
+      "invocation.provenance.action.org_id",
+      "invocation.provenance.action.digest",
+      "invocation.provenance.executable",
+      "invocation.provenance.executable.container_image_uri",
+      "invocation.provenance.executable.container_image_digest",
+      "invocation.provenance.source",
+      "invocation.provenance.source.source_type",
+      "invocation.provenance.source.source_id",
+      "invocation.status",
+      "invocation.duration",
+      "invocation.timeout"
+    ]
+  },
+  "invocation.failed": {
+    "event_type": "invocation.failed",
+    "event": {
+      "id": "evt:iv_2x9pd7wk5rhf:invocation.failed",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "invocation.failed",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "invocation_id": "iv_2x9pd7wk5rhf",
+        "action_name": "ros-ingest",
+        "action_owner_id": "og_k3m8w2rq7nxd",
+        "status": 998
+      },
+      "subject": "roboto://invocation/iv_2x9pd7wk5rhf"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:iv_2x9pd7wk5rhf:invocation.failed",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://invocation/iv_2x9pd7wk5rhf",
+        "type": "invocation.failed",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "action": {
+        "name": "ros-ingest",
+        "org_id": "og_k3m8w2rq7nxd",
+        "digest": "sha256:9f1c2e7b4a0d8c6f3e5b1a7d2c4f8e6a0b3d5c7e9f1a2b4c6d8e0f2a4b6c8d0e"
+      },
+      "invocation": {
+        "created": "2026-08-28T14:20:11Z",
+        "data_source": {
+          "data_source_type": "Dataset",
+          "data_source_id": "ds_7h2k9m4qxp3w"
+        },
+        "input_data": [
+          "**/*.mcap"
+        ],
+        "rich_input_data": null,
+        "upload_destination": null,
+        "invocation_id": "iv_2x9pd7wk5rhf",
+        "idempotency_id": null,
+        "compute_requirements": {
+          "vCPU": 2048,
+          "memory": 4096,
+          "gpu": false,
+          "storage": 21
+        },
+        "container_parameters": {
+          "command": null,
+          "entry_point": null,
+          "env_vars": null,
+          "workdir": null
+        },
+        "last_heartbeat": "2026-08-28T14:32:11Z",
+        "last_status": 5,
+        "org_id": "og_k3m8w2rq7nxd",
+        "parameter_values": {
+          "topics": "/lidar/points,/imu/data",
+          "downsample_hz": 10
+        },
+        "provenance": {
+          "action": {
+            "name": "ros-ingest",
+            "org_id": "og_k3m8w2rq7nxd",
+            "digest": "sha256:9f1c2e7b4a0d8c6f3e5b1a7d2c4f8e6a0b3d5c7e9f1a2b4c6d8e0f2a4b6c8d0e"
+          },
+          "executable": {
+            "container_image_uri": "123456789012.dkr.ecr.us-west-2.amazonaws.com/ros-ingest:1.4.0",
+            "container_image_digest": "sha256:0c8e4f2a6b1d3e5f7a9c1b3d5e7f9a1c3e5b7d9f1a3c5e7b9d1f3a5c7e9b1d3f"
+          },
+          "source": {
+            "source_type": "Trigger",
+            "source_id": "tr_3nq7wk2mx9pd"
+          }
+        },
+        "status": [
+          {
+            "status": 0,
+            "detail": null,
+            "timestamp": "2026-08-28T14:20:11Z"
+          },
+          {
+            "status": 3,
+            "detail": null,
+            "timestamp": "2026-08-28T14:21:11Z"
+          },
+          {
+            "status": 5,
+            "detail": null,
+            "timestamp": "2026-08-28T14:32:11Z"
+          }
+        ],
+        "duration": "PT11M48S",
+        "timeout": 3600
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "action.name",
+      "action.org_id",
+      "action.digest",
+      "invocation.created",
+      "invocation.data_source",
+      "invocation.data_source.data_source_type",
+      "invocation.data_source.data_source_id",
+      "invocation.input_data",
+      "invocation.rich_input_data",
+      "invocation.upload_destination",
+      "invocation.invocation_id",
+      "invocation.idempotency_id",
+      "invocation.compute_requirements",
+      "invocation.compute_requirements.vCPU",
+      "invocation.compute_requirements.memory",
+      "invocation.compute_requirements.gpu",
+      "invocation.compute_requirements.storage",
+      "invocation.container_parameters",
+      "invocation.container_parameters.command",
+      "invocation.container_parameters.entry_point",
+      "invocation.container_parameters.env_vars",
+      "invocation.container_parameters.workdir",
+      "invocation.last_heartbeat",
+      "invocation.last_status",
+      "invocation.org_id",
+      "invocation.parameter_values",
+      "invocation.parameter_values.topics",
+      "invocation.parameter_values.downsample_hz",
+      "invocation.provenance",
+      "invocation.provenance.action",
+      "invocation.provenance.action.name",
+      "invocation.provenance.action.org_id",
+      "invocation.provenance.action.digest",
+      "invocation.provenance.executable",
+      "invocation.provenance.executable.container_image_uri",
+      "invocation.provenance.executable.container_image_digest",
+      "invocation.provenance.source",
+      "invocation.provenance.source.source_type",
+      "invocation.provenance.source.source_id",
+      "invocation.status",
+      "invocation.duration",
+      "invocation.timeout"
+    ]
+  },
+  "session.created": {
+    "event_type": "session.created",
+    "event": {
+      "id": "evt:se_m4t7c1zq9bvn:session.created",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "session.created",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "session_id": "se_m4t7c1zq9bvn"
+      },
+      "subject": "roboto://session/se_m4t7c1zq9bvn"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:se_m4t7c1zq9bvn:session.created",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://session/se_m4t7c1zq9bvn",
+        "type": "session.created",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "session": {
+        "created": "2026-08-28T11:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "custom_fields": {},
+        "description": "All drives from rover-07's 2026-08-28 morning shift.",
+        "max_timestamp_ns": 1787003600000000000,
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "shift": "morning"
+        },
+        "min_timestamp_ns": 1787000000000000000,
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 morning shift",
+        "org_id": "og_k3m8w2rq7nxd",
+        "session_id": "se_m4t7c1zq9bvn",
+        "tags": [
+          "nightly"
+        ]
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "session.created",
+      "session.created_by",
+      "session.custom_fields",
+      "session.description",
+      "session.max_timestamp_ns",
+      "session.metadata",
+      "session.metadata.vehicle_id",
+      "session.metadata.shift",
+      "session.min_timestamp_ns",
+      "session.modified",
+      "session.modified_by",
+      "session.name",
+      "session.org_id",
+      "session.session_id",
+      "session.tags"
+    ]
+  },
+  "session.files_added": {
+    "event_type": "session.files_added",
+    "event": {
+      "id": "evt:se_m4t7c1zq9bvn:session.files_added",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "session.files_added",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "session_id": "se_m4t7c1zq9bvn",
+        "file_ids": [
+          "fl_q8v2n6ty4mcs",
+          "fl_8kd3p5xw2nqr"
+        ]
+      },
+      "subject": "roboto://session/se_m4t7c1zq9bvn"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:se_m4t7c1zq9bvn:session.files_added",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://session/se_m4t7c1zq9bvn",
+        "type": "session.files_added",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "session": {
+        "created": "2026-08-28T11:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "custom_fields": {},
+        "description": "All drives from rover-07's 2026-08-28 morning shift.",
+        "max_timestamp_ns": 1787003600000000000,
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "shift": "morning"
+        },
+        "min_timestamp_ns": 1787000000000000000,
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 morning shift",
+        "org_id": "og_k3m8w2rq7nxd",
+        "session_id": "se_m4t7c1zq9bvn",
+        "tags": [
+          "nightly"
+        ]
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "session.created",
+      "session.created_by",
+      "session.custom_fields",
+      "session.description",
+      "session.max_timestamp_ns",
+      "session.metadata",
+      "session.metadata.vehicle_id",
+      "session.metadata.shift",
+      "session.min_timestamp_ns",
+      "session.modified",
+      "session.modified_by",
+      "session.name",
+      "session.org_id",
+      "session.session_id",
+      "session.tags"
+    ]
+  },
+  "session.updated": {
+    "event_type": "session.updated",
+    "event": {
+      "id": "evt:se_m4t7c1zq9bvn:session.updated",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "session.updated",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "session_id": "se_m4t7c1zq9bvn",
+        "changeset": {
+          "put_tags": [
+            "validated",
+            "nightly"
+          ],
+          "remove_tags": [
+            "needs-review"
+          ],
+          "put_fields": {
+            "vehicle_id": "rover-07",
+            "route": "warehouse-loop-b"
+          },
+          "remove_fields": null,
+          "replace_all": false
+        }
+      },
+      "subject": "roboto://session/se_m4t7c1zq9bvn"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:se_m4t7c1zq9bvn:session.updated",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://session/se_m4t7c1zq9bvn",
+        "type": "session.updated",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "changed": {
+        "vehicle_id": "rover-07",
+        "route": "warehouse-loop-b"
+      },
+      "session": {
+        "created": "2026-08-28T11:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "custom_fields": {},
+        "description": "All drives from rover-07's 2026-08-28 morning shift.",
+        "max_timestamp_ns": 1787003600000000000,
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "shift": "morning"
+        },
+        "min_timestamp_ns": 1787000000000000000,
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 morning shift",
+        "org_id": "og_k3m8w2rq7nxd",
+        "session_id": "se_m4t7c1zq9bvn",
+        "tags": [
+          "nightly"
+        ]
+      },
+      "tag": {
+        "added": [
+          "validated",
+          "nightly"
+        ],
+        "removed": [
+          "needs-review"
+        ]
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "changed.vehicle_id",
+      "changed.route",
+      "session.created",
+      "session.created_by",
+      "session.custom_fields",
+      "session.description",
+      "session.max_timestamp_ns",
+      "session.metadata",
+      "session.metadata.vehicle_id",
+      "session.metadata.shift",
+      "session.min_timestamp_ns",
+      "session.modified",
+      "session.modified_by",
+      "session.name",
+      "session.org_id",
+      "session.session_id",
+      "session.tags",
+      "tag.added",
+      "tag.removed"
+    ]
+  },
+  "event.created": {
+    "event_type": "event.created",
+    "event": {
+      "id": "evt:ev_7g3n5kq2wxrd:event.created",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "event.created",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "event_id": "ev_7g3n5kq2wxrd"
+      },
+      "subject": "roboto://event/ev_7g3n5kq2wxrd"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:ev_7g3n5kq2wxrd:event.created",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://event/ev_7g3n5kq2wxrd",
+        "type": "event.created",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "event": {
+        "associations": [
+          {
+            "association_id": "ds_7h2k9m4qxp3w",
+            "association_type": "dataset",
+            "association_version": null,
+            "parent": null
+          },
+          {
+            "association_id": "fl_q8v2n6ty4mcs",
+            "association_type": "file",
+            "association_version": null,
+            "parent": null
+          }
+        ],
+        "created": "2026-08-28T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "description": "Emergency stop halfway round the warehouse loop.",
+        "end_time": 1787000123500000000,
+        "event_id": "ev_7g3n5kq2wxrd",
+        "metadata": {
+          "severity": "high",
+          "vehicle_id": "rover-07"
+        },
+        "custom_fields": {},
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "hard-brake",
+        "org_id": "og_k3m8w2rq7nxd",
+        "start_time": 1787000120000000000,
+        "tags": [
+          "safety"
+        ],
+        "display_options": null
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "event.associations",
+      "event.created",
+      "event.created_by",
+      "event.description",
+      "event.end_time",
+      "event.event_id",
+      "event.metadata",
+      "event.metadata.severity",
+      "event.metadata.vehicle_id",
+      "event.custom_fields",
+      "event.modified",
+      "event.modified_by",
+      "event.name",
+      "event.org_id",
+      "event.start_time",
+      "event.tags",
+      "event.display_options"
+    ]
+  },
+  "schedule.fired": {
+    "event_type": "schedule.fired",
+    "event": {
+      "id": "evt:tr_3nq7wk2mx9pd:schedule.fired",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "schedule.fired",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "scheduled_for": "2026-08-28T14:32:00Z"
+      },
+      "subject": "roboto://trigger/tr_3nq7wk2mx9pd"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:tr_3nq7wk2mx9pd:schedule.fired",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://trigger/tr_3nq7wk2mx9pd",
+        "type": "schedule.fired",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd"
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "weekly-report",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "schedule",
+          "cron": "0 9 * * 1"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "schedule": {
+        "scheduled_for": "2026-08-28T14:32:00Z",
+        "cron": "0 9 * * 1"
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.cron",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "schedule.scheduled_for",
+      "schedule.cron"
+    ]
+  }
+}

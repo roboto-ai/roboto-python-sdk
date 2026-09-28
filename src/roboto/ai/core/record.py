@@ -416,6 +416,13 @@ class AgentThreadRecord(pydantic.BaseModel):
     through ``POST /v1/ai/threads``. Forks do not inherit this field —
     a fork is its own thread."""
 
+    created_from_trigger_id: Optional[str] = None
+    """If a trigger's ``start_agent`` target launched this thread, the id of
+    that trigger. ``None`` for every other thread, including one launched from
+    the same agent by a person. Set alongside :attr:`created_from_agent_id`,
+    which names the agent; this names what decided to run it. Forks do not
+    inherit this field — a fork is its own thread."""
+
     origin: Optional[ThreadOrigin] = None
     """The surface that owns this thread.
 

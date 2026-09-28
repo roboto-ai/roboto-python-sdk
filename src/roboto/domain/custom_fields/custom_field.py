@@ -12,6 +12,7 @@ import typing
 import urllib.parse
 
 from ...exceptions import (
+    RobotoInvalidRequestException,
     RobotoInvalidStateTransitionException,
     RobotoNotFoundException,
 )
@@ -20,7 +21,14 @@ from ...sentinels import NotSet, NotSetType, remove_not_set
 from ...waiters import wait_for
 from ...warnings import experimental
 from .operations import CreateCustomFieldRequest, ListCustomFieldsRequest, UpdateCustomFieldRequest
-from .record import CustomFieldOptions, CustomFieldRecord, CustomFieldStatus, CustomFieldType, TargetEntityType
+from .record import (
+    CustomFieldOptions,
+    CustomFieldRecord,
+    CustomFieldStatus,
+    CustomFieldType,
+    EnumFieldOptions,
+    TargetEntityType,
+)
 
 
 @experimental
@@ -420,6 +428,7 @@ class CustomField:
         self,
         display_name: typing.Union[str, None, NotSetType] = NotSet,
         description: typing.Union[str, None, NotSetType] = NotSet,
+        options: typing.Union[CustomFieldOptions, NotSetType] = NotSet,
     ) -> CustomField:
         """Update mutable metadata on this custom field in place.
 
@@ -431,24 +440,49 @@ class CustomField:
         Args:
             display_name: New display name, or ``None`` to clear it.
             description: New description, or ``None`` to clear it.
+            options: Replacement type-specific configuration. Must be for this field's
+                :py:attr:`field_type`. For an enum field, the new ``enum_values`` must include
+                every existing value: values can be added but not removed. Re-sending a value the
+                field already has is harmless: repeats are dropped, not rejected.
 
         Returns:
             This same CustomField, with its in-memory record replaced by the
             server's updated copy.
 
         Raises:
+            RobotoInvalidRequestException: ``options`` are for a different field type, or
+                would remove an existing enum value.
             RobotoNotFoundException: The field no longer exists.
             RobotoUnauthorizedException: The caller lacks permission to update this
                 field.
+            pydantic.ValidationError: An enum value cannot be stored, or ``enum_values`` is
+                longer than a field may declare. Raised before the request is sent.
 
         Examples:
             >>> field.update(display_name="Flight identifier")
+
+            Add a value to an enum field:
+
+            >>> from roboto.domain.custom_fields import EnumFieldOptions
+            >>> field.update(options=EnumFieldOptions(enum_values=[*field.options.enum_values, "critical"]))
+
+            A value the field already has keeps its place, and the new one is appended:
+
+            >>> field.options.enum_values
+            ['low', 'medium', 'high']
+            >>> updated = field.update(
+            ...     options=EnumFieldOptions(enum_values=[*field.options.enum_values, "medium", "critical"])
+            ... )
+            >>> updated.options.enum_values
+            ['low', 'medium', 'high', 'critical']
 
             Clear the description:
 
             >>> field.update(description=None)
         """
-        request = remove_not_set(UpdateCustomFieldRequest(display_name=display_name, description=description))
+        request = remove_not_set(
+            UpdateCustomFieldRequest(display_name=display_name, description=description, options=options)
+        )
 
         updated_record = self.__roboto_client.post(
             path=f"v1/custom-fields/id/{self.field_id}", data=request, idempotent=True, owner_org_id=self.org_id
@@ -456,6 +490,52 @@ class CustomField:
 
         self.__record = updated_record
         return self
+
+    def add_enum_values(self, *values: str) -> CustomField:
+        """Add values to the set this enum field accepts.
+
+        Re-fetches the field before updating it: an update has to list every value the field
+        already has, so a value someone else added since this object was loaded would otherwise
+        read as a removal and be rejected.
+
+        Only administrators in this field's organization can update it.
+
+        Args:
+            values: Values to allow, on top of the field's current ones. Each is normalized to
+                Unicode NFC with runs of whitespace collapsed to a single space; passing one the
+                field already has, in any spelling that normalizes the same, changes nothing.
+                A field may hold at most 250 values.
+
+        Returns:
+            This same CustomField, with its in-memory record replaced by the server's updated
+            copy. Called with no values, it returns without contacting the server.
+
+        Raises:
+            RobotoInvalidRequestException: This field is not an enum field.
+            RobotoNotFoundException: The field no longer exists.
+            RobotoUnauthorizedException: The caller lacks permission to update this field.
+            pydantic.ValidationError: A value cannot be stored, or the field would end up with
+                more values than it is allowed.
+
+        Examples:
+            >>> field.options.enum_values
+            ['low', 'medium', 'high']
+            >>> field.add_enum_values("critical").options.enum_values
+            ['low', 'medium', 'high', 'critical']
+        """
+        if not values:
+            return self
+
+        self.refresh()
+
+        current = self.options
+        if not isinstance(current, EnumFieldOptions):
+            raise RobotoInvalidRequestException(
+                f"Custom field '{self.field_name}' is a '{self.field_type}' field; "
+                "enum values can only be added to an enum field"
+            )
+
+        return self.update(options=EnumFieldOptions(enum_values=[*current.enum_values, *values]))
 
     def wait_to_be_ready(self, timeout: float = 5 * 60, poll_interval: int = 2) -> None:
         """Block until this custom field reaches the :py:attr:`~CustomFieldStatus.Ready` state.

@@ -57,7 +57,7 @@ from ..files import (
     LazyLookupFile,
     RenameFileRequest,
 )
-from ..topics import Topic
+from ..topics import Topic, TopicTimeBounds
 from .operations import (
     CreateDatasetIfNotExistsRequest,
     CreateDatasetRequest,
@@ -999,11 +999,7 @@ class Dataset:
             >>> for session in dataset.get_sessions():
             ...     print(session.session_id, session.name)
         """
-        yield from Session.for_dataset(
-            self.dataset_id,
-            owner_org_id=self.org_id,
-            roboto_client=self.__roboto_client,
-        )
+        yield from Session.for_dataset(self.dataset_id, roboto_client=self.__roboto_client)
 
     def get_topics(
         self,
@@ -1056,6 +1052,31 @@ class Dataset:
                 continue
 
             yield topic
+
+    def get_topic_time_bounds(self) -> TopicTimeBounds:
+        """Get the earliest start and latest end across every topic in this dataset.
+
+        The same aggregate you would reach by folding ``start_time`` and ``end_time`` over
+        :py:meth:`get_topics`, computed server-side in one request instead of one per page of
+        topics. Reach for it when you want the dataset's time extent and not the topics
+        themselves.
+
+        Returns:
+            Bounds in nanoseconds since the Unix epoch. Both fields are None for a dataset
+            whose files hold no topics, and either is None when no topic in the dataset
+            carries that timestamp.
+
+        Raises:
+            RobotoNotFoundException: Dataset does not exist.
+            RobotoUnauthorizedException: Caller lacks permission to access the dataset.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> bounds = dataset.get_topic_time_bounds()
+            >>> print(bounds.start_time, bounds.end_time)
+            1722870127699468923 1722870187004821001
+        """
+        return self.__roboto_client.get(f"v1/datasets/{self.dataset_id}/topics/time-bounds").to_record(TopicTimeBounds)
 
     def get_topics_by_file(
         self, relative_path: typing.Union[str, pathlib.Path]

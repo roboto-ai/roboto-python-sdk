@@ -1,0 +1,182 @@
+{
+  "file.uploaded": {
+    "roots": [
+      "dataset",
+      "file"
+    ],
+    "default_root": "dataset",
+    "once_per": [
+      "dataset",
+      "file",
+      "occurrence"
+    ],
+    "subject_type": "file",
+    "subscribable": true
+  },
+  "dataset.upload_completed": {
+    "roots": [
+      "dataset",
+      "upload"
+    ],
+    "default_root": "dataset",
+    "once_per": [
+      "dataset",
+      "occurrence"
+    ],
+    "subject_type": "dataset",
+    "subscribable": true
+  },
+  "file.ingested": {
+    "roots": [
+      "dataset",
+      "file"
+    ],
+    "default_root": "dataset",
+    "once_per": [
+      "dataset",
+      "file",
+      "occurrence"
+    ],
+    "subject_type": "file",
+    "subscribable": true
+  },
+  "file.metadata_updated": {
+    "roots": [
+      "changed",
+      "dataset",
+      "file",
+      "tag"
+    ],
+    "default_root": "dataset",
+    "once_per": [
+      "dataset",
+      "file",
+      "occurrence"
+    ],
+    "subject_type": "file",
+    "subscribable": true
+  },
+  "dataset.metadata_updated": {
+    "roots": [
+      "changed",
+      "dataset",
+      "tag"
+    ],
+    "default_root": "dataset",
+    "once_per": [
+      "dataset",
+      "occurrence"
+    ],
+    "subject_type": "dataset",
+    "subscribable": true
+  },
+  "dataset.created": {
+    "roots": [
+      "dataset"
+    ],
+    "default_root": "dataset",
+    "once_per": [
+      "dataset",
+      "occurrence"
+    ],
+    "subject_type": "dataset",
+    "subscribable": true
+  },
+  "dataset.tag_added": {
+    "roots": [
+      "dataset",
+      "tag"
+    ],
+    "default_root": "dataset",
+    "once_per": [
+      "occurrence"
+    ],
+    "subject_type": "dataset",
+    "subscribable": true
+  },
+  "invocation.completed": {
+    "roots": [
+      "action",
+      "invocation"
+    ],
+    "default_root": "invocation",
+    "once_per": [
+      "invocation",
+      "occurrence"
+    ],
+    "subject_type": "invocation",
+    "subscribable": true
+  },
+  "invocation.failed": {
+    "roots": [
+      "action",
+      "invocation"
+    ],
+    "default_root": "invocation",
+    "once_per": [
+      "invocation",
+      "occurrence"
+    ],
+    "subject_type": "invocation",
+    "subscribable": true
+  },
+  "session.created": {
+    "roots": [
+      "session"
+    ],
+    "default_root": "session",
+    "once_per": [
+      "occurrence",
+      "session"
+    ],
+    "subject_type": "session",
+    "subscribable": true
+  },
+  "session.files_added": {
+    "roots": [
+      "session"
+    ],
+    "default_root": "session",
+    "once_per": [
+      "occurrence"
+    ],
+    "subject_type": "session",
+    "subscribable": true
+  },
+  "session.updated": {
+    "roots": [
+      "changed",
+      "session",
+      "tag"
+    ],
+    "default_root": "session",
+    "once_per": [
+      "occurrence"
+    ],
+    "subject_type": "session",
+    "subscribable": true
+  },
+  "event.created": {
+    "roots": [
+      "event"
+    ],
+    "default_root": "event",
+    "once_per": [
+      "event",
+      "occurrence"
+    ],
+    "subject_type": "event",
+    "subscribable": true
+  },
+  "schedule.fired": {
+    "roots": [
+      "schedule"
+    ],
+    "default_root": "schedule",
+    "once_per": [
+      "occurrence"
+    ],
+    "subject_type": "trigger",
+    "subscribable": false
+  }
+}

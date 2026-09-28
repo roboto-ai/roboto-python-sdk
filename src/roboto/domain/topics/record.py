@@ -547,6 +547,27 @@ class TopicRecord(pydantic.BaseModel):
     topic_name: str
 
 
+class TopicTimeBounds(pydantic.BaseModel):
+    """Earliest start and latest end, in epoch nanoseconds, across a set of topics.
+
+    The aggregate of the ``start_time`` and ``end_time`` of every topic in the set, computed
+    server-side so a caller does not have to page the whole set to fold them.
+
+    Either field is None when no topic in the set carries that timestamp — because the set is
+    empty, or because every topic in it left that bound unset.
+    """
+
+    start_time: typing.Optional[int] = None
+    """
+    Earliest ``start_time`` across the set, in nanoseconds since epoch (assumed Unix epoch).
+    """
+
+    end_time: typing.Optional[int] = None
+    """
+    Latest ``end_time`` across the set, in nanoseconds since epoch (assumed Unix epoch).
+    """
+
+
 FieldPath = tuple[str, ...]
 """A schema field's path components, in order from the schema root to the leaf."""
 

@@ -4,10 +4,9 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from typing import Any
-
+from ...templating import MappingResolver, substitute
 from ..agent_thread.record import StartAgentThreadRequest
-from .record import _PLACEHOLDER_RE, AgentRecord, TemplateVariable
+from .record import AgentRecord, TemplateVariable
 
 
 class AgentResolutionError(ValueError):
@@ -54,7 +53,7 @@ def resolve_agent(
     """
     merged = _merge_values_and_defaults(agent.variables, values)
     raw = agent.request_template.model_dump(mode="json")
-    resolved = _walk_and_sub(raw, merged)
+    resolved = substitute(raw, MappingResolver(merged))
     return StartAgentThreadRequest.model_validate(resolved)
 
 
@@ -86,16 +85,6 @@ def _merge_values_and_defaults(
         raise UnresolvedAgentVariablesError(missing_required)
 
     return merged
-
-
-def _walk_and_sub(node: Any, values: dict[str, str]) -> Any:
-    if isinstance(node, str):
-        return _PLACEHOLDER_RE.sub(lambda m: values.get(m.group(1), m.group(0)), node)
-    if isinstance(node, list):
-        return [_walk_and_sub(item, values) for item in node]
-    if isinstance(node, dict):
-        return {key: _walk_and_sub(value, values) for key, value in node.items()}
-    return node
 
 
 __all__ = [

@@ -137,6 +137,14 @@ class MetricRecord(pydantic.BaseModel):
     invocation_id: typing.Optional[str] = None
     """Action invocation that produced this data point, if any."""
 
+    group_key: typing.Optional[str] = None
+    """Value of the field named by :py:attr:`QueryMetricsRequest.group_by` that this data point
+    carries, rendered as text whatever the field's type. ``None`` on every data point of an
+    ungrouped query, and on a data point that carries no value for that field — one published
+    without a device, or whose session or device has never been given a value for the custom
+    field. Mirrors :py:attr:`NumericAggregateMetricRecord.group_key`, which splits buckets the
+    same way."""
+
     published_by: str
     """User or service account that published this data point."""
 
@@ -176,6 +184,13 @@ class NumericAggregateMetricRecord(AggregateMetricRecord):
 
     aggregation: NumericAggregation
     """Aggregation function that was applied to produce this record."""
+
+    group_key: typing.Optional[str] = None
+    """Value of the field named by :py:attr:`AggregateMetricsRequest.group_by` that this bucket's
+    data points share, rendered as text whatever the field's type. ``None`` on every bucket of an
+    ungrouped aggregation, and on the bucket collecting the grouped data points that carry no value
+    for that field — a data point published without a device, or a session or device that has never
+    been given a value for the custom field."""
 
 
 class NumericAggregateMetricsResponse(pydantic.BaseModel):
@@ -374,6 +389,23 @@ class QueryMetricsRequest(pydantic.BaseModel):
     :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`.
     """
 
+    group_by: typing.Optional[str] = None
+    """Field whose value each returned data point should carry, under
+    :py:attr:`MetricRecord.group_key`.
+
+    Unlike :py:attr:`AggregateMetricsRequest.group_by`, this does not change which rows come back or
+    how many: a raw query already returns one data point per session, so there is nothing to split.
+    It projects the field's value onto each one, which is what lets a caller separate the points
+    into a series per distinct value without resolving the field itself.
+
+    ``None`` leaves :py:attr:`MetricRecord.group_key` null on every data point. Accepts the same
+    vocabulary the aggregation does — ``device.device_id`` and String, Enum, or Boolean custom
+    fields on sessions and devices (``session.custom.<name>``, ``device.custom.<name>``) — and
+    rejects every other field of :py:attr:`condition`'s vocabulary with
+    :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`. A data point carrying no value for
+    the field gets a null ``group_key`` rather than being dropped.
+    """
+
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)
 
 
@@ -421,6 +453,20 @@ class AggregateMetricsRequest(pydantic.BaseModel):
     filtered aggregation can return fewer buckets than an unfiltered one over the same window. See
     :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the accepted fields and the
     treatment of data points published without a device.
+    """
+
+    group_by: typing.Optional[str] = None
+    """Field to split the aggregation by, in addition to the period bucket: one
+    :py:class:`NumericAggregateMetricRecord` per (period, distinct value) pair, each carrying the
+    value it aggregated under :py:attr:`~NumericAggregateMetricRecord.group_key`.
+
+    ``None`` aggregates every matching data point of a period into one bucket. Accepts
+    ``device.device_id`` and String, Enum, or Boolean custom fields on sessions and devices
+    (``session.custom.<name>``, ``device.custom.<name>``); every other field of the vocabulary
+    :py:attr:`condition` accepts is rejected, since a group key must be single-valued and
+    low-cardinality to be a series. Data points carrying no value for the field are grouped under a
+    null ``group_key`` rather than dropped, and the response is not capped: every distinct value
+    with data in the window comes back.
     """
 
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)
