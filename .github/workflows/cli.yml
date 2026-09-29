@@ -197,6 +197,15 @@ jobs:
       - name: List artifacts
         run: ls -R dist
 
+      # install.sh and `roboto upgrade` verify their downloads against this file.
+      - name: Write checksums
+        run: |
+          cd dist
+          find . -maxdepth 1 -type f -name 'roboto-*' ! -name 'roboto-sha256sums.txt' -printf '%f\n' \
+            | sort \
+            | xargs sha256sum > roboto-sha256sums.txt
+          cat roboto-sha256sums.txt
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
