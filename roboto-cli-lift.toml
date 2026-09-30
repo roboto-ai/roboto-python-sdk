@@ -16,3 +16,8 @@ name = ":roboto-cli"
 [[lift.commands]]
 exe = "#{cpython:python}"
 args = ["{:roboto-cli}"]
+
+# `roboto upgrade` reads this to find the release binary it replaces. Only this binary sets it, unlike SCIE, which
+# every scie sets for the programs it starts; replace overwrites any value inherited from a parent process.
+[lift.commands.env.replace]
+ROBOTO_RELEASE_BINARY = "{scie}"
