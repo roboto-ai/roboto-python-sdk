@@ -34,6 +34,7 @@ SAMPLE_USER = "maria.chen@acme-robotics.com"
 SAMPLE_DATASET_ID = "ds_7h2k9m4qxp3w"
 SAMPLE_EVENT_ID = "ev_7g3n5kq2wxrd"
 SAMPLE_FILE_ID = "fl_q8v2n6ty4mcs"
+SAMPLE_FILE_VERSION = 2
 SAMPLE_INVOCATION_ID = "iv_2x9pd7wk5rhf"
 SAMPLE_SESSION_ID = "se_m4t7c1zq9bvn"
 SAMPLE_TRANSACTION_ID = "tx_5jw8r3ne2kpq"
@@ -51,11 +52,21 @@ SAMPLE_CHANGESET = MetadataChangeset(
 def _payload_for(event_type: PlatformEventType) -> dict[str, typing.Any]:
     """The envelope's ``data`` for ``event_type``, from the same scenario."""
     if event_type in (PlatformEventType.FileUploaded, PlatformEventType.FileIngested):
-        return {"dataset_id": SAMPLE_DATASET_ID, "file_id": SAMPLE_FILE_ID, "transaction_id": SAMPLE_TRANSACTION_ID}
+        return {
+            "dataset_id": SAMPLE_DATASET_ID,
+            "file_id": SAMPLE_FILE_ID,
+            "file_version": SAMPLE_FILE_VERSION,
+            "transaction_id": SAMPLE_TRANSACTION_ID,
+        }
     if event_type is PlatformEventType.UploadCompleted:
         return {"dataset_id": SAMPLE_DATASET_ID, "transaction_id": SAMPLE_TRANSACTION_ID}
     if event_type is PlatformEventType.FileMetadataUpdated:
-        return {"dataset_id": SAMPLE_DATASET_ID, "file_id": SAMPLE_FILE_ID, "changeset": SAMPLE_CHANGESET}
+        return {
+            "dataset_id": SAMPLE_DATASET_ID,
+            "file_id": SAMPLE_FILE_ID,
+            "file_version": SAMPLE_FILE_VERSION,
+            "changeset": SAMPLE_CHANGESET,
+        }
     if event_type is PlatformEventType.DatasetMetadataUpdated:
         return {"dataset_id": SAMPLE_DATASET_ID, "changeset": SAMPLE_CHANGESET}
     if event_type is PlatformEventType.DatasetCreated:
@@ -76,8 +87,13 @@ def _payload_for(event_type: PlatformEventType) -> dict[str, typing.Any]:
         }
     if event_type is PlatformEventType.SessionCreated:
         return {"session_id": SAMPLE_SESSION_ID}
-    if event_type is PlatformEventType.SessionFilesAdded:
-        return {"session_id": SAMPLE_SESSION_ID, "file_ids": [SAMPLE_FILE_ID, "fl_8kd3p5xw2nqr"]}
+    if event_type is PlatformEventType.SessionFileAdded:
+        return {
+            "session_id": SAMPLE_SESSION_ID,
+            "dataset_id": SAMPLE_DATASET_ID,
+            "file_id": SAMPLE_FILE_ID,
+            "file_version": SAMPLE_FILE_VERSION,
+        }
     if event_type is PlatformEventType.SessionUpdated:
         return {"session_id": SAMPLE_SESSION_ID, "changeset": SAMPLE_CHANGESET}
     if event_type is PlatformEventType.EventCreated:
@@ -118,6 +134,7 @@ __all__ = [
     "SAMPLE_DATASET_ID",
     "SAMPLE_EVENT_ID",
     "SAMPLE_FILE_ID",
+    "SAMPLE_FILE_VERSION",
     "SAMPLE_INVOCATION_ID",
     "SAMPLE_ORG_ID",
     "SAMPLE_SESSION_ID",

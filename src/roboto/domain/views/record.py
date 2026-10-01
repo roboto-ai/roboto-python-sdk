@@ -10,6 +10,7 @@ import typing
 import pydantic
 
 from ...compat import StrEnum
+from ...exceptions import RobotoInvalidRequestException
 from ...query import (
     QueryTarget,
     SavedFilters,
@@ -144,6 +145,43 @@ class ViewDefinition(pydantic.BaseModel):
         if self.roboql is not None and self.filters is not None:
             raise ValueError("a View records either RoboQL text or structured filters, not both")
         return self
+
+
+ROBOQL_VIEW_TARGETS: typing.Final[frozenset[QueryTarget]] = frozenset(
+    {QueryTarget.Datasets, QueryTarget.Files, QueryTarget.Events}
+)
+"""Targets whose list page can show a View written in RoboQL.
+
+The other View targets (sessions, devices, collections) have filter controls only, so a RoboQL
+View saved against one of them stores without complaint and then fails for whoever opens it.
+The web app's counterpart is the ``roboql`` config each of these three lists passes to its
+filter bar; a list that gains RoboQL mode is added here at the same time.
+"""
+
+
+def ensure_definition_renders_for(target: QueryTarget, definition: ViewDefinition) -> None:
+    """Refuse a definition that no client could show for the target it is saved against.
+
+    Applied wherever a definition enters storage, on create and on update, for every caller.
+    The check is per target rather than global because RoboQL is a legitimate way to write a
+    datasets, files, or events View; it is only unrenderable on the targets outside
+    :data:`ROBOQL_VIEW_TARGETS`. Filter controls and unfiltered definitions render everywhere.
+
+    Args:
+        target: Resource type the View searches.
+        definition: What the View would store.
+
+    Raises:
+        RobotoInvalidRequestException: ``definition`` carries RoboQL text and ``target`` has no
+            RoboQL-capable list.
+    """
+    if definition.roboql is None or target in ROBOQL_VIEW_TARGETS:
+        return
+    supported = ", ".join(sorted(candidate.value for candidate in ROBOQL_VIEW_TARGETS))
+    raise RobotoInvalidRequestException(
+        f"A View on {target.value} cannot be defined with RoboQL, because that table has no RoboQL mode. "
+        f"Define it with structured filters instead. RoboQL Views are supported on: {supported}."
+    )
 
 
 class ViewRecord(pydantic.BaseModel):

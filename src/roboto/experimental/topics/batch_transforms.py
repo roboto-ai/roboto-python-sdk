@@ -11,17 +11,18 @@ one column per top-level projected field, with struct/list types mirroring the s
 plus one dedicated timestamp column of absolute Unix-epoch nanoseconds (``int64``) marked by field metadata
 (:py:data:`TIMESTAMP_FIELD_METADATA_KEY`).
 
-This module owns the conversions into and out of that shape:
+Inside the read path, a decoded batch also leads with a row number column (:py:func:`topic_data_schema`): each
+row's ``uint64`` position among its file's rows of the topic, marked by :py:data:`ROW_NUMBER_FIELD_METADATA_KEY`.
+When a partition's fields are stored across several files, merging those files compares this column to confirm
+every file holds the same rows. Batches returned to a caller leave it out (:py:func:`drop_row_number_column`).
 
-* decoded message rows -> a nested RecordBatch (:py:func:`rows_to_batch`).
-* a nested table -> dot-delimited leaf columns
-  (:py:func:`flatten_table`), the DataFrame packing shape behind
-  ``Topic.get_data_as_df(flatten=True)``. A null at any struct level
-  propagates to nulls in every leaf column beneath it.
+:py:func:`flatten_table` expands a table's struct columns into dot-delimited leaf columns, which
+``Topic.get_data_as_df(flatten=True)`` returns as the value columns of its DataFrame.
 
-It also exposes the helpers that locate and construct the timestamp column
-(:py:func:`timestamp_column_index`, :py:func:`timestamp_field`), which the
-decode path uses to mark and find that column by metadata rather than name.
+It also exposes the helpers that construct and locate the timestamp and row number columns
+(:py:func:`topic_data_schema`, :py:func:`timestamp_field`, :py:func:`timestamp_column_index`,
+:py:func:`row_number_column_index`), which the read path uses to mark and find those columns by metadata rather than
+name.
 """
 
 from __future__ import annotations
@@ -38,8 +39,15 @@ from ...exceptions import (
 if typing.TYPE_CHECKING:
     import pyarrow  # pants: no-infer-dep
 
+MARKER_FIELD_METADATA_VALUE = b"true"
+"""Value of the metadata key on the column it marks, for both :py:data:`TIMESTAMP_FIELD_METADATA_KEY` and
+:py:data:`ROW_NUMBER_FIELD_METADATA_KEY`."""
+
 TIMESTAMP_FIELD_METADATA_KEY = b"roboto.topic_data.timestamp"
-"""Arrow field-metadata key marking the per-row timestamp column of a topic-data batch."""
+"""Arrow field-metadata key marking the per-row timestamp column of a topic-data batch.
+
+The timestamp column holds this key with the value ``b"true"`` (:py:data:`MARKER_FIELD_METADATA_VALUE`); a column
+holding the key with any other value is a value column."""
 
 TIMESTAMP_FIELD_NAME = "_index"
 """Name of the emitted per-row timestamp column.
@@ -51,14 +59,69 @@ real identity is its metadata marker (:py:data:`TIMESTAMP_FIELD_METADATA_KEY`), 
 uniquified by suffixing when a projected field already claims it."""
 
 
+ROW_NUMBER_FIELD_METADATA_KEY = b"roboto.topic_data.row_number"
+"""Arrow field-metadata key marking the row number column of a decoded topic-data batch.
+
+The row number column holds this key with the value ``b"true"`` (:py:data:`MARKER_FIELD_METADATA_VALUE`); a
+column holding the key with any other value is a value column."""
+
+ROW_NUMBER_FIELD_NAME = "_row"
+"""Requested name of the row number column; ``_`` is appended while another column of the batch has it.
+
+The column's identity is its metadata marker (:py:data:`ROW_NUMBER_FIELD_METADATA_KEY`), never this name."""
+
+
+def row_number_column_index(schema: "pyarrow.Schema") -> int:
+    """Locate the row number column: the field whose :py:data:`ROW_NUMBER_FIELD_METADATA_KEY` metadata is ``b"true"``.
+
+    Raises:
+        RobotoInternalException: The schema does not contain exactly one
+            marked column.
+    """
+    return _marked_column_index(schema, ROW_NUMBER_FIELD_METADATA_KEY, "row number")
+
+
+def drop_row_number_column(batch: "pyarrow.RecordBatch") -> "pyarrow.RecordBatch":
+    """Return ``batch`` without its row number column, found by its metadata marker.
+
+    Raises:
+        RobotoInternalException: The batch does not contain exactly one
+            marked row number column.
+    """
+    return batch.remove_column(row_number_column_index(batch.schema))
+
+
+def topic_data_schema(value_fields: collections.abc.Sequence["pyarrow.Field"]) -> "pyarrow.Schema":
+    """The schema of a decoded batch whose value columns are ``value_fields``: row number, timestamp, then values.
+
+    The row number column is non-null ``uint64``. ``_`` is appended to the timestamp column's name until no value
+    column has it, then to the row number column's name until neither a value column nor the timestamp column has it.
+    """
+    pa = import_optional_dependency("pyarrow", "analytics")
+    value_names = {field.name for field in value_fields}
+    timestamp_name = TIMESTAMP_FIELD_NAME
+    while timestamp_name in value_names:
+        timestamp_name += "_"
+    row_number_name = ROW_NUMBER_FIELD_NAME
+    while row_number_name == timestamp_name or row_number_name in value_names:
+        row_number_name += "_"
+    row_number_field = pa.field(
+        row_number_name,
+        pa.uint64(),
+        nullable=False,
+        metadata={ROW_NUMBER_FIELD_METADATA_KEY: MARKER_FIELD_METADATA_VALUE},
+    )
+    return pa.schema([row_number_field, timestamp_field(timestamp_name), *value_fields])
+
+
 def timestamp_field(name: str = TIMESTAMP_FIELD_NAME) -> "pyarrow.Field":
     """The timestamp column's Arrow field: int64 epoch nanoseconds, metadata-marked."""
     pa = import_optional_dependency("pyarrow", "analytics")
-    return pa.field(name, pa.int64(), metadata={TIMESTAMP_FIELD_METADATA_KEY: b"true"})
+    return pa.field(name, pa.int64(), metadata={TIMESTAMP_FIELD_METADATA_KEY: MARKER_FIELD_METADATA_VALUE})
 
 
 def timestamp_column_index(schema: "pyarrow.Schema") -> int:
-    """Locate the timestamp column by its metadata marker.
+    """Locate the timestamp column: the field whose :py:data:`TIMESTAMP_FIELD_METADATA_KEY` metadata is ``b"true"``.
 
     The column is identified by metadata, never by name: a projected root
     field can legitimately carry any name, including the timestamp column's
@@ -68,45 +131,7 @@ def timestamp_column_index(schema: "pyarrow.Schema") -> int:
         RobotoInternalException: The schema does not contain exactly one
             marked column.
     """
-    marked = [
-        index for index in range(len(schema)) if TIMESTAMP_FIELD_METADATA_KEY in (schema.field(index).metadata or {})
-    ]
-    if len(marked) != 1:
-        raise RobotoInternalException(
-            f"Topic-data batch schema must contain exactly one timestamp-marked column, found {len(marked)}."
-        )
-    return marked[0]
-
-
-def rows_to_batch(
-    rows: collections.abc.Sequence[tuple[int, dict[str, typing.Any]]],
-) -> "pyarrow.RecordBatch":
-    """Encode decoded ``(timestamp, row)`` pairs as one nested RecordBatch.
-
-    Column types are inferred from the rows' values. A row that lacks a
-    top-level key contributes a null to that column (a whole absent subtree is
-    a single struct-level null); a row that carries an empty dict contributes
-    a valid struct whose children are all null — a different value, and one
-    decoded messages do produce.
-    """
-    pa = import_optional_dependency("pyarrow", "analytics")
-
-    field_names: dict[str, None] = {}
-    for _, row in rows:
-        for key in row:
-            field_names.setdefault(key, None)
-
-    ts_name = TIMESTAMP_FIELD_NAME
-    while ts_name in field_names:
-        ts_name += "_"
-
-    arrays = [pa.array([ts for ts, _ in rows], type=pa.int64())]
-    fields = [timestamp_field(ts_name)]
-    for name in field_names:
-        column = pa.array([row.get(name) for _, row in rows])
-        arrays.append(column)
-        fields.append(pa.field(name, column.type))
-    return pa.RecordBatch.from_arrays(arrays, schema=pa.schema(fields))
+    return _marked_column_index(schema, TIMESTAMP_FIELD_METADATA_KEY, "timestamp")
 
 
 def flatten_table(table: "pyarrow.Table") -> "pyarrow.Table":
@@ -147,3 +172,14 @@ def flatten_table(table: "pyarrow.Table") -> "pyarrow.Table":
                 add_column(field.name, column)
         table = pa.table(columns)
     return table
+
+
+def _marked_column_index(schema: "pyarrow.Schema", key: bytes, column: str) -> int:
+    marked = [
+        index for index, field in enumerate(schema) if (field.metadata or {}).get(key) == MARKER_FIELD_METADATA_VALUE
+    ]
+    if len(marked) != 1:
+        raise RobotoInternalException(
+            f"Topic-data batch schema must contain exactly one {column}-marked column, found {len(marked)}."
+        )
+    return marked[0]

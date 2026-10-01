@@ -47,6 +47,15 @@ class CollectionRecord(pydantic.BaseModel):
     resource_type: CollectionResourceType = CollectionResourceType.File
     resources: dict[CollectionResourceType, list[typing.Any]] = pydantic.Field(default_factory=dict)
     missing: dict[CollectionResourceType, list[CollectionResourceRef]] = pydantic.Field(default_factory=dict)
+    resource_count: int = 0
+    """Number of resources the collection holds.
+
+    Maintained by the service as members are added and removed, so it is present in every
+    content mode, including ``summary_only`` where ``resources`` is empty. Counts every
+    membership reference, including references to resources that have since been deleted;
+    hydrating the collection (``content_mode=full``) sorts those into ``missing``, so the
+    hydrated ``resources`` map can hold fewer entries than this count.
+    """
     tags: list[str] = []
     custom_fields: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     """Values for the custom fields defined on Collections in this org.

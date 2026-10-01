@@ -4,15 +4,24 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from .common import DecodedScanTask, ScanTaskDecodeParams, leaf_most
+"""Decoding the files of a read plan's partitions into RecordBatches of topic data."""
+
+from .common import (
+    FileDecodeParams,
+    FileDecoder,
+    FileDecoderOpener,
+    ScanTaskGroup,
+    SuppliedField,
+)
+from .file_decoder import make_file_decoder_opener
 from .parquet import CACHED_PARQUET_NAME_PATTERN
-from .scan_task import ScanTaskDecoder, make_scan_task_decoder
 
 __all__ = [
     "CACHED_PARQUET_NAME_PATTERN",
-    "DecodedScanTask",
-    "ScanTaskDecodeParams",
-    "ScanTaskDecoder",
-    "leaf_most",
-    "make_scan_task_decoder",
+    "FileDecodeParams",
+    "FileDecoder",
+    "FileDecoderOpener",
+    "ScanTaskGroup",
+    "SuppliedField",
+    "make_file_decoder_opener",
 ]

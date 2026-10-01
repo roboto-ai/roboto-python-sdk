@@ -98,15 +98,34 @@ class McapTopicReader(TopicReader):
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
         timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
+        topic_name: typing.Optional[str] = None,
     ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
-        # Convert to list to allow multiple iterations
-        mappings_list = list(message_paths_to_representations)
+        """Yield ``(log_time, record)`` pairs from the mappings' MCAP files in log-time order.
 
+        Each record merges the projected fields of one message from every file whose next message has that log time.
+
+        Args:
+            message_paths_to_representations: The message paths to read.
+                Each :py:class:`MessagePathRepresentationMapping` pairs message paths
+                with the representation whose associated MCAP file stores them;
+                a mapping whose representation is not associated with a file is skipped.
+            start_time: Inclusive lower bound on message log time in nanoseconds, or ``None`` for unbounded.
+            end_time: Exclusive upper bound on message log time in nanoseconds, or ``None`` for unbounded.
+            timestamp_message_path_representation_mapping: Not read;
+                each row's timestamp is the log time of the messages it merges.
+            topic_name: Read only messages on MCAP channels of this topic, or on every channel when ``None``.
+
+        Yields:
+            The log time in nanoseconds and the merged record.
+
+        Raises:
+            RobotoInternalException: ``topic_name`` is given and a file's summary lists no channel on that topic.
+        """
         http_readers: list[HttpRangeReader] = []
         mcap_readers: list[McapReader] = []
 
         try:
-            for message_path_repr_map in mappings_list:
+            for message_path_repr_map in message_paths_to_representations:
                 representation = message_path_repr_map.representation
                 association = representation.association
 
@@ -120,7 +139,9 @@ class McapTopicReader(TopicReader):
                 file_id = association.association_id
                 signed_url = self.__signed_url_resolver(file_id)
 
-                http_reader = open_for_window(signed_url, start_time=start_time, end_time=end_time)
+                http_reader = open_for_window(
+                    signed_url, start_time=start_time, end_time=end_time, topic_name=topic_name
+                )
                 http_readers.append(http_reader)
 
                 mcap_reader = McapReader(
@@ -128,6 +149,7 @@ class McapTopicReader(TopicReader):
                     fields=[record.to_field_selection() for record in message_path_repr_map.message_paths],
                     start_time=start_time,
                     end_time=end_time,
+                    topic_name=topic_name,
                 )
                 mcap_readers.append(mcap_reader)
 

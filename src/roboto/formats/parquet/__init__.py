@@ -20,8 +20,10 @@ from .table_transforms import (
     extract_timestamps,
     narrow_list_nested_fields,
     resolve_columns,
+    select_fields,
     should_narrow_list_nested_fields,
     should_read_row_group,
+    timestamp_statistics,
 )
 from .timestamp import Timestamp
 
@@ -36,6 +38,8 @@ __all__ = (
     "open_parquet_file",
     "parquet_file_from_url",
     "resolve_columns",
+    "select_fields",
     "should_narrow_list_nested_fields",
     "should_read_row_group",
+    "timestamp_statistics",
 )

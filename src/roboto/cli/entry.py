@@ -12,13 +12,9 @@ import typing
 import warnings
 
 from ..config import RobotoConfig
-from ..http import (
-    BearerTokenDecorator,
-    RobotoClient,
-    RobotoRequester,
-    RobotoTool,
-)
 from ..version import __version__
+from . import setup as setup_command
+from . import upgrade as upgrade_command
 from .actions import (
     command_set as actions_command_set,
 )
@@ -30,8 +26,9 @@ from .chat import command_set as chat_command_set
 from .collections import (
     command_set as collections_command_set,
 )
+from .common_args import apply_profile_org_default
 from .config import check_last_update
-from .context import CLIContext
+from .context import CLIContext, cli_roboto_env, make_cli_client
 from .datasets import (
     command_set as datasets_command_set,
 )
@@ -58,6 +55,7 @@ from .tokens import (
 from .triggers import (
     command_set as triggers_command_set,
 )
+from .upgrade.installation import remove_replaced_executable
 from .users import (
     command_set as users_command_set,
 )
@@ -169,7 +167,7 @@ def construct_parser(
 
     parser.add_argument(
         "--config-file",
-        help="Overrides the location of the Roboto config.json file. Defaults to ~/.roboto/config.json.",
+        help="Location of the Roboto config file. Defaults to ROBOTO_CONFIG_FILE, then ~/.roboto/config.json.",
         type=pathlib.Path,
         required=False,
     )
@@ -192,10 +190,27 @@ def construct_parser(
         command_set.sort_commands()
         command_set.add_to_subparsers(subcommands, context)
 
+    # Filling in the CLI context exits with an error when no access token is found. A new user runs `roboto setup`
+    # before saving one, and `roboto upgrade` must work whatever state the credentials are in, so entry() calls both
+    # without it.
+    for name, command in (("setup", setup_command), ("upgrade", upgrade_command)):
+        command_parser = subcommands.add_parser(
+            name,
+            help=command.HELP,
+            description=command.DESCRIPTION,
+            formatter_class=SortingHelpFormatter,
+        )
+        command.setup_parser(command_parser)
+        command_parser.set_defaults(func_without_context=command.run)
+
     return parser
 
 
 def entry():
+    # `roboto upgrade` and install.ps1 rename a running roboto.exe aside, since Windows won't replace or delete it.
+    if getattr(sys, "frozen", False) and sys.platform == "win32":
+        remove_replaced_executable(pathlib.Path(sys.executable))
+
     context = CLIContext()
     parser = construct_parser(context)
 
@@ -235,14 +250,18 @@ def entry():
     try:
         if args.version:
             print(__version__)
+        elif "func_without_context" in args:
+            args.func_without_context(args)
         elif "func" in args:
             __populate_context(
                 context=context,
                 parser=parser,
                 profile_override=args.profile,
                 cache_dir_override=args.cache_dir,
+                config_file_override=args.config_file,
             )
             apply_roboto_cli_context_extensions(base_context=context)
+            apply_profile_org_default(args, context.roboto_config)
 
             args.func(args)
         else:
@@ -258,26 +277,18 @@ def __populate_context(
     parser: argparse.ArgumentParser,
     profile_override: typing.Optional[str] = None,
     cache_dir_override: typing.Optional[pathlib.Path] = None,
+    config_file_override: typing.Optional[pathlib.Path] = None,
 ):
     try:
-        config = RobotoConfig.from_env(profile_override=profile_override)
+        config = RobotoConfig.from_env(profile_override=profile_override, env=cli_roboto_env(config_file_override))
     except Exception as exc:
         parser.error(str(exc))
-
-    auth_decorator = BearerTokenDecorator(config.api_key)
 
     if cache_dir_override:
         config.cache_dir = cache_dir_override
 
     context.roboto_config = config
-    context.roboto_client = RobotoClient(
-        endpoint=config.endpoint,
-        auth_decorator=auth_decorator,
-        http_client_kwargs={
-            "requester": RobotoRequester.for_tool(RobotoTool.Cli),
-        },
-    )
+    context.roboto_client = make_cli_client(config.endpoint, config.api_key, config.default_http_timeout)
     context.http_client = context.roboto_client.http_client
-    context.http_client.set_requester(RobotoRequester.for_tool(RobotoTool.Cli))
 
     context.extensions = {}

@@ -132,15 +132,19 @@
     "subject_type": "session",
     "subscribable": true
   },
-  "session.files_added": {
+  "session.file_added": {
     "roots": [
+      "dataset",
+      "file",
       "session"
     ],
-    "default_root": "session",
+    "default_root": "dataset",
     "once_per": [
-      "occurrence"
+      "file",
+      "occurrence",
+      "session"
     ],
-    "subject_type": "session",
+    "subject_type": "file",
     "subscribable": true
   },
   "session.updated": {

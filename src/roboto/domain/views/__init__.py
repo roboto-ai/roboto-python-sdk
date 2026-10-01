@@ -16,16 +16,19 @@ from .operations import (
     UpdateViewRequest,
 )
 from .record import (
+    ROBOQL_VIEW_TARGETS,
     VIEW_SCHEMA_VERSION_V1,
     VIEW_SCHEME_V1,
     ViewDefinition,
     ViewDisplay,
     ViewRecord,
     ViewVisibility,
+    ensure_definition_renders_for,
 )
 
 __all__ = [
     "MAX_VIEW_NAME_LENGTH",
+    "ROBOQL_VIEW_TARGETS",
     "VIEW_SCHEMA_VERSION_V1",
     "VIEW_SCHEME_V1",
     "CreateViewRequest",
@@ -34,4 +37,5 @@ __all__ = [
     "ViewDisplay",
     "ViewRecord",
     "ViewVisibility",
+    "ensure_definition_renders_for",
 ]

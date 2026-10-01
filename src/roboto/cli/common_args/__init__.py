@@ -17,6 +17,7 @@ from .actions import (
 )
 from .orgs import (
     add_org_arg,
+    apply_profile_org_default,
     get_defaulted_org_id,
 )
 
@@ -28,6 +29,7 @@ __all__ = (
     "add_compute_requirements_args",
     "add_container_parameters_args",
     "add_org_arg",
+    "apply_profile_org_default",
     "get_defaulted_org_id",
     "parse_action_reference_string",
     "parse_compute_requirements",

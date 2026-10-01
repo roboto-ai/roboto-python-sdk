@@ -8,21 +8,45 @@ import argparse
 import os
 import typing
 
+from ...config import RobotoConfig
 from ...domain import orgs
+from ...env import RobotoEnvKey
 from ...exceptions import (
     RobotoNoOrgProvidedException,
 )
 
 ORG_ARG_HELP = (
     "The calling organization ID. Gets set implicitly if in a single org. "
-    + "The `ROBOTO_ORG_ID` environment variable can be set to control the default value."
+    + "The `ROBOTO_ORG_ID` environment variable can be set to control the default value; without it, the default is "
+    + "the `org_id` of the config file profile in use, which `roboto setup` saves."
 )
 
-DEFAULT_ORG_ID = os.getenv("ROBOTO_ORG_ID")
+
+def add_org_arg(parser: argparse.ArgumentParser, arg_help: str = ORG_ARG_HELP) -> None:
+    """Add the ``--org`` option, which defaults to ``ROBOTO_ORG_ID``, then to the config file profile's ``org_id``.
+
+    The profile isn't known until the command line has been parsed,
+    so this records on the parsed arguments that ``--org`` takes the profile's ``org_id``,
+    and :py:func:`apply_profile_org_default` fills it in afterwards.
+    """
+    # `ROBOTO_ORG_ID=` names no organization, so it counts as unset, as it does everywhere else the variable is read.
+    parser.add_argument("--org", required=False, type=str, help=arg_help, default=os.getenv(RobotoEnvKey.OrgId) or None)
+    parser.set_defaults(org_defaults_to_profile=True)
 
 
-def add_org_arg(parser: argparse.ArgumentParser, arg_help: str = ORG_ARG_HELP):
-    parser.add_argument("--org", required=False, type=str, help=arg_help, default=DEFAULT_ORG_ID)
+def apply_profile_org_default(args: argparse.Namespace, config: RobotoConfig) -> None:
+    """Fill in ``args.org`` from the config file profile's ``org_id`` when the command line and environment set none.
+
+    Only a command whose ``--org`` option came from :py:func:`add_org_arg` gets the default.
+    An ``--org`` defined any other way is left as the command line set it,
+    such as the one naming the organization that ``roboto orgs remove-user`` removes a user from.
+
+    Args:
+        args: Parsed command line arguments.
+        config: The Roboto config the command runs with.
+    """
+    if getattr(args, "org_defaults_to_profile", False) and args.org is None:
+        args.org = config.org_id
 
 
 def get_defaulted_org_id(org_id: typing.Optional[str]) -> str:

@@ -4,270 +4,401 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""Execute a read plan: decode each partition's files and yield the topic's rows as RecordBatches.
+
+:py:func:`execute_read_plan` lists the steps of a read. This module holds the projected paths, the leaf-most paths,
+assigning scan tasks and grouping them by file, and reading the partitions in plan order.
+Decoding each file lives in :py:mod:`~roboto.experimental.topics.decode`,
+combining a split partition in :py:mod:`~roboto.experimental.topics.split_partition`,
+and the output schema in that module and :py:mod:`~roboto.experimental.topics.batch_transforms`.
+"""
+
 from __future__ import annotations
 
 import collections
 import collections.abc
 import concurrent.futures
+import contextlib
+import dataclasses
+import itertools
 import typing
 
-from ...compat import import_optional_dependency
 from ...domain.topics.record import FieldPath
-from .batch_transforms import (
-    timestamp_column_index,
+from ...exceptions import (
+    ReadPlanExecutionErrorKind,
+    RobotoReadPlanExecutionException,
 )
-from .decode import (
-    ScanTaskDecoder,
-    leaf_most,
+from .batch_transforms import topic_data_schema
+from .decode.common import (
+    FileDecoderOpener,
+    ScanTaskGroup,
+    SuppliedField,
 )
-from .overlay import overlay_streams
 from .read_plan import (
     ReadPlan,
     ReadPlanPartition,
     ReadPlanScanTask,
-    TimeWindow,
 )
+from .split_partition import SplitPartition
 
 if typing.TYPE_CHECKING:
     import pyarrow  # pants: no-infer-dep
 
 
+SchemaFieldPaths = typing.Callable[[str], collections.abc.Iterable[FieldPath]]
+"""Returns the path of every field a schema declares, given the schema's id."""
+
 _MAX_PARTITION_WORKERS = 32
 """Most partitions decoded at once, which also caps how many decoded partitions are buffered in memory.
 
-Partition decode waits mostly on the network (fetching a signed URL, then ranged
-GETs), so this follows the standard library's I/O-oriented thread-pool default of
-32 instead of scaling with CPU count."""
+Decoding a partition waits mostly on the network (fetching a signed URL, then ranged GETs), so this is 32 whatever
+the CPU count: the cap on ``ThreadPoolExecutor``'s default thread count, ``min(32, CPU count + 4)``."""
 
-_MAX_SCAN_TASK_WORKERS = 8
-"""Most scan tasks decoded at once within a single partition.
+_MAX_FILE_WORKERS = 8
+"""Most files of one split partition opened and decoded at once.
 
-Kept small because :py:func:`_resolve_partition` may run inside the partition pool,
-so the two pools multiply; this bounds the worst-case thread count."""
+Kept small because each split partition read in the partition pool starts its own pool of up to this many threads,
+so up to :py:data:`_MAX_PARTITION_WORKERS` times this many threads decode files at once."""
 
 
-def execute_plan(
-    plan: ReadPlan,
-    projection_paths: collections.abc.Sequence[FieldPath],
-    decoder: ScanTaskDecoder,
-) -> collections.abc.Generator["pyarrow.RecordBatch", None, None]:
-    """Decode the files named by a read plan and yield the topic's rows as RecordBatches.
+_SCAN_TASK_FILE_ATTRIBUTES: tuple[tuple[str, typing.Callable[[ReadPlanScanTask], object]], ...] = (
+    ("format", lambda task: task.format),
+    ("transformations", lambda task: tuple(task.transformations)),
+    ("topic name", lambda task: task.topic_name),
+)
+"""What the scan tasks on one file must agree on, in the order a disagreement is looked for."""
 
-    A plan splits the data into partitions, and within a partition the same rows may
-    be stored across several files (one file may hold some columns, another file
-    other columns of the same rows). Per partition, the decoded files are merged back
-    into whole rows, the plan's declared precedence deciding which file wins a column
-    when two carry it, and the partition's time offset is added to make timestamps
-    absolute. Partitions are yielded in plan order, which the plan defines by where
-    each file's data begins (a file's segments stay contiguous and in segment order);
-    they are decoded concurrently but emitted in that order. Across partitions the rows
-    are simply concatenated end to end: no deduplication, and rows from different
-    partitions are never interleaved (rows within a partition keep their stored order).
-    So the output orders whole partitions, not rows — a consumer needing a strict
-    row-level time order (overlapping partitions, or rows not stored in time order)
-    must sort.
+
+def projected_paths(plan: ReadPlan, schema_field_paths: SchemaFieldPaths) -> list[FieldPath]:
+    """Return the field paths ``plan`` projects.
+
+    A projection that lists its fields gives their paths. A projection of every field (``projection.all``) gives
+    every field the plan's schema declares, fetched through ``schema_field_paths``. This is the only case that fetches
+    them, and a plan with no scan task in any partition fetches nothing and gives no paths.
 
     Args:
-        plan: The read plan resolved by the server.
-        projection_paths: The columns to read, as explicit field paths. To read every
-            column, the caller expands the request against the plan's schema first.
-        decoder: Decodes one scan task, choosing the reader by file format.
+        plan: The read plan the service resolved.
+        schema_field_paths: Returns the path of every field a schema declares, given the schema's id.
+
+    Raises:
+        RobotoReadPlanExecutionException: With kind ``plan-without-schema``, when the plan projects every field of its
+            schema, a partition has a scan task, and the plan names no schema.
+    """
+    if not plan.projection.all:
+        return [field.path for field in plan.projection.fields or ()]
+    if not any(partition.scan_tasks for partition in plan.partitions):
+        return []
+    if plan.schema_ is None:
+        raise RobotoReadPlanExecutionException(
+            "The read plan projects every field of its schema and has a partition with a scan task, "
+            "but names no schema.",
+            kind=ReadPlanExecutionErrorKind.PLAN_WITHOUT_SCHEMA,
+        )
+    return list(schema_field_paths(plan.schema_.schema_id))
+
+
+def leaf_most_paths(paths: collections.abc.Iterable[FieldPath]) -> list[FieldPath]:
+    """Return the paths among ``paths`` that have no descendant among them.
+
+    A projection lists a struct and its children as separate fields; reading the struct would read every child,
+    including one the projection leaves out, so only the leaf-most paths are read. The empty path, which names the
+    schema root, and duplicates are dropped. The paths are sorted by their components, each compared by Unicode code
+    point.
+    """
+    ordered = sorted({tuple(path) for path in paths if path})
+    return [
+        path
+        for path, following in zip(ordered, [*ordered[1:], None])
+        if following is None or not _is_strict_prefix(path, following)
+    ]
+
+
+def assign_scan_tasks(
+    partition: ReadPlanPartition,
+    leaf_most: collections.abc.Sequence[FieldPath],
+) -> list[ScanTaskGroup]:
+    """Return the groups of ``partition``'s scan tasks that supply the leaf-most paths ``leaf_most``.
+
+    A path's supplier is the highest-precedence scan task whose subtree contains it; a task without a subtree
+    contains every field. Ties go to the later task in plan order. A task whose subtree lies strictly inside a path,
+    and which is the supplier of its own subtree, supplies that subtree. Each supplied field excludes only the
+    outermost supplied fields strictly inside it.
+
+    The tasks on one file form one group whatever their precedence, so each file is opened once. Groups come in order
+    of their lowest precedence, ties in the order each file first appears among the scan tasks. A group that supplies
+    nothing is dropped, unless every group supplies nothing; then the first group is kept, and its file gives only the
+    row number and timestamp columns.
+
+    Raises:
+        RobotoReadPlanExecutionException: With kind ``inconsistent-scan-tasks-on-file``, when scan tasks on one file
+            disagree on its format, transformations or topic name; with kind ``projected-field-in-no-scan-task``, when
+            no scan task contains a path of ``leaf_most``.
+    """
+    tasks = partition.scan_tasks
+    subtrees = [task.subtree.path if task.subtree is not None else () for task in tasks]
+
+    def supplier_of(path: FieldPath) -> typing.Optional[int]:
+        supplier: typing.Optional[int] = None
+        for index, (task, subtree) in enumerate(zip(tasks, subtrees)):
+            if _is_prefix_or_equal(subtree, path) and (
+                supplier is None or task.precedence >= tasks[supplier].precedence
+            ):
+                supplier = index
+        return supplier
+
+    tasks_on_file: dict[str, list[ReadPlanScanTask]] = {}
+    for task in tasks:
+        tasks_on_file.setdefault(task.object.fs_node_id, []).append(task)
+    for file_tasks in tasks_on_file.values():
+        _check_consistent(partition, file_tasks)
+
+    supplies: dict[str, list[SuppliedField]] = {fs_node_id: [] for fs_node_id in tasks_on_file}
+    for path in leaf_most:
+        supplier = supplier_of(path)
+        if supplier is None:
+            raise RobotoReadPlanExecutionException(
+                f"No scan task of topic partition {partition.topic_part_id} reads the whole schema or a subtree "
+                f'containing the projected field "{".".join(path)}".',
+                kind=ReadPlanExecutionErrorKind.PROJECTED_FIELD_IN_NO_SCAN_TASK,
+            )
+        # The path itself is a supplied field of its supplier, and so is each subtree strictly inside it whose own task
+        # is that subtree's supplier.
+        supplied = [(path, supplier)] + [
+            (subtree, index)
+            for index, subtree in enumerate(subtrees)
+            if _is_strict_prefix(path, subtree) and supplier_of(subtree) == index
+        ]
+        for supplied_path, supplied_by in supplied:
+            inside = [other for other, _ in supplied if _is_strict_prefix(supplied_path, other)]
+            outermost = tuple(other for other in inside if not any(_is_strict_prefix(outer, other) for outer in inside))
+            supplies[tasks[supplied_by].object.fs_node_id].append(SuppliedField(path=supplied_path, excluded=outermost))
+
+    # sorted is stable, so files of equal lowest precedence keep the order in which they first appear.
+    by_lowest_precedence = sorted(
+        tasks_on_file.items(), key=lambda file_and_tasks: min(task.precedence for task in file_and_tasks[1])
+    )
+    groups = [
+        ScanTaskGroup(
+            object=first.object,
+            format=first.format,
+            topic_name=first.topic_name,
+            supplies=tuple(supplies[fs_node_id]),
+        )
+        for fs_node_id, [first, *_] in by_lowest_precedence
+    ]
+    supplying = [group for group in groups if group.supplies]
+    return supplying or groups[:1]
+
+
+def execute_read_plan(
+    plan: ReadPlan,
+    projected: collections.abc.Sequence[FieldPath],
+    open_file_decoder: FileDecoderOpener,
+) -> collections.abc.Generator["pyarrow.RecordBatch", None, None]:
+    """Decode the files a read plan names and yield the topic's rows as RecordBatches.
+
+    A read takes these steps:
+
+    1. Projected paths: ``projected``, from :py:func:`projected_paths`.
+    2. Leaf-most paths (:py:func:`leaf_most_paths`).
+    3. Assign scan tasks (:py:func:`assign_scan_tasks`).
+    4. Group by file (:py:func:`assign_scan_tasks`).
+    5. Decode each file, through the decoders ``open_file_decoder`` opens.
+    6. Combine a split partition (:py:class:`~roboto.experimental.topics.split_partition.SplitPartition`).
+    7. Output schema (:py:func:`~roboto.experimental.topics.batch_transforms.topic_data_schema`).
+    8. Partitions: read in plan order, each one's schema checked against the first partition's when its files open,
+       before any of its rows.
+
+    Partitions without scan tasks are skipped. Partitions are yielded in plan order and their rows are never
+    interleaved; within a partition, rows keep their stored order. Nothing is sorted by time or deduplicated, so a
+    consumer that needs rows in time order sorts them.
+
+    A plan with one partition to read yields its rows as they are decoded. A plan with several decodes up to 32
+    partitions at once and holds each partition's rows until it is yielded. A split partition's files are decoded in
+    full before their rows are combined.
+
+    Args:
+        plan: The read plan the service resolved.
+        projected: The field paths the plan projects, from :py:func:`projected_paths`.
+        open_file_decoder: Opens the decoder of one scan task group's file.
 
     Yields:
-        RecordBatches. The timestamp column (marked in the schema metadata) holds
-        absolute Unix-epoch nanoseconds. Batch sizes and boundaries are arbitrary.
+        RecordBatches with the columns of :py:func:`~roboto.experimental.topics.batch_transforms.topic_data_schema`:
+        the row number, the timestamp in absolute Unix-epoch nanoseconds, then one value column per projected
+        top-level field, sorted by name comparing Unicode code points. A batch holds the rows of one partition only;
+        batch sizes and boundaries are otherwise arbitrary.
+
+    Raises:
+        RobotoReadPlanExecutionException: With the kind of the step that refuses the plan:
+            ``projected-field-in-no-scan-task`` or ``inconsistent-scan-tasks-on-file`` (steps 3 and 4);
+            ``field-split-inside-non-struct`` or ``scan-task-row-mismatch`` (step 6);
+            ``partition-schema-mismatch``, when a partition's files give the read a different schema than the first
+            partition's, raised before any error in that partition's rows and even when it has no rows in the window
+            (step 8);
+            and the kinds ``open_file_decoder`` and its decoders raise, such as ``unsupported-format``,
+            ``unsupported-timestamp``, ``invalid-timestamp`` and ``field-not-in-file`` (step 5).
     """
-    partitions = plan.partitions
+    partitions = [partition for partition in plan.partitions if partition.scan_tasks]
+    leaf_most = leaf_most_paths(projected)
+
     if len(partitions) <= 1:
         for partition in partitions:
-            yield from _resolve_partition(plan, partition, projection_paths, decoder)
+            with _open_partition(plan, partition, leaf_most, open_file_decoder) as opened:
+                yield from opened.batches()
         return
 
-    max_workers = min(_MAX_PARTITION_WORKERS, len(partitions))
+    def read(partition: ReadPlanPartition) -> _PartitionRows:
+        return _read_partition(plan, partition, leaf_most, open_file_decoder)
 
-    def _buffer_partition(partition: ReadPlanPartition) -> list["pyarrow.RecordBatch"]:
-        return list(_resolve_partition(plan, partition, projection_paths, decoder))
+    first_schema: typing.Optional["pyarrow.Schema"] = None
+    for partition, rows in zip(partitions, _read_in_plan_order(read, partitions)):
+        schema = topic_data_schema(rows.value_fields)
+        if first_schema is None:
+            first_schema = schema
+        elif not schema.equals(first_schema):
+            raise RobotoReadPlanExecutionException(
+                f"Topic partition {partition.topic_part_id}'s files give the read the schema {schema}, "
+                f"where the first partition's gave {first_schema}.",
+                kind=ReadPlanExecutionErrorKind.PARTITION_SCHEMA_MISMATCH,
+            )
+        if rows.decode_error is not None:
+            raise rows.decode_error
+        yield from rows.batches
 
-    # Yield partitions in plan order while decoding up to max_workers ahead. The
-    # deque is a sliding window of in-flight decodes: submit on the right, wait on
-    # the oldest on the left, refill its slot, then yield. Waiting in submission
-    # order (not as_completed) is what keeps the cross-partition order contract.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        remaining = iter(partitions)
-        in_flight: collections.deque[concurrent.futures.Future[list["pyarrow.RecordBatch"]]] = collections.deque()
-        for _ in range(max_workers):
-            try:
-                in_flight.append(executor.submit(_buffer_partition, next(remaining)))
-            except StopIteration:
-                break
+
+@dataclasses.dataclass(frozen=True)
+class _OpenedPartition:
+    """A partition whose files are open: its value columns, and its rows, which can be decoded once."""
+
+    value_fields: list["pyarrow.Field"]
+    batches: typing.Callable[[], collections.abc.Iterator["pyarrow.RecordBatch"]]
+
+
+@dataclasses.dataclass(frozen=True)
+class _PartitionRows:
+    """A partition's value columns, known when its files open, and its decoded rows."""
+
+    value_fields: list["pyarrow.Field"]
+    batches: list["pyarrow.RecordBatch"]
+
+    decode_error: typing.Optional[Exception] = None
+    """The error that stopped decoding the partition's rows, which the read raises only after checking the partition's
+    schema; ``batches`` is then empty."""
+
+
+def _check_consistent(partition: ReadPlanPartition, file_tasks: collections.abc.Sequence[ReadPlanScanTask]) -> None:
+    """Raise ``inconsistent-scan-tasks-on-file`` unless the scan tasks on one file agree on how to read it.
+
+    The attributes are compared in the order format, transformations, topic name, and the error names the first
+    one on which any task differs from the file's first task.
+    """
+    first, *others = file_tasks
+    disagreement = next(
+        (
+            name
+            for name, value_of in _SCAN_TASK_FILE_ATTRIBUTES
+            if any(value_of(task) != value_of(first) for task in others)
+        ),
+        None,
+    )
+    if disagreement is None:
+        return
+    raise RobotoReadPlanExecutionException(
+        f"The scan tasks of topic partition {partition.topic_part_id} that read the file {first.object.fs_node_id} "
+        f"disagree on its {disagreement}.",
+        kind=ReadPlanExecutionErrorKind.INCONSISTENT_SCAN_TASKS_ON_FILE,
+    )
+
+
+def _is_prefix_or_equal(prefix: FieldPath, path: FieldPath) -> bool:
+    return path[: len(prefix)] == prefix
+
+
+def _is_strict_prefix(prefix: FieldPath, path: FieldPath) -> bool:
+    return len(prefix) < len(path) and _is_prefix_or_equal(prefix, path)
+
+
+def _read_in_plan_order(
+    read: typing.Callable[[ReadPlanPartition], _PartitionRows],
+    partitions: collections.abc.Sequence[ReadPlanPartition],
+) -> collections.abc.Iterator[_PartitionRows]:
+    """Read ``partitions``, up to :py:data:`_MAX_PARTITION_WORKERS` at once, and yield them in their order."""
+    # A sliding window of reads in flight: submit on the right, wait on the oldest on the left, refill its slot, then
+    # yield. Waiting in submission order, not as reads complete, keeps the partitions in plan order.
+    remaining = iter(partitions)
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=min(_MAX_PARTITION_WORKERS, len(partitions)))
+    try:
+        in_flight = collections.deque(
+            executor.submit(read, partition) for partition in itertools.islice(remaining, _MAX_PARTITION_WORKERS)
+        )
         while in_flight:
-            future = in_flight.popleft()
-            # Exceptions propagate: a failed partition decode fails the read.
-            batches = future.result()
-            try:
-                in_flight.append(executor.submit(_buffer_partition, next(remaining)))
-            except StopIteration:
-                pass
-            yield from batches
+            rows = in_flight.popleft().result()
+            in_flight.extend(executor.submit(read, partition) for partition in itertools.islice(remaining, 1))
+            yield rows
+    finally:
+        # A read that fails, or a consumer that stops early, leaves no queued read to start.
+        executor.shutdown(wait=True, cancel_futures=True)
 
 
-def projection_for_subtree(
-    projection_paths: collections.abc.Sequence[FieldPath],
-    subtree: typing.Optional[FieldPath],
-) -> list[FieldPath]:
-    """Restrict the plan's projected paths to what one scan task, covering ``subtree``, can produce.
-
-    The projection is requested against the whole schema, but a scan task holds only
-    one branch of it. A field path is a tuple naming a location in the nested schema,
-    e.g. ``("pose", "position", "x")``, so each projected path falls into one of three
-    cases by how it relates to the subtree root:
-
-    - Inside the subtree (``subtree`` is a prefix of it): kept as-is.
-    - An ancestor of the subtree (it is a prefix of ``subtree``): it asks for more
-      than this scan task holds, so it clamps to the subtree root; this task
-      contributes only its own branch.
-    - In a different branch (neither is a prefix of the other): dropped, since another
-      scan task produces it.
-
-    For ``subtree = ("pose", "position")`` and projected paths ``("pose", "position",
-    "x")``, ``("pose",)``, and ``("twist", "linear")``, the result is ``[("pose",
-    "position", "x"), ("pose", "position")]``: kept, clamped, and dropped respectively.
-
-    Args:
-        projection_paths: The plan's projected field paths, against the whole schema.
-        subtree: The root of the scan task's branch, or ``None`` for a scan task that
-            covers the whole schema (no restriction).
-
-    Returns:
-        The deduplicated paths this scan task is responsible for producing.
-    """
-    if subtree is None:
-        return list(dict.fromkeys(projection_paths))
-
-    projection: dict[FieldPath, None] = {}
-    for path in projection_paths:
-        if path[: len(subtree)] == subtree:
-            projection[path] = None
-        elif subtree[: len(path)] == path:
-            projection[subtree] = None
-    return list(projection)
-
-
-def _apply_time_offset(batch: "pyarrow.RecordBatch", offset: int) -> "pyarrow.RecordBatch":
-    """Add ``offset`` nanoseconds to the timestamp column, converting stored time to absolute time."""
-    # A zero offset means stored time is already absolute; skip the pyarrow work.
-    if offset == 0:
-        return batch
-    pa = import_optional_dependency("pyarrow", "analytics")
-    pc = import_optional_dependency("pyarrow.compute", "analytics")
-    ts_index = timestamp_column_index(batch.schema)
-    shifted = pc.add(batch.column(ts_index), pa.scalar(offset, type=pa.int64()))
-    return batch.set_column(ts_index, batch.schema.field(ts_index), shifted)
-
-
-def _coalesce_scan_tasks(
-    scan_tasks: collections.abc.Sequence[ReadPlanScanTask],
-    projection_paths: collections.abc.Sequence[FieldPath],
-) -> list[tuple[ReadPlanScanTask, list[FieldPath]]]:
-    """Group a partition's scan tasks so each backing file is decoded once per layer, not once per field.
-
-    The plan may split one file into a separate scan task per top-level field (e.g.
-    one MCAP file holding ``data``, ``header``, ... as distinct scan tasks). Decoding
-    that file once per field re-opens, re-fetches, and re-decodes it for an identical
-    result. Within a partition a decode depends only on ``(fs_node_id, format,
-    transformations, projection_paths)`` -- the time window and timestamp source are
-    partition-wide -- so one decode over the union of a group's projections reproduces
-    the per-field decodes leaf-for-leaf and row-for-row.
-
-    Tasks group only when they share ``(fs_node_id, format, transformations,
-    precedence)``. Precedence is in the key because a grouped stream takes a single
-    slot in the overlay's lowest-precedence-first order: one file can win one column's
-    overlap and lose another's, so grouping across precedence would silently change
-    which layer wins. The union is carried as explicit projection paths, never the
-    whole-schema sentinel (``None``): a group that does not span the schema must not
-    claim columns it lacks, or it would shadow a lower-precedence layer that has them.
-
-    The server sets a scan task's precedence to its subtree depth, so a group's
-    same-precedence subtrees are same-depth and never nested: the union is disjoint
-    same-depth paths, none an ancestor of another, so ``leaf_most`` over it drops
-    nothing.
-
-    Returns ``(representative_scan_task, union_projection)`` pairs, lowest-precedence
-    first, ties in plan order. The representative's own subtree is irrelevant: a
-    decoder reads only its file id and format and takes the projection explicitly.
-    """
-    groups: dict[tuple[typing.Any, ...], tuple[ReadPlanScanTask, list[FieldPath]]] = {}
-    # Stable sort by precedence keeps same-precedence tasks in plan order (the
-    # overlay's tiebreak); dict insertion order then carries that into each group.
-    for scan_task in sorted(scan_tasks, key=lambda task: task.precedence):
-        key = (scan_task.object.fs_node_id, scan_task.format, scan_task.transformations, scan_task.precedence)
-        projection = projection_for_subtree(projection_paths, scan_task.subtree.path if scan_task.subtree else None)
-        existing = groups.get(key)
-        if existing is None:
-            groups[key] = (scan_task, list(projection))
-            continue
-        union = existing[1]
-        for path in projection:
-            if path not in union:
-                union.append(path)
-    return list(groups.values())
-
-
-def _resolve_partition(
+@contextlib.contextmanager
+def _open_partition(
     plan: ReadPlan,
     partition: ReadPlanPartition,
-    projection_paths: collections.abc.Sequence[FieldPath],
-    decoder: ScanTaskDecoder,
-) -> collections.abc.Generator["pyarrow.RecordBatch", None, None]:
-    """Decode one partition's files, merge them into whole rows, and yield them with absolute timestamps.
+    leaf_most: collections.abc.Sequence[FieldPath],
+    open_file_decoder: FileDecoderOpener,
+) -> collections.abc.Iterator[_OpenedPartition]:
+    """Open the files of a partition with a scan task, and close them when the context exits, however it exits.
 
-    The plan's time window is absolute, so it is shifted by the partition's offset
-    to compare against the stored timestamps the decoders see.
+    Opening raises the errors found before any row is decoded, such as ``projected-field-in-no-scan-task``,
+    ``field-not-in-file`` or ``field-split-inside-non-struct``; an error in the partition's rows is raised while
+    decoding them.
     """
-    offset = partition.time_offset_ns
-    partition_local_window = TimeWindow(start=plan.window.start - offset, end=plan.window.end - offset)
-
-    # Group scan tasks backed by the same file at the same layer so each file is
-    # opened, fetched, and decoded once rather than once per field. Groups arrive
-    # lowest-precedence first, the order the overlay merge expects.
-    grouped = _coalesce_scan_tasks(partition.scan_tasks, projection_paths)
-
-    if len(grouped) <= 1:
-        # Common case: a single file holds every column, so there is nothing to
-        # merge. Pass the decoder's batches through with only the offset applied. A
-        # partition with no readable data has zero groups and yields nothing.
-        if not grouped:
-            return
-
-        scan_task, projection = grouped[0]
-        decoded = decoder(scan_task, partition, partition_local_window, projection)
-        for batch in decoded.batches():
-            yield _apply_time_offset(batch, offset)
+    groups = assign_scan_tasks(partition, leaf_most)
+    if len(groups) == 1:
+        with open_file_decoder(groups[0], partition, plan.window) as decoder:
+            yield _OpenedPartition(value_fields=decoder.value_fields, batches=decoder.batches)
         return
 
-    # Several layers: different files hold different columns of the same rows.
-    # Decode every layer and merge each row column-by-column, higher precedence
-    # winning. Decode concurrently so the layers' fetch/decode network waits
-    # overlap. The merge aligns streams by row position, so each is fully buffered
-    # first -- peak memory is the whole partition's decoded size. This pool may nest
-    # under execute_plan's partition pool, so _MAX_SCAN_TASK_WORKERS stays small to
-    # bound the combined thread count.
+    # A split partition: its scan tasks form more than one group, so its rows are read from more than one file.
+    # Its files are opened, and later decoded, concurrently so their network waits overlap, and every decoder that
+    # opened is closed however the read ends, including when another file fails to open.
+    with (
+        contextlib.ExitStack() as decoders_to_close,
+        concurrent.futures.ThreadPoolExecutor(max_workers=min(_MAX_FILE_WORKERS, len(groups))) as executor,
+    ):
+        opening = [executor.submit(open_file_decoder, group, partition, plan.window) for group in groups]
+        concurrent.futures.wait(opening)
+        for future in opening:
+            if future.exception() is None:
+                decoders_to_close.push(future.result())
+        decoders = [future.result() for future in opening]
+        split = SplitPartition(
+            topic_part_id=partition.topic_part_id,
+            file_decoders=decoders,
+            top_level_names=list(dict.fromkeys(path[0] for path in leaf_most)),
+        )
 
-    def _scan_task_batches(scan_task: ReadPlanScanTask, projection: list[FieldPath]) -> list["pyarrow.RecordBatch"]:
-        # overlay_streams pairs streams by row position, so a decoder must emit rows
-        # in stored order. MCAP file order and Parquet row order both satisfy this.
-        return list(decoder(scan_task, partition, partition_local_window, projection).batches())
+        def batches() -> collections.abc.Iterator["pyarrow.RecordBatch"]:
+            file_batches = list(executor.map(lambda decoder: list(decoder.batches()), decoders))
+            return split.combine(file_batches)
 
-    max_workers = min(_MAX_SCAN_TASK_WORKERS, len(grouped))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(_scan_task_batches, scan_task, projection) for scan_task, projection in grouped]
-        # Collected in submission (= precedence) order, as the merge requires. A
-        # failed layer decode propagates and fails the read.
-        buffered_streams = [future.result() for future in futures]
+        yield _OpenedPartition(value_fields=split.value_fields, batches=batches)
 
-    merged = overlay_streams(
-        buffered_streams,
-        [leaf_most(projection) for _, projection in grouped],
-    )
-    if merged is not None:
-        yield _apply_time_offset(merged, offset)
+
+def _read_partition(
+    plan: ReadPlan,
+    partition: ReadPlanPartition,
+    leaf_most: collections.abc.Sequence[FieldPath],
+    open_file_decoder: FileDecoderOpener,
+) -> _PartitionRows:
+    """Open the files of a partition with a scan task, and decode all its rows.
+
+    An error opening the files propagates. An error decoding the rows is kept in the result, with the value columns
+    known at open, so the read checks the partition's schema before it raises the error.
+    """
+    with _open_partition(plan, partition, leaf_most, open_file_decoder) as opened:
+        try:
+            batches = list(opened.batches())
+        except Exception as error:
+            return _PartitionRows(value_fields=opened.value_fields, batches=[], decode_error=error)
+        return _PartitionRows(value_fields=opened.value_fields, batches=batches)

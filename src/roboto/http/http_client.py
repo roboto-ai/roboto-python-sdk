@@ -35,6 +35,7 @@ from .requester import (
     RobotoRequester,
 )
 from .response import HttpResponse
+from .tls import https_ssl_context
 
 logger = logging.getLogger(LOGGER_NAME)
 
@@ -289,7 +290,9 @@ class HttpClient:
                     for key, value in headers.items():
                         request.add_header(key, value)
 
-                    response = HttpResponse(urllib.request.urlopen(request, timeout=timeout))  # noqa: S310
+                    response = HttpResponse(
+                        urllib.request.urlopen(request, timeout=timeout, context=https_ssl_context())  # noqa: S310
+                    )
                     logger.debug("Response: %s %s", response.status, response.headers)
                     return response
         except urllib.error.HTTPError as exc:

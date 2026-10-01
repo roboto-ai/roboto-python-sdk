@@ -13,7 +13,7 @@ import pydantic
 
 from .env import RobotoEnv, Timeout
 from .logging import default_logger
-from .sentinels import NotSet
+from .sentinels import NotSet, is_set
 
 logger = default_logger()
 
@@ -45,6 +45,17 @@ def resolve_cache_dir(env: RobotoEnv, ensure_exists: bool) -> pathlib.Path:
     return platformdirs.user_cache_path(appname="roboto", ensure_exists=ensure_exists)
 
 
+def resolve_config_file(env: RobotoEnv) -> pathlib.Path:
+    """Resolve the path of the Roboto config file: ``ROBOTO_CONFIG_FILE`` from ``env``, else ``~/.roboto/config.json``.
+
+    The file at the returned path may not exist.
+    """
+    if env.config_file:
+        return pathlib.Path(env.config_file)
+
+    return DEFAULT_ROBOTO_CONFIG_DIR
+
+
 class RobotoConfig(pydantic.BaseModel):
     """
     RobotoConfig captures an ``api_key`` and ``endpoint`` required to programmatically
@@ -56,31 +67,49 @@ class RobotoConfig(pydantic.BaseModel):
     default_http_timeout: Timeout = NotSet
     endpoint: str = ROBOTO_API_ENDPOINT
 
+    org_id: typing.Optional[str] = None
+    """Organization to act in when the caller names none and ``ROBOTO_ORG_ID`` is unset.
+    The CLI and :py:meth:`~roboto.roboto_search.RobotoSearch.from_env` read it.
+    Only a member of several organizations needs it. ``roboto setup`` saves it to the config file profile;
+    a config built from ``ROBOTO_API_KEY`` or ``ROBOTO_BEARER_TOKEN`` has none."""
+
     @classmethod
-    def from_env(cls, profile_override: typing.Optional[str] = None) -> "RobotoConfig":
-        default_env = RobotoEnv.default()
+    def from_env(
+        cls, profile_override: typing.Optional[str] = None, env: typing.Optional[RobotoEnv] = None
+    ) -> "RobotoConfig":
+        """Build a config from the access token in the environment, or else from a profile in the Roboto config file.
 
-        cache_dir_from_env = pathlib.Path(default_env.cache_dir) if default_env.cache_dir else None
+        A token in ``ROBOTO_API_KEY`` or ``ROBOTO_BEARER_TOKEN`` takes precedence, and is sent to the endpoint in
+        ``ROBOTO_SERVICE_ENDPOINT``, or to ``https://api.roboto.ai`` when that is unset. Without a token, the config
+        comes from the file at ``ROBOTO_CONFIG_FILE``, or ``~/.roboto/config.json`` when that is unset. Either way,
+        ``ROBOTO_CACHE_DIR`` and ``ROBOTO_DEFAULT_HTTP_TIMEOUT``, when set, override the profile's ``cache_dir`` and
+        ``default_http_timeout``.
 
-        # If ROBOTO_API_KEY or ROBOTO_BEARER_TOKEN are provided, use that api_key, and either get the endpoint
-        # from the environment, or use the default endpoint
-        if default_env.api_key:
-            endpoint = default_env.roboto_service_endpoint or ROBOTO_API_ENDPOINT
+        Args:
+            profile_override: Config file profile to read, ahead of ``ROBOTO_PROFILE`` and the file's default profile.
+            env: Roboto environment variables to read. Defaults to the process's own, through ``RobotoEnv.default()``.
+
+        Raises:
+            FileNotFoundError: No access token is set and the config file doesn't exist.
+            OSError: The config file exists but can't be read.
+            ValueError: The config file isn't a JSON object, or has no usable profile by the chosen name.
+        """
+        if env is None:
+            env = RobotoEnv.default()
+
+        cache_dir_from_env = pathlib.Path(env.cache_dir) if env.cache_dir else None
+
+        if env.api_key:
+            endpoint = env.roboto_service_endpoint or ROBOTO_API_ENDPOINT
 
             return RobotoConfig(
-                api_key=default_env.api_key,
+                api_key=env.api_key,
                 cache_dir=cache_dir_from_env,
                 endpoint=endpoint,
-                default_http_timeout=default_env.default_http_timeout,
+                default_http_timeout=env.default_http_timeout,
             )
 
-        # Try to read a Roboto config file, either from an env variable specified location, or the default location
-        # ~/.roboto/config.json
-        if default_env.config_file:
-            config_file = pathlib.Path(default_env.config_file)
-        else:
-            config_file = DEFAULT_ROBOTO_CONFIG_DIR
-
+        config_file = resolve_config_file(env)
         if not config_file.is_file():
             raise FileNotFoundError(
                 f"No Roboto config file found at specified path '{config_file}'. This may mean that a "
@@ -93,8 +122,12 @@ class RobotoConfig(pydantic.BaseModel):
             config_file_dict = json.loads(config_file.read_text())
         except json.JSONDecodeError:
             raise ValueError(f"Roboto config file at path '{config_file}' is not valid JSON. " + _CONFIG_ERROR_SUFFIX)
+        if not isinstance(config_file_dict, dict):
+            raise ValueError(
+                f"Roboto config file at path '{config_file}' is not a JSON object. " + _CONFIG_ERROR_SUFFIX
+            )
 
-        profile_name: typing.Optional[str] = default_env.profile
+        profile_name: typing.Optional[str] = env.profile
         profiles: dict[str, RobotoConfig] = {}
 
         # First try to interpret it as a V1 new-style config file
@@ -130,7 +163,12 @@ class RobotoConfig(pydantic.BaseModel):
                 f"User profile '{profile_name}' was not found in config file '{config_file}'. " + _CONFIG_ERROR_SUFFIX
             )
 
-        return profiles[profile_name]
+        overrides: dict[str, typing.Any] = {}
+        if cache_dir_from_env is not None:
+            overrides["cache_dir"] = cache_dir_from_env
+        if is_set(env.default_http_timeout):
+            overrides["default_http_timeout"] = env.default_http_timeout
+        return profiles[profile_name].model_copy(update=overrides)
 
     def get_cache_dir(self) -> pathlib.Path:
         if self.cache_dir is None:

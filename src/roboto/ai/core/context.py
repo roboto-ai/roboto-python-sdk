@@ -44,6 +44,24 @@ class ClientViewingContext(pydantic.BaseModel):
     Device IDs are user-chosen rather than minted by Roboto, so unlike the
     other fields here a value may look like anything at all."""
 
+    view_ids: list[str] = pydantic.Field(default_factory=list)
+    """IDs of Views -- saved, shareable searches over one resource type --
+    applied to a resource table the user is looking at.
+
+    Informational, like every field here: it lets the agent resolve "this
+    View" without the user naming it, and the agent still reads the View
+    through its own tools."""
+
+    table_state: Optional[dict[str, Any]] = None
+    """The resource table on screen, when the user composed the message from
+    one: its ``target`` (``datasets``, ``files``, ...) and its live
+    ``definition`` -- the same shape a View stores: RoboQL text or filter
+    controls, plus visible columns, sort, and page size.
+
+    Sent whether or not a View is loaded, so the agent can describe ad-hoc
+    filters and so "save what I'm looking at as a View" names something
+    concrete. Informational, like every field here."""
+
     display_time_anchor_ns: Optional[int] = None
     """Epoch nanoseconds the client renders as t=0, set only while the user is
     reading timestamps as an elapsed count from that instant, and ``None``

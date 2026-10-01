@@ -10,6 +10,7 @@ import typing
 
 import mcap.reader
 
+from ...exceptions import RobotoInternalException
 from ..fields import FieldSelection
 from .accessor import AccessorCache
 from .decoded_message import DecodedMessage
@@ -71,11 +72,8 @@ class McapReader:
     """Reader for processing MCAP files with field projection.
 
     Provides an iterator interface for reading decoded messages from MCAP files,
-    with support for temporal filtering and field selection. Handles JSON and
-    the ROS/CDR encodings (``ros1msg`` / ``ros2msg`` / ``ros2idl`` / ``omgidl``).
-
-    The reader automatically decodes messages using appropriate decoders and
-    filters the output based on the specified fields and time range.
+    filtered by log time and optionally by topic, and projected to selected fields.
+    Handles JSON, msgpack, and the ROS/CDR encodings (``ros1msg`` / ``ros2msg`` / ``ros2idl`` / ``omgidl``).
     """
 
     __message_iterator: typing.Iterator[mcap.reader.DecodedMessageTuple]
@@ -90,6 +88,7 @@ class McapReader:
         start_time: typing.Optional[int] = None,
         end_time: typing.Optional[int] = None,
         log_time_order: bool = True,
+        topic_name: typing.Optional[str] = None,
     ):
         """Initialize the MCAP reader with filtering parameters.
 
@@ -104,6 +103,12 @@ class McapReader:
                 Only consumers for which message order carries no meaning may opt
                 out; any caller that merges readers by timestamp must keep the
                 default.
+            topic_name: Read only messages on MCAP channels of this topic, or on every channel when ``None``.
+                A file with several channels on the topic yields the messages of all of them.
+
+        Raises:
+            RobotoInternalException: ``topic_name`` is given and the file's summary lists no channel on that topic.
+                A non-seekable stream or a file without a summary section is not checked.
 
         Examples:
             >>> with open("data.mcap", "rb") as f:
@@ -124,8 +129,13 @@ class McapReader:
             stream,
             decoder_factories=[json_decoder, msgpack_decoder, ros_cdr_codec_decoder],
         )
+        if topic_name is not None:
+            _raise_if_summary_lists_no_channel_on_topic(reader, topic_name)
         self.__message_iterator = reader.iter_decoded_messages(
-            start_time=start_time, end_time=end_time, log_time_order=log_time_order
+            topics=[topic_name] if topic_name is not None else None,
+            start_time=start_time,
+            end_time=end_time,
+            log_time_order=log_time_order,
         )
         self.__fields = fields
         self.__accessor_cache = AccessorCache()
@@ -141,15 +151,14 @@ class McapReader:
         return self.__next_unconsummed_decode_result is not None
 
     @property
-    def field_paths(self) -> list[str]:
-        """Get the list of fields being projected, as dot-delimited paths.
-
-        Returns the dot-delimited names of the fields provided during initialization.
+    def field_paths(self) -> list[tuple[str, ...]]:
+        """Get the path of each field being projected, in the order the fields were given at initialization.
 
         Returns:
-            List of field names in dot notation.
+            One tuple per field, its :py:attr:`~roboto.formats.FieldSelection.path_in_schema`:
+            the path components from the schema root to the field.
         """
-        return [field.source_path for field in self.__fields]
+        return [field.path_in_schema for field in self.__fields]
 
     @property
     def next_envelope_timestamp(self) -> McapEnvelopeTimestamp:
@@ -243,3 +252,22 @@ class McapReader:
                 continue
             self.__next_unconsummed_decode_result = next_decode_result
             return
+
+
+def _raise_if_summary_lists_no_channel_on_topic(reader: mcap.reader.McapReader, topic_name: str) -> None:
+    """Raise when the file's summary section lists no MCAP channel on ``topic_name``.
+
+    Only a seekable reader's summary is read: a non-seekable reader's ``get_summary`` consumes the stream.
+    A file without a summary section is not checked, since its channels are known only by reading it through.
+
+    Raises:
+        RobotoInternalException: The summary lists no channel on ``topic_name``.
+    """
+    if not isinstance(reader, mcap.reader.SeekingReader):
+        return
+    summary = reader.get_summary()
+    if summary is None:
+        return
+    if any(channel.topic == topic_name for channel in summary.channels.values()):
+        return
+    raise RobotoInternalException(f"MCAP file has no channel on topic {topic_name!r}")

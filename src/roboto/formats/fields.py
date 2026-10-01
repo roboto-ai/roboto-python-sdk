@@ -13,16 +13,13 @@ import dataclasses
 class FieldSelection:
     """A field to read out of a data file, identified by its path through the schema.
 
-    This is the single currency type the :py:mod:`roboto.formats` decoders accept.
-    Each bounded context (e.g. :py:mod:`roboto.domain.topics`) translates its own field
-    record into a ``FieldSelection`` at the boundary rather than passing the record in
-    directly.
+    The :py:mod:`roboto.formats` readers take the fields to read as ``FieldSelection`` values;
+    :py:meth:`~roboto.domain.topics.MessagePathRecord.to_field_selection` converts a topic's message path into one.
     """
 
     path_in_schema: tuple[str, ...]
-    """Path components locating this field in the source data schema, root to leaf."""
+    """Path components locating this field in the source data schema, root to leaf.
 
-    @property
-    def source_path(self) -> str:
-        """The field's dot-joined name as it appears in the source data / Arrow schema."""
-        return ".".join(self.path_in_schema)
+    A component may contain dots, so ``("header", "stamp")`` (a ``stamp`` field nested in a ``header`` struct) and
+    ``("header.stamp",)`` (a top-level column named ``header.stamp``) are different fields.
+    """

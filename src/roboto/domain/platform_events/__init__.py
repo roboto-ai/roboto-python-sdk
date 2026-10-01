@@ -14,6 +14,7 @@ payload model, the namespace roots it exposes, and the ``once_per`` values it su
 """
 
 from .catalog import (
+    DATASET_ROOT,
     DEFAULT_PLATFORM_EVENT_CATALOG,
     ENVELOPE_ROOT,
     RESERVED_ROOTS,
@@ -40,7 +41,7 @@ from .events import (
     PlatformEventType,
     ScheduleFiredPayload,
     SessionCreatedPayload,
-    SessionFilesAddedPayload,
+    SessionFileAddedPayload,
     SessionUpdatedPayload,
     UploadCompletedPayload,
     platform_event_source,
@@ -54,6 +55,7 @@ from .samples import (
     SAMPLE_DATASET_ID,
     SAMPLE_EVENT_ID,
     SAMPLE_FILE_ID,
+    SAMPLE_FILE_VERSION,
     SAMPLE_INVOCATION_ID,
     SAMPLE_ORG_ID,
     SAMPLE_SESSION_ID,
@@ -67,6 +69,7 @@ from .samples import (
 
 __all__ = [
     "CLOUDEVENTS_SPECVERSION",
+    "DATASET_ROOT",
     "event_catalog_manifest",
     "CLOUDEVENTS_TYPE_PREFIX",
     "DEFAULT_PLATFORM_EVENT_CATALOG",
@@ -80,6 +83,7 @@ __all__ = [
     "SAMPLE_DATASET_ID",
     "SAMPLE_EVENT_ID",
     "SAMPLE_FILE_ID",
+    "SAMPLE_FILE_VERSION",
     "SAMPLE_INVOCATION_ID",
     "SAMPLE_ORG_ID",
     "SAMPLE_SESSION_ID",
@@ -106,7 +110,7 @@ __all__ = [
     "PlatformEventType",
     "ScheduleFiredPayload",
     "SessionCreatedPayload",
-    "SessionFilesAddedPayload",
+    "SessionFileAddedPayload",
     "SessionUpdatedPayload",
     "UploadCompletedPayload",
     "platform_event_source",

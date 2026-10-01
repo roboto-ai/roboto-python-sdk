@@ -10,6 +10,7 @@ import typing
 from ...query import ConditionType
 from ...uri import RobotoUriType
 from ..platform_events import (
+    DATASET_ROOT,
     DEFAULT_PLATFORM_EVENT_CATALOG,
     RESERVED_ROOTS,
     OncePer,
@@ -19,6 +20,10 @@ from ..platform_events import (
 from .conditions import (
     explicit_root,
     iter_leaf_conditions,
+)
+from .query_templates import (
+    iter_query_templates,
+    placeholders_outside_string_literals,
 )
 from .record import TriggerRecord
 from .sources import (
@@ -37,11 +42,12 @@ class TriggerValidator:
 
     Enforces the cross-field rules that need the event catalog: a condition may only
     reference namespace roots exposed by *every* event the source fires for,
-    ``once_per`` must be legal for every subscribed event, every target must act on
-    the kind of entity the subscription is about, and every target template
-    placeholder must resolve to a shared exposed root (or a reserved
-    ``envelope.``/``trigger.`` context). A schedule fires for exactly one occurrence type,
-    so the same rules apply to it with that occurrence's roots.
+    ``once_per`` must be legal for every subscribed event, an action target's file
+    patterns need a dataset to match against and are themselves required when the firing
+    event's own file is the action's input, and every target template placeholder must
+    resolve to a shared exposed root (or a reserved ``envelope.``/``trigger.`` context).
+    A schedule fires for exactly one occurrence type, so the same rules apply to it with
+    that occurrence's roots.
 
     Run before persistence so a trigger that could never fire — or could never
     resolve its templates — fails loudly with an actionable message instead of
@@ -85,7 +91,7 @@ class TriggerValidator:
         event_types = self.__event_types(fires_on)
         shared_roots = self.__shared_roots(event_types)
         self.__validate_condition(condition, event_types, shared_roots)
-        self.__validate_targets(targets, fires_on, shared_roots, self.__subject_type(fires_on))
+        self.__validate_targets(targets, fires_on, event_types, shared_roots, self.__subject_type(fires_on))
 
     def __event_types(self, fires_on: TriggerSource) -> list[PlatformEventType]:
         """The event types the source fires for, after validating the source itself."""
@@ -115,9 +121,8 @@ class TriggerValidator:
         subject_types = {self.__catalog.descriptor(event_type).subject_type for event_type in subscription.events}
         if len(subject_types) > 1:
             # Every subscribed type must be about the same kind of entity. Otherwise the
-            # condition has no root every event exposes, once_per collapses to
-            # occurrence, and an action target has nothing to bind to on the events
-            # that carry no dataset. One trigger per entity kind expresses the same intent.
+            # condition has no root every event exposes and once_per collapses to
+            # occurrence. One trigger per entity kind expresses the same intent.
             raise ValueError(
                 f"A trigger subscribes to platform events about one kind of entity; "
                 f"{sorted(event.value for event in subscription.events)} are about "
@@ -167,10 +172,33 @@ class TriggerValidator:
                     f"{[e.value for e in event_types]}: {sorted(shared_roots)}."
                 )
 
+    def __no_dataset_clause(
+        self,
+        fires_on: TriggerSource,
+        event_types: collections.abc.Sequence[PlatformEventType],
+        shared_roots: frozenset[str],
+    ) -> str:
+        """Why the firing names no dataset, phrased for the source the author actually wrote."""
+        if isinstance(fires_on, Schedule):
+            return (
+                f"the trigger fires on a schedule, which names no {DATASET_ROOT}; "
+                f"available roots: {sorted(shared_roots)}"
+            )
+        without_dataset = sorted(
+            event_type.value
+            for event_type in event_types
+            if DATASET_ROOT not in self.__catalog.exposed_roots(event_type)
+        )
+        return (
+            f"the subscribed events {without_dataset} name no {DATASET_ROOT}; roots shared by "
+            f"every event the trigger fires for: {sorted(shared_roots)}"
+        )
+
     def __validate_targets(
         self,
         targets: collections.abc.Sequence[TriggerTargetSpec],
         fires_on: TriggerSource,
+        event_types: collections.abc.Sequence[PlatformEventType],
         shared_roots: frozenset[str],
         subject_type: typing.Optional[RobotoUriType],
     ) -> None:
@@ -181,22 +209,22 @@ class TriggerValidator:
             if target.target_id in seen_target_ids:
                 raise ValueError(f"Duplicate target_id {target.target_id!r}; target ids must be unique in a trigger.")
             seen_target_ids.add(target.target_id)
-            if (
-                subject_type is not None
-                and target.subject_types is not None
-                and subject_type not in target.subject_types
-            ):
-                raise ValueError(
-                    f"Target {target.target_id!r} ({target.type.value}) acts on "
-                    f"{sorted(kind.value for kind in target.subject_types)}, but the subscribed platform events "
-                    f"are about {subject_type.value!r}. Use another kind of target, or subscribe to platform "
-                    "events about one of those entities."
-                )
-            if isinstance(fires_on, Schedule) and isinstance(target, InvokeActionTarget) and target.required_inputs:
-                raise ValueError(
-                    f"Target {target.target_id!r} sets required_inputs, which gate on the firing event's files; "
-                    "a schedule fires with no files. Select inputs with invocation_input instead."
-                )
+            if isinstance(target, InvokeActionTarget) and DATASET_ROOT not in shared_roots:
+                pattern_fields = [
+                    field
+                    for field, patterns in (
+                        ("required_inputs", target.required_inputs),
+                        ("additional_inputs", target.additional_inputs),
+                    )
+                    if patterns
+                ]
+                if pattern_fields:
+                    raise ValueError(
+                        f"Target {target.target_id!r} sets {' and '.join(pattern_fields)}, which match files of the "
+                        f"firing event's {DATASET_ROOT}, but "
+                        f"{self.__no_dataset_clause(fires_on, event_types, shared_roots)}. "
+                        "Select inputs with invocation_input instead."
+                    )
             if (
                 isinstance(fires_on, EventSubscription)
                 and isinstance(target, InvokeActionTarget)
@@ -209,6 +237,18 @@ class TriggerValidator:
                     "the firing event's file is the action's input and must match one of them, so the target "
                     "would never accept an event. Add a required_inputs pattern, or use once_per=dataset."
                 )
+            if isinstance(target, InvokeActionTarget) and target.invocation_input is not None:
+                for query in iter_query_templates(target.invocation_input.model_dump(mode="json")):
+                    unquoted = placeholders_outside_string_literals(query)
+                    if unquoted:
+                        raise ValueError(
+                            f"Target {target.target_id!r} references "
+                            f"{', '.join('{{' + name + '}}' for name in unquoted)} outside a quoted value in the "
+                            f"query {query!r}. A value resolved from the event is data, not query syntax, so a "
+                            "placeholder must sit inside a quoted value, as in "
+                            'dataset_id = "{{dataset.dataset_id}}". A comment does not count as one.'
+                        )
+
             allowed_roots = shared_roots | RESERVED_ROOTS
             for placeholder in sorted(target.referenced_placeholders()):
                 root = placeholder.split(".", 1)[0]

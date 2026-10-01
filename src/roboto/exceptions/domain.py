@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections
+import collections.abc
 import json
 from typing import Any, Optional, Type
 
@@ -12,6 +13,7 @@ import pydantic
 import pydantic_core
 
 from ..collection_utils import get_by_path
+from ..compat import StrEnum
 from .http import HttpError
 
 AUTHENTICATION_FAILURE_MESSAGE = (
@@ -475,6 +477,91 @@ class RobotoInternalException(RobotoDomainException):
     @property
     def http_status_code(self) -> int:
         return 500
+
+
+class ReadPlanExecutionErrorKind(StrEnum):
+    """Why a read of topic data through a read plan cannot continue."""
+
+    UNSUPPORTED_FORMAT = "unsupported-format"
+    """A scan task stores its data in a format other than MCAP and Parquet, the formats the readers decode."""
+
+    PLAN_WITHOUT_SCHEMA = "plan-without-schema"
+    """The plan projects every field of its schema, has a partition with a scan task, and names no schema."""
+
+    PROJECTED_FIELD_IN_NO_SCAN_TASK = "projected-field-in-no-scan-task"
+    """No scan task of a partition reads the whole schema or a subtree containing a projected field."""
+
+    FIELD_SPLIT_INSIDE_NON_STRUCT = "field-split-inside-non-struct"
+    """A partition's files split a field that one of them stores as other than a struct, such as a list or a map."""
+
+    INCONSISTENT_SCAN_TASKS_ON_FILE = "inconsistent-scan-tasks-on-file"
+    """Scan tasks of one partition read one file but disagree on its format, transformations or topic name."""
+
+    SCAN_TASK_ROW_MISMATCH = "scan-task-row-mismatch"
+    """The files of a partition hold different rows in the window."""
+
+    UNSUPPORTED_TIMESTAMP = "unsupported-timestamp"
+    """The partition's timestamp is one the readers refuse: a kind they do not know; a schema field with no path;
+    a unit other than s, ms, us or ns; a message log or publish time on a Parquet file;
+    or a Parquet timestamp field inside a list or map, holding a DATE or TIME, or not a number."""
+
+    INVALID_TIMESTAMP = "invalid-timestamp"
+    """A stored timestamp has no signed 64-bit nanosecond value once shifted by its partition's ``time_offset_ns``:
+    it is NaN or infinite, a DECIMAL holding a fraction of a nanosecond, or out of range."""
+
+    PARTITION_SCHEMA_MISMATCH = "partition-schema-mismatch"
+    """A later partition's files give the read a different schema than the first partition's."""
+
+    FIELD_NOT_IN_FILE = "field-not-in-file"
+    """A file lacks a field the read takes from it: a field it supplies, or the partition's timestamp field."""
+
+
+class RobotoReadPlanExecutionException(RobotoInternalException):
+    """
+    Thrown when a read of topic data through a read plan cannot continue, with the reason as its ``kind``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        stack_trace: list[str] = [],
+        headers: dict[str, str] = {},
+        *args,
+        kind: ReadPlanExecutionErrorKind | str,
+        field_path: Optional[collections.abc.Sequence[str]] = None,
+        row_number: Optional[int] = None,
+        **kwargs,
+    ):
+        super().__init__(message, stack_trace, headers, *args, **kwargs)
+        # A string kind comes from from_json, which rebuilds the exception from to_dict's output.
+        self.__kind = ReadPlanExecutionErrorKind(kind)
+        self.__field_path = tuple(field_path) if field_path is not None else None
+        self.__row_number = row_number
+
+    @property
+    def kind(self) -> ReadPlanExecutionErrorKind:
+        """Why the read cannot continue."""
+        return self.__kind
+
+    @property
+    def field_path(self) -> Optional[tuple[str, ...]]:
+        """For ``field-not-in-file``, the missing field's path components,
+        from its top-level field down to the first component the file lacks."""
+        return self.__field_path
+
+    @property
+    def row_number(self) -> Optional[int]:
+        """For ``invalid-timestamp``, the row's 0-based position among its topic's rows in its file."""
+        return self.__row_number
+
+    def to_dict(self) -> dict[str, Any]:
+        as_dict = super().to_dict()
+        as_dict["error"]["kind"] = self.kind.value
+        if self.field_path is not None:
+            as_dict["error"]["field_path"] = list(self.field_path)
+        if self.row_number is not None:
+            as_dict["error"]["row_number"] = self.row_number
+        return as_dict
 
 
 class RobotoResponseTooLargeException(RobotoDomainException):

@@ -253,6 +253,17 @@ class Collection:
         return self.__record
 
     @property
+    def resource_count(self) -> int:
+        """Number of resources this collection holds.
+
+        Read from the collection record rather than from ``resources``, so it is available
+        in every content mode, including summary-only loads where the member list is empty.
+        Counts every membership reference, including references to resources that have since
+        been deleted.
+        """
+        return self.__record.resource_count
+
+    @property
     @experimental
     def custom_fields(self) -> dict[str, typing.Any]:
         """Custom-field values defined on Collections in this org.

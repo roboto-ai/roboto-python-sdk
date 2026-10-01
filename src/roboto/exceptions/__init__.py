@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .domain import (
+    ReadPlanExecutionErrorKind,
     RobotoConditionException,
     RobotoConflictException,
     RobotoContextTooLongException,
@@ -28,6 +29,7 @@ from .domain import (
     RobotoNotImplementedException,
     RobotoNotReadyException,
     RobotoOperationTimeoutException,
+    RobotoReadPlanExecutionException,
     RobotoResponseTooLargeException,
     RobotoServiceException,
     RobotoServiceUnavailableException,
@@ -49,6 +51,7 @@ __all__ = [
     "ClientError",
     "HttpError",
     "IngestionException",
+    "ReadPlanExecutionErrorKind",
     "ServerError",
     "TimestampFieldNotFoundException",
     "RobotoConditionException",
@@ -64,6 +67,7 @@ __all__ = [
     "RobotoFeatureNotAvailableException",
     "RobotoHttpExceptionParse",
     "RobotoIllegalArgumentException",
+    "RobotoReadPlanExecutionException",
     "RobotoResponseTooLargeException",
     "RobotoInternalException",
     "RobotoInvalidRequestException",

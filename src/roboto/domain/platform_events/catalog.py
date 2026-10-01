@@ -29,7 +29,7 @@ from .events import (
     PlatformEventType,
     ScheduleFiredPayload,
     SessionCreatedPayload,
-    SessionFilesAddedPayload,
+    SessionFileAddedPayload,
     SessionUpdatedPayload,
     UploadCompletedPayload,
 )
@@ -50,7 +50,8 @@ event.
 
 ENVELOPE_ROOT = "envelope"
 """Namespace root served from the platform event's own envelope: its id, source, subject,
-type, time, and org. Reserved: no event type may expose it as an entity root."""
+type, time, and org, plus the payload as published under ``data``. Reserved: no event type
+may expose it as an entity root."""
 
 TRIGGER_ROOT = "trigger"
 """Namespace root describing the trigger being evaluated. Reserved for the consumer; no
@@ -59,6 +60,10 @@ event type may expose it as an entity root."""
 RESERVED_ROOTS = frozenset({ENVELOPE_ROOT, TRIGGER_ROOT})
 """Roots the evaluation namespace serves itself. A descriptor claiming one would be
 silently shadowed by the envelope or the trigger, so construction rejects it."""
+
+DATASET_ROOT = "dataset"
+"""Namespace root naming a dataset. An event exposing it is about a dataset or about
+something within one, so a consumer may reach that dataset's files from the event."""
 
 
 def _subject_id(event: PlatformEvent, field: str) -> str:
@@ -145,9 +150,10 @@ class PlatformEventDescriptor:
 
     subject_type: RobotoUriType
     """The kind of entity this event is about — its CloudEvents ``subject``. The payload
-    carries that entity's id under ``{subject_type}_id``; everything else in it is
-    context around the entity: the upload transaction a file arrived in, the files added
-    to a session, the applied changeset."""
+    carries that entity's id under ``{subject_type}_id``, and may say more about it, such
+    as the version a file was at. The rest is context around the entity: the upload
+    transaction a file arrived in, the session a file was added to, the applied
+    changeset."""
 
     subscribable: bool = True
     """Whether a trigger may name this type in an
@@ -403,16 +409,27 @@ DEFAULT_PLATFORM_EVENT_CATALOG = PlatformEventCatalog(
             subject_type=RobotoUriType.Session,
         ),
         PlatformEventDescriptor(
-            event_type=PlatformEventType.SessionFilesAdded,
-            payload_model=SessionFilesAddedPayload,
-            exposed_roots=frozenset({"session"}),
-            default_root="session",
-            # Files are added to a session repeatedly; a per-session grain would fire
-            # once and swallow every later addition.
+            event_type=PlatformEventType.SessionFileAdded,
+            payload_model=SessionFileAddedPayload,
+            exposed_roots=frozenset({"session", "file", "dataset"}),
+            # The dataset, as on every other file-subject event, so an unqualified
+            # condition field means the same thing here as on file.uploaded.
+            default_root="dataset",
+            # Files are added to a session repeatedly, and both coarse grains collapse
+            # those repeats: once_per=session dispatches for the first file added to a
+            # session and drops every later one, and once_per=file keys on the file
+            # alone, so adding the same file to a second session is dropped too.
             once_per_projections={
                 OncePer.Occurrence: _event_id,
+                OncePer.File: _file_id,
+                OncePer.Session: _session_id,
             },
-            subject_type=RobotoUriType.Session,
+            # About the file, as file.uploaded is, so an action target takes the added
+            # file as its input. A trigger may subscribe to both types, but only at the
+            # grains they share -- occurrence and file, since this type offers no
+            # dataset grain -- and at those grains an action target must set
+            # required_inputs for the firing file to match.
+            subject_type=RobotoUriType.File,
         ),
         PlatformEventDescriptor(
             event_type=PlatformEventType.SessionUpdated,
@@ -476,6 +493,7 @@ def event_catalog_manifest(catalog: PlatformEventCatalog = DEFAULT_PLATFORM_EVEN
 
 
 __all__ = [
+    "DATASET_ROOT",
     "DEFAULT_PLATFORM_EVENT_CATALOG",
     "ENVELOPE_ROOT",
     "OncePerProjection",

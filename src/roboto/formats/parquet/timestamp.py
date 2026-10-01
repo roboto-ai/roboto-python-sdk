@@ -45,8 +45,8 @@ def time_unit_from_timestamp_type(timestamp_type: "pyarrow.TimestampType") -> Ti
 @dataclasses.dataclass
 class Timestamp:
     """
-    Timestamp signal in a Parquet field.
-    Serves as both a descriptor of that signal and as a utility for projecting it to other time units.
+    The timestamp field of a Parquet file, the field holding each row's timestamp.
+    Serves as both a descriptor of that field and as a utility for projecting its values to other time units.
 
     Note:
         This is not intended as a public API.
@@ -56,9 +56,15 @@ class Timestamp:
     unit_hint: typing.Optional[str]
     """Unit the stored values are recorded in, used when the Arrow type does not carry one.
 
-    Sourced from the field's metadata (old model) or its first-class unit (new model) at
-    the bounded-context boundary. ``None`` when the unit is unknown.
+    Taken from the ``Unit`` metadata of the timestamp's :py:class:`~roboto.domain.topics.MessagePathRecord`,
+    or from the read plan's :py:attr:`~roboto.experimental.topics.ReadPlanTimestamp.unit`.
+    ``None`` when the unit is unknown.
     """
+    path: tuple[str, ...]
+    """Path components locating the timestamp field in the file's schema, root to leaf, through structs only."""
+    column_index: int
+    """The timestamp's position among the file's leaf columns,
+    which is the index of its column chunk in every row group."""
 
     def to_epoch_nanoseconds(self, timestamp: Time) -> int:
         unit = self.__unit_from_hint()

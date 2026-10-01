@@ -21,16 +21,16 @@ from ...domain.topics import (
     Timestamp,
     TopicIdentityRecord,
 )
+from ...domain.topics.record import FieldPath
 from ...env import RobotoEnv
-from ...exceptions import RobotoInternalException
 from ...http import RobotoClient
 from ...storage import CachePolicy
 from ...time import Time, to_epoch_nanoseconds
 from . import batch_transforms, plan_execution
 from .decode import (
     CACHED_PARQUET_NAME_PATTERN,
-    ScanTaskDecodeParams,
-    make_scan_task_decoder,
+    FileDecodeParams,
+    make_file_decoder_opener,
 )
 from .operations import (
     FieldAddress,
@@ -245,6 +245,8 @@ class Topic:
 
         Raises:
             RobotoInvalidRequestException: See :py:meth:`get_data_as_record_batches`.
+            RobotoReadPlanExecutionException: See :py:meth:`get_data_as_record_batches`.
+            RobotoInternalException: See :py:meth:`get_data_as_record_batches`.
             RobotoUnauthorizedException: See :py:meth:`get_data_as_record_batches`.
 
         Examples:
@@ -346,6 +348,32 @@ class Topic:
                 schema or timeline source does not match the window's data, or no
                 stored representation satisfies a representation preference. The
                 error carries an actionable message.
+            RobotoReadPlanExecutionException: The topic's data cannot be read as the service's read plan describes
+                it; a ``RobotoInternalException`` whose ``kind`` says why:
+
+                * ``field-not-in-file``: a file backing this topic lacks a field the read takes from it, such as a
+                  projected field or the field holding each row's timestamp. ``field_path`` runs from that field's
+                  top-level field down to the first component the file lacks.
+                * ``unsupported-timestamp``: the read cannot take timestamps from where the data keeps them, such as
+                  a message time on a Parquet file, or a Parquet timestamp field that is not a number.
+                * ``invalid-timestamp``: a stored timestamp is NaN or infinite, is a DECIMAL holding a fraction of a
+                  nanosecond, or leaves the signed 64-bit range once shifted to absolute time. ``row_number`` names
+                  the row by its 0-based position among the topic's rows in its file.
+                * ``scan-task-row-mismatch``: files that store different fields of the same rows hold different rows
+                  in the window.
+                * ``field-split-inside-non-struct``: files that store different fields of the same rows split a field
+                  that one of them stores as other than a struct, such as a list or a map.
+                * ``projected-field-in-no-scan-task``: no scan task of a topic partition reads the whole schema or a
+                  subtree containing a projected field.
+                * ``inconsistent-scan-tasks-on-file``: the plan reads one file two ways, with a different format,
+                  transformations or topic name.
+                * ``partition-schema-mismatch``: a topic partition's files give the read a different schema than the
+                  first topic partition's files. It is raised when that partition's files open, before any of its
+                  rows, so even when it has no rows in the window.
+                * ``plan-without-schema``: the plan reads every field of its schema and has a topic partition with a
+                  scan task, but names no schema.
+            RobotoInternalException: An MCAP file backing this topic cannot be decoded, such as one with no chunk or
+                message index, or one whose messages are ``protobuf``-encoded.
             RobotoUnauthorizedException: The caller lacks read access to at
                 least one in-window file backing this topic.
 
@@ -381,8 +409,7 @@ class Topic:
         if not plan.partitions:
             return
 
-        schema_fields = self.__fetch_schema_fields(plan)
-        projection_paths = _resolve_projection_paths(plan, schema_fields)
+        projected = plan_execution.projected_paths(plan, self.__schema_field_paths)
 
         resolved_cache_dir = (
             pathlib.Path(cache_dir)
@@ -392,7 +419,7 @@ class Topic:
             else resolve_cache_dir(RobotoEnv(), ensure_exists=False) / TOPIC_DATA_CACHE_SUBDIR
         )
 
-        # Mint every scan task's signed URL concurrently, each decode worker blocks only on its own URL's future.
+        # Mint every scan task's signed URL concurrently; each decode worker blocks only on its own URL's future.
         url_executor, url_futures = self.__prefetch_signed_urls(plan, cache_policy, resolved_cache_dir)
         try:
 
@@ -400,15 +427,16 @@ class Topic:
                 future = url_futures.get(fs_node_id)
                 return future.result() if future is not None else self.__signed_url_for_file(fs_node_id)
 
-            decoder = make_scan_task_decoder(
-                ScanTaskDecodeParams(
+            open_file_decoder = make_file_decoder_opener(
+                FileDecodeParams(
                     signed_url_resolver=signed_url_resolver,
                     cache_policy=cache_policy,
                     cache_dir=resolved_cache_dir,
                 )
             )
 
-            yield from plan_execution.execute_plan(plan, projection_paths, decoder)
+            for batch in plan_execution.execute_read_plan(plan, projected, open_file_decoder):
+                yield batch_transforms.drop_row_number_column(batch)
         finally:
             if url_executor is not None:
                 url_executor.shutdown(wait=False, cancel_futures=True)
@@ -465,6 +493,8 @@ class Topic:
 
         Raises:
             RobotoInvalidRequestException: See :py:meth:`get_data_as_record_batches`.
+            RobotoReadPlanExecutionException: See :py:meth:`get_data_as_record_batches`.
+            RobotoInternalException: See :py:meth:`get_data_as_record_batches`.
             RobotoUnauthorizedException: See :py:meth:`get_data_as_record_batches`.
 
         Examples:
@@ -519,16 +549,10 @@ class Topic:
     def set_context(self, session_context: typing.Optional[SessionContext]) -> None:
         self.__session_context = session_context
 
-    def __fetch_schema_fields(self, plan: ReadPlan) -> list[SchemaFieldRecord]:
-        """Fetch every declared field for the plan's schema."""
-        if plan.schema_ is None:
-            # The plan model documents `schema` as set exactly when the plan is
-            # non-empty, and the caller only gets here with partitions present.
-            raise RobotoInternalException("Read plan has partitions but names no schema.")
-
-        return self.__roboto_client.get(
-            f"v2/topics/schema/id/{plan.schema_.schema_id}/fields",
-        ).to_record_list(SchemaFieldRecord)
+    def __schema_field_paths(self, schema_id: str) -> list[FieldPath]:
+        """Fetch the path of every field the schema ``schema_id`` declares."""
+        records = self.__roboto_client.get(f"v2/topics/schema/id/{schema_id}/fields").to_record_list(SchemaFieldRecord)
+        return [record.path_in_schema for record in records]
 
     def __resolve_read_plan(
         self,
@@ -614,19 +638,6 @@ class Topic:
     def __signed_url_for_file(self, fs_node_id: str) -> str:
         response = self.__roboto_client.get(f"v1/files/{fs_node_id}/signed-url")
         return response.to_dict(json_path=["data", "url"])
-
-
-def _resolve_projection_paths(
-    plan: ReadPlan, schema_fields: collections.abc.Sequence[SchemaFieldRecord]
-) -> list[tuple[str, ...]]:
-    """Materialize the plan's projection as explicit field paths.
-
-    A narrowed projection enumerates its paths inline; the whole-schema sentinel
-    takes every declared field's path.
-    """
-    if plan.projection.all:
-        return [record.path_in_schema for record in schema_fields]
-    return [field.path for field in plan.projection.fields or ()]
 
 
 def _coerce_field_addresses(

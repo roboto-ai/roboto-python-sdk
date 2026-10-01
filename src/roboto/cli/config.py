@@ -25,6 +25,9 @@ logger = logging.getLogger(LOGGER_NAME)
 
 GITHUB_RELEASES_URL = "https://api.github.com/repos/roboto-ai/roboto-python-sdk/releases/latest"
 
+# Names the CLI in its requests to sites other than Roboto. Some sites refuse the user agent Python sends by default.
+USER_AGENT = f"roboto-cli/{__version__} (+https://github.com/roboto-ai)"
+
 
 class CLIState(pydantic.BaseModel):
     last_checked_version: Optional[datetime.datetime] = None
@@ -32,19 +35,20 @@ class CLIState(pydantic.BaseModel):
     out_of_date: bool = True
 
 
-def _get_latest_version_from_github() -> Optional[str]:
+def get_latest_version() -> Optional[str]:
     """
     Fetch the latest release version from GitHub Releases API.
 
     Returns:
-        The latest version string (without 'v' prefix), or None if the request fails.
+        The latest version string (without 'v' prefix), or None if the request fails or GitHub's answer names no
+        release tag.
     """
     http = HttpClient()
 
     try:
         headers = {
             "Accept": "application/vnd.github+json",
-            "User-Agent": f"roboto-cli/{__version__} (+https://github.com/roboto-ai)",
+            "User-Agent": USER_AGENT,
             "X-GitHub-Api-Version": "2022-11-28",
         }
 
@@ -60,7 +64,7 @@ def _get_latest_version_from_github() -> Optional[str]:
 
         return version
     except Exception as exc:
-        # Version checking should never block CLI usage
+        # Every error is logged and reported as None, so the hourly check for a newer release never stops a command.
         logger.debug("Failed to fetch latest version from GitHub: %s", exc)
         return None
 
@@ -103,7 +107,7 @@ def check_last_update():
         or state.out_of_date is True
         or (utcnow() - datetime.timedelta(hours=1)) > state.last_checked_version
     ):
-        latest = _get_latest_version_from_github()
+        latest = get_latest_version()
         if latest is None:
             return
 
@@ -120,7 +124,6 @@ def check_last_update():
             print(
                 f"\n{notice} A new release of roboto is available: "
                 + f"{AnsiColor.RED + __version__ + AnsiColor.END} -> {AnsiColor.GREEN + latest + AnsiColor.END}\n"
-                + f"{notice} To update, follow Upgrade CLI instructions at "
-                + "https://github.com/roboto-ai/roboto-python-sdk/blob/main/README.md",
+                + f"{notice} To update, run `roboto upgrade`.",
                 file=sys.stderr,
             )

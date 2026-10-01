@@ -24,12 +24,7 @@ misreading a newer plan.
 
 
 class TimeWindow(pydantic.BaseModel):
-    """A closed time window in nanoseconds since the Unix epoch; both bounds inclusive.
-
-    The same shape serves any window the read path carries — the absolute window a plan resolves over,
-    and a partition's stored-time window once ``time_offset_ns`` is applied. The bounds' time domain is
-    fixed by the context that holds the window, not by this type.
-    """
+    """A closed time window in absolute nanoseconds since the Unix epoch; both bounds inclusive."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -196,7 +191,7 @@ class ReadPlanObjectRef(pydantic.BaseModel):
 
 
 class ReadPlanScanTask(pydantic.BaseModel):
-    """One file to open, with the format and transformations needed to interpret it.
+    """One file to open, with the topic to read from it and the format and transformations needed to interpret it.
 
     Which of the representations satisfying the governing selector backs a scan
     task is service policy and may change between releases; only the selector's
@@ -209,7 +204,7 @@ class ReadPlanScanTask(pydantic.BaseModel):
     """The field subtree this scan task covers; ``None`` covers the whole schema."""
 
     precedence: int
-    """Where two scan tasks' subtrees overlap, the one with the higher precedence wins."""
+    """Where two scan tasks' subtrees contain the same field, the read takes it from the higher-precedence one."""
 
     format: RepresentationStorageFormat
     """The format the bytes are stored in; selects the decoder a consumer applies."""
@@ -219,6 +214,14 @@ class ReadPlanScanTask(pydantic.BaseModel):
 
     object: ReadPlanObjectRef
     """The single file this scan task resolves to."""
+
+    topic_name: typing.Optional[str] = None
+    """Name of the topic whose records this scan task reads from its file.
+
+    A file can hold several topics (an MCAP file does when its channels carry different topic names), so a reader
+    selects the topic's records by this name. ``None`` when the plan does not name the topic; a reader then reads
+    the file as holding a single topic.
+    """
 
 
 class ReadPlanPartition(pydantic.BaseModel):
@@ -241,9 +244,8 @@ class ReadPlanPartition(pydantic.BaseModel):
     scan_tasks: tuple[ReadPlanScanTask, ...] = ()
     """The files to read for this partition; empty when the partition has no readable data.
 
-    A partition's rows may be shredded across several scan tasks (record-shredding style), each owning a
-    subtree of the schema; the read path reassembles each row per leaf, the highest-precedence scan task
-    winning where subtrees overlap. The common case is a single scan task covering the whole schema.
+    A partition may have several scan tasks, each covering a subtree of the schema or the whole schema;
+    the read takes each field from the highest-precedence scan task whose subtree contains it.
     """
 
 
@@ -262,11 +264,10 @@ class ReadPlan(pydantic.BaseModel):
     """The time window the plan resolves over."""
 
     schema_: typing.Optional[ReadPlanSchemaRef] = pydantic.Field(default=None, alias="schema")
-    """The resolved schema on a non-empty plan. Serializes as ``schema``.
+    """The schema the plan reads under. Serializes as ``schema``.
 
-    ``None`` exactly when the plan is empty: the window contains no partitions,
-    or a ``schema_id``/``schema_checksum`` matches no in-window partition
-    (data may exist in the window under a different schema).
+    ``None`` when no partition of the topic lies in the window (within the session, when the request names one),
+    and the plan then has no partitions. A plan that names a schema may also have no partitions.
     """
 
     projection: ReadPlanProjection

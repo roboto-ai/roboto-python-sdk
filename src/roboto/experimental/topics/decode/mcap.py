@@ -9,186 +9,210 @@ from __future__ import annotations
 import collections.abc
 import typing
 
-import mcap.reader
-
 from ....compat import import_optional_dependency
 from ....domain.topics.record import FieldPath
-from ....exceptions import RobotoInternalException
-from ....formats.mcap import open_for_window
-from ....storage import as_io_bytes
-from ....time import TimeUnit
-from ..batch_transforms import TIMESTAMP_FIELD_NAME, timestamp_field
-from ..read_plan import (
-    ReadPlanScanTask,
-    ReadPlanTimestamp,
-    TimeWindow,
+from ....exceptions import (
+    ReadPlanExecutionErrorKind,
+    RobotoInternalException,
+    RobotoReadPlanExecutionException,
 )
-from .common import ScanTaskDecodeParams, leaf_most
+from ....storage import HttpRangeReader
+from ..batch_transforms import (
+    ROW_NUMBER_FIELD_NAME,
+    TIMESTAMP_FIELD_NAME,
+    row_number_column_index,
+    timestamp_column_index,
+)
+from ..read_plan import ReadPlanPartition, TimeWindow
+from .common import (
+    FileDecodeParams,
+    FileDecoder,
+    ScanTaskGroup,
+    SuppliedField,
+)
+from .timestamp_unit import plan_timestamp_unit
 
 if typing.TYPE_CHECKING:
+    import mcap_codec
     import pyarrow  # pants: no-infer-dep
 
-_SUPPORTED_SCHEMA_ENCODINGS = frozenset({"ros1msg", "ros2msg", "ros2idl", "omgidl", "jsonschema", "json"})
-"""Schema encodings our ``mcap_codec`` batch decoder handles.
 
-The ROS/CDR family (``ros1msg`` / ``ros2msg`` / ``ros2idl`` / ``omgidl``) plus the JSON family
-(``jsonschema``, with ``json`` a wire-real alias the codec's ``SchemaEncoding::parse`` accepts).
-msgpack channels carry a ``jsonschema`` schema, so they need no separate entry -- the codec
-dispatches on the channel's message encoding, which this path already passes through.
-"""
+class McapFileDecoder(FileDecoder):
+    """Decodes one MCAP file of a partition through a cursor of the ``mcap_codec`` Rust extension.
+
+    The cursor reads the MCAP channel on the group's topic, or the file's only channel when the group names no topic.
+    The codec reads the fields the group supplies, shifts each timestamp by the partition's ``time_offset_ns``,
+    and keeps the rows in the window.
+    The cursor reads the file's summary when it opens, then only the chunks that hold the topic's messages
+    (for a log-time timestamp, only those whose log times can fall in the window), all downloaded before the first
+    batch is decoded.
+
+    Iterating :py:meth:`batches` raises :py:class:`~roboto.exceptions.RobotoReadPlanExecutionException` with kind
+    ``invalid-timestamp`` at the first row whose timestamp the codec cannot read as signed 64-bit nanoseconds once
+    shifted (a value of the wrong type, NaN or infinite, or out of range), and
+    :py:class:`~roboto.exceptions.RobotoInternalException` when the codec cannot read a message.
+    """
+
+    def __init__(
+        self,
+        group: ScanTaskGroup,
+        partition: ReadPlanPartition,
+        window: TimeWindow,
+        params: FileDecodeParams,
+    ) -> None:
+        """Open the file's cursor.
+
+        Args:
+            group: The scan tasks that read the file, and the fields they supply.
+            partition: The partition the file belongs to.
+            window: The plan's absolute window, both ends included.
+            params: How to reach the file.
+
+        Raises:
+            RobotoReadPlanExecutionException: With kind ``unsupported-timestamp`` for a timestamp kind other than a
+                message log time, message publish time or schema field, a schema field with no path, or a plan unit
+                other than s, ms, us or ns; with kind ``field-not-in-file`` for a supplied field or the timestamp field
+                that the file lacks.
+            RobotoInternalException: The codec cannot open the file. Its ``__cause__`` is the
+                :py:class:`mcap_codec.CodecError`, whose ``code`` is for example ``unknown_channel``,
+                ``ambiguous_channel``, ``unsupported_mcap_layout`` or ``unsupported_encoding``.
+        """
+        # The codec needs PyArrow to read a file; this raises an ImportError naming the SDK extra that installs it.
+        import_optional_dependency("pyarrow", "analytics")
+        # Imported here so the Rust extension loads only when an MCAP file is read.
+        import mcap_codec
+
+        self.__group = group
+        self.__partition = partition
+        timestamp = _timestamp_source(partition)
+        self.__http_reader = HttpRangeReader(params.signed_url_resolver(group.object.fs_node_id))
+
+        def read_bytes(offset: int, length: int) -> bytes:
+            self.__http_reader.seek(offset)
+            return self.__http_reader.read(length)
+
+        try:
+            self.__cursor = mcap_codec.open_mcap_file(
+                read_bytes,
+                self.__http_reader.size,
+                timestamp=timestamp,
+                projection=_projection(group.supplies),
+                channel=mcap_codec.TopicName(group.topic_name) if group.topic_name is not None else None,
+                time_window=(window.start, window.end),
+                timestamp_offset_ns=partition.time_offset_ns,
+                timestamp_column_base=TIMESTAMP_FIELD_NAME,
+                row_number_column_base=ROW_NUMBER_FIELD_NAME,
+            )
+        except mcap_codec.CodecError as exc:
+            self.__http_reader.close()
+            raise self.__read_error(exc) from exc
+        except BaseException:
+            self.__http_reader.close()
+            raise
+        try:
+            schema = self.__cursor.schema
+            row_number_and_timestamp = {row_number_column_index(schema), timestamp_column_index(schema)}
+            self.__value_fields = [field for index, field in enumerate(schema) if index not in row_number_and_timestamp]
+        except BaseException:
+            self.close()
+            raise
+
+    @property
+    def value_fields(self) -> list["pyarrow.Field"]:
+        return list(self.__value_fields)
+
+    def batches(self) -> collections.abc.Iterator["pyarrow.RecordBatch"]:
+        import mcap_codec
+
+        # Download exactly the Chunk records the cursor will ask for, so its reads are answered from memory.
+        # A read that misses the reader's cache also downloads up to 8 MiB past it, which can hold chunks the
+        # cursor skips.
+        for offset, length in self.__cursor.chunk_ranges:
+            self.__http_reader.prefetch_range(offset, offset + length - 1)
+        try:
+            yield from self.__cursor
+        except mcap_codec.CodecError as exc:
+            raise self.__read_error(exc) from exc
+
+    def close(self) -> None:
+        self.__cursor.close()
+        self.__http_reader.close()
+
+    def struct_field_names(self, path: FieldPath) -> typing.Optional[list[str]]:
+        pa = import_optional_dependency("pyarrow", "analytics")
+
+        fields: collections.abc.Iterable["pyarrow.Field"] = self.__cursor.channel_schema
+        names: typing.Optional[list[str]] = None
+        for name in path:
+            field = next((field for field in fields if field.name == name), None)
+            if field is None or not pa.types.is_struct(field.type):
+                return None
+            fields = typing.cast("pyarrow.StructType", field.type)
+            names = [child.name for child in fields]
+        return names
+
+    def __read_error(self, exc: "mcap_codec.CodecError") -> Exception:
+        """The read's exception for a failure of the codec."""
+        import mcap_codec
+
+        topic_part_id = self.__partition.topic_part_id
+        if exc.code == mcap_codec.ErrorCode.INVALID_PROJECTION and exc.field_path is not None:
+            return RobotoReadPlanExecutionException(
+                f'The MCAP file of topic partition {topic_part_id} has no field "{".".join(exc.field_path)}".',
+                kind=ReadPlanExecutionErrorKind.FIELD_NOT_IN_FILE,
+                field_path=exc.field_path,
+            )
+        if exc.code == mcap_codec.ErrorCode.INVALID_TIMESTAMP and exc.row_number is not None:
+            return RobotoReadPlanExecutionException(
+                f"The timestamp of row {exc.row_number} of topic partition {topic_part_id} is invalid: {exc}",
+                kind=ReadPlanExecutionErrorKind.INVALID_TIMESTAMP,
+                row_number=exc.row_number,
+            )
+        return RobotoInternalException(
+            f"Could not read topic data from MCAP file {self.__group.object.fs_node_id!r} ({exc.code}): {exc}"
+        )
 
 
-def decode_mcap_batches(
-    scan_task: ReadPlanScanTask,
-    timestamp: ReadPlanTimestamp,
-    window: TimeWindow,
-    projection_paths: collections.abc.Sequence[FieldPath],
-    params: ScanTaskDecodeParams,
-) -> collections.abc.Generator["pyarrow.RecordBatch", None, None]:
-    """Decode one MCAP scan task into native-order RecordBatches, filtered and projected.
+def _projection(supplies: collections.abc.Sequence[SuppliedField]) -> "mcap_codec.Projection":
+    """The codec projection of the supplied fields: each at its path, less its excluded fields.
 
-    Every chunk's bytes go straight to the Rust ``mcap_codec`` batch decoder, which
-    parses and decompresses the chunk, decodes each supported encoding's payloads into
-    Arrow columns, and window-filters and timestamps rows in Rust — one RecordBatch per
-    chunk.
+    The codec keeps a field when the longest include or exclude path at or above it is an include.
+    An exclude wins over an equal include, so a path one supplied field excludes is left out of ``exclude`` when
+    another supplied field is at that path.
+    """
+    import mcap_codec
 
-    A chunked, single-schema file whose schema encoding the codec handles
-    (:py:data:`_SUPPORTED_SCHEMA_ENCODINGS` — the ROS/CDR family plus JSON and msgpack,
-    which rides a ``jsonschema`` schema) is supported, which is what topic-data ingestion
-    produces. Unchunked, summary-less, multi-schema, and unsupported-encoding files are
-    rejected.
+    include = [list(supplied.path) for supplied in supplies]
+    exclude = [list(path) for supplied in supplies for path in supplied.excluded if list(path) not in include]
+    return mcap_codec.Projection(include=include, exclude=exclude)
 
-    Batches come out in the file's persisted (native chunk) order, which the partition
-    overlay and cross-partition concatenation rely on (see
-    :py:meth:`DecodedScanTask.batches`).
+
+def _timestamp_source(partition: ReadPlanPartition) -> "mcap_codec.TimestampSource":
+    """The codec's timestamp source for the partition.
 
     Raises:
-        RobotoInternalException: The file is not a chunked, single-schema MCAP whose
-            schema encoding this read path supports (e.g. an unchunked file or a
-            ``protobuf`` channel).
+        RobotoReadPlanExecutionException: With kind ``unsupported-timestamp`` for a kind other than a message time
+            or a schema field, a schema field without a path, or a unit other than s, ms, us or ns.
     """
-    start = window.start
-    end = window.end
+    import mcap_codec
 
-    signed_url = params.signed_url_resolver(scan_task.object.fs_node_id)
-    if timestamp.kind == "message_log_time":
-        # The chunk index is keyed by log time, so the window bounds the fetch directly.
-        # The mcap end bound is exclusive; the window is inclusive.
-        http_reader = open_for_window(signed_url, start_time=start, end_time=end + 1)
-    else:
-        # A non-log-time timestamp cannot be window-filtered by log time; fetch
-        # everything and let the codec filter per row.
-        http_reader = open_for_window(signed_url)
+    timestamp = partition.timestamp
 
-    try:
-        summary = mcap.reader.SeekingReader(as_io_bytes(http_reader)).get_summary()
-        encoding = _sole_schema_encoding(summary)
-        if summary is None or not summary.chunk_indexes or encoding not in _SUPPORTED_SCHEMA_ENCODINGS:
-            chunk_count = 0 if summary is None else len(summary.chunk_indexes)
-            raise RobotoInternalException(
-                "MCAP topic-data decode supports only chunked, single-schema files whose schema "
-                f"encoding this read path handles (got schema encoding {encoding!r} with "
-                f"{chunk_count} chunk indexes)."
-            )
-        yield from _decode_mcap_chunks(http_reader, summary, timestamp, window, projection_paths)
-    finally:
-        http_reader.close()
+    def unsupported(reason: str) -> RobotoReadPlanExecutionException:
+        return RobotoReadPlanExecutionException(
+            f"Topic partition {partition.topic_part_id} is read from MCAP, and its timestamp {reason}.",
+            kind=ReadPlanExecutionErrorKind.UNSUPPORTED_TIMESTAMP,
+        )
 
-
-def _sole_schema_encoding(summary: typing.Any) -> typing.Optional[str]:
-    """The schema encoding of a single-schema MCAP file, or ``None`` if undetermined.
-
-    A topic representation file carries one channel and one schema; this reads its
-    encoding to validate the decode path. Returns ``None`` when there is no summary
-    or not exactly one schema.
-    """
-    if summary is None or len(summary.schemas) != 1:
-        return None
-    (schema,) = summary.schemas.values()
-    return schema.encoding
-
-
-def _decode_mcap_chunks(
-    http_reader: typing.Any,
-    summary: typing.Any,
-    timestamp: ReadPlanTimestamp,
-    window: TimeWindow,
-    projection_paths: collections.abc.Sequence[FieldPath],
-) -> collections.abc.Generator["pyarrow.RecordBatch", None, None]:
-    """Decode chunks through the Rust ``mcap_codec`` batch decoder.
-
-    Each in-window chunk's raw bytes (read from the prefetch buffer) go to
-    :py:class:`mcap_codec.McapBatchDecoder`, which parses and decompresses the chunk,
-    decodes each supported encoding's payloads into Arrow columns, reads each row's
-    timestamp, and window-filters and drops undecodable rows — one RecordBatch per
-    chunk, which bounds memory to a chunk's rows. The timestamp column is re-tagged
-    with the stored-time metadata the overlay keys on.
-    """
-    pa = import_optional_dependency("pyarrow", "analytics")
-    # Imported lazily so the Rust extension loads only when a supported channel is read.
-    from mcap_codec import McapBatchDecoder
-
-    raw_start, raw_end = window.start, window.end
-    (schema,) = summary.schemas.values()
-    # The wire framing (``cdr`` / ``ros1``) lives on the channel, not the schema, and the codec
-    # needs it to read the payload bytes. A topic-data file is single-schema, so every channel
-    # shares it; take the framing off the channel that references this schema.
-    message_encoding = next(
-        channel.message_encoding for channel in summary.channels.values() if channel.schema_id == schema.id
+    if timestamp.kind in ("message_log_time", "message_publish_time"):
+        return mcap_codec.TimestampSource(timestamp.kind)
+    if timestamp.kind != "schema_field":
+        raise unsupported(f'kind "{timestamp.kind}" is not a message log time, message publish time or schema field')
+    if timestamp.field is None or not timestamp.field.path:
+        raise unsupported("field has no declared path")
+    unit = plan_timestamp_unit(partition)
+    return mcap_codec.TimestampSource(
+        "schema_field",
+        path=list(timestamp.field.path),
+        unit=unit.value if unit is not None else None,
     )
-
-    # One value column per projected top-level root; the codec groups the leaf paths.
-    projection = [list(path) for path in leaf_most(projection_paths)]
-
-    if timestamp.kind == "message_log_time":
-        ts_kind, ts_field_path, ts_unit = "log_time", None, None
-    elif timestamp.kind == "message_publish_time":
-        ts_kind, ts_field_path, ts_unit = "publish_time", None, None
-    else:  # schema_field
-        ts_kind = "field"
-        ts_field_path = list(timestamp.field.path) if timestamp.field is not None else None
-        ts_unit = timestamp.unit or TimeUnit.Nanoseconds.value
-
-    try:
-        decoder = McapBatchDecoder(
-            schema.encoding,
-            message_encoding,
-            schema.data,
-            schema.name,
-            projection,
-            ts_kind,
-            # Requested base name. The codec suffixes it until it no longer collides
-            # with a value column it actually emits (matched against the codec's own
-            # canonical column names), then exposes the resolved name as a getter.
-            TIMESTAMP_FIELD_NAME,
-            ts_field_path,
-            ts_unit,
-        )
-    except Exception:
-        # The codec builds its Arrow layout from the schema and rejects a projection or
-        # timestamp path the schema does not declare with a bare ValueError. Surface a
-        # Roboto-context error that names what was being decoded and the guidance that
-        # fixes it: paths must spell fields exactly as the file's schema declares them.
-        raise RobotoInternalException(
-            f"MCAP topic-data decode could not build a decoder for schema {schema.name!r} "
-            f"(encoding {schema.encoding!r}) with projected paths {projection!r}."
-        )
-
-    # Read the resolved name back rather than re-deriving the value-column names
-    # here: the decoder is the authority on what it emits, so this can't drift from
-    # the codec's canonicalization the way a Python-side re-derivation would.
-    ts_name = decoder.timestamp_column_name
-    ts_arrow_field = timestamp_field(ts_name)
-    log_time_window = timestamp.kind == "message_log_time"
-
-    for chunk_index in sorted(summary.chunk_indexes, key=lambda ci: ci.chunk_start_offset):
-        if log_time_window and (chunk_index.message_end_time < raw_start or chunk_index.message_start_time > raw_end):
-            continue
-        http_reader.seek(chunk_index.chunk_start_offset)
-        chunk_bytes = http_reader.read(chunk_index.chunk_length)
-        batch = decoder.decode_chunks([chunk_bytes], raw_start, raw_end)
-        if batch.num_rows == 0:
-            continue
-        # Re-tag column 0 (the int64 timestamp) with the stored-time metadata marker.
-        marked_schema = batch.schema.set(0, ts_arrow_field)
-        yield pa.RecordBatch.from_arrays(batch.columns, schema=marked_schema)

@@ -11,6 +11,7 @@
       "data": {
         "dataset_id": "ds_7h2k9m4qxp3w",
         "file_id": "fl_q8v2n6ty4mcs",
+        "file_version": 2,
         "transaction_id": "tx_5jw8r3ne2kpq"
       },
       "subject": "roboto://file/fl_q8v2n6ty4mcs"
@@ -22,7 +23,13 @@
         "subject": "roboto://file/fl_q8v2n6ty4mcs",
         "type": "file.uploaded",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "dataset_id": "ds_7h2k9m4qxp3w",
+          "file_id": "fl_q8v2n6ty4mcs",
+          "file_version": 2,
+          "transaction_id": "tx_5jw8r3ne2kpq"
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -107,7 +114,7 @@
         ],
         "upload_id": "tx_5jw8r3ne2kpq",
         "uri": "s3://acme-robotics-roboto/ds_7h2k9m4qxp3w/logs/lap_02.mcap",
-        "version": 1
+        "version": 2
       }
     },
     "paths": [
@@ -117,6 +124,11 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.dataset_id",
+      "envelope.data.file_id",
+      "envelope.data.file_version",
+      "envelope.data.transaction_id",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -203,7 +215,11 @@
         "subject": "roboto://dataset/ds_7h2k9m4qxp3w",
         "type": "dataset.upload_completed",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "dataset_id": "ds_7h2k9m4qxp3w",
+          "transaction_id": "tx_5jw8r3ne2kpq"
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -266,6 +282,9 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.dataset_id",
+      "envelope.data.transaction_id",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -318,6 +337,7 @@
       "data": {
         "dataset_id": "ds_7h2k9m4qxp3w",
         "file_id": "fl_q8v2n6ty4mcs",
+        "file_version": 2,
         "transaction_id": "tx_5jw8r3ne2kpq"
       },
       "subject": "roboto://file/fl_q8v2n6ty4mcs"
@@ -329,7 +349,13 @@
         "subject": "roboto://file/fl_q8v2n6ty4mcs",
         "type": "file.ingested",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "dataset_id": "ds_7h2k9m4qxp3w",
+          "file_id": "fl_q8v2n6ty4mcs",
+          "file_version": 2,
+          "transaction_id": "tx_5jw8r3ne2kpq"
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -414,7 +440,7 @@
         ],
         "upload_id": "tx_5jw8r3ne2kpq",
         "uri": "s3://acme-robotics-roboto/ds_7h2k9m4qxp3w/logs/lap_02.mcap",
-        "version": 1
+        "version": 2
       }
     },
     "paths": [
@@ -424,6 +450,11 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.dataset_id",
+      "envelope.data.file_id",
+      "envelope.data.file_version",
+      "envelope.data.transaction_id",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -500,6 +531,7 @@
       "data": {
         "dataset_id": "ds_7h2k9m4qxp3w",
         "file_id": "fl_q8v2n6ty4mcs",
+        "file_version": 2,
         "changeset": {
           "put_tags": [
             "validated",
@@ -525,7 +557,27 @@
         "subject": "roboto://file/fl_q8v2n6ty4mcs",
         "type": "file.metadata_updated",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "dataset_id": "ds_7h2k9m4qxp3w",
+          "file_id": "fl_q8v2n6ty4mcs",
+          "file_version": 2,
+          "changeset": {
+            "put_tags": [
+              "validated",
+              "nightly"
+            ],
+            "remove_tags": [
+              "needs-review"
+            ],
+            "put_fields": {
+              "vehicle_id": "rover-07",
+              "route": "warehouse-loop-b"
+            },
+            "remove_fields": null,
+            "replace_all": false
+          }
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -614,7 +666,7 @@
         ],
         "upload_id": "tx_5jw8r3ne2kpq",
         "uri": "s3://acme-robotics-roboto/ds_7h2k9m4qxp3w/logs/lap_02.mcap",
-        "version": 1
+        "version": 2
       },
       "tag": {
         "added": [
@@ -633,6 +685,18 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.dataset_id",
+      "envelope.data.file_id",
+      "envelope.data.file_version",
+      "envelope.data.changeset",
+      "envelope.data.changeset.put_tags",
+      "envelope.data.changeset.remove_tags",
+      "envelope.data.changeset.put_fields",
+      "envelope.data.changeset.put_fields.vehicle_id",
+      "envelope.data.changeset.put_fields.route",
+      "envelope.data.changeset.remove_fields",
+      "envelope.data.changeset.replace_all",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -737,7 +801,25 @@
         "subject": "roboto://dataset/ds_7h2k9m4qxp3w",
         "type": "dataset.metadata_updated",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "dataset_id": "ds_7h2k9m4qxp3w",
+          "changeset": {
+            "put_tags": [
+              "validated",
+              "nightly"
+            ],
+            "remove_tags": [
+              "needs-review"
+            ],
+            "put_fields": {
+              "vehicle_id": "rover-07",
+              "route": "warehouse-loop-b"
+            },
+            "remove_fields": null,
+            "replace_all": false
+          }
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -810,6 +892,16 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.dataset_id",
+      "envelope.data.changeset",
+      "envelope.data.changeset.put_tags",
+      "envelope.data.changeset.remove_tags",
+      "envelope.data.changeset.put_fields",
+      "envelope.data.changeset.put_fields.vehicle_id",
+      "envelope.data.changeset.put_fields.route",
+      "envelope.data.changeset.remove_fields",
+      "envelope.data.changeset.replace_all",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -874,7 +966,10 @@
         "subject": "roboto://dataset/ds_7h2k9m4qxp3w",
         "type": "dataset.created",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "dataset_id": "ds_7h2k9m4qxp3w"
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -934,6 +1029,8 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.dataset_id",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -998,7 +1095,14 @@
         "subject": "roboto://dataset/ds_7h2k9m4qxp3w",
         "type": "dataset.tag_added",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "dataset_id": "ds_7h2k9m4qxp3w",
+          "tags_added": [
+            "validated",
+            "nightly"
+          ]
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -1065,6 +1169,9 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.dataset_id",
+      "envelope.data.tags_added",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -1130,7 +1237,13 @@
         "subject": "roboto://invocation/iv_2x9pd7wk5rhf",
         "type": "invocation.completed",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "invocation_id": "iv_2x9pd7wk5rhf",
+          "action_name": "ros-ingest",
+          "action_owner_id": "og_k3m8w2rq7nxd",
+          "status": 5
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -1230,6 +1343,11 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.invocation_id",
+      "envelope.data.action_name",
+      "envelope.data.action_owner_id",
+      "envelope.data.status",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -1311,7 +1429,13 @@
         "subject": "roboto://invocation/iv_2x9pd7wk5rhf",
         "type": "invocation.failed",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "invocation_id": "iv_2x9pd7wk5rhf",
+          "action_name": "ros-ingest",
+          "action_owner_id": "og_k3m8w2rq7nxd",
+          "status": 998
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -1411,6 +1535,11 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.invocation_id",
+      "envelope.data.action_name",
+      "envelope.data.action_owner_id",
+      "envelope.data.status",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -1489,7 +1618,10 @@
         "subject": "roboto://session/se_m4t7c1zq9bvn",
         "type": "session.created",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "session_id": "se_m4t7c1zq9bvn"
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -1537,6 +1669,8 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.session_id",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -1567,32 +1701,37 @@
       "session.tags"
     ]
   },
-  "session.files_added": {
-    "event_type": "session.files_added",
+  "session.file_added": {
+    "event_type": "session.file_added",
     "event": {
-      "id": "evt:se_m4t7c1zq9bvn:session.files_added",
+      "id": "evt:fl_q8v2n6ty4mcs:session.file_added",
       "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
-      "type": "session.files_added",
+      "type": "session.file_added",
       "time": "2026-08-28T14:32:11Z",
       "org_id": "og_k3m8w2rq7nxd",
       "schema_version": 1,
       "data": {
         "session_id": "se_m4t7c1zq9bvn",
-        "file_ids": [
-          "fl_q8v2n6ty4mcs",
-          "fl_8kd3p5xw2nqr"
-        ]
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "file_id": "fl_q8v2n6ty4mcs",
+        "file_version": 2
       },
-      "subject": "roboto://session/se_m4t7c1zq9bvn"
+      "subject": "roboto://file/fl_q8v2n6ty4mcs"
     },
     "namespace": {
       "envelope": {
-        "id": "evt:se_m4t7c1zq9bvn:session.files_added",
+        "id": "evt:fl_q8v2n6ty4mcs:session.file_added",
         "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
-        "subject": "roboto://session/se_m4t7c1zq9bvn",
-        "type": "session.files_added",
+        "subject": "roboto://file/fl_q8v2n6ty4mcs",
+        "type": "session.file_added",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "session_id": "se_m4t7c1zq9bvn",
+          "dataset_id": "ds_7h2k9m4qxp3w",
+          "file_id": "fl_q8v2n6ty4mcs",
+          "file_version": 2
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -1611,6 +1750,73 @@
         "created_by": "maria.chen@acme-robotics.com",
         "modified": "2026-08-26T14:32:11Z",
         "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "dataset": {
+        "created": "2026-08-28T12:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "dataset_id": "ds_7h2k9m4qxp3w",
+        "description": "Autonomous warehouse loop, morning shift. Two laps of route B with the new lidar mount.",
+        "device_id": "rover-07",
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "route": "warehouse-loop-b",
+          "operator": "mchen",
+          "firmware": "4.12.1",
+          "weather": "indoor"
+        },
+        "custom_fields": {},
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 warehouse loop 2026-08-28",
+        "org_id": "og_k3m8w2rq7nxd",
+        "roboto_record_version": 0,
+        "tags": [
+          "validated",
+          "nightly",
+          "lidar-v2"
+        ],
+        "administrator": "Roboto",
+        "storage_ctx": {
+          "bucket_name": "NOT_SET",
+          "iam_role_arn": "NOT_SET",
+          "key_prefix": "NOT_SET"
+        },
+        "storage_location": "S3"
+      },
+      "file": {
+        "association_id": "ds_7h2k9m4qxp3w",
+        "created": "2026-08-28T13:52:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "description": "Second lap, full sensor suite.",
+        "device_id": "rover-07",
+        "file_id": "fl_q8v2n6ty4mcs",
+        "fs_type": "file",
+        "ingestion_status": "ingested",
+        "metadata": {
+          "lap": 2,
+          "sensors": [
+            "lidar",
+            "imu",
+            "camera_front"
+          ]
+        },
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "lap_02.mcap",
+        "org_id": "og_k3m8w2rq7nxd",
+        "origination": "roboto upload",
+        "parent_id": null,
+        "relative_path": "logs/lap_02.mcap",
+        "size": 734003200,
+        "status": "available",
+        "storage_type": "uploaded",
+        "tags": [
+          "mcap",
+          "lap-02"
+        ],
+        "upload_id": "tx_5jw8r3ne2kpq",
+        "uri": "s3://acme-robotics-roboto/ds_7h2k9m4qxp3w/logs/lap_02.mcap",
+        "version": 2
       },
       "session": {
         "created": "2026-08-28T11:32:11Z",
@@ -1640,6 +1846,11 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.session_id",
+      "envelope.data.dataset_id",
+      "envelope.data.file_id",
+      "envelope.data.file_version",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -1653,6 +1864,55 @@
       "trigger.created_by",
       "trigger.modified",
       "trigger.modified_by",
+      "dataset.created",
+      "dataset.created_by",
+      "dataset.dataset_id",
+      "dataset.description",
+      "dataset.device_id",
+      "dataset.metadata",
+      "dataset.metadata.vehicle_id",
+      "dataset.metadata.route",
+      "dataset.metadata.operator",
+      "dataset.metadata.firmware",
+      "dataset.metadata.weather",
+      "dataset.custom_fields",
+      "dataset.modified",
+      "dataset.modified_by",
+      "dataset.name",
+      "dataset.org_id",
+      "dataset.roboto_record_version",
+      "dataset.tags",
+      "dataset.administrator",
+      "dataset.storage_ctx",
+      "dataset.storage_ctx.bucket_name",
+      "dataset.storage_ctx.iam_role_arn",
+      "dataset.storage_ctx.key_prefix",
+      "dataset.storage_location",
+      "file.association_id",
+      "file.created",
+      "file.created_by",
+      "file.description",
+      "file.device_id",
+      "file.file_id",
+      "file.fs_type",
+      "file.ingestion_status",
+      "file.metadata",
+      "file.metadata.lap",
+      "file.metadata.sensors",
+      "file.modified",
+      "file.modified_by",
+      "file.name",
+      "file.org_id",
+      "file.origination",
+      "file.parent_id",
+      "file.relative_path",
+      "file.size",
+      "file.status",
+      "file.storage_type",
+      "file.tags",
+      "file.upload_id",
+      "file.uri",
+      "file.version",
       "session.created",
       "session.created_by",
       "session.custom_fields",
@@ -1706,7 +1966,25 @@
         "subject": "roboto://session/se_m4t7c1zq9bvn",
         "type": "session.updated",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "session_id": "se_m4t7c1zq9bvn",
+          "changeset": {
+            "put_tags": [
+              "validated",
+              "nightly"
+            ],
+            "remove_tags": [
+              "needs-review"
+            ],
+            "put_fields": {
+              "vehicle_id": "rover-07",
+              "route": "warehouse-loop-b"
+            },
+            "remove_fields": null,
+            "replace_all": false
+          }
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -1767,6 +2045,16 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.session_id",
+      "envelope.data.changeset",
+      "envelope.data.changeset.put_tags",
+      "envelope.data.changeset.remove_tags",
+      "envelope.data.changeset.put_fields",
+      "envelope.data.changeset.put_fields.vehicle_id",
+      "envelope.data.changeset.put_fields.route",
+      "envelope.data.changeset.remove_fields",
+      "envelope.data.changeset.replace_all",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -1822,7 +2110,10 @@
         "subject": "roboto://event/ev_7g3n5kq2wxrd",
         "type": "event.created",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "event_id": "ev_7g3n5kq2wxrd"
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -1885,6 +2176,8 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.event_id",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",
@@ -1939,7 +2232,11 @@
         "subject": "roboto://trigger/tr_3nq7wk2mx9pd",
         "type": "schedule.fired",
         "time": "2026-08-28T14:32:11Z",
-        "org_id": "og_k3m8w2rq7nxd"
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "trigger_id": "tr_3nq7wk2mx9pd",
+          "scheduled_for": "2026-08-28T14:32:00Z"
+        }
       },
       "trigger": {
         "trigger_id": "tr_3nq7wk2mx9pd",
@@ -1968,6 +2265,9 @@
       "envelope.type",
       "envelope.time",
       "envelope.org_id",
+      "envelope.data",
+      "envelope.data.trigger_id",
+      "envelope.data.scheduled_for",
       "trigger.trigger_id",
       "trigger.name",
       "trigger.org_id",

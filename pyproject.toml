@@ -19,9 +19,10 @@ dependencies = [
     "pydantic-core>=2.14",
     "pydantic-settings>=2.1",
     "rich>=14.2",
-    "roboto-mcap-codec>=0.1.17,<0.2",
+    "roboto-mcap-codec>=0.3,<0.4",
     "tenacity>=8.2",
     "tqdm>=4.65",
+    "truststore>=0.10",
     "urllib3>=2.0",
 ]
 description = "Official Python toolkit for roboto.ai"

@@ -61,9 +61,25 @@ class EventNamespace:
     satisfying the :class:`~roboto.templating.VariableResolver` protocol), and
     idempotency projections. Entity-backed roots hydrate through the
     :class:`NamespaceSource` at most once each and are cached for the namespace's
-    lifetime — including ``None`` results. The ``envelope``, ``changed``, and ``tag``
-    roots are served from the event itself and never touch the source; ``trigger``
-    is served from the bound trigger (see :meth:`bound_to`) and is otherwise absent.
+    lifetime — including ``None`` results. The ``envelope``, ``changed``, ``tag`` and
+    ``schedule`` roots are served from the event itself and never touch the source;
+    ``trigger`` is served from the bound trigger (see :meth:`bound_to`) and is
+    otherwise absent.
+
+    ``envelope`` carries the event's own fields plus the payload under
+    ``envelope.data``. The payload is fixed when the event is published, while an
+    entity root reads that entity as it stands at evaluation time: on a
+    ``file.uploaded`` event, ``envelope.data.file_version`` is the version that fired
+    the trigger and ``file.version`` is the version the file is on when the condition
+    runs. That payload field is optional on ``file.uploaded``, ``file.ingested`` and
+    ``file.metadata_updated``, and resolves to ``None`` on events published before the
+    payload carried it; only ``session.file_added`` always carries it.
+
+    Payload values are rendered as JSON, so a timestamp under ``envelope.data`` is an
+    ISO-8601 string while ``envelope.time`` and ``schedule.scheduled_for`` are
+    :class:`~datetime.datetime` objects. Conditions compare the two forms alike; a
+    template substitutes each in its own spelling (``2026-08-27T09:00:00Z`` against
+    ``2026-08-27 09:00:00+00:00``).
     """
 
     def __init__(
@@ -110,23 +126,20 @@ class EventNamespace:
         """Return the whole record for namespace ``root``, hydrating it at most once.
 
         Args:
-            root: Namespace root to fetch. ``envelope`` yields the envelope fields;
-                ``changed`` yields the changeset's put fields; ``tag`` yields
-                ``{"added": [...], "removed": [...]}``; any other root delegates to
-                the cached :class:`NamespaceSource`.
+            root: Namespace root to fetch. ``envelope`` yields the event's own fields,
+                with the payload fixed at publish time under ``data``; ``changed``
+                yields the changeset's put fields; ``tag`` yields
+                ``{"added": [...], "removed": [...]}``; ``schedule`` and ``trigger``
+                yield the firing schedule and the bound trigger; any other root
+                delegates to the cached :class:`NamespaceSource`.
 
         Returns:
             The record as a mapping, or ``None`` when the source cannot resolve the root.
         """
         if root == ENVELOPE_ROOT:
-            return {
-                "id": self.__event.id,
-                "source": self.__event.source,
-                "subject": self.__event.subject,
-                "type": self.__event.type.value,
-                "time": self.__event.time,
-                "org_id": self.__event.org_id,
-            }
+            if ENVELOPE_ROOT not in self.__records:
+                self.__records[ENVELOPE_ROOT] = self.__envelope_record()
+            return self.__records[ENVELOPE_ROOT]
         if root == TRIGGER_ROOT:
             return _trigger_record(self.__trigger) if self.__trigger is not None else None
         if root == CHANGED_ROOT:
@@ -161,6 +174,17 @@ class EventNamespace:
         """Return the string form of the value at ``name`` for template substitution, or ``None``."""
         value = self.get(name)
         return None if value is None else str(value)
+
+    def __envelope_record(self) -> typing.Mapping[str, typing.Any]:
+        return {
+            "id": self.__event.id,
+            "source": self.__event.source,
+            "subject": self.__event.subject,
+            "type": self.__event.type.value,
+            "time": self.__event.time,
+            "org_id": self.__event.org_id,
+            "data": self.__event.data.model_dump(mode="json"),
+        }
 
     def __schedule_record(self) -> typing.Optional[typing.Mapping[str, typing.Any]]:
         scheduled_for = getattr(self.__event.data, "scheduled_for", None)

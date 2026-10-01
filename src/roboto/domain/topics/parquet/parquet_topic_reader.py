@@ -12,6 +12,7 @@ import typing
 
 from ....association import AssociationType
 from ....compat import import_optional_dependency
+from ....formats import FieldSelection
 from ....formats.parquet import (
     Timestamp as TimestampDescriptor,
 )
@@ -21,6 +22,7 @@ from ....formats.parquet import (
     extract_timestamps,
     parquet_file_from_url,
     resolve_columns,
+    select_fields,
     should_read_row_group,
 )
 from ....http import RobotoClient
@@ -60,7 +62,7 @@ class _ReadContext(typing.NamedTuple):
     parquet_file: pyarrow.parquet.ParquetFile
     timestamp_field: TimestampDescriptor
     columns: list[str]
-    include_timestamp_column: bool
+    fields: list[FieldSelection]
 
 
 class ParquetTopicReader(TopicReader):
@@ -131,10 +133,7 @@ class ParquetTopicReader(TopicReader):
             )
 
             timestamps = extract_timestamps(row_group_table, ctx.timestamp_field)
-
-            # Drop the timestamp column if it wasn't originally requested
-            if not ctx.include_timestamp_column:
-                row_group_table = row_group_table.drop_columns(ctx.timestamp_field.field.name)
+            row_group_table = select_fields(row_group_table, ctx.fields)
 
             filter_mask = compute_time_filter_mask(timestamps, start_time, end_time)
             if filter_mask is not None:
@@ -193,12 +192,7 @@ class ParquetTopicReader(TopicReader):
             )
 
             row_group_timestamps = extract_timestamps(row_group_table, ctx.timestamp_field)
-
-            if not ctx.include_timestamp_column:
-                # The timestamp column was not included in the column projection list.
-                row_group_table = row_group_table.drop_columns(
-                    ctx.timestamp_field.field.name,
-                )
+            row_group_table = select_fields(row_group_table, ctx.fields)
 
             filter_mask = compute_time_filter_mask(row_group_timestamps, start_time, end_time)
             if filter_mask is not None:
@@ -358,18 +352,12 @@ class ParquetTopicReader(TopicReader):
         estimated_column_count = len(list(mapping.message_paths))
         parquet_file = self.__open_parquet_file(mapping.representation, estimated_column_count)
 
-        columns = resolve_columns(
-            parquet_file.schema_arrow,
-            [record.to_field_selection() for record in mapping.message_paths],
-        )
-
+        fields = [record.to_field_selection() for record in mapping.message_paths]
         timestamp_selection = timestamp_message_path.to_field_selection()
 
-        # Even if the timestamp column wasn't requested in the column projection list,
-        # request the data to enable timestamp filtering
-        include_timestamp_column = timestamp_selection.source_path in columns
-        if not include_timestamp_column:
-            columns.append(timestamp_selection.source_path)
+        # The timestamp field is read even when it is not among the requested fields, to filter rows by time;
+        # select_fields leaves it out of each row group's table in that case.
+        columns = resolve_columns(parquet_file.schema_arrow, [*fields, timestamp_selection])
 
         timestamp_field = extract_timestamp_field(
             parquet_file.schema_arrow,
@@ -381,7 +369,7 @@ class ParquetTopicReader(TopicReader):
             parquet_file=parquet_file,
             timestamp_field=timestamp_field,
             columns=columns,
-            include_timestamp_column=include_timestamp_column,
+            fields=fields,
         )
 
     def __timestamp_message_path(

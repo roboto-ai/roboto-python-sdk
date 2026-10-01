@@ -17,7 +17,6 @@ from ...pydantic import (
     validate_nonzero_gitpath_specs,
 )
 from ...templating import collect_placeholders
-from ...uri import RobotoUriType
 from ..actions.action_record import (
     ActionReference,
     ComputeRequirements,
@@ -53,11 +52,6 @@ class _TargetSpecBase(pydantic.BaseModel):
     parsed back out of the union on the server.
     """
 
-    subject_types: typing.ClassVar[typing.Optional[frozenset[RobotoUriType]]] = None
-    """The kinds of entity a platform event may be about for this target to act on it;
-    ``None`` means any. Checked at save time against the subscription's subject kind. A
-    schedule has no subject, so it is never constrained by this."""
-
     def model_post_init(self, __context: typing.Any) -> None:
         self.__pydantic_fields_set__.add("type")
 
@@ -66,17 +60,17 @@ class InvokeActionTarget(_TargetSpecBase):
     """Stored configuration for invoking an action when a trigger fires.
 
     Spec only — dispatch behavior lives server-side. String leaves of
-    :attr:`parameter_values`, :attr:`required_inputs`, and :attr:`additional_inputs`
-    may contain ``{{...}}`` placeholders resolved against the event namespace at
-    dispatch time.
+    :attr:`parameter_values`, :attr:`required_inputs`, :attr:`additional_inputs`, and
+    :attr:`invocation_input` may contain ``{{...}}`` placeholders resolved against the
+    event namespace at dispatch time.
+
+    An event that names a dataset invokes the action against that dataset, with inputs
+    matched from its files by the file patterns. An event that names no dataset has no
+    files to match: the invocation has no data source and selects its inputs with
+    :attr:`invocation_input`.
     """
 
     model_config = _FROZEN
-
-    subject_types: typing.ClassVar[typing.Optional[frozenset[RobotoUriType]]] = frozenset(
-        {RobotoUriType.Dataset, RobotoUriType.File}
-    )
-    """The action runs against the event's dataset, and a file event names its dataset too."""
 
     type: typing.Literal[TriggerTargetType.InvokeAction] = TriggerTargetType.InvokeAction
     """Discriminator for :data:`TriggerTargetSpec`."""
@@ -92,17 +86,18 @@ class InvokeActionTarget(_TargetSpecBase):
     ``digest`` to the action's latest version."""
 
     required_inputs: list[str] = pydantic.Field(default_factory=list)
-    """File patterns (e.g. ``**/*.bag``) that gate dispatch on the firing event's files,
-    for file- and dataset-scoped events. May be empty for events with no file subject
-    (e.g. invocation events)."""
+    """File patterns (e.g. ``**/*.bag``) that gate dispatch on the firing event's files.
+    Only for events that name a dataset; must be empty otherwise."""
 
     additional_inputs: typing.Optional[list[str]] = None
-    """Optional extra file patterns passed as invocation inputs beyond the required ones."""
+    """Optional extra file patterns passed as invocation inputs beyond the required ones.
+    Only for events that name a dataset; must be empty otherwise."""
 
     invocation_input: typing.Optional[InvocationInput] = None
     """Optional query-based input selection (files, topics, sessions) resolved when the
-    invocation runs. The way a schedule-fired trigger names its inputs, since a schedule
-    fires with no file subject; may also accompany an event-fired trigger's patterns."""
+    invocation runs, e.g. ``InvocationInput.from_session_id("{{session.session_id}}")``.
+    The way a trigger on an event that names no dataset selects its inputs; may also
+    accompany the file patterns of an event that names one."""
 
     parameter_values: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     """Parameter values passed to the action; string leaves may be templated."""
@@ -135,6 +130,9 @@ class InvokeActionTarget(_TargetSpecBase):
             collect_placeholders(self.parameter_values)
             | collect_placeholders(self.required_inputs)
             | collect_placeholders(self.additional_inputs or [])
+            | collect_placeholders(
+                self.invocation_input.model_dump(mode="json") if self.invocation_input is not None else {}
+            )
         )
 
 
@@ -205,18 +203,15 @@ TriggerTargetSpec = typing.Annotated[
 
 
 def target_catalog_manifest() -> dict[str, typing.Any]:
-    """Which kinds of entity each target can act on, as the web UI's target picker reads it.
+    """The kinds of target a trigger can have, as the web UI's target picker reads them.
 
     ``target_catalog.json`` in this package is this function's output, written by
-    ``scripts/gen_trigger_manifests.py`` and drift-checked by a test on each side.
+    ``scripts/gen_trigger_manifests.py`` and drift-checked by a test on each side. Each
+    entry's body is empty: a target carries no save-time constraint of its own, so the
+    picker offers every type for every event.
     """
     spec_classes = typing.get_args(typing.get_args(TriggerTargetSpec)[0])
-    return {
-        spec.model_fields["type"].default.value: {
-            "subject_types": (None if spec.subject_types is None else sorted(kind.value for kind in spec.subject_types))
-        }
-        for spec in spec_classes
-    }
+    return {spec.model_fields["type"].default.value: {} for spec in spec_classes}
 
 
 __all__ = [

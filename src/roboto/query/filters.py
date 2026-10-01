@@ -66,6 +66,9 @@ class FilterOnlyComparator(StrEnum):
     author expressed one range rather than two independent bounds."""
 
     Today = "TODAY"
+    Last3Hours = "LAST_3_HOURS"
+    Last8Hours = "LAST_8_HOURS"
+    Last24Hours = "LAST_24_HOURS"
     Last7Days = "LAST_7_DAYS"
     Last30Days = "LAST_30_DAYS"
     Last90Days = "LAST_90_DAYS"
@@ -167,6 +170,9 @@ class FilterMatchMode(StrEnum):
 PRESET_COMPARATORS: typing.Final[frozenset[FilterOnlyComparator]] = frozenset(
     {
         FilterOnlyComparator.Today,
+        FilterOnlyComparator.Last3Hours,
+        FilterOnlyComparator.Last8Hours,
+        FilterOnlyComparator.Last24Hours,
         FilterOnlyComparator.Last7Days,
         FilterOnlyComparator.Last30Days,
         FilterOnlyComparator.Last90Days,
@@ -363,6 +369,9 @@ class DateFilter(_FilterBase):
         Comparator.IsNotNull,
         FilterOnlyComparator.Between,
         FilterOnlyComparator.Today,
+        FilterOnlyComparator.Last3Hours,
+        FilterOnlyComparator.Last8Hours,
+        FilterOnlyComparator.Last24Hours,
         FilterOnlyComparator.Last7Days,
         FilterOnlyComparator.Last30Days,
         FilterOnlyComparator.Last90Days,

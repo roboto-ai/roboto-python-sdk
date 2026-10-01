@@ -48,6 +48,11 @@ from .operations import (
     CreateTriggerRequest,
     UpdateTriggerRequest,
 )
+from .query_templates import (
+    iter_query_templates,
+    map_query_templates,
+    substitute_query_template,
+)
 from .record import TriggerRecord
 from .samples import (
     PlatformEventSample,
@@ -84,6 +89,9 @@ __all__ = [
     "CreateTriggerRequest",
     "DispatchSlotTrace",
     "EventNamespace",
+    "iter_query_templates",
+    "map_query_templates",
+    "substitute_query_template",
     "EventSubscription",
     "PlatformEventSamplesResponse",
     "InvokeActionTarget",

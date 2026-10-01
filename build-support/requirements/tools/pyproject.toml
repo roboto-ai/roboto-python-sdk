@@ -204,6 +204,12 @@ convention = "google"
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
+# Off because Pants lints files in batches, and a batch can lack a package's
+# parent __init__.py. Ruff then takes a subpackage like roboto_internal/jwt for
+# the top-level package and sorts `import jwt` (PyJWT) as first-party, so
+# lint results change with how files are batched. known-first-party below
+# names our packages instead.
+detect-same-package = false
 known-first-party = [
     "database_administration",
     "executor_sidecar",

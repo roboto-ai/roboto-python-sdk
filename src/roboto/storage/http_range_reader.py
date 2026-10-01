@@ -22,6 +22,7 @@ import urllib.parse
 
 import urllib3
 
+from ..http.tls import https_ssl_context
 from .sparse_buffer import SparseBuffer
 
 logger = logging.getLogger(__name__)
@@ -190,7 +191,11 @@ class HttpRangeReader:
         # sequential reads (header/footer/summary) and parallel prefetch phases.
         if self.__scheme == "https":
             self.__pool = urllib3.HTTPSConnectionPool(
-                self.__host, maxsize=_MAX_PREFETCH_THREADS, block=True, retries=urllib3.Retry(total=3)
+                self.__host,
+                maxsize=_MAX_PREFETCH_THREADS,
+                block=True,
+                retries=urllib3.Retry(total=3),
+                ssl_context=https_ssl_context(),
             )
         else:
             self.__pool = urllib3.HTTPConnectionPool(

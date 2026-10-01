@@ -10,6 +10,7 @@ import collections.abc
 import math
 import typing
 
+from .config import RobotoConfig
 from .domain import (
     collections as roboto_collections,
 )
@@ -25,6 +26,16 @@ from .experimental import sessions
 from .http import RobotoClient
 from .query import Query, QueryClient, QueryContentMode, QueryTarget
 from .warnings import experimental
+
+
+def _profile_org_id() -> typing.Optional[str]:
+    # RobotoConfig.from_env raises OSError for a config file it can't read and ValueError for one it can't use.
+    # Either can happen even after RobotoClient.from_env has returned a client: it keeps the client it first built,
+    # and the config file may have been moved or changed since. The search then names no organization.
+    try:
+        return RobotoConfig.from_env().org_id
+    except (OSError, ValueError):
+        return None
 
 
 class RobotoSearch:
@@ -54,8 +65,9 @@ class RobotoSearch:
         or the config file at $ROBOTO_CONFIG_FILE (default: ~/.roboto/config.json).
         If using the config file, $ROBOTO_PROFILE can be used to select a profile from the config.
 
-        $ROBOTO_ORG_ID can be used to set the organization ID to query.
-        This should only be necessary if you belong to multiple organizations.
+        $ROBOTO_ORG_ID can be used to set the organization ID to query. When it is unset,
+        the organization queried is the ``org_id`` of the config file profile in use, which ``roboto setup`` saves.
+        Naming an organization should only be necessary if you belong to multiple organizations.
 
         Returns:
             A configured RobotoSearch instance ready to query the Roboto platform.
@@ -68,7 +80,7 @@ class RobotoSearch:
         """
         roboto_client = RobotoClient.from_env()
         env = RobotoEnv.default()
-        return cls.for_roboto_client(roboto_client, env.org_id)
+        return cls.for_roboto_client(roboto_client, env.org_id or _profile_org_id())
 
     def __init__(self, query_client: typing.Optional[QueryClient] = None):
         self.__query_client = query_client if query_client is not None else QueryClient()

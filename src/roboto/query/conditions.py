@@ -23,6 +23,58 @@ from ..compat import StrEnum
 ConditionValue = typing.Optional[typing.Union[str, bool, int, float, decimal.Decimal, datetime.datetime]]
 
 
+def _like_matches(pattern: str, text: str) -> bool:
+    """Match ``text`` against a SQL ``LIKE`` pattern with Postgres semantics.
+
+    ``%`` matches any run of zero or more characters (newlines included), ``_`` exactly one
+    character, and a backslash makes the next character literal (a trailing lone backslash is
+    itself literal). Matching is case-sensitive and anchored at both ends.
+
+    This is a two-pointer wildcard matcher rather than a translation to ``re``: with each ``%``
+    compiled to ``.*``, a failing match backtracks over every split of the text between
+    wildcards, so a dozen ``%`` in a user-authored pattern never finishes. Retrying only from
+    the most recent ``%`` is sufficient for ``LIKE`` and bounds the work by
+    ``len(text) * len(pattern)``.
+    """
+    p = 0
+    t = 0
+    # After a mismatch, resume just past the most recent ``%`` with it absorbing one more character.
+    star_p = -1
+    star_t = 0
+
+    while t < len(text):
+        if p < len(pattern) and pattern[p] == "%":
+            p += 1
+            star_p = p
+            star_t = t
+            continue
+
+        if p < len(pattern):
+            if pattern[p] == "\\":
+                literal = pattern[p + 1] if p + 1 < len(pattern) else "\\"
+                width = 2 if p + 1 < len(pattern) else 1
+                if text[t] == literal:
+                    p += width
+                    t += 1
+                    continue
+            elif pattern[p] == "_" or pattern[p] == text[t]:
+                p += 1
+                t += 1
+                continue
+
+        if star_p < 0:
+            return False
+
+        star_t += 1
+        p = star_p
+        t = star_t
+
+    while p < len(pattern) and pattern[p] == "%":
+        p += 1
+
+    return p == len(pattern)
+
+
 class Comparator(StrEnum):
     """The comparator to use when comparing a field to a value."""
 
@@ -333,6 +385,13 @@ class Condition(pydantic.BaseModel):
                 return False
 
             return target_value.startswith(my_value)
+
+        if self.comparator in [Comparator.Like, Comparator.NotLike]:
+            if not isinstance(target_value, str) or not isinstance(my_value, str):
+                return False
+
+            is_like = _like_matches(my_value, target_value)
+            return is_like if self.comparator is Comparator.Like else not is_like
 
         return False
 
