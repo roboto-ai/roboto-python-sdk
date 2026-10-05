@@ -28,3 +28,6 @@ cdk/cdk.context.json
 **/venv/
 **/.ipynb_checkpoints
 
+# Local tool state (Serena, knowledge-base MCP) must never reach the public SDK repo
+**/.serena/
+**/.knowledge-base-*/
