@@ -342,7 +342,7 @@ class Metric:
             >>> result = Metric.publish(
             ...     session_id="ss_abc123",
             ...     metrics=[MetricEntry(name="cpu.usage_max", value=87.2)],
-            ...     device_id="dv_robot01",
+            ...     device_id="robot01",
             ... )
             >>> len(result.succeeded)
             1
@@ -419,6 +419,7 @@ class Metric:
         group_by: typing.Optional[str] = None,
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
+        sort_by: typing.Optional[str] = None,
     ) -> collections.abc.Generator["Metric", None, None]:
         """Yield stored metric values whose session time falls in a range.
 
@@ -443,9 +444,11 @@ class Metric:
                 start time or end time. Defaults to end time.
             max_results: Page size — number of data points per HTTP request.
                 Total results are unbounded; pagination is automatic.
-            descending: Yield the most recent sessions first instead of the
-                oldest first. Applies across the whole result set, not just
-                within a page.
+            descending: Yield the largest ``sort_by`` values first instead of
+                the smallest, so with the default ``sort_by`` the most recent
+                sessions come first. Applies across the whole result set, not
+                just within a page. Data points with no ``device_id`` or
+                ``invocation_id`` then sort before every other value.
             include_device_ids: Restrict to specific device IDs, or ``None``
                 to match only rows with no ``device_id``.
             include_session_ids: Restrict to specific session IDs.
@@ -465,11 +468,15 @@ class Metric:
                 the authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
                 configured in the environment.
+            sort_by: Field to order the data points by. See
+                :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.sort_by` for
+                the accepted fields. Defaults to the session time selected by
+                ``time_filter``.
 
         Yields:
-            One :py:class:`Metric` per matching session, sorted by session
-            time — ascending by default, descending when ``descending`` is set —
-            with ``session_id`` as a deterministic tiebreaker.
+            One :py:class:`Metric` per matching session, sorted by ``sort_by`` —
+            ascending by default, descending when ``descending`` is set — with
+            ``session_id`` as a deterministic tiebreaker.
 
         Raises:
             :py:exc:`~roboto.exceptions.RobotoNotFoundException`: No metric
@@ -505,6 +512,15 @@ class Metric:
 
             >>> import itertools
             >>> recent = list(itertools.islice(Metric.query(name="cpu.usage_max", descending=True), 10))
+
+            Take the 10 sessions with the highest value:
+
+            >>> highest = list(
+            ...     itertools.islice(
+            ...         Metric.query(name="cpu.usage_max", sort_by="value", descending=True),
+            ...         10,
+            ...     )
+            ... )
 
             Restrict to data points from ``production``-tagged sessions that either ran in the
             EMEA region or were produced by a device at the Berlin site. Both custom fields,
@@ -556,6 +572,7 @@ class Metric:
             start_time_ns=to_epoch_nanoseconds(start_time) if start_time is not None else None,
             end_time_ns=to_epoch_nanoseconds(end_time) if end_time is not None else None,
             max_results=max_results,
+            sort_by=sort_by,
             descending=descending,
             include_device_ids=include_device_ids,
             include_session_ids=include_session_ids,

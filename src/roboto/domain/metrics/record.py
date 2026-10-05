@@ -335,14 +335,18 @@ class QueryMetricsRequest(pydantic.BaseModel):
     max_results: int = pydantic.Field(default=MAX_METRIC_LIST_RESULTS, le=MAX_METRIC_LIST_RESULTS, gt=0)
     """Maximum number of data points to return. Must be between 1 and :py:data:`MAX_METRIC_LIST_RESULTS` (10,000)."""
 
-    descending: bool = False
-    """Return the most recent data points first, instead of the oldest first.
+    sort_by: typing.Optional[str] = None
+    """Field to order data points by, with ``session_id`` as a deterministic tiebreaker.
 
-    Ordering is by the column selected by ``time_filter``, with ``session_id`` as
-    a deterministic tiebreaker. A page token is bound to the direction that
-    issued it: replaying one with a different ``descending`` value is rejected
-    with :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`, because the
-    keyset cursor is only meaningful in the direction it was emitted from."""
+    One of ``time`` (the session time selected by ``time_filter``), ``value``, ``published``,
+    ``device_id``, ``session_id`` or ``invocation_id``; any other field is rejected with
+    :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`. Data points with no ``device_id`` or
+    ``invocation_id`` sort after every other value. Defaults to ``time``."""
+
+    descending: bool = False
+    """Order data points from the largest ``sort_by`` value to the smallest, instead of smallest first.
+
+    With the default ``sort_by``, this returns the most recent data points first."""
 
     include_device_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet
     """Filter to observations from specific device IDs, ``None`` for null device_id only."""

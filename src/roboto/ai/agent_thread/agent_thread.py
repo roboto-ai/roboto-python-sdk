@@ -964,6 +964,13 @@ class AgentThread:
 
         self.__record.continuation_token = delta.continuation_token
 
+        # A rewind has to happen before the merge below, because that merge *extends* the message
+        # already held at an index. The server rewinds when a turn was abandoned partway and
+        # regenerated onto the same index, so what we hold there is text from an attempt that no
+        # longer exists — extending it would splice the real reply onto a discarded draft.
+        if delta.reset_from_message_sequence_num is not None:
+            del self.__record.messages[delta.reset_from_message_sequence_num :]
+
         for idx in sorted(delta.messages_by_idx.keys()):
             if idx < len(self.__record.messages):
                 self.__record.messages[idx].status = delta.messages_by_idx[idx].status

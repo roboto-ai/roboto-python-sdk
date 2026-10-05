@@ -22,6 +22,7 @@ from ..goals import AgentGoal, AgentGoalStatus
 # ``roboto_service``).
 from .content import (
     AGENT_CONTENT_MODEL_BY_TYPE,
+    AgentClientContextEntry,
     AgentCompressionFillerContent,
     AgentContent,
     AgentContentType,
@@ -469,6 +470,21 @@ class AgentThreadDelta(pydantic.BaseModel):
     continuation_token: str
     """Updated token for the next incremental synchronization."""
 
+    reset_from_message_sequence_num: Optional[int] = None
+    """Discard held messages from this index onward before applying this delta.
+
+    A delta's messages normally *extend* what a client already holds, because the server sends
+    only content the client has not seen. That breaks when a turn is abandoned partway and
+    regenerated: the replacement message reuses the same index, so what the client holds at that
+    index is text from an attempt that no longer exists, and appending to it would splice the real
+    reply onto a discarded draft.
+
+    When this field is set, the client must truncate its held messages to indices strictly below
+    it, then apply ``messages_by_idx`` and adopt ``continuation_token`` as usual — the server has
+    rewound the stream to that point and will resend it. ``None`` (the common case) means append
+    as normal.
+    """
+
     status: Optional[AgentThreadStatus] = None
     """Updated status of the agent thread."""
 
@@ -496,6 +512,7 @@ class AgentThreadDelta(pydantic.BaseModel):
 __all__ = [
     "AGENT_CONTENT_MODEL_BY_TYPE",
     "CLIENT_TOOL_NAME_PREFIX",
+    "AgentClientContextEntry",
     "AgentCompressionFillerContent",
     "AgentContent",
     "AgentContentType",

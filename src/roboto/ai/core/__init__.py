@@ -8,6 +8,9 @@
 Core AI abstractions usable by any other submodule within module `roboto.ai`.
 """
 
+from .content import (
+    synthesize_tool_result_payload,
+)
 from .context import (
     AnalysisScope,
     ClientViewingContext,
@@ -23,6 +26,7 @@ from .event import (
 )
 from .record import (
     AGENT_CONTENT_MODEL_BY_TYPE,
+    AgentClientContextEntry,
     AgentCompressionFillerContent,
     AgentContent,
     AgentContentType,
@@ -43,6 +47,7 @@ from .record import (
 
 __all__ = [
     "AGENT_CONTENT_MODEL_BY_TYPE",
+    "AgentClientContextEntry",
     "AgentCompressionFillerContent",
     "AgentContent",
     "AgentContentType",
@@ -68,6 +73,7 @@ __all__ = [
     "ClientToolSpec",
     "ClientViewingContext",
     "ModelProfileResponse",
+    "synthesize_tool_result_payload",
 ]
 
 

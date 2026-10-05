@@ -24,6 +24,7 @@ from ..exceptions import (
 )
 from ..http import RobotoClient
 from ..logging import default_logger
+from ..paths import join_within
 from ..roboto_search import RobotoSearch
 from .action_input import (
     ActionInputRecord,
@@ -125,10 +126,10 @@ def _hardlink_resolved_input_to_target_directory(
         # Single dataset maintains backward compatibility to avoid breaking existing actions
         # that do not use `InvocationContext.get_input()`
         if unique_dataset_count > 1:
-            target = target_directory / record.association_id / record.relative_path
+            target = join_within(target_directory / record.association_id, record.relative_path)
         else:
             # backward compat behavior
-            target = target_directory / record.relative_path
+            target = join_within(target_directory, record.relative_path)
 
         target.parent.mkdir(parents=True, exist_ok=True)
         target.hardlink_to(cached_path)

@@ -23,9 +23,11 @@ class AssociationType(enum.Enum):
     """AssociationType is the Roboto domain entity type of the association."""
 
     Dataset = "dataset"
+    Device = "device"
     File = "file"
     Topic = "topic"
     MessagePath = "message_path"
+    Org = "org"
 
 
 class Association(pydantic.BaseModel):
@@ -108,6 +110,8 @@ class Association(pydantic.BaseModel):
         - ``fl_`` → File
         - ``tp_`` → Topic
         - ``mp_`` → MessagePath
+        - ``dv_`` → Device
+        - ``og_`` → Org
 
         Args:
             association_id: A Roboto entity ID with a recognized prefix.
@@ -127,6 +131,8 @@ class Association(pydantic.BaseModel):
             "fl_": AssociationType.File,
             "tp_": AssociationType.Topic,
             "mp_": AssociationType.MessagePath,
+            "dv_": AssociationType.Device,
+            "og_": AssociationType.Org,
         }
 
         for prefix, assoc_type in prefix_to_type.items():
@@ -141,6 +147,34 @@ class Association(pydantic.BaseModel):
     @classmethod
     def dataset(cls, dataset_id: str) -> Association:
         return cls(association_id=dataset_id, association_type=AssociationType.Dataset)
+
+    @classmethod
+    def device(cls, universal_device_id: str) -> Association:
+        """Create an association with a device.
+
+        Args:
+            universal_device_id: The device's Roboto-assigned ``dv_`` ID
+                (:py:attr:`~roboto.domain.devices.DeviceRecord.universal_device_id`), not its
+                customer-chosen ``device_id``.
+
+        Examples:
+            >>> Association.device("dv_abc123")
+            Association(association_id='dv_abc123', association_type=<AssociationType.Device: 'device'>, ...)
+        """
+        return cls(association_id=universal_device_id, association_type=AssociationType.Device)
+
+    @classmethod
+    def org(cls, org_id: str) -> Association:
+        """Create an association with an organization.
+
+        Args:
+            org_id: The organization's ID.
+
+        Examples:
+            >>> Association.org("og_abc123")
+            Association(association_id='og_abc123', association_type=<AssociationType.Org: 'org'>, ...)
+        """
+        return cls(association_id=org_id, association_type=AssociationType.Org)
 
     @classmethod
     def file(cls, file_id: str, version: typing.Optional[int] = None):
@@ -201,12 +235,20 @@ class Association(pydantic.BaseModel):
         return self.association_type == AssociationType.Dataset
 
     @property
+    def is_device(self) -> bool:
+        return self.association_type == AssociationType.Device
+
+    @property
     def is_file(self) -> bool:
         return self.association_type == AssociationType.File
 
     @property
     def is_msgpath(self) -> bool:
         return self.association_type == AssociationType.MessagePath
+
+    @property
+    def is_org(self) -> bool:
+        return self.association_type == AssociationType.Org
 
     @property
     def is_topic(self) -> bool:

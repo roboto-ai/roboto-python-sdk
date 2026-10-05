@@ -64,7 +64,7 @@ class Session:
         Create a Session for a drone flight, include a recording, and list its topics:
 
         >>> from roboto.experimental.sessions import Session
-        >>> session = Session.create(name="flight-2026-04-23-001", device_ids=["dv_abc"])
+        >>> session = Session.create(name="flight-2026-04-23-001", device_ids=["robot-abc"])
         >>> session = session.add_file("fl_0123456789abcdef")
         >>> for topic in session.list_topics():
         ...     print(topic.name)
@@ -113,7 +113,7 @@ class Session:
             >>> from roboto.experimental.sessions import Session
             >>> session = Session.create(
             ...     name="flight-2026-04-23-001",
-            ...     device_ids=["dv_a", "dv_b"],
+            ...     device_ids=["robot-a", "robot-b"],
             ...     description="formation flight #4",
             ...     metadata={"pilot": "alice"},
             ...     tags=["pre-flight-check"],
@@ -429,9 +429,9 @@ class Session:
             device_id: ID of the Device to add as a subject of this Session.
 
         Examples:
-            >>> session.attach_to_device("dv_wingman")
+            >>> session.attach_to_device("wingman")
             >>> list(session.list_devices())
-            ['dv_lead', 'dv_wingman']
+            ['lead', 'wingman']
         """
         self.__roboto_client.post(
             f"v1/sessions/id/{self.session_id}/devices",
@@ -647,7 +647,7 @@ class Session:
 
             >>> session.publish_metrics(
             ...     [MetricEntry(name="cpu.usage_max", value=87.2)],
-            ...     device_id="dv_robot01",
+            ...     device_id="robot01",
             ... )
         """
         return Metric.publish(

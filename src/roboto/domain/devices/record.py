@@ -29,6 +29,13 @@ class DeviceRecord(pydantic.BaseModel):
     device_id: str
     """A user-provided identifier for a device, which is unique within that device's org."""
 
+    universal_device_id: typing.Optional[str] = None
+    """A Roboto-assigned identifier for a device (``dv_...``), unique across all orgs and never changed.
+
+    Use this ID, not ``device_id``, with :py:meth:`~roboto.association.Association.device`.
+    ``None`` only when talking to a Roboto deployment that predates it.
+    """
+
     modified: datetime.datetime
     """Date/time when this device record was last modified."""
 

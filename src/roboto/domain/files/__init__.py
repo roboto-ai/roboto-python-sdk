@@ -5,13 +5,18 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .file import File
+from .file_system import FileSystem
 from .lazy_lookup_file import LazyLookupFile
 from .operations import (
+    CreateDirectoryRequest,
+    CreateLinkRequest,
     DeleteFileRequest,
     DirectoryContentsPage,
     FileRecordRequest,
     ImportFileRequest,
+    QueryDatasetFilesRequest,
     QueryFilesRequest,
+    RenameDirectoryRequest,
     RenameFileRequest,
     SignedUrlResponse,
     UpdateFileRecordRequest,
@@ -29,6 +34,8 @@ from .record import (
 )
 
 __all__ = (
+    "CreateDirectoryRequest",
+    "CreateLinkRequest",
     "DeleteFileRequest",
     "DirectoryContentsPage",
     "DirectoryRecord",
@@ -38,11 +45,14 @@ __all__ = (
     "FileRecordRequest",
     "FileStatus",
     "FileStorageType",
+    "FileSystem",
     "FileTag",
     "ImportFileRequest",
     "IngestionStatus",
     "LazyLookupFile",
+    "QueryDatasetFilesRequest",
     "QueryFilesRequest",
+    "RenameDirectoryRequest",
     "RenameFileRequest",
     "SignedUrlResponse",
     "UpdateFileRecordRequest",

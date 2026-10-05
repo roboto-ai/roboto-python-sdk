@@ -64,6 +64,16 @@ class RobotoApiVersion(StrEnum):
     projected back, and triggers with no legacy representation (multiple targets, non-action
     targets, new event types) are filtered from lists and 404 on direct reads."""
 
+    v2026_09_30 = "2026-09-30"
+    """Agent thread messages can carry ``client_context`` content blocks: what the user was viewing
+    when they sent the message, stored on the message itself. Clients on older API versions receive
+    threads with those blocks removed, since their ``AgentContent`` union cannot parse them."""
+
+    v2026_10_02 = "2026-10-02"
+    """A file record can be a link: ``fs_type`` ``"link"`` and a ``roboto://`` uri pinning one version of another
+    file. Clients on older API versions, whose ``FSType`` has only ``file`` and ``directory``, never receive one: links
+    are dropped from file listings, and reading one directly by ID or path reports it as not found."""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the latest available API version.
@@ -71,7 +81,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent API version supported by the platform.
         """
-        return RobotoApiVersion.v2026_08_27
+        return RobotoApiVersion.v2026_10_02
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

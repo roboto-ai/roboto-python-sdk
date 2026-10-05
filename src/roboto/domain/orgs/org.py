@@ -8,8 +8,10 @@ import collections.abc
 import typing
 import urllib.parse
 
+from ...association import Association
 from ...http import RobotoClient
 from ...regionalization import RobotoRegion
+from ..files import FileSystem
 from .org_invite import OrgInvite
 from .org_operations import (
     CreateOrgRequest,
@@ -175,6 +177,15 @@ class Org:
 
     def __repr__(self) -> str:
         return self.__record.model_dump_json()
+
+    @property
+    def files(self) -> FileSystem:
+        """The files associated with the org itself, rather than with one of its datasets or devices.
+
+        Shared URDFs, runbooks, and other files that belong to the org as a whole live here. Files
+        associated with a dataset or a device are reached through that dataset's or device's ``files``.
+        """
+        return FileSystem(Association.org(self.org_id), roboto_client=self.__roboto_client, org_id=self.org_id)
 
     @property
     def name(self) -> str:

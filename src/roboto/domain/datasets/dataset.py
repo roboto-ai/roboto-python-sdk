@@ -8,12 +8,8 @@ from __future__ import annotations
 
 import collections.abc
 import datetime
-import importlib.metadata
-import os
 import pathlib
 import typing
-
-import pathspec
 
 from ...ai import SetSummaryRequest
 from ...ai.summary import (
@@ -22,19 +18,12 @@ from ...ai.summary import (
     StreamingAISummary,
 )
 from ...association import Association
-from ...env import RobotoEnv
 from ...exceptions import (
     RobotoDeviceNotFoundException,
-    RobotoInternalException,
 )
 from ...experimental.sessions import Session, SessionFile
-from ...http import PaginatedList, RobotoClient
-from ...logging import default_logger, maybe_pluralize
-from ...paths import excludespec_from_patterns
-from ...progress import (
-    NoopProgressMonitor,
-    TqdmProgressMonitor,
-)
+from ...http import RobotoClient
+from ...logging import default_logger
 from ...query import DEFAULT_PAGE_SIZE, QueryContentMode, QuerySpecification
 from ...sentinels import (
     NotSet,
@@ -42,7 +31,7 @@ from ...sentinels import (
     is_set,
     remove_not_set,
 )
-from ...storage import DownloadableFile, FileService
+from ...storage import FileService
 from ...updates import (
     CustomFieldChangeset,
     MetadataChangeset,
@@ -54,24 +43,18 @@ from ..files import (
     DirectoryRecord,
     File,
     FileRecord,
-    LazyLookupFile,
-    RenameFileRequest,
+    FileSystem,
 )
+from ..files.file_system import MAX_FILES_PER_MANIFEST
 from ..topics import Topic, TopicTimeBounds
 from .operations import (
     CreateDatasetIfNotExistsRequest,
     CreateDatasetRequest,
-    CreateDirectoryRequest,
-    QueryDatasetFilesRequest,
-    RenameDirectoryRequest,
     UpdateDatasetRequest,
 )
 from .record import DatasetRecord
 
 logger = default_logger()
-
-
-MAX_FILES_PER_MANIFEST = 500
 
 
 class Dataset:
@@ -470,6 +453,20 @@ class Dataset:
         return self.__record.device_id
 
     @property
+    def files(self) -> FileSystem:
+        """The files associated with this dataset.
+
+        The file methods on ``Dataset`` delegate here, so ``dataset.upload_files(...)`` and
+        ``dataset.files.upload_files(...)`` are the same call.
+        """
+        return FileSystem(
+            Association.dataset(self.dataset_id),
+            roboto_client=self.__roboto_client,
+            file_service=self.__file_service,
+            org_id=self.org_id,
+        )
+
+    @property
     def metadata(self) -> dict[str, typing.Any]:
         """Custom metadata associated with this dataset.
 
@@ -616,20 +613,12 @@ class Dataset:
             path/to/deep/final
 
         """
-
-        if origination is None:
-            package_version = self.__retrieve_roboto_version()
-            origination = RobotoEnv.default().roboto_env or f"roboto {package_version}"
-
-        request = CreateDirectoryRequest(
+        return self.files.create_directory(
             name=name,
             error_if_exists=error_if_exists,
-            parent_path=str(parent_path) if parent_path is not None else None,
-            origination=origination,
             create_intermediate_dirs=create_intermediate_dirs,
-        )
-        return self.__roboto_client.put(f"v1/datasets/{self.dataset_id}/directory", data=request).to_record(
-            DirectoryRecord
+            parent_path=parent_path,
+            origination=origination,
         )
 
     @experimental
@@ -767,8 +756,7 @@ class Dataset:
             >>> # Delete all log files
             >>> dataset.delete_files(include_patterns=["**/*.log"])
         """
-        for file in self.list_files(include_patterns, exclude_patterns):
-            file.delete()
+        self.files.delete_files(include_patterns, exclude_patterns)
 
     def download_files(
         self,
@@ -817,40 +805,7 @@ class Dataset:
             >>> # Download all files
             >>> all_files = dataset.download_files(pathlib.Path("/tmp/all_files"))
         """
-        if not out_path.is_dir():
-            out_path.mkdir(parents=True)
-
-        files = list(self.list_files(include_patterns, exclude_patterns))
-        total_size = sum(file.record.size for file in files)
-        file_count = len(files)
-
-        progress_monitor = (
-            TqdmProgressMonitor(
-                total=total_size,
-                desc=f"Downloading {file_count} {maybe_pluralize('file', file_count)}",
-            )
-            if print_progress
-            else NoopProgressMonitor()
-        )
-
-        with progress_monitor:
-            downloadable_files: list[DownloadableFile] = [
-                {
-                    "bucket_name": file.record.bucket,
-                    "source_uri": file.record.uri,
-                    "destination_path": out_path / file.relative_path,
-                }
-                for file in files
-            ]
-
-            self.__file_service.download(
-                files=downloadable_files,
-                association=Association.dataset(self.dataset_id),
-                caller_org_id=self.org_id,
-                on_progress=progress_monitor.update,
-            )
-
-        return [(file.record, out_path / file.relative_path) for file in files]
+        return self.files.download_files(out_path, include_patterns, exclude_patterns, print_progress)
 
     def get_file_by_path(
         self,
@@ -884,12 +839,7 @@ class Dataset:
             >>> print(old_file.version)
             1
         """
-        return File.from_path_and_dataset_id(
-            file_path=relative_path,
-            dataset_id=self.dataset_id,
-            version_id=version_id,
-            roboto_client=self.__roboto_client,
-        )
+        return self.files.get_file_by_path(relative_path, version_id)
 
     def generate_summary(self) -> StreamingAISummary:
         """Generate a new AI summary for this dataset.
@@ -1111,18 +1061,16 @@ class Dataset:
     def list_directories(
         self,
     ) -> collections.abc.Generator[DirectoryRecord, None, None]:
-        page_token: typing.Optional[str] = None
-        while True:
-            paginated_results = self.__roboto_client.get(
-                f"v1/files/association/id/{self.dataset_id}/directories",
-                query={"page_token": page_token},
-            ).to_record(PaginatedList[DirectoryRecord])
-            for record in paginated_results.items:
-                yield record
-            if paginated_results.next_token:
-                page_token = paginated_results.next_token
-            else:
-                break
+        """Yield every directory in this dataset, at any depth.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> for directory in dataset.list_directories():
+            ...     print(directory.relative_path)
+            logs
+            logs/session1
+        """
+        yield from self.files.list_directories()
 
     def list_files(
         self,
@@ -1168,20 +1116,7 @@ class Dataset:
             images/front_camera_001.jpg
             images/side_camera_001.jpg
         """
-
-        page_token: typing.Optional[str] = None
-        while True:
-            paginated_results = self.__list_files_page(
-                page_token=page_token,
-                include_patterns=include_patterns,
-                exclude_patterns=exclude_patterns,
-            )
-            for record in paginated_results.items:
-                yield File(record, self.__roboto_client)
-            if paginated_results.next_token:
-                page_token = paginated_results.next_token
-            else:
-                break
+        yield from self.files.list_files(include_patterns, exclude_patterns)
 
     def put_metadata(
         self,
@@ -1492,15 +1427,7 @@ class Dataset:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> dataset.rename_directory("logs/session1", "session1")
         """
-        response = self.__roboto_client.put(
-            f"v1/datasets/{self.dataset_id}/directory/rename",
-            data=RenameDirectoryRequest(
-                old_path=old_path,
-                new_path=new_path,
-            ),
-        )
-
-        return response.to_record(DirectoryRecord)
+        return self.files.rename_directory(old_path, new_path)
 
     def rename_file(self, file_id: str, new_path: str) -> FileRecord:
         """Rename or move a file within this dataset.
@@ -1532,15 +1459,7 @@ class Dataset:
             >>> record.relative_path
             'file.bag'
         """
-        response = self.__roboto_client.put(
-            f"v1/files/{file_id}/rename",
-            data=RenameFileRequest(
-                association_id=self.dataset_id,
-                new_path=new_path,
-            ),
-        )
-
-        return response.to_record(FileRecord)
+        return self.files.rename_file(file_id, new_path)
 
     def upload_directory(
         self,
@@ -1576,17 +1495,15 @@ class Dataset:
             - If both `include_patterns` and `exclude_patterns` are provided, files matching
               `exclude_patterns` will be excluded even if they match `include_patterns`.
         """
-        include_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(include_patterns)
-        exclude_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(exclude_patterns)
-        all_files = self.__list_directory_files(directory_path, include_spec=include_spec, exclude_spec=exclude_spec)
-        file_destination_paths = {path: os.path.relpath(path, directory_path) for path in all_files}
-
-        self.upload_files(all_files, file_destination_paths, max_batch_size, print_progress, device_id)
-
-        if delete_after_upload:
-            for file in all_files:
-                if file.is_file():
-                    file.unlink()
+        self.files.upload_directory(
+            directory_path,
+            include_patterns,
+            exclude_patterns,
+            delete_after_upload,
+            max_batch_size,
+            print_progress,
+            device_id,
+        )
 
     def upload_file(
         self,
@@ -1620,28 +1537,7 @@ class Dataset:
             ...     file_destination_path="foo/bar.txt",
             ... )
         """
-        if not file_destination_path:
-            file_destination_path = file_path.name
-
-        uploaded_file_ids = self.upload_files(
-            [file_path],
-            {file_path: file_destination_path},
-            print_progress=print_progress,
-            device_id=device_id,
-        )
-
-        file_id = uploaded_file_ids.get(file_path)
-        if file_id is None:
-            raise RobotoInternalException(
-                f"Upload of '{file_path}' to '{self.dataset_id}' completed without reporting a file ID."
-            )
-
-        return LazyLookupFile(
-            lambda: File.from_id(
-                file_id,
-                roboto_client=self.__roboto_client,
-            )
-        )
+        return self.files.upload_file(file_path, file_destination_path, print_progress, device_id)
 
     def upload_files(
         self,
@@ -1679,78 +1575,7 @@ class Dataset:
             >>> file_ids[pathlib.Path("/path/to/file.txt")]
             'fl_0123456789abcdef'
         """
-
-        file_count = len(list(files))
-        progress_monitor = (
-            TqdmProgressMonitor(
-                total=sum(file.stat().st_size for file in files),
-                desc=f"Uploading {file_count} {maybe_pluralize('file', file_count)}",
-            )
-            if print_progress
-            else NoopProgressMonitor()
-        )
-        with progress_monitor:
-            return self.__file_service.upload(
-                files=files,
-                association=Association.dataset(self.dataset_id),
-                destination_paths=file_destination_paths,
-                batch_size=max_batch_size,
-                device_id=device_id,
-                on_progress=progress_monitor.update,
-                caller_org_id=self.org_id,
-            )
+        return self.files.upload_files(files, file_destination_paths, max_batch_size, print_progress, device_id)
 
     def __get_latest_summary(self) -> AISummary:
         return self.__roboto_client.get(f"v1/datasets/{self.dataset_id}/summary").to_record(AISummary)
-
-    def __list_directory_files(
-        self,
-        directory_path: pathlib.Path,
-        include_spec: typing.Optional[pathspec.PathSpec] = None,
-        exclude_spec: typing.Optional[pathspec.PathSpec] = None,
-    ) -> collections.abc.Iterable[pathlib.Path]:
-        all_files = set()
-
-        for root, _, files in os.walk(directory_path):
-            for file in files:
-                should_include = include_spec is None or include_spec.match_file(file)
-                should_exclude = exclude_spec is not None and exclude_spec.match_file(file)
-
-                if should_include and not should_exclude:
-                    all_files.add(pathlib.Path(root, file))
-
-        return all_files
-
-    def __list_files_page(
-        self,
-        page_token: typing.Optional[str] = None,
-        include_patterns: typing.Optional[list[str]] = None,
-        exclude_patterns: typing.Optional[list[str]] = None,
-    ) -> PaginatedList[FileRecord]:
-        """
-        List files associated with dataset.
-
-        Files are associated with datasets in an eventually-consistent manner,
-        so there will likely be delay between a file being uploaded and it appearing in this list.
-        """
-        query_params: dict[str, typing.Any] = {}
-        if page_token:
-            query_params["page_token"] = str(page_token)
-
-        request = QueryDatasetFilesRequest(
-            page_token=page_token,
-            include_patterns=include_patterns,
-            exclude_patterns=exclude_patterns,
-        )
-        return self.__roboto_client.post(
-            f"v1/datasets/{self.dataset_id}/files/query",
-            data=request,
-            query=query_params,
-            idempotent=True,
-        ).to_paginated_list(FileRecord)
-
-    def __retrieve_roboto_version(self) -> str:
-        try:
-            return importlib.metadata.version("roboto")
-        except importlib.metadata.PackageNotFoundError:
-            return "version_not_found"

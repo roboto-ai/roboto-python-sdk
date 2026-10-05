@@ -13,6 +13,8 @@ import urllib.parse
 import pydantic
 
 from ...compat import StrEnum
+from ...exceptions import RobotoIllegalArgumentException
+from ...uri import RobotoUri
 
 
 class FileStatus(StrEnum):
@@ -129,6 +131,13 @@ class FSType(StrEnum):
     File = "file"
     Directory = "directory"
 
+    Link = "link"
+    """A pointer to one version of another file, which may live under a different dataset, device, or org.
+
+    A link stores no object of its own. Its record's ``uri`` is ``roboto://file/<target_file_id>?v=<version>``
+    and its ``size`` is 0; downloading it fetches the target at that version.
+    """
+
 
 class FileRecord(pydantic.BaseModel):
     """Wire-transmissible representation of a file in the Roboto platform.
@@ -168,14 +177,38 @@ class FileRecord(pydantic.BaseModel):
     version: int
 
     @property
+    def is_link(self) -> bool:
+        """Whether this record is a link to another file rather than a file with an object of its own."""
+        return self.fs_type == FSType.Link
+
+    @property
     def bucket(self) -> str:
-        parsed_uri = urllib.parse.urlparse(self.uri, allow_fragments=False)
-        return parsed_uri.netloc
+        """Name of the bucket holding this file's object.
+
+        Raises:
+            RobotoIllegalArgumentException: This record is a link, which stores no object.
+        """
+        return urllib.parse.urlparse(self.__storage_uri(), allow_fragments=False).netloc
 
     @property
     def key(self) -> str:
-        parsed_uri = urllib.parse.urlparse(self.uri, allow_fragments=False)
-        return parsed_uri.path.lstrip("/")
+        """Key of this file's object within :py:attr:`bucket`.
+
+        Raises:
+            RobotoIllegalArgumentException: This record is a link, which stores no object.
+        """
+        return urllib.parse.urlparse(self.__storage_uri(), allow_fragments=False).path.lstrip("/")
+
+    def __storage_uri(self) -> str:
+        # A link's uri is a roboto:// pointer; read as S3 it names a bucket called "file".
+        if self.is_link:
+            target = RobotoUri.parse(self.uri)
+            raise RobotoIllegalArgumentException(
+                f"File {self.file_id} is a link to {self.uri} and stores no object of its own; "
+                "File.download and File.get_signed_url on the link fetch its target, or load the target with "
+                f"File.from_id({target.id!r}, version_id={target.version})."
+            )
+        return self.uri
 
 
 class FileTag(enum.Enum):
@@ -187,7 +220,11 @@ class FileTag(enum.Enum):
     """
 
     DatasetId = "dataset_id"
-    """Tag containing the ID of the dataset that contains this file."""
+    """Tag containing the ID of the dataset that contains this file.
+
+    Deprecated in favour of :py:attr:`AssociationId`, which names a file's dataset, device, or org alike.
+    The platform still sets it on its own server-side copies of dataset files.
+    """
 
     OrgId = "org_id"
     """Tag containing the organization ID that owns this file."""
@@ -197,6 +234,9 @@ class FileTag(enum.Enum):
 
     TransactionId = "transaction_id"
     """Tag containing the transaction ID for files uploaded in a batch."""
+
+    AssociationId = "association_id"
+    """Tag containing the ID of the dataset, device, or org a file is associated with."""
 
 
 class DirectoryRecord(pydantic.BaseModel):

@@ -13,6 +13,10 @@ import typing
 import urllib.parse
 
 from ...association import Association
+from ...exceptions import (
+    RobotoIllegalArgumentException,
+    RobotoNotFoundException,
+)
 from ...http import BatchRequest, RobotoClient
 from ...progress import (
     NoopProgressMonitor,
@@ -27,6 +31,7 @@ from ...sentinels import (
 from ...storage import FileService
 from ...time import TimeUnit
 from ...updates import MetadataChangeset
+from ...uri import RobotoUri
 from ...warnings import experimental
 from ..topics import (
     SetTimelineOffsetsRequest,
@@ -419,13 +424,31 @@ class File:
         return self.__record.created_by
 
     @property
+    def association(self) -> Association:
+        """The dataset, device, or org this file is associated with.
+
+        Every file has exactly one association, inferred from the prefix of its association ID. Read
+        ``file.association.association_type`` to branch on it.
+        """
+        return Association.from_id(self.__record.association_id)
+
+    @property
     def dataset_id(self) -> str:
         """Identifier of the dataset that contains this file.
 
-        Returns the unique identifier of the dataset that this file belongs to.
-        Files are always associated with exactly one dataset.
+        Valid only for a file associated with a dataset; files associated with a device or with the org
+        itself have no dataset. Prefer :py:attr:`association`, which works for every file.
+
+        Raises:
+            RobotoIllegalArgumentException: This file is not associated with a dataset.
         """
-        return self.__record.association_id
+        association = self.association
+        if not association.is_dataset:
+            raise RobotoIllegalArgumentException(
+                f"File {self.file_id} is not in a dataset; its association is "
+                f"{association.association_type.value} {association.association_id}. Use File.association instead."
+            )
+        return association.association_id
 
     @property
     def description(self) -> typing.Optional[str]:
@@ -466,6 +489,15 @@ class File:
         return self.__record.ingestion_status
 
     @property
+    def is_link(self) -> bool:
+        """Whether this file is a link to one version of another file.
+
+        A link sits at its own path under its own dataset, device, or org, and stores no object.
+        :py:meth:`download` and :py:meth:`get_signed_url` fetch the target at the version the link pins.
+        """
+        return self.__record.is_link
+
+    @property
     def org_id(self) -> str:
         """Organization identifier that owns this file.
 
@@ -486,11 +518,10 @@ class File:
 
     @property
     def relative_path(self) -> str:
-        """Path of this file relative to its dataset root.
+        """Path of this file relative to the root of its association's files.
 
-        Returns the file path within the dataset, using forward slashes as
-        separators regardless of the operating system. This path uniquely
-        identifies the file within its dataset.
+        Uses forward slashes as separators regardless of the operating system. This path
+        uniquely identifies the file among the files of its dataset, device, or org.
         """
         return self.__record.relative_path
 
@@ -584,6 +615,8 @@ class File:
                 but not provided.
             ImportError: If pandas or pyarrow are not installed. Install with
                 ``pip install roboto[ingestion]`` to use this feature.
+            RobotoIllegalArgumentException: This file is associated with a device or with the org itself, not
+                with a dataset; only a dataset's files hold topics.
             RobotoUnauthorizedException: If the caller lacks permission to create topics
                 or upload files to this file's dataset.
 
@@ -651,9 +684,15 @@ class File:
             ...     derived_df,
             ... )
         """
+        association = self.association
+        if not association.is_dataset:
+            raise RobotoIllegalArgumentException(
+                f"File {self.file_id} is not in a dataset, so it cannot hold topics; its association is "
+                f"{association.association_type.value} {association.association_id}."
+            )
         return Topic.create_from_df(
             self.file_id,
-            self.dataset_id,
+            association.association_id,
             topic_name,
             df,
             timestamp_column=timestamp_column,
@@ -693,12 +732,15 @@ class File:
         Downloads the file content from cloud storage to the specified local path.
         The parent directories are created automatically if they don't exist.
 
+        For a link, downloads the version of the target file that the link pins.
+
         Args:
             local_path: Local filesystem path where the file should be saved.
             print_progress: Whether to show a progress bar during download.
 
         Raises:
-            RobotoUnauthorizedException: Caller lacks permission to download the file.
+            RobotoNotFoundException: This file is a link whose target, at the pinned version, no longer exists.
+            RobotoUnauthorizedException: Caller lacks permission to download the file, or a link's target.
             FileNotFoundError: File content is not available in storage.
 
         Examples:
@@ -708,9 +750,10 @@ class File:
             >>> file.download(local_path)
             >>> print(f"Downloaded to {local_path}")
         """
+        source = self._resolve_link()
         progress_monitor = (
             TqdmProgressMonitor(
-                total=self.record.size,
+                total=source.record.size,
                 desc=f"Downloading {self.relative_path}",
             )
             if print_progress
@@ -720,10 +763,15 @@ class File:
         with progress_monitor:
             self.__file_service.download(
                 files=[
-                    {"bucket_name": self.record.bucket, "source_uri": self.record.uri, "destination_path": local_path}
+                    {
+                        "bucket_name": source.record.bucket,
+                        "source_uri": source.record.uri,
+                        "destination_path": local_path,
+                    }
                 ],
-                association=Association.dataset(self.dataset_id),
-                caller_org_id=self.org_id,
+                # The object lives under the source's association, so read credentials for it come from there.
+                association=source.association,
+                caller_org_id=source.org_id,
                 on_progress=progress_monitor.update,
             )
 
@@ -743,11 +791,14 @@ class File:
             override_content_disposition: Custom content disposition header value
                 (e.g., "attachment; filename=myfile.bag").
 
+        For a link, the URL is for the version of the target file that the link pins.
+
         Returns:
             Signed URL string that provides temporary access to the file.
 
         Raises:
-            RobotoUnauthorizedException: Caller lacks permission to access the file.
+            RobotoNotFoundException: This file is a link whose target, at the pinned version, no longer exists.
+            RobotoUnauthorizedException: Caller lacks permission to access the file, or a link's target.
 
         Examples:
             >>> file = File.from_id("file_abc123")
@@ -765,10 +816,14 @@ class File:
         if override_content_type:
             query_params["override_content_type"] = override_content_type
 
+        source = self._resolve_link()
+        if source is not self:
+            query_params["version_id"] = str(source.version)
+
         res = self.__roboto_client.get(
-            f"v1/files/{self.file_id}/signed-url",
+            f"v1/files/{source.file_id}/signed-url",
             query=query_params,
-            owner_org_id=self.org_id,
+            owner_org_id=source.org_id,
         )
         return res.to_dict(json_path=["data", "url"])
 
@@ -949,14 +1004,14 @@ class File:
         return self
 
     def rename_file(self, file_id: str, new_path: str) -> FileRecord:
-        """Rename this file to a new path within its dataset.
+        """Rename this file to a new path within its dataset, device, or org.
 
-        Changes the relative path of the file within its dataset. This updates
+        Changes the relative path of the file among the files of its association. This updates
         the file's location identifier but does not move the actual file content.
 
         Args:
             file_id: File ID (currently unused, kept for API compatibility).
-            new_path: New relative path for the file within the dataset.
+            new_path: New relative path for the file, relative to the root of its association's files.
 
         Returns:
             Updated FileRecord with the new path.
@@ -976,7 +1031,7 @@ class File:
         response = self.__roboto_client.put(
             f"v1/files/{self.file_id}/rename",
             data=RenameFileRequest(
-                association_id=self.dataset_id,
+                association_id=self.__record.association_id,
                 new_path=new_path,
             ),
         )
@@ -1188,3 +1243,23 @@ class File:
         )
         self.__record = self.__roboto_client.put(f"v1/files/record/{self.file_id}", data=request).to_record(FileRecord)
         return self
+
+    def _resolve_link(self) -> File:
+        """Return this file, or for a link, its target at the pinned version.
+
+        Follows a link by parsing its ``roboto://`` uri, which :py:class:`FileRecord` also parses, to name the target
+        when it refuses a link's bucket or key. ``FileSystem.download_files`` and ``ActionInputResolver`` call it
+        from outside the class, so it takes one leading underscore rather than a name-mangled two.
+
+        Raises:
+            RobotoNotFoundException: This file is a link whose target, at the pinned version, no longer exists.
+        """
+        if not self.is_link:
+            return self
+        pointer = RobotoUri.parse(self.__record.uri)
+        try:
+            return File.from_id(pointer.id, version_id=pointer.version, roboto_client=self.__roboto_client)
+        except RobotoNotFoundException:
+            raise RobotoNotFoundException(
+                f"'{self.relative_path}' is a link to {self.__record.uri}, which could not be found"
+            ) from None

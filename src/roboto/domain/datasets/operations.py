@@ -14,6 +14,11 @@ from ...pydantic import (
 )
 from ...sentinels import NotSet, NotSetType
 from ...updates import CustomFieldChangeset, MetadataChangeset
+from ..files.operations import (
+    CreateDirectoryRequest,
+    QueryDatasetFilesRequest,
+    RenameDirectoryRequest,
+)
 
 
 class CreateDatasetRequest(pydantic.BaseModel):
@@ -74,33 +79,6 @@ class CreateDatasetRequest(pydantic.BaseModel):
 
     def __init__(self, **data):
         super().__init__(**remove_non_noneable_init_args(data, self))
-
-
-class QueryDatasetFilesRequest(pydantic.BaseModel):
-    """Request payload for querying files within a dataset.
-
-    Used to retrieve files from a dataset with optional pattern-based filtering
-    and pagination support. Supports gitignore-style patterns for flexible
-    file selection.
-    """
-
-    page_token: typing.Optional[str] = None
-    """Token for retrieving the next page of results in paginated queries."""
-
-    include_patterns: typing.Optional[list[str]] = None
-    """List of gitignore-style patterns for files to include in results."""
-
-    exclude_patterns: typing.Optional[list[str]] = None
-    """List of gitignore-style patterns for files to exclude from results."""
-
-    limit: typing.Optional[int] = None
-    """Maximum number of files to return per page."""
-
-    sort_by: typing.Optional[str] = None
-    """Field to sort results by. Defaults to 'created'."""
-
-    sort_direction: typing.Optional[str] = None
-    """Sort direction ('ASC' or 'DESC'). Defaults to 'DESC'."""
 
 
 class QueryDatasetsRequest(pydantic.BaseModel):
@@ -164,35 +142,6 @@ class DeleteDirectoriesRequest(pydantic.BaseModel):
     """List of directory paths to delete from the dataset."""
 
 
-class RenameDirectoryRequest(pydantic.BaseModel):
-    """Request payload for renaming a directory within a dataset.
-
-    Used to change the path of a directory and all its contained files
-    within a dataset. This updates the logical organization without
-    moving actual file content.
-    """
-
-    new_path: str
-    """New path for the directory."""
-
-    old_path: str
-    """Current path of the directory to rename."""
-
-
-class CreateDirectoryRequest(pydantic.BaseModel):
-    """
-    Request payload to create a directory in a dataset
-    """
-
-    name: str
-    error_if_exists: bool = False
-    parent_path: typing.Optional[str] = None
-    origination: typing.Optional[str] = None
-    create_intermediate_dirs: bool = False
-    """If True, creates intermediate directories in the path if they don't exist.
-    If False, requires all parent directories to already exist."""
-
-
 class CreateDatasetIfNotExistsRequest(pydantic.BaseModel):
     """Request payload to create a dataset if no existing dataset matches
     the specified query.
@@ -230,3 +179,17 @@ class BeginSingleFileUploadResponse(pydantic.BaseModel):
 
     upload_id: str
     upload_url: str
+
+
+__all__ = (
+    "BeginSingleFileUploadRequest",
+    "BeginSingleFileUploadResponse",
+    "CreateDatasetIfNotExistsRequest",
+    "CreateDatasetRequest",
+    "CreateDirectoryRequest",
+    "DeleteDirectoriesRequest",
+    "QueryDatasetFilesRequest",
+    "QueryDatasetsRequest",
+    "RenameDirectoryRequest",
+    "UpdateDatasetRequest",
+)

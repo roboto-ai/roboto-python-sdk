@@ -17,6 +17,31 @@ from roboto.updates import MetadataChangeset
 from .record import DirectoryRecord, FileRecord
 
 
+class CreateDirectoryRequest(pydantic.BaseModel):
+    """Request payload to create a directory among the files of one association."""
+
+    name: str
+    error_if_exists: bool = False
+    parent_path: typing.Optional[str] = None
+    origination: typing.Optional[str] = None
+    create_intermediate_dirs: bool = False
+    """If True, creates intermediate directories in the path if they don't exist.
+    If False, requires all parent directories to already exist."""
+
+
+class CreateLinkRequest(pydantic.BaseModel):
+    """Request body for ``PUT /v1/files/association/id/<association_id>/link``."""
+
+    relative_path: str
+    """Where the link sits among the association's files. Missing parent directories are created."""
+
+    target_file_id: str
+    """ID of the file the link points at. It must be a file, not a link or a directory, in the same org."""
+
+    target_version: typing.Optional[int] = None
+    """Version of the target to pin. Defaults to the target's current version."""
+
+
 class DeleteFileRequest(pydantic.BaseModel):
     """Request payload for deleting a file from the platform.
 
@@ -159,3 +184,43 @@ class DirectoryContentsPage(pydantic.BaseModel):
 
     next_token: typing.Optional[str] = None
     """Token for retrieving the next page of results, if any."""
+
+
+class QueryDatasetFilesRequest(pydantic.BaseModel):
+    """Request payload for listing the files associated with a dataset, an org, or a device.
+
+    Supports gitignore-style patterns for flexible file selection and pagination. Despite
+    the name, the same body lists the files of any association type.
+    """
+
+    page_token: typing.Optional[str] = None
+    """Token for retrieving the next page of results in paginated queries."""
+
+    include_patterns: typing.Optional[list[str]] = None
+    """List of gitignore-style patterns for files to include in results."""
+
+    exclude_patterns: typing.Optional[list[str]] = None
+    """List of gitignore-style patterns for files to exclude from results."""
+
+    limit: typing.Optional[int] = None
+    """Maximum number of files to return per page."""
+
+    sort_by: typing.Optional[str] = None
+    """Field to sort results by. Defaults to 'created'."""
+
+    sort_direction: typing.Optional[str] = None
+    """Sort direction ('ASC' or 'DESC'). Defaults to 'DESC'."""
+
+
+class RenameDirectoryRequest(pydantic.BaseModel):
+    """Request payload for renaming a directory among the files of one association.
+
+    Changes the path of a directory and all its contained files. This updates the
+    logical organization without moving actual file content.
+    """
+
+    new_path: str
+    """New path for the directory."""
+
+    old_path: str
+    """Current path of the directory to rename."""

@@ -46,9 +46,9 @@ class DownloadSession:
     """Manages a batch of file downloads with shared credentials.
 
     Provides credential lifecycle management and async operation coordination
-    for downloading files from a dataset. Unlike UploadTransaction, this does
-    not manage an API transaction since downloads don't require server-side
-    state tracking.
+    for downloading the files of one association: a dataset, a device, or an org.
+    Unlike UploadTransaction, this does not manage an API transaction since
+    downloads don't require server-side state tracking.
 
     Example:
         >>> session = DownloadSession(
@@ -81,9 +81,6 @@ class DownloadSession:
         """
         self.__items = items
         self.__association = association
-        if not self.__association.is_dataset:
-            raise ValueError("Roboto currently only supports downloading files from datasets.")
-
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__caller_org_id = caller_org_id
 
@@ -111,12 +108,12 @@ class DownloadSession:
             )
 
     def make_credential_provider(self, bucket_name: typing.Optional[str] = None) -> CredentialProvider:
-        """Return a credential provider for read-only access to the dataset."""
+        """Return a credential provider for read-only access to the association's files."""
 
         def _get_download_credentials() -> Credentials:
             query_params: dict[str, str] = {"mode": Permissions.ReadOnly.value}
             response = self.__roboto_client.get(
-                f"v1/datasets/id/{self.__dataset_id}/credentials",
+                f"v1/files/association/id/{self.__association.association_id}/credentials",
                 query=query_params,
                 caller_org_id=self.__caller_org_id,
             ).to_record_list(RobotoCredentials)
@@ -137,13 +134,6 @@ class DownloadSession:
                 )
 
         return _get_download_credentials
-
-    @property
-    def __dataset_id(self) -> str:
-        dataset_id = self.__association.dataset_id
-        if dataset_id is None:
-            raise ValueError("Roboto currently only supports downloading files from datasets.")
-        return dataset_id
 
     def await_downloads(self) -> list[tuple[DownloadableFile, Exception]]:
         """Wait for all registered downloads to complete.

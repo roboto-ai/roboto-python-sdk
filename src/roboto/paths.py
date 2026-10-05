@@ -5,16 +5,32 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import collections.abc
+import pathlib
 import typing
 
 import pathspec
 
+from .exceptions import RobotoIllegalArgumentException
 from .query import (
     Comparator,
     Condition,
     ConditionGroup,
     ConditionOperator,
 )
+
+
+def join_within(directory: pathlib.Path, relative_path: str) -> pathlib.Path:
+    """Return ``directory / relative_path``, refusing a path that resolves outside ``directory``.
+
+    A file's stored path comes from the server and is not trusted to stay inside the directory it is written to.
+
+    Raises:
+        RobotoIllegalArgumentException: ``relative_path`` is absolute or climbs out of ``directory``.
+    """
+    destination = directory / relative_path
+    if not destination.resolve().is_relative_to(directory.resolve()):
+        raise RobotoIllegalArgumentException(f"File path '{relative_path}' resolves outside '{directory}'")
+    return destination
 
 
 def path_to_pattern(path: str) -> str:

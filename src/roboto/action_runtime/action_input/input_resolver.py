@@ -194,6 +194,8 @@ class ActionInputResolver:
 
         class DownloadCandidate(typing.NamedTuple):
             file: File
+            source: File
+            """The file whose object is fetched: ``file`` itself, or for a link, its target at the pinned version."""
             path: pathlib.Path
             requires_download: bool
 
@@ -201,11 +203,12 @@ class ActionInputResolver:
 
         for file in files:
             local_path = out_path / file.file_id / str(file.version) / pathlib.Path(file.relative_path).name
+            source = file._resolve_link()
 
             # Skip download if file already exists locally with matching size
             requires_download = True
             if local_path.exists():
-                local_file_size_matches_remote = local_path.stat().st_size == file.record.size
+                local_file_size_matches_remote = local_path.stat().st_size == source.record.size
                 if local_file_size_matches_remote:
                     log.debug(
                         "%s (%s@v%d) already downloaded.",
@@ -215,13 +218,13 @@ class ActionInputResolver:
                     )
                     requires_download = False
 
-            download_candidates_by_association[file.dataset_id].append(
-                DownloadCandidate(file=file, path=local_path, requires_download=requires_download)
+            download_candidates_by_association[source.association.association_id].append(
+                DownloadCandidate(file=file, source=source, path=local_path, requires_download=requires_download)
             )
 
         # Calculate total size of files that need downloading
         total_size = sum(
-            candidate.file.record.size
+            candidate.source.record.size
             for candidates in download_candidates_by_association.values()
             for candidate in candidates
             if candidate.requires_download
@@ -246,8 +249,8 @@ class ActionInputResolver:
             for association_id, candidates in download_candidates_by_association.items():
                 downloadable: list[DownloadableFile] = [
                     {
-                        "bucket_name": candidate.file.record.bucket,
-                        "source_uri": candidate.file.record.uri,
+                        "bucket_name": candidate.source.record.bucket,
+                        "source_uri": candidate.source.record.uri,
                         "destination_path": candidate.path,
                     }
                     for candidate in candidates
@@ -257,7 +260,7 @@ class ActionInputResolver:
                 if downloadable:
                     self.__file_service.download(
                         files=downloadable,
-                        association=Association.dataset(association_id),
+                        association=Association.from_id(association_id),
                         on_progress=progress_monitor.update,
                     )
 

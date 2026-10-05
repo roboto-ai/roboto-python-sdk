@@ -45,12 +45,20 @@ def delete_device(args: argparse.Namespace, context: CLIContext, parser: argpars
         roboto_client=context.roboto_client,
     )
 
-    device.delete()
+    device.delete(keep_files=args.keep_files)
 
 
 def delete_device_setup_parser(parser: argparse.ArgumentParser) -> None:
     __add_device_arg(parser)
     add_org_arg(parser)
+    parser.add_argument(
+        "--keep-files",
+        action="store_true",
+        help=(
+            "Move the device's files to the org root under devices/<universal_device_id>/ instead of deleting them. "
+            "Links among the device's files are deleted either way."
+        ),
+    )
 
 
 def disable_device_access(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
@@ -90,10 +98,10 @@ def enable_device_access_setup_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def generate_device_creds(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
-    config_file: pathlib.Path = args.config_file
+    config_file: pathlib.Path = args.output_config_file
     if config_file.is_file():
         parser.error(
-            f"Specified config file {args.config_file} already exists and would be overwritten. "
+            f"Specified config file {config_file} already exists and would be overwritten. "
             + "Please provide a different --config-file, or delete the existing one."
         )
 
@@ -150,6 +158,8 @@ def generate_device_creds_setup_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-f",
         "--config-file",
+        # Distinct from the global --config-file's dest, which names the config the CLI reads its own credentials from.
+        dest="output_config_file",
         type=pathlib.Path,
         default="config.json",
         help="Where on local disk to save the config file containing the device's generated Roboto credentials. "
@@ -168,10 +178,10 @@ def list_devices_setup_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def register_device(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
-    config_file: pathlib.Path = args.config_file
+    config_file: pathlib.Path = args.output_config_file
     if config_file.is_file():
         parser.error(
-            f"Specified config file {args.config_file} already exists and would be overwritten. "
+            f"Specified config file {config_file} already exists and would be overwritten. "
             + "Please provide a different --config-file, or delete the existing one."
         )
 
@@ -203,6 +213,8 @@ def register_device_setup_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-f",
         "--config-file",
+        # Distinct from the global --config-file's dest, which names the config the CLI reads its own credentials from.
+        dest="output_config_file",
         type=pathlib.Path,
         default="config.json",
         help="Where on local disk to save the config file containing the newly registered device's Roboto credentials. "

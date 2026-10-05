@@ -15,6 +15,7 @@ from ..core import (
 )
 from ..core.record import (
     AGENT_CONTENT_MODEL_BY_TYPE,
+    AgentClientContextEntry,
     AgentCompressionFillerContent,
     AgentContent,
     AgentContentType,
@@ -414,6 +415,7 @@ class AgentThreadSubject(pydantic.BaseModel):
 
 __all__ = [
     "AGENT_CONTENT_MODEL_BY_TYPE",
+    "AgentClientContextEntry",
     "AgentCompressionFillerContent",
     "AgentContent",
     "AgentContentType",

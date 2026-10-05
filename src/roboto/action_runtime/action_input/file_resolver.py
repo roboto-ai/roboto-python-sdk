@@ -24,6 +24,10 @@ class InputFileResolver:
     A selector names files by ID, by name, by path within a dataset, or with a RoboQL query; every field it
     populates is looked up and the matches are returned together. ``resolve_all`` returns each file once, while
     ``resolve`` repeats a file that matches on more than one field.
+
+    A ``query``, ``names`` or ``paths`` goes through file search, which does not return links yet, so it never
+    selects a link. A link named in ``ids`` is returned, and
+    :py:class:`~roboto.action_runtime.ActionInputResolver` downloads the version of its target that the link pins.
     """
 
     def __init__(

@@ -30,6 +30,7 @@ from .feedback import (
 )
 from .record import (
     AGENT_CONTENT_MODEL_BY_TYPE,
+    AgentClientContextEntry,
     AgentCompressionFillerContent,
     AgentContent,
     AgentContentType,
@@ -72,6 +73,7 @@ from .record import (
 __all__ = [
     "AGENT_CONTENT_MODEL_BY_TYPE",
     "AdminUpdateFeedbackRequest",
+    "AgentClientContextEntry",
     "AgentCompressionFillerContent",
     "AgentContent",
     "AgentContentType",

@@ -9,12 +9,14 @@ import datetime
 import typing
 import urllib.parse
 
+from ...association import Association
 from ...auth.scope import ApiScope
-from ...exceptions import RobotoDomainException
+from ...exceptions import RobotoDomainException, RobotoNotReadyException
 from ...experimental.sessions import Session, SessionRecord
 from ...http import RobotoClient
 from ...updates import CustomFieldChangeset, MetadataChangeset
 from ...warnings import experimental
+from ..files import FileSystem
 from ..tokens import (
     CreateTokenRequest,
     Token,
@@ -271,6 +273,28 @@ class Device:
         return urllib.parse.quote(self.device_id, safe="")
 
     @property
+    def files(self) -> FileSystem:
+        """The files associated with this device: its calibrations, part manifests, and the like.
+
+        These are the device's own files, distinct from the dataset files whose ``device_id`` names this
+        device as the one that recorded them.
+
+        Raises:
+            RobotoNotReadyException: The device has no ``universal_device_id``, which only a Roboto
+                deployment that predates device files returns.
+        """
+        if self.__record.universal_device_id is None:
+            raise RobotoNotReadyException(
+                f"Device '{self.device_id}' has no universal_device_id, so its files cannot be addressed; "
+                "the Roboto deployment it was loaded from predates device files."
+            )
+        return FileSystem(
+            Association.device(self.__record.universal_device_id),
+            roboto_client=self.__roboto_client,
+            org_id=self.org_id,
+        )
+
+    @property
     def metadata(self) -> dict[str, typing.Any]:
         """Key-value metadata pairs associated with this device."""
         return self.__record.metadata
@@ -443,11 +467,21 @@ class Device:
             record.secret,
         )
 
-    def delete(self) -> None:
+    def delete(self, keep_files: bool = False) -> None:
         """Delete this device from the Roboto platform.
 
         Permanently removes this device and all associated tokens. This action cannot
         be undone. Any tokens created for this device will be immediately invalidated.
+
+        The device's own files (:py:attr:`files`) are deleted with it, every version of each, shortly after this
+        call returns. With ``keep_files=True`` they move to the org root instead, under
+        ``devices/<universal_device_id>/``, keeping their file IDs and every version, so they stay reachable through
+        ``org.files``. Links among the device's files are deleted in both cases, never moved; their targets are left
+        alone.
+
+        Args:
+            keep_files: Move the device's files to the org root instead of deleting them. Requires permission to
+                upload files to the org.
 
         Raises:
             RobotoUnauthorizedException: If the caller lacks permission to delete this device.
@@ -462,8 +496,17 @@ class Device:
             >>> print("Device deleted successfully")
             Deleting device: old_robot_001
             Device deleted successfully
+
+            Delete a device but keep its calibrations and manifests in the org root:
+
+            >>> device = Device.from_id("old_robot_001")
+            >>> device.delete(keep_files=True)
         """
-        self.__roboto_client.delete(f"v1/devices/id/{self.encoded_device_id}", owner_org_id=self.org_id)
+        self.__roboto_client.delete(
+            f"v1/devices/id/{self.encoded_device_id}",
+            owner_org_id=self.org_id,
+            query={"keep_files": "true"} if keep_files else None,
+        )
 
     @experimental
     def list_sessions(self) -> collections.abc.Generator[Session, None, None]:
