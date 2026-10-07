@@ -9,17 +9,21 @@ import datetime
 import typing
 import urllib.parse
 
-from ...domain.files import File
-from ...domain.metrics.metric import BulkPublishMetricsResult, Metric
+from ...domain.metrics.metric import Metric
 from ...domain.metrics.record import MetricEntry
-from ...domain.topics.record import TopicIdentityRecord
-from ...http import RobotoClient
+from ...domain.topics.record import (
+    DataRange,
+    TopicIdentityRecord,
+)
+from ...http import BatchResponse, RobotoClient
 from ...sentinels import (
     NotSet,
     NotSetType,
     remove_not_set,
 )
+from ...time import Time, to_epoch_nanoseconds
 from ...updates import CustomFieldChangeset, MetadataChangeset, StrSequence
+from ..ingest import TopicDeclaration
 from ..topics import SessionContext, Topic
 from .operations import (
     AddFilesRequest,
@@ -29,22 +33,27 @@ from .operations import (
     RemoveFilesRequest,
     SessionFile,
     SessionUpdate,
+    SetUnixOffsetRequest,
 )
 from .record import SessionFileView, SessionRecord
+
+if typing.TYPE_CHECKING:
+    from ...domain.files import File
 
 
 class Session:
     """An operational time window of a Device.
 
-    A Session is a drone flight, a vehicle drive, a robot arm test run — some contiguous activity
+    A Session is a drone flight, a vehicle drive, a robot arm test run: some contiguous activity
     in the real world. It groups the recordings, logs, and other data produced during that window.
     Because a Session is bounded by the activity rather than by the recordings, it can span many
-    files or cover just a slice of one. Files participate as contributions, each optionally narrowed
-    to a sub-window of the file.
+    files or cover just a slice of one. Each file it includes can be narrowed to a sub-window of
+    that file.
 
-    The Session's aggregate bounds — ``min_timestamp_ns`` and ``max_timestamp_ns``, in Unix-epoch
-    nanoseconds — are recomputed by Roboto across all file contributions on every add or remove, and the
-    returned instance reflects the updated bounds.
+    The Session's aggregate bounds, ``min_timestamp_ns`` and ``max_timestamp_ns`` in Unix-epoch
+    nanoseconds, span every file the Session includes. Roboto recomputes them whenever the Session's
+    files or the anchors of their data change, and each method of this class that makes such a change
+    returns with the updated bounds.
 
     A Session can reference one or many devices: a single drone for a solo mission, or all of the
     drones in a formation flight. Use :py:meth:`attach_to_device` and :py:meth:`detach_from_device`
@@ -52,9 +61,11 @@ class Session:
 
     How to create a Session:
 
-    * :py:meth:`Session.create` accepts zero, one, or many devices.
-    * :py:meth:`~roboto.domain.devices.Device.create_session` is a shortcut for the common
-      single-device case.
+    * :py:meth:`Session.create` accepts zero, one, or many devices, and does not require a name.
+    * :py:meth:`~roboto.domain.devices.Device.create_session` creates one named Session on a
+      device, optionally declaring its files and topics in the same call.
+    * :py:meth:`~roboto.domain.devices.Device.create_sessions` creates many such Sessions on a
+      device in one call.
     * :py:meth:`~roboto.domain.datasets.Dataset.create_session` creates a Session for an existing
       Dataset, inferring the devices involved and pre-populating files from the Dataset.
 
@@ -65,7 +76,7 @@ class Session:
 
         >>> from roboto.experimental.sessions import Session
         >>> session = Session.create(name="flight-2026-04-23-001", device_ids=["robot-abc"])
-        >>> session = session.add_file("fl_0123456789abcdef")
+        >>> session.add_file("fl_0123456789abcdef")
         >>> for topic in session.list_topics():
         ...     print(topic.name)
     """
@@ -87,8 +98,10 @@ class Session:
     ) -> "Session":
         """Create a new Session, optionally associating it with one or more devices.
 
-        Prefer :py:meth:`~roboto.domain.devices.Device.create_session` for the common single-device
-        case. To add devices to an existing Session later, see :py:meth:`attach_to_device`.
+        Every call creates a new Session. For the common single-device case, prefer
+        :py:meth:`~roboto.domain.devices.Device.create_session`, which identifies the Session by
+        name so a resend converges on the Session it already created. To add devices to an existing
+        Session later, see :py:meth:`attach_to_device`.
 
         Args:
             name: Optional short name for the Session (max 120 characters).
@@ -108,6 +121,10 @@ class Session:
 
         Returns:
             The created Session.
+
+        Raises:
+            RobotoNotFoundException: A device in ``device_ids`` does not exist in the caller's org. No Session is
+                created.
 
         Examples:
             >>> from roboto.experimental.sessions import Session
@@ -259,6 +276,11 @@ class Session:
         return self.__record.created
 
     @property
+    def created_by(self) -> str:
+        """Identifier of the user or service which created this Session."""
+        return self.__record.created_by
+
+    @property
     def custom_fields(self) -> dict[str, typing.Any]:
         """Custom-field values defined on Sessions in this org.
 
@@ -272,20 +294,16 @@ class Session:
         return self.__record.custom_fields
 
     @property
-    def created_by(self) -> str:
-        """Identifier of the user or service which created this Session."""
-        return self.__record.created_by
-
-    @property
     def description(self) -> typing.Optional[str]:
         """Optional description of this Session."""
         return self.__record.description
 
     @property
     def max_timestamp_ns(self) -> typing.Optional[int]:
-        """Upper aggregate bound across this Session's recording data contributions, in Unix-epoch nanoseconds.
+        """Latest time covered by this Session, in Unix-epoch nanoseconds.
 
-        ``None`` when the Session has no contributions.
+        ``None`` while the Session includes no files, or only files added without a time window whose topic
+        data has no time span registered yet.
         """
         return self.__record.max_timestamp_ns
 
@@ -300,9 +318,10 @@ class Session:
 
     @property
     def min_timestamp_ns(self) -> typing.Optional[int]:
-        """Lower aggregate bound across this Session's recording data contributions, in Unix-epoch nanoseconds.
+        """Earliest time covered by this Session, in Unix-epoch nanoseconds.
 
-        ``None`` when the Session has no contributions.
+        ``None`` while the Session includes no files, or only files added without a time window whose topic
+        data has no time span registered yet.
         """
         return self.__record.min_timestamp_ns
 
@@ -343,23 +362,56 @@ class Session:
 
     def add_file(
         self,
-        file: typing.Union[File, str],
-        range_min_timestamp_ns: typing.Optional[int] = None,
-        range_max_timestamp_ns: typing.Optional[int] = None,
-    ) -> "Session":
-        """Include a single file in this Session as a contribution.
+        file: typing.Union["File", str],
+        data_range: typing.Optional[DataRange] = None,
+        min_file_timestamp_ns: typing.Optional[int] = None,
+        max_file_timestamp_ns: typing.Optional[int] = None,
+        anchor: typing.Optional[Time] = None,
+        topics: typing.Optional[collections.abc.Sequence[TopicDeclaration]] = None,
+    ) -> SessionFileView:
+        """Include a single file in this Session, with whatever topic data it carries.
 
-        Thin convenience over :py:meth:`add_files` for the common one-file case.
+        The singular form of :py:meth:`add_files`, taking the fields of one
+        :py:class:`~roboto.experimental.sessions.SessionFile` as separate arguments. That class documents
+        what each field means; :py:meth:`add_files` documents what the platform does with them.
 
         Args:
-            file: A :py:class:`~roboto.domain.files.File` or a raw file id.
-            range_min_timestamp_ns: Optional lower bound (Unix-epoch nanoseconds) of this file's contribution to
-                the Session. Must be paired with ``range_max_timestamp_ns``; leaving both ``None`` contributes the
-                whole file's time window.
-            range_max_timestamp_ns: Optional upper bound paired with ``range_min_timestamp_ns``.
+            file: A :py:class:`~roboto.domain.files.File` or a file ID.
+            data_range: Slice of the file this Session holds, or ``None`` for the whole file.
+            min_file_timestamp_ns: Optional lower bound of the part of the file to include, in the file's
+                own timestamps. Must be paired with ``max_file_timestamp_ns``.
+            max_file_timestamp_ns: Optional upper bound paired with ``min_file_timestamp_ns``.
+            anchor: Optional wall-clock instant at which time 0 of the data added here occurred: an ``int``
+                of nanoseconds since the Unix epoch, or any other :py:data:`~roboto.time.Time`, read as
+                :py:func:`~roboto.time.to_epoch_nanoseconds` reads it (a ``datetime`` or ISO 8601 string is
+                that instant; a ``float``, ``Decimal``, or numeric string is seconds since the epoch). Must fall
+                after the Unix epoch.
+            topics: Topics this file contributes data to, over the part of the file that carries them. Each
+                lists the files a read of its data opens in
+                :py:attr:`~roboto.experimental.ingest.TopicDeclaration.representations`.
 
         Returns:
-            This Session, refreshed from the server response.
+            The file's place in this Session, as :py:meth:`list_files` reports it.
+
+        Raises:
+            TypeError: ``anchor`` is not one of the :py:data:`~roboto.time.Time` types.
+            ValueError: ``anchor`` is a boolean, a string that is neither seconds nor ISO 8601, or a negative
+                number (an ``int``, ``float``, ``Decimal``, or numeric string); rejected client-side, before any
+                request is made.
+            OverflowError: ``anchor`` is infinite, such as ``float("inf")``; rejected client-side, before any
+                request is made.
+            pydantic.ValidationError: The arguments break a rule
+                :py:class:`~roboto.experimental.sessions.SessionFile` enforces, such as an ``anchor`` at or
+                before the Unix epoch or a time window with only one of its two bounds, or the representations
+                listed in ``topics`` name one file in two storage formats; rejected client-side, before any request
+                is made. The rules for one topic's own representations are enforced earlier, when the caller builds
+                its :py:class:`~roboto.experimental.ingest.TopicDeclaration`.
+            :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`: With the anchor covering it added, the
+                file's data or the window stated here would fall before the Unix epoch or past the largest
+                storable Unix-epoch nanosecond value, or the anchor would move a window another Session declared
+                over the same data there. Anchor the data at the instant it was recorded.
+            :py:exc:`~roboto.exceptions.RobotoDomainException`: Whatever else the platform refused this file
+                with.
 
         Examples:
             Include a whole file:
@@ -370,54 +422,80 @@ class Session:
 
             >>> session.add_file(
             ...     "fl_0123456789abcdef",
-            ...     range_min_timestamp_ns=1_700_000_000_000_000_000,
-            ...     range_max_timestamp_ns=1_700_000_060_000_000_000,
+            ...     min_file_timestamp_ns=0,
+            ...     max_file_timestamp_ns=60_000_000_000,
             ... )
         """
-        file_id = file.file_id if isinstance(file, File) else file
-        return self.add_files(
-            [
-                SessionFile(
-                    file_id=file_id,
-                    range_min_timestamp_ns=range_min_timestamp_ns,
-                    range_max_timestamp_ns=range_max_timestamp_ns,
-                )
-            ]
+        file_id = file if isinstance(file, str) else file.file_id
+        entry = SessionFile(
+            file_id=file_id,
+            data_range=data_range,
+            min_file_timestamp_ns=min_file_timestamp_ns,
+            max_file_timestamp_ns=max_file_timestamp_ns,
+            anchor_ns=None if anchor is None else to_epoch_nanoseconds(anchor),
+            topics=list(topics) if topics is not None else [],
         )
+        return self.add_files([entry]).single()
 
-    def add_files(self, files: collections.abc.Sequence[SessionFile]) -> "Session":
-        """Include the given files in this Session as contributions.
+    def add_files(self, files: collections.abc.Sequence[SessionFile]) -> BatchResponse[SessionFileView]:
+        """Include the given files in this Session, with whatever topic data they carry.
 
-        Each file may carry optional ``range_min_timestamp_ns`` / ``range_max_timestamp_ns`` bounds
-        (Unix-epoch nanoseconds) narrowing its contribution to a sub-window of the file's data.
-        The service recomputes the Session's aggregate bounds across all contributions, and the
-        Session instance reflects the new ``min_timestamp_ns`` / ``max_timestamp_ns`` on return.
+        Each entry states one file's place in this Session, in the same terms a
+        :py:class:`~roboto.experimental.sessions.SessionDeclaration` states the files of a Session declared
+        whole, so a Session composed file by file can say everything a declared one says.
+
+        The platform decides every refusal before adding anything, so an entry it refuses leaves the others
+        added, while a failure it did not anticipate, such as a timeout, adds none of them. Resending converges on
+        the same composition rather than duplicating it. The platform then recomputes this Session's aggregate
+        bounds across every file it includes, and this instance reflects the new ``min_timestamp_ns`` /
+        ``max_timestamp_ns`` on return.
 
         Args:
-            files: Files to contribute to the Session.
+            files: Files to include in the Session, each appearing exactly once and listing all of its
+                topics; :py:class:`~roboto.experimental.sessions.SessionFile` documents what one entry
+                states, including how the window it names survives re-anchoring the file. An empty
+                sequence returns an empty response without contacting the platform.
 
         Returns:
-            This Session, refreshed from the server response.
+            One element per entry, in request order, holding either the file's place in this Session or
+            why the platform refused it.
+
+        Raises:
+            pydantic.ValidationError: The sequence names a file more than once, declares more than
+                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files and topics
+                between them, or lists representations naming one file in two storage formats; rejected
+                client-side, before any request is made.
+            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: A file an entry names, or a file one of its
+                topics' representations names, does not exist in this Session's org or has a status other than
+                :py:attr:`~roboto.domain.files.FileStatus.Available`. Nothing is added.
+            :py:exc:`~roboto.exceptions.RobotoUnauthorizedException`: The caller lacks permission to manage
+                Sessions in the org that owns this Session, cannot edit a file an entry declares topics on,
+                a file it anchors, or a file a listed representation names, or lacks topic edit access in that org
+                while an entry states ``is_default_for_reads`` on a timeline source. Nothing is added.
 
         Examples:
             >>> from roboto.experimental.sessions import SessionFile
-            >>> session.add_files(
+            >>> added = session.add_files(
             ...     [
             ...         SessionFile(file_id="fl_aaa"),
             ...         SessionFile(
             ...             file_id="fl_bbb",
-            ...             range_min_timestamp_ns=1_700_000_000_000_000_000,
-            ...             range_max_timestamp_ns=1_700_000_060_000_000_000,
+            ...             min_file_timestamp_ns=0,
+            ...             max_file_timestamp_ns=60_000_000_000,
             ...         ),
             ...     ]
             ... )
+            >>> print([view.file_id for view in added.succeeded])
         """
-        record = self.__roboto_client.post(
+        if not files:
+            return BatchResponse[SessionFileView](responses=[])
+
+        added = self.__roboto_client.post(
             f"v1/sessions/id/{self.session_id}/files",
             data=AddFilesRequest(files=list(files)),
-        ).to_record(SessionRecord)
-        self.__record = record
-        return self
+        ).to_record(BatchResponse[SessionFileView])
+        self.refresh()
+        return added
 
     def attach_to_device(self, device_id: str) -> None:
         """Attach a Device to this Session as a subject.
@@ -427,6 +505,10 @@ class Session:
 
         Args:
             device_id: ID of the Device to add as a subject of this Session.
+
+        Raises:
+            RobotoNotFoundException: The Device does not exist in this Session's org, or the Session no longer
+                exists.
 
         Examples:
             >>> session.attach_to_device("wingman")
@@ -438,8 +520,56 @@ class Session:
             data=AttachToDeviceRequest(device_id=device_id),
         )
 
+    def clear_custom_field(self, name: str) -> "Session":
+        """Clear a single custom-field value on this session to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
+
+    def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> "Session":
+        """Clear multiple custom-field values on this session to ``None``."""
+        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))
+
+    def clear_unix_offset(self) -> "Session":
+        """Return this Session's data to an offset of 0.
+
+        Removes the wall-clock anchor from all of this Session's topic data, so the Session's bounds return to
+        their stored values, read as nanoseconds since the Unix epoch with nothing added.
+
+        Clearing reaches this Session's data and no more, exactly the data :py:meth:`set_unix_offset` writes.
+
+        Any anchoring state can be cleared, and repeating the call changes nothing: clearing a Session that carries
+        no anchor, or has no topic data at all, is a successful no-op, and a Session made of slices anchored at
+        several different instants is still cleared, each slice moving back by its own offset.
+
+        Returns:
+            This Session, refreshed with recomputed aggregate bounds.
+
+        Raises:
+            RobotoInvalidRequestException: Returning the data to an offset of 0 would start it, or a time range
+                declared over it, before the Unix epoch. Data starts there when its own timestamps are negative;
+                a range starts there when it begins earlier than its data's anchor.
+            RobotoConflictException: A concurrent writer added files to the Session while the clear was being
+                applied; retry the call.
+            RobotoNotFoundException: The Session no longer exists.
+            RobotoUnauthorizedException: The caller lacks permission to manage Sessions in the org that owns this
+                Session.
+
+        Examples:
+            The recomputed bounds return to the Session's stored values:
+
+            >>> session.min_timestamp_ns
+            1700000000250000000
+            >>> session = session.clear_unix_offset()
+            >>> session.min_timestamp_ns
+            250000000
+        """
+        record = self.__roboto_client.delete(
+            f"v1/sessions/id/{self.session_id}/unix-offset",
+        ).to_record(SessionRecord)
+        self.__record = record
+        return self
+
     def delete(self) -> None:
-        """Delete this Session. Its file contributions and device attachments are removed alongside it."""
+        """Delete this Session. The files it included and the devices attached to it are not deleted."""
         self.__roboto_client.delete(
             f"v1/sessions/id/{self.session_id}",
         )
@@ -470,9 +600,9 @@ class Session:
 
         Raises:
             RobotoNotFoundException: No topic with ``topic_name`` is reachable from this Session
-                (the topic is absent from the org, or exists but does not contribute within this
-                Session's window).
-            RobotoUnauthorizedException: The caller lacks view access to this Session.
+                (the topic is absent from the org, or this Session holds none of its data).
+            RobotoUnauthorizedException: The caller lacks permission to view Sessions in the org
+                that owns this Session.
 
         Examples:
             >>> topic = session.get_topic("/camera/image")
@@ -486,7 +616,7 @@ class Session:
         return Topic.from_record(
             record,
             roboto_client=self.__roboto_client,
-            session_context=SessionContext(
+            context=SessionContext(
                 session_id=self.session_id,
                 start_time=self.min_timestamp_ns,
                 end_time=self.max_timestamp_ns,
@@ -514,12 +644,13 @@ class Session:
                 break
 
     def list_files(self) -> collections.abc.Generator[SessionFileView, None, None]:
-        """Iterate this Session's file contributions, following pagination automatically.
+        """Iterate the files this Session includes, following pagination automatically.
 
         Yields:
-            :py:class:`SessionFileView` entries, each carrying the contribution's optional
-            ``range_min_timestamp_ns`` / ``range_max_timestamp_ns`` sub-window bounds plus
-            display fields of the contributing file (name, dataset, tags, size, ...).
+            :py:class:`SessionFileView` entries, each carrying the part of the file this Session holds (the
+            optional ``data_range`` slice and ``min_wall_clock_timestamp_ns`` / ``max_wall_clock_timestamp_ns``
+            window), the ``unix_epoch_offset_ns`` the platform added to reach that window, and display fields of
+            the file itself (name, dataset, tags, size, ...).
         """
         next_token: typing.Optional[str] = None
         while True:
@@ -557,9 +688,10 @@ class Session:
     def list_topics(self) -> collections.abc.Generator[Topic, None, None]:
         """Iterate the topics reachable from this Session, following pagination.
 
-        Results are range-filtered: a topic is yielded only when the Session's time window overlaps at least
-        one of the topic's timeline extents (:py:class:`~roboto.domain.topics.TimelineExtentRecord`). Results are
-        deduplicated across files and partitions, ordered by ``name`` with ``topic_id`` as a deterministic tiebreaker.
+        A topic is yielded only when this Session holds some of its data: a time span of the topic
+        (:py:class:`~roboto.domain.topics.TimelineExtentRecord`) on one of the Session's files, inside the slice
+        the Session holds of that file and overlapping the time window it holds. Each topic is yielded once however
+        many files and partitions carry it, ordered by ``name`` with ``topic_id`` as a deterministic tiebreaker.
 
         A yielded Topic is scoped to this Session's files and defaults its read window to this
         Session's aggregate bounds, so :py:meth:`~roboto.experimental.topics.Topic.get_data`
@@ -588,7 +720,7 @@ class Session:
                 yield Topic.from_record(
                     item,
                     roboto_client=self.__roboto_client,
-                    session_context=SessionContext(
+                    context=SessionContext(
                         session_id=self.session_id,
                         start_time=self.min_timestamp_ns,
                         end_time=self.max_timestamp_ns,
@@ -603,7 +735,7 @@ class Session:
         self,
         metrics: list[MetricEntry],
         device_id: typing.Union[NotSetType, typing.Optional[str]] = NotSet,
-    ) -> BulkPublishMetricsResult:
+    ) -> BatchResponse[Metric]:
         """Record metric values for this Session in a single network call.
 
         Convenience wrapper around :py:meth:`~roboto.domain.metrics.Metric.publish`
@@ -622,8 +754,9 @@ class Session:
                 zero or more than one are.
 
         Returns:
-            A :py:class:`~roboto.domain.metrics.BulkPublishMetricsResult` with
-            ``succeeded`` and ``failed`` lists.
+            One element per metric entry, in request order, holding either the
+            recorded :py:class:`~roboto.domain.metrics.Metric` or why the platform
+            refused it.
 
         Raises:
             :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`:
@@ -634,13 +767,13 @@ class Session:
             Let the server infer the device from this Session's single attached device:
 
             >>> from roboto.domain.metrics import MetricEntry
-            >>> result = session.publish_metrics(
+            >>> published = session.publish_metrics(
             ...     [
             ...         MetricEntry(name="cpu.usage_max", value=87.2),
             ...         MetricEntry(name="memory.peak_mb", value=2048.0),
             ...     ]
             ... )
-            >>> len(result.succeeded)
+            >>> len(published.succeeded)
             2
 
             Attach to an explicit device, overriding inference:
@@ -689,38 +822,69 @@ class Session:
         """
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
-    def remove_file(self, file: typing.Union[File, str]) -> "Session":
-        """Remove a single file's contributions from this Session.
+    def refresh(self) -> "Session":
+        """Re-read this Session from the platform, replacing every property backed by its record.
 
-        Thin convenience over :py:meth:`remove_files` for the common one-file case.
-
-        Args:
-            file: A :py:class:`~roboto.domain.files.File` or a file id.
-
-        Returns:
-            This Session, refreshed from the server response.
-        """
-        file_id = file.file_id if isinstance(file, File) else file
-        return self.remove_files([file_id])
-
-    def remove_files(self, file_ids: collections.abc.Sequence[str]) -> "Session":
-        """Remove the given files' contributions from this Session.
-
-        The service recomputes the Session's aggregate bounds across the remaining contributions,
-        and the Session instance reflects the new ``min_timestamp_ns`` / ``max_timestamp_ns`` on return.
-
-        Args:
-            file_ids: File IDs whose contributions should be removed.
+        Call it when something other than this instance changed the Session: the aggregate bounds
+        ``min_timestamp_ns`` and ``max_timestamp_ns`` are recomputed whenever a Session's composition or
+        anchoring changes, including by another caller.
 
         Returns:
-            This Session, refreshed from the server response.
+            This Session.
         """
-        record = self.__roboto_client.delete(
-            f"v1/sessions/id/{self.session_id}/files",
-            data=RemoveFilesRequest(file_ids=list(file_ids)),
+        self.__record = self.__roboto_client.get(
+            f"v1/sessions/id/{self.session_id}",
         ).to_record(SessionRecord)
-        self.__record = record
         return self
+
+    def remove_file(self, file: typing.Union["File", str]) -> str:
+        """Remove a single file from this Session.
+
+        The singular form of :py:meth:`remove_files`.
+
+        Args:
+            file: A :py:class:`~roboto.domain.files.File` or a file ID.
+
+        Returns:
+            The ID of the removed file.
+
+        Raises:
+            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: This Session does not hold the file.
+        """
+        file_id = file if isinstance(file, str) else file.file_id
+        return self.remove_files([file_id]).single()
+
+    def remove_files(self, files: collections.abc.Sequence[typing.Union["File", str]]) -> BatchResponse[str]:
+        """Remove the given files from this Session.
+
+        A file this Session does not hold is reported as its own element rather than failing the call, while
+        a failure the platform did not anticipate, such as a timeout, removes none of the files. The platform
+        then recomputes this Session's aggregate bounds across the files that remain, and this instance
+        reflects the new ``min_timestamp_ns`` / ``max_timestamp_ns`` on return.
+
+        Args:
+            files: Files to remove, each a :py:class:`~roboto.domain.files.File` or a file ID. An empty
+                sequence returns an empty response without contacting the platform.
+
+        Returns:
+            One element per named file, in request order, holding either its ID or why the platform
+            refused to remove it.
+
+        Raises:
+            pydantic.ValidationError: The sequence names a file more than once, or names more than
+                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files; rejected
+                client-side, before any request is made.
+        """
+        if not files:
+            return BatchResponse[str](responses=[])
+
+        file_ids = [file if isinstance(file, str) else file.file_id for file in files]
+        removed = self.__roboto_client.delete(
+            f"v1/sessions/id/{self.session_id}/files",
+            data=RemoveFilesRequest(file_ids=file_ids),
+        ).to_record(BatchResponse[str])
+        self.refresh()
+        return removed
 
     def remove_metadata(self, metadata: StrSequence) -> "Session":
         """Remove metadata keys from this Session.
@@ -750,6 +914,100 @@ class Session:
             >>> session.remove_tags(["training"])
         """
         return self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
+
+    def set_custom_field(self, name: str, value: typing.Any) -> "Session":
+        """Set a single custom-field value on this session.
+
+        ``name`` must be the name of a
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
+        field for this session's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
+        entity type; ``value`` must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
+
+    def set_custom_fields(self, fields: dict[str, typing.Any]) -> "Session":
+        """Set or overwrite multiple custom-field values on this session.
+
+        Each key must name a Ready custom field for this session's org and the
+        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
+        entity type; each value must satisfy the field's declared type.
+        """
+        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
+
+    def set_unix_offset(self, anchor: Time) -> "Session":
+        """Anchor this Session's data to wall-clock time.
+
+        ``anchor`` becomes the wall-clock instant of stored time 0 for all of this Session's topic data, and the
+        Session's aggregate bounds are recomputed to reflect it.
+
+        This write reaches this Session's data and no more. Where several Sessions share one file, each owning a
+        slice of it, it anchors the slices this Session holds and leaves the file's other slices at whatever instant
+        they were given. Data another Session also holds is shared, not copied, so that Session reads the same anchor.
+
+        An anchor exists only when a caller supplies one, either as the data is added (the ``anchor`` argument of
+        :py:meth:`add_file`, or ``anchor_ns`` on a :py:class:`~roboto.experimental.sessions.SessionFile`) or through
+        this method. Until then, the data carries an offset of 0 and its stored timestamps are read as nanoseconds
+        since the Unix epoch. Applying an anchor overwrites whatever anchor the data carried before; applying the
+        one it already carries changes nothing, so repeating the call succeeds. An anchor survives re-ingest:
+        redeclaring a slice without supplying an anchor preserves the one it already had.
+
+        Args:
+            anchor: Wall-clock instant of stored time 0: an ``int`` of nanoseconds since the Unix epoch, or any other
+                :py:data:`~roboto.time.Time`, read as :py:func:`~roboto.time.to_epoch_nanoseconds` reads it (a
+                ``datetime`` or ISO 8601 string is that instant; a ``float``, ``Decimal``, or numeric string is seconds
+                since the epoch). Must fall after the Unix epoch: zero is not an anchor (use
+                :py:meth:`clear_unix_offset` to return the Session to an offset of 0), and earlier instants are
+                rejected.
+
+        Returns:
+            This Session, refreshed with recomputed aggregate bounds.
+
+        Raises:
+            TypeError: ``anchor`` is not one of the :py:data:`~roboto.time.Time` types.
+            ValueError: ``anchor`` is a boolean, a string that is neither seconds nor ISO 8601, zero, before the Unix
+                epoch, or too large for a signed 64-bit integer of nanoseconds; rejected client-side, before any request
+                is made. A range refusal is raised as :py:exc:`pydantic.ValidationError`, a subclass of ``ValueError``.
+            OverflowError: ``anchor`` is infinite, such as ``float("inf")``; rejected client-side, before any
+                request is made.
+            RobotoInvalidRequestException: Any of three cases: the Session has no topic data to anchor; the
+                Session's own data already carries several distinct anchors, and the server will not pick one of
+                them to move everything from (anchor less than a whole Session at a time instead, either one topic
+                with :py:meth:`~roboto.experimental.topics.Topic.set_unix_offset` on a Topic from
+                :py:meth:`get_topic` or :py:meth:`list_topics`, or one whole file with
+                :py:meth:`~roboto.domain.files.File.set_timeline_offset`); or the anchor would move the Session's
+                data, or a time range declared over it, before the Unix epoch or past the largest storable
+                Unix-epoch nanosecond value; anchor the data at the instant it was recorded.
+            RobotoConflictException: A concurrent writer added files to the Session while the anchor was being
+                applied; retry the call.
+            RobotoNotFoundException: The Session no longer exists.
+            RobotoUnauthorizedException: The caller lacks permission to manage Sessions in the org that owns this
+                Session.
+
+        Examples:
+            The recomputed bounds are the offset plus the Session's stored values:
+
+            >>> session.min_timestamp_ns
+            250000000
+            >>> session = session.set_unix_offset(1_700_000_000_000_000_000)
+            >>> session.min_timestamp_ns
+            1700000000250000000
+
+            The same anchor given as a ``datetime``:
+
+            >>> import datetime
+            >>> session = session.set_unix_offset(
+            ...     datetime.datetime(2023, 11, 14, 22, 13, 20, tzinfo=datetime.timezone.utc)
+            ... )
+            >>> session.min_timestamp_ns
+            1700000000250000000
+        """
+        record = self.__roboto_client.post(
+            f"v1/sessions/id/{self.session_id}/unix-offset",
+            data=SetUnixOffsetRequest(unix_epoch_offset_ns=to_epoch_nanoseconds(anchor)),
+        ).to_record(SessionRecord)
+        self.__record = record
+        return self
 
     def update(
         self,
@@ -795,31 +1053,3 @@ class Session:
         ).to_record(SessionRecord)
         self.__record = record
         return self
-
-    def set_custom_field(self, name: str, value: typing.Any) -> "Session":
-        """Set a single custom-field value on this session.
-
-        ``name`` must be the name of a
-        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
-        field for this session's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
-        entity type; ``value`` must satisfy the field's declared type.
-        """
-        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
-
-    def clear_custom_field(self, name: str) -> "Session":
-        """Clear a single custom-field value on this session to ``None``."""
-        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
-
-    def set_custom_fields(self, fields: dict[str, typing.Any]) -> "Session":
-        """Set or overwrite multiple custom-field values on this session.
-
-        Each key must name a Ready custom field for this session's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
-        entity type; each value must satisfy the field's declared type.
-        """
-        return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
-
-    def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> "Session":
-        """Clear multiple custom-field values on this session to ``None``."""
-        return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))

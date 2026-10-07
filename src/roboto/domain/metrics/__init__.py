@@ -4,7 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from .metric import BulkPublishMetricsResult, Metric, MetricDefinition
+from .metric import Metric, MetricDefinition
 from .record import (
     MAX_METRIC_LIST_RESULTS,
     AggregateMetricsRequest,
@@ -17,9 +17,7 @@ from .record import (
     NumericAggregateMetricRecord,
     NumericAggregateMetricsResponse,
     NumericAggregation,
-    PublishMetricsError,
     PublishMetricsRequest,
-    PublishMetricsResponse,
     QueryMetricsRequest,
     UpdateMetricDefinitionRequest,
 )
@@ -30,16 +28,13 @@ __all__ = [
     "AggregationPeriod",
     "CreateMetricDefinitionRequest",
     "Metric",
-    "BulkPublishMetricsResult",
     "MetricDefinition",
     "MetricDefinitionRecord",
     "MetricEntry",
     "MetricRecord",
     "MetricTimeFilter",
     "NumericAggregation",
-    "PublishMetricsError",
     "PublishMetricsRequest",
-    "PublishMetricsResponse",
     "QueryMetricsRequest",
     "UpdateMetricDefinitionRequest",
     "NumericAggregateMetricRecord",

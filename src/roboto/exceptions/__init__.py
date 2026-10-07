@@ -36,6 +36,7 @@ from .domain import (
     RobotoThreadReadOnlyException,
     RobotoUnauthorizedException,
     RobotoUnknownOperationException,
+    RobotoUnrecognizedErrorException,
 )
 from .http import (
     ClientError,
@@ -84,4 +85,5 @@ __all__ = [
     "RobotoThreadReadOnlyException",
     "RobotoUnauthorizedException",
     "RobotoUnknownOperationException",
+    "RobotoUnrecognizedErrorException",
 ]

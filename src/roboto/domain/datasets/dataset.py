@@ -21,6 +21,7 @@ from ...association import Association
 from ...exceptions import (
     RobotoDeviceNotFoundException,
 )
+from ...experimental.ingest import MAX_FILES_AND_TOPICS_PER_REQUEST
 from ...experimental.sessions import Session, SessionFile
 from ...http import RobotoClient
 from ...logging import default_logger
@@ -666,15 +667,19 @@ class Dataset:
             >>> session = dataset.create_session("flight-2026-04-23-001")
 
         Notes:
-            Convenience wrapper around :py:meth:`Session.create` followed by
-            :py:meth:`Session.add_files`. If the file-add step fails, the
-            partially populated Session is deleted before the exception
-            propagates, so the call is safe to retry. If cleanup itself
-            fails (e.g. a transient network error), an empty Session may
-            remain; the cleanup error is logged but the original exception
-            is what the caller sees.
+            Convenience wrapper around :py:meth:`Session.create` followed by :py:meth:`Session.add_files`.
+            A dataset may hold more files than one add request accepts: the files are sent in consecutive
+            requests of at most :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` each.
+            Every file goes in or none does: if any add request fails, or the platform refuses any one file, the
+            partially populated Session is deleted before the exception propagates, so the call is safe to
+            retry. If that cleanup fails too (e.g. a transient network error), the Session is left behind
+            holding whatever files did go in; the cleanup failure is logged, and the original exception is
+            what the caller sees.
         """
-        files = list(self.list_files(include_patterns=include_patterns, exclude_patterns=exclude_patterns))
+        session_files = [
+            SessionFile(file_id=file.file_id)
+            for file in self.list_files(include_patterns=include_patterns, exclude_patterns=exclude_patterns)
+        ]
 
         session = Session.create(
             name=name,
@@ -686,19 +691,22 @@ class Dataset:
             caller_org_id=self.org_id,
             roboto_client=self.__roboto_client,
         )
-        if files:
+        try:
+            for batch_start in range(0, len(session_files), MAX_FILES_AND_TOPICS_PER_REQUEST):
+                batch = session_files[batch_start : batch_start + MAX_FILES_AND_TOPICS_PER_REQUEST]
+                add_results = session.add_files(batch)
+                if add_results.failed:
+                    raise add_results.failed[0]
+        except Exception:
             try:
-                session.add_files([SessionFile(file_id=f.file_id) for f in files])
+                session.delete()
             except Exception:
-                try:
-                    session.delete()
-                except Exception:
-                    logger.exception(
-                        "Dataset.create_session: failed to roll back Session %s after add_files error;"
-                        "the Session may exist with no files",
-                        session.session_id,
-                    )
-                raise
+                logger.exception(
+                    "Dataset.create_session: failed to roll back Session %s after add_files error; "
+                    "the Session may exist holding whichever files were added before the error",
+                    session.session_id,
+                )
+            raise
         return session
 
     def delete(self) -> None:

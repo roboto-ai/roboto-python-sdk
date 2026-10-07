@@ -10,6 +10,8 @@ import typing
 
 import pydantic
 
+from ...domain.topics.record import _INT64_MAX
+from ...time import _EpochNanosecondsFromTime
 from .record import RepresentationSelector
 
 
@@ -111,15 +113,27 @@ class RepresentationPreference(pydantic.BaseModel):
 
 
 class ReadPlanRequest(pydantic.BaseModel):
-    """The body of a read-plan request: the logical read question to resolve into a physical plan."""
+    """The body of a read-plan request: the logical read question to resolve into a physical plan.
+
+    ``session_id``, ``file_id``, ``dataset_id`` and ``device_id`` are restrictions: each limits the read to the topic's
+    data in one session, file, dataset or device. Every restriction the request names narrows the read, and
+    restrictions named together intersect.
+    """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    start_time: int
-    """Inclusive window lower bound, absolute Unix-epoch nanoseconds."""
+    start_time: typing.Optional[int] = None
+    """Inclusive window lower bound, absolute Unix-epoch nanoseconds.
 
-    end_time: int
-    """Inclusive window upper bound, absolute Unix-epoch nanoseconds."""
+    May be ``None`` only when the request names a ``file_id``, ``dataset_id`` or ``device_id``; the bound then
+    defaults to the earliest time of the topic's data within the request's restrictions, across every timeline
+    source. An explicit bound narrows the read and never widens it."""
+
+    end_time: typing.Optional[int] = None
+    """Inclusive window upper bound, absolute Unix-epoch nanoseconds.
+
+    May be ``None`` on the same terms as ``start_time``; the bound then defaults to the latest time of the topic's
+    data within the request's restrictions."""
 
     fields_include: typing.Optional[tuple[FieldAddress, ...]] = None
     """Field subtrees to project; ``None`` projects every field."""
@@ -143,12 +157,35 @@ class ReadPlanRequest(pydantic.BaseModel):
     """Timeline source to resolve partition extents with, by name, or ``None``."""
 
     session_id: typing.Optional[str] = None
-    """Restrict partition enumeration to this session's contributions; ``None`` reads org-wide."""
+    """Limits the read to the topic's data in this Session's files, each over the part of its time span the Session
+    holds; ``None`` adds no session restriction."""
+
+    file_id: typing.Optional[str] = None
+    """Limits the read to the topic's data in this file; ``None`` adds no file restriction."""
+
+    dataset_id: typing.Optional[str] = None
+    """Limits the read to the topic's data in this dataset's files; ``None`` adds no dataset restriction."""
+
+    device_id: typing.Optional[str] = None
+    """Limits the read to the topic's data in this device's files; ``None`` adds no device restriction.
+
+    A file belongs to the device it names, or, when it names none, to the device its dataset names."""
 
     @pydantic.model_validator(mode="after")
     def _window_ordered(self) -> ReadPlanRequest:
-        if self.end_time < self.start_time:
+        if self.start_time is not None and self.end_time is not None and self.end_time < self.start_time:
             raise ValueError("end_time must be greater than or equal to start_time")
+        return self
+
+    @pydantic.model_validator(mode="after")
+    def _bounds_given_or_defaultable(self) -> ReadPlanRequest:
+        names_file_dataset_or_device = (
+            self.file_id is not None or self.dataset_id is not None or self.device_id is not None
+        )
+        if (self.start_time is None or self.end_time is None) and not names_file_dataset_or_device:
+            raise ValueError(
+                "start_time and end_time are required unless the request names a file_id, dataset_id or device_id"
+            )
         return self
 
     @pydantic.model_validator(mode="after")
@@ -168,3 +205,37 @@ class ReadPlanRequest(pydantic.BaseModel):
         if self.fields_exclude is not None and not self.fields_exclude:
             raise ValueError("'fields_exclude' must name at least one subtree; pass None to drop none")
         return self
+
+
+class SetTopicUnixOffsetRequest(pydantic.BaseModel):
+    """Request body for ``POST /v2/topics/id/<topic_id>/unix-offset``.
+
+    Anchors one Session's data on one topic to wall-clock time. See
+    :py:meth:`~roboto.experimental.topics.Topic.set_unix_offset` for the write's reach.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    session_id: str
+    """Session whose data is anchored. Its files decide which of the topic's stored data the write reaches;
+    the topic's data in files outside the Session keeps the anchor it already has."""
+
+    unix_epoch_offset_ns: _EpochNanosecondsFromTime
+    """Wall-clock instant of stored time 0 for the Session's data on this topic, in nanoseconds since the Unix epoch;
+    each stored timestamp then reads as ``stored_time_ns + unix_epoch_offset_ns``. Must fall after the Unix epoch,
+    and must fit in the signed 64-bit integer the platform stores it in.
+    Also accepts any :py:data:`roboto.time.Time` at runtime, read as :py:func:`roboto.time.to_epoch_nanoseconds`
+    reads it; convert with that function first to satisfy a type checker."""
+
+    @pydantic.field_validator("unix_epoch_offset_ns")
+    @classmethod
+    def _offset_positive_and_within_int64(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError(
+                "unix_epoch_offset_ns must be positive; to return the session's data on this topic to "
+                "an offset of 0, clear its anchor instead with Topic.clear_unix_offset() "
+                "(DELETE /v2/topics/id/<topic_id>/unix-offset?session_id=<session_id>)"
+            )
+        if not 0 < value <= _INT64_MAX:
+            raise ValueError("unix_epoch_offset_ns must be a time after the Unix epoch and below 2**63 ns")
+        return value

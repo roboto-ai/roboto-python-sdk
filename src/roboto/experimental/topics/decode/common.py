@@ -112,11 +112,12 @@ class FileDecoder(abc.ABC):
     def batches(self) -> collections.abc.Iterator["pyarrow.RecordBatch"]:
         """The window's rows, in the file's stored row order; iterate it once.
 
+        A partition that declares a ``data_range`` gets only the window's rows inside that slice of the file.
         Each batch has the columns of :py:func:`~roboto.experimental.topics.batch_transforms.topic_data_schema` over
         :py:attr:`value_fields`: the row number, the timestamp, then the value columns.
         A row's number is its 0-based position among the file's rows of the topic, counting every stored row,
-        including rows outside the window and rows with a null timestamp, so a row has the same number in every file
-        of its partition.
+        including rows outside the window or the ``data_range`` and rows with a null timestamp, so a row has the same
+        number in every file of its partition.
         The timestamp is absolute: the stored value in nanoseconds plus the partition's ``time_offset_ns``.
         Batch boundaries carry no meaning.
         """
@@ -134,7 +135,7 @@ class FileDecoder(abc.ABC):
 
 
 FileDecoderOpener = typing.Callable[[ScanTaskGroup, ReadPlanPartition, TimeWindow], FileDecoder]
-"""Opens a :py:class:`FileDecoder` of a group's file for its partition and the plan's window.
+"""Opens a :py:class:`FileDecoder` of a group's file for its partition and the partition's window.
 
 The window is absolute and includes both ends. A decoder keeps the rows whose absolute timestamp lies in it.
 """

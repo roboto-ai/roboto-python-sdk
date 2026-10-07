@@ -572,6 +572,58 @@ FieldPath = tuple[str, ...]
 """A schema field's path components, in order from the schema root to the leaf."""
 
 
+_INT64_MIN = -(2**63)
+"""Smallest value the platform can store for a declared timestamp or time bound."""
+
+_INT64_MAX = 2**63 - 1
+"""Largest value the platform can store for a declared timestamp, time bound, or data-range position.
+
+The platform holds each of these scalars in a signed 64-bit integer column, so request and record
+models bound them here: an oversized value comes back to the caller as a validation error instead of
+failing once it reaches storage.
+"""
+
+
+def validate_data_range(data_range: tuple[int, int]) -> tuple[int, int]:
+    """Check that ``data_range`` is a pair of non-negative positions with ``start < end``.
+
+    Both positions must fit in a signed 64-bit integer, which is how the platform stores them.
+
+    Args:
+        data_range: The ``(start, end)`` pair to check, with ``start`` included and ``end`` excluded.
+
+    Returns:
+        ``data_range``, unchanged.
+
+    Raises:
+        ValueError: ``start`` is negative, ``end`` is not greater than ``start``, or a position is too
+            large for a signed 64-bit integer.
+    """
+    start, end = data_range
+    if start < 0 or end <= start:
+        raise ValueError(
+            "data_range must be a pair of non-negative positions with start < end "
+            f"(start is included, end is excluded), got {data_range!r}"
+        )
+    if end > _INT64_MAX:
+        raise ValueError(
+            "data_range positions must fit in a signed 64-bit integer, which is how the platform "
+            f"stores them, got {data_range!r}"
+        )
+    return data_range
+
+
+DataRange = typing.Annotated[tuple[int, int], pydantic.AfterValidator(validate_data_range)]
+"""A slice of one file's contents, as ``(start, end)`` with ``start`` included and ``end`` excluded.
+
+A position is expressed in whatever the file's format uses to address its contents: stored-row
+positions counted from 0, or nanoseconds of media time for video. The pair alone does
+not say which of the two applies, so a reader takes that from the file's format. The half-open form
+matches LeRobot's ``dataset_from_index`` and ``dataset_to_index``, so row ranges read from LeRobot
+episode metadata carry over unchanged.
+"""
+
+
 @experimental
 class SchemaFieldRecord(pydantic.BaseModel):
     """A single field within a topic schema.
@@ -636,10 +688,10 @@ class TopicSchemaRecord(pydantic.BaseModel):
 
 @experimental
 class TopicIdentityRecord(pydantic.BaseModel):
-    """A durable log-stream identity.
+    """A durable identity for a topic.
 
-    Within an organization, topic names are unique.
-    Contributions from different files with the same topic name share a single identity record.
+    Within an organization, topic names are unique:
+    data logged under the same topic name in different files shares a single identity record.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -667,13 +719,13 @@ log or publish timestamp respectively (``field_id`` is ``None``).
 
 @experimental
 class TimelineSourceRecord(pydantic.BaseModel):
-    """A registered time source for a schema.
+    """A registered timeline source for a schema.
 
-    A time source either points at a timestamp field inside the schema
+    A timeline source either points at a timestamp field inside the schema
     (``source="schema_field"``, ``field_id`` set) or at the message envelope's
     log or publish timestamp (``source`` in ``{"message_log_time", "message_publish_time"}``,
-    ``field_id`` is ``None``). Time sources are scoped to a schema, not a topic, so
-    topics that share a schema share their time sources.
+    ``field_id`` is ``None``). Timeline sources are scoped to a schema, not a topic, so
+    topics that share a schema share their timeline sources.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -684,16 +736,16 @@ class TimelineSourceRecord(pydantic.BaseModel):
     """ID of the schema field supplying timestamps. Set when ``source == "schema_field"``; otherwise ``None``."""
 
     is_default: bool = False
-    """Whether this time source is the default for its schema when no source is specified explicitly."""
+    """Whether this timeline source is the default for its schema when no source is specified explicitly."""
 
     modified: typing.Optional[datetime.datetime] = None
     modified_by: str
     name: str
-    """Human-readable label for this time source."""
+    """Human-readable label for this timeline source."""
 
     org_id: str
     schema_id: str
-    """ID of the schema this time source is registered against."""
+    """ID of the schema this timeline source is registered against."""
 
     source: TimelineSourceKind
     """
@@ -758,11 +810,11 @@ class TimelineExtentRecord(pydantic.BaseModel):
 
 @experimental
 class TopicPartitionRecord(pydantic.BaseModel):
-    """One file's contribution to a logical topic.
+    """One file's data for a topic.
 
-    Pairs a topic identity with a file and carries the per-contribution facts that vary by file:
-    the schema used (``schema_id``), device provenance, and the ``data_range`` locating the
-    contribution inside its file, for formats that pack several slices of data into one shared file.
+    Pairs a topic identity with a file and carries the facts that vary from file to file: the schema
+    the file's messages follow (``schema_id``), the device that produced them, and the ``data_range``
+    locating them inside the file, for formats that pack several slices of data into one shared file.
     A partition references a file, not a specific version; reads always resolve to the current version.
     """
 
@@ -770,21 +822,16 @@ class TopicPartitionRecord(pydantic.BaseModel):
 
     created: typing.Optional[datetime.datetime] = None
     created_by: str
-    data_range: typing.Optional[tuple[int, int]] = None
-    """The slice of the file this partition's data occupies, as ``(start, end)``, or ``None`` for
-    the whole file.
+    data_range: typing.Optional[DataRange] = None
+    """The slice of the file this partition's data occupies, as ``(start, end)``, or ``None`` for the whole file.
 
-    Values are in the file's native addressing: stored-row positions (counted from 0) for tabular
-    files, nanoseconds of media time for video. The pair does not record which addressing applies;
-    the file's format fixes it, so a reader interprets the values by the file's format. ``start`` is the
-    first covered position and ``end`` is one past the last, like a Python slice. The platform also treats
-    ``start`` as the partition's identity within its (topic, file): re-declaring a slice that begins at
-    the same place updates the existing partition rather than creating a second one overlapping it, since
-    the place a slice begins is stable across re-ingest.
+    ``start`` alone identifies the partition within its (topic, file) pair, since a slice's starting
+    position is stable across re-ingest: re-declaring a slice that begins at the same position updates
+    the existing partition instead of adding a second, overlapping one.
     """
 
     device_id: typing.Optional[str] = None
-    """ID of the device that produced this contribution, if known."""
+    """ID of the device that produced this partition's data, if known."""
 
     fs_node_id: str
     """ID of the file this partition's data lives in."""
@@ -793,23 +840,9 @@ class TopicPartitionRecord(pydantic.BaseModel):
     modified_by: str
     org_id: str
     schema_id: str
-    """ID of the schema this contribution conforms to."""
+    """ID of the schema this partition's messages follow."""
 
     topic_id: str
-    """ID of the topic identity this contribution belongs to."""
+    """ID of the topic identity this partition belongs to."""
 
     topic_part_id: str
-
-    @pydantic.field_validator("data_range")
-    @classmethod
-    def _check_data_range(cls, data_range: typing.Optional[tuple[int, int]]) -> typing.Optional[tuple[int, int]]:
-        # For tabular files the half-open convention matches LeRobot's dataset_from_index /
-        # dataset_to_index, so declarations derived from LeRobot metadata pass through unchanged.
-        if data_range is not None:
-            start, end = data_range
-            if start < 0 or end <= start:
-                raise ValueError(
-                    "data_range must be a pair of non-negative positions with start < end "
-                    f"(start is included, end is excluded), got {data_range!r}"
-                )
-        return data_range

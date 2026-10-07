@@ -88,7 +88,7 @@ class TriggerDispatchRecord(pydantic.BaseModel):
     dataset_id: typing.Optional[str] = None
     """The dataset the subject belongs to (the subject itself for a dataset event),
     which is what a dataset's page lists dispatches by. ``None`` when the subject has
-    no dataset, such as a session or an invocation."""
+    no dataset, such as an invocation."""
 
     status: TriggerDispatchStatus
     """Where this dispatch is in its lifecycle."""

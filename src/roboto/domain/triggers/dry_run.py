@@ -146,7 +146,7 @@ class TriggerDryRunRequest(pydantic.BaseModel):
 
     Provide :attr:`event` (a fully-formed platform event to evaluate) or a single
     reference (:attr:`dataset_id`, :attr:`file_id`, :attr:`invocation_id`,
-    :attr:`session_id`, :attr:`event_id`, or :attr:`scheduled_for`), from which the server synthesizes
+    :attr:`event_id`, or :attr:`scheduled_for`), from which the server synthesizes
     an event. With an entity reference, :attr:`event_type` optionally picks which of
     the trigger's subscribed event types to synthesize; the default is the trigger's
     first subscribed event type compatible with the reference. A schedule-fired
@@ -164,9 +164,6 @@ class TriggerDryRunRequest(pydantic.BaseModel):
 
     invocation_id: typing.Optional[str] = None
     """Synthesize an event about this invocation."""
-
-    session_id: typing.Optional[str] = None
-    """Synthesize an event about this session."""
 
     event_id: typing.Optional[str] = None
     """Synthesize a platform event about this event (the annotation on your data)."""
@@ -187,7 +184,6 @@ class TriggerDryRunRequest(pydantic.BaseModel):
                 self.dataset_id,
                 self.file_id,
                 self.invocation_id,
-                self.session_id,
                 self.event_id,
                 self.scheduled_for,
             )
@@ -197,14 +193,14 @@ class TriggerDryRunRequest(pydantic.BaseModel):
             if refs or self.event_type is not None:
                 raise ValueError(
                     "Provide either a full 'event' or one reference "
-                    "(dataset_id | file_id | invocation_id | session_id | event_id | scheduled_for, "
+                    "(dataset_id | file_id | invocation_id | event_id | scheduled_for, "
                     "with optional event_type), "
                     "not both."
                 )
         elif len(refs) > 1:
             raise ValueError(
-                "Provide at most one of 'event', 'dataset_id', 'file_id', 'invocation_id', 'session_id', "
-                "'event_id', or 'scheduled_for'."
+                "Provide at most one of 'event', 'dataset_id', 'file_id', 'invocation_id', 'event_id', "
+                "or 'scheduled_for'."
             )
         return self
 

@@ -30,9 +30,6 @@ class OncePer(StrEnum):
     Invocation = "invocation"
     """Fire once per action invocation."""
 
-    Session = "session"
-    """Fire once per session."""
-
     Event = "event"
     """Fire once per event, the annotation marking a span of time on your data."""
 

@@ -26,7 +26,6 @@ import pydantic
 import pydantic_core
 
 from ...association import Association
-from ...experimental.sessions import SessionRecord
 from ..actions import (
     ActionProvenance,
     ActionReference,
@@ -59,7 +58,6 @@ from ..platform_events import (
     SAMPLE_FILE_VERSION,
     SAMPLE_INVOCATION_ID,
     SAMPLE_ORG_ID,
-    SAMPLE_SESSION_ID,
     SAMPLE_TIME,
     SAMPLE_TRANSACTION_ID,
     SAMPLE_TRIGGER_ID,
@@ -163,23 +161,6 @@ def _invocation() -> InvocationRecord:
     )
 
 
-def _session() -> SessionRecord:
-    return SessionRecord(
-        session_id=SAMPLE_SESSION_ID,
-        org_id=SAMPLE_ORG_ID,
-        name="rover-07 morning shift",
-        description="All drives from rover-07's 2026-08-28 morning shift.",
-        metadata={"vehicle_id": "rover-07", "shift": "morning"},
-        tags=["nightly"],
-        min_timestamp_ns=1_787_000_000_000_000_000,
-        max_timestamp_ns=1_787_003_600_000_000_000,
-        created=SAMPLE_TIME - datetime.timedelta(hours=3),
-        created_by=SAMPLE_USER,
-        modified=SAMPLE_TIME,
-        modified_by=SAMPLE_USER,
-    )
-
-
 def _event() -> EventRecord:
     return EventRecord(
         event_id=SAMPLE_EVENT_ID,
@@ -253,8 +234,6 @@ class SampleNamespaceSource:
             return _as_json_mapping(_invocation())
         if root == "action":
             return _as_json_mapping(_invocation().provenance.action)
-        if root == "session":
-            return _as_json_mapping(_session())
         if root == "event":
             return _as_json_mapping(_event())
         if root == "upload":

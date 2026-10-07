@@ -73,7 +73,7 @@ class EventNamespace:
     the trigger and ``file.version`` is the version the file is on when the condition
     runs. That payload field is optional on ``file.uploaded``, ``file.ingested`` and
     ``file.metadata_updated``, and resolves to ``None`` on events published before the
-    payload carried it; only ``session.file_added`` always carries it.
+    payload carried it.
 
     Payload values are rendered as JSON, so a timestamp under ``envelope.data`` is an
     ISO-8601 string while ``envelope.time`` and ``schedule.scheduled_for`` are

@@ -157,3 +157,34 @@ class McpToolInfo(pydantic.BaseModel):
 
     server_id: str
     """Server this tool belongs to."""
+
+
+class McpServerOrgCredentialRecord(pydantic.BaseModel):
+    """An org-wide bearer token for an MCP server.
+
+    AI chat calls the server with this token for org members who have no working OAuth connection of
+    their own to it, and for service users (non-human callers, such as agents launched by triggers).
+    The record names the org secret that holds the token and never contains the token itself.
+    """
+
+    server_id: str
+    """Server this token authenticates against."""
+
+    org_id: str
+    """Org that owns this token."""
+
+    secret_name: str
+    """Name of the org secret holding the token. Calls to the server send its value as
+    ``Authorization: Bearer <token>``."""
+
+    created: datetime.datetime
+    """Timestamp when an org admin first set an org token for this server."""
+
+    created_by: str
+    """User who first set an org token for this server."""
+
+    modified: datetime.datetime
+    """Timestamp when an org admin last chose the secret. Changing the secret's value does not update it."""
+
+    modified_by: str
+    """User who last chose the secret."""

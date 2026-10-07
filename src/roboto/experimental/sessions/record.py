@@ -19,9 +19,10 @@ class SessionRecord(pydantic.BaseModel):
     A Session unifies the recordings and auxiliary data produced during its window;
     it may span many files or cover only a slice of one.
 
-    ``min_timestamp_ns`` and ``max_timestamp_ns`` are service-maintained aggregate bounds over the
-    Session's contributions, recomputed by the service in the same transaction as any composition
-    write (add/remove files), so the row never disagrees with its contents.
+    ``min_timestamp_ns`` and ``max_timestamp_ns`` span every file the Session holds: each file supplies the
+    time window stated for it or, without one, the time span of the data the Session takes from it. The
+    platform recomputes them in the same write as any change to the Session's files or to the anchors of
+    their data, so the row never disagrees with its contents.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -44,8 +45,9 @@ class SessionRecord(pydantic.BaseModel):
     """Optional description of the Session."""
 
     max_timestamp_ns: typing.Optional[int] = None
-    """Upper bound of the session's aggregate timestamps, in Unix-epoch nanoseconds.
-    ``None`` until the session has at least one file contribution."""
+    """Latest time covered by the Session, in Unix-epoch nanoseconds. ``None`` while none of its files
+    supplies a time: the Session holds no files, or only files added without a time window whose topic data
+    has no time span registered yet."""
 
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     """User-supplied metadata.
@@ -55,8 +57,9 @@ class SessionRecord(pydantic.BaseModel):
     """
 
     min_timestamp_ns: typing.Optional[int] = None
-    """Lower bound of the session's aggregate timestamps, in Unix-epoch nanoseconds.
-    ``None`` until the session has at least one file contribution."""
+    """Earliest time covered by the Session, in Unix-epoch nanoseconds. ``None`` while none of its files
+    supplies a time: the Session holds no files, or only files added without a time window whose topic data
+    has no time span registered yet."""
 
     modified: typing.Optional[datetime.datetime] = None
     """When the Session was last modified."""
@@ -86,25 +89,28 @@ class SessionRecord(pydantic.BaseModel):
 
 
 class SessionFileRecord(pydantic.BaseModel):
-    """Wire-format row for one file's contribution to a Session.
+    """Wire-format row for one file a Session holds, and the part of the file it holds.
 
-    Time window contract (``range_min_timestamp_ns`` and ``range_max_timestamp_ns``):
+    Time window contract (``min_wall_clock_timestamp_ns`` and ``max_wall_clock_timestamp_ns``):
 
     1. Set together or both ``None``; a window with only one bound is rejected on write.
-    2. When both are ``None``, the file contributes its whole recorded time window.
-    3. When both are set, ``range_min_timestamp_ns <= range_max_timestamp_ns``. Consumers iterating
-       session data must keep only the file's data inside the closed interval
-       ``[range_min_timestamp_ns, range_max_timestamp_ns]``.
+    2. When both are ``None``, the Session holds the file's whole recorded time window.
+    3. When both are set, ``min_wall_clock_timestamp_ns <= max_wall_clock_timestamp_ns``. Consumers
+       iterating session data must keep only the file's data inside the closed interval
+       ``[min_wall_clock_timestamp_ns, max_wall_clock_timestamp_ns]``.
     4. Values are nanoseconds since the Unix epoch, measured the same way as the parent Session's own bounds.
+       A caller states this window in the file's own timestamps, on
+       :py:class:`~roboto.experimental.sessions.SessionFile`; the platform adds the anchor covering the data
+       the window names and reports the sum here, alongside the ``unix_epoch_offset_ns`` it added.
 
     Data range contract (``data_range``):
 
-    1. ``None`` means the contribution covers the whole file.
+    1. ``None`` means the Session holds the whole file.
     2. ``(start, end)``: ``start`` is the first covered position; ``end`` is one past the last, with
-       ``0 <= start < end``. Values are in the file's own units — stored-row positions (counted from
-       0) for tabular files, nanoseconds of media time for video.
-    3. Used when one file is shared by several sessions; the range names the slice of the
-       file that belongs to this session.
+       ``0 <= start < end``. Values are in the file's own units: stored-row positions (counted from 0), or
+       nanoseconds of media time for video.
+    3. Used when one file is shared by several sessions; the range names the slice of the file that belongs
+       to this session.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -116,87 +122,98 @@ class SessionFileRecord(pydantic.BaseModel):
     """User ID or service account that added this file to the session."""
 
     data_range: typing.Optional[tuple[int, int]] = None
-    """The slice of the file covered by this contribution, as ``(start, end)`` in the file's own
-    units, or ``None`` when the contribution covers the whole file. ``start`` is the first covered
-    position; ``end`` is one past the last."""
+    """The slice of the file the Session holds, as ``(start, end)`` in the file's own units, or ``None`` when
+    it holds the whole file. ``start`` is the first covered position; ``end`` is one past the last."""
 
     fs_node_id: str
-    """Identifier of the contributing file."""
+    """Identifier of the file."""
+
+    max_wall_clock_timestamp_ns: typing.Optional[int] = None
+    """Upper bound (inclusive) of the part of the file the Session holds, in Unix-epoch nanoseconds.
+    ``None`` means the Session holds the file up to the end of its recorded time window;
+    paired with ``min_wall_clock_timestamp_ns``."""
+
+    min_wall_clock_timestamp_ns: typing.Optional[int] = None
+    """Lower bound (inclusive) of the part of the file the Session holds, in Unix-epoch nanoseconds.
+    ``None`` means the Session holds the file from the beginning of its recorded time window;
+    paired with ``max_wall_clock_timestamp_ns``."""
 
     modified: typing.Optional[datetime.datetime] = None
-    """When this file's contribution was last modified."""
+    """When this file's place in the session was last modified."""
 
     modified_by: str
-    """User ID or service account that last modified this file's contribution."""
-
-    range_max_timestamp_ns: typing.Optional[int] = None
-    """Upper bound (inclusive) of the file's contribution, in Unix-epoch nanoseconds.
-    ``None`` means the contribution extends to the end of the file's recorded time window;
-    paired with ``range_min_timestamp_ns``."""
-
-    range_min_timestamp_ns: typing.Optional[int] = None
-    """Lower bound (inclusive) of the file's contribution, in Unix-epoch nanoseconds.
-    ``None`` means the contribution starts at the beginning of the file's recorded time window;
-    paired with ``range_max_timestamp_ns``."""
+    """User ID or service account that last modified this file's place in the session."""
 
     session_id: str
-    """Identifier of the session this file contributes to."""
+    """Identifier of the session holding this file."""
+
+    unix_epoch_offset_ns: typing.Optional[int] = None
+    """Wall-clock instant of stored time 0 for the file's data the Session holds, in nanoseconds since the
+    Unix epoch: what the platform added to the file's own timestamps to reach
+    ``min_wall_clock_timestamp_ns`` and ``max_wall_clock_timestamp_ns``, and what to subtract to read any
+    other instant back in the file's own timestamps. ``None`` when that data includes nothing registered,
+    and when it sits at more than one instant, which leaves no single offset to report."""
 
 
 class SessionFileView(pydantic.BaseModel):
-    """One row of the ``GET /v1/sessions/id/<session_id>/files`` response: a file's
-    contribution to a Session joined with display fields of the file itself.
+    """One row of the ``GET /v1/sessions/id/<session_id>/files`` response: a file's place in a Session joined
+    with display fields of the file itself.
 
-    The contribution fields (``file_id`` plus the optional time window,
-    ``range_min_timestamp_ns`` / ``range_max_timestamp_ns`` in Unix-epoch
-    nanoseconds, and the optional ``data_range`` slice, both under
-    the contracts documented on :py:class:`SessionFileRecord`) come from the
-    session's composition; every other field is a read-only projection the
-    service resolves from the file row at listing time. The projected fields describe the file — e.g.
-    ``created`` is when the file was created, not when it joined the session —
-    and are never part of a write.
+    These fields come from the session's composition: ``file_id``, the optional time window
+    ``min_wall_clock_timestamp_ns`` / ``max_wall_clock_timestamp_ns`` in Unix-epoch nanoseconds, the optional
+    ``data_range`` slice (the window and the slice both under the contracts documented on
+    :py:class:`SessionFileRecord`), and the ``unix_epoch_offset_ns`` the platform added to reach that window.
+    Every other field is read from the file itself when the files are listed, and describes the file rather
+    than its place in the session: ``created`` is when the file was created, not when it joined the session.
+    None of those fields is part of a write.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     created: typing.Optional[datetime.datetime] = None
-    """When the contributing file was created."""
+    """When the file was created."""
 
     data_range: typing.Optional[tuple[int, int]] = None
-    """The slice of the file covered by this contribution, as ``(start, end)`` in the file's own
-    units, or ``None`` when the contribution covers the whole file. ``start`` is the first covered
-    position; ``end`` is one past the last."""
+    """The slice of the file the Session holds, as ``(start, end)`` in the file's own units, or ``None`` when
+    it holds the whole file. ``start`` is the first covered position; ``end`` is one past the last."""
 
     dataset_id: typing.Optional[str] = None
-    """ID of the dataset that contains the contributing file."""
+    """ID of the dataset that contains the file."""
 
     file_id: str
-    """Stable, unique identifier of the contributing file."""
+    """Stable, unique identifier of the file."""
+
+    max_wall_clock_timestamp_ns: typing.Optional[int] = None
+    """Upper bound (inclusive) of the part of the file the Session holds, in Unix-epoch nanoseconds.
+    ``None`` means the Session holds the file up to the end of its recorded time window;
+    paired with ``min_wall_clock_timestamp_ns``."""
+
+    min_wall_clock_timestamp_ns: typing.Optional[int] = None
+    """Lower bound (inclusive) of the part of the file the Session holds, in Unix-epoch nanoseconds.
+    ``None`` means the Session holds the file from the beginning of its recorded time window;
+    paired with ``max_wall_clock_timestamp_ns``."""
 
     modified: typing.Optional[datetime.datetime] = None
-    """When the contributing file was last modified."""
+    """When the file was last modified."""
 
     name: typing.Optional[str] = None
-    """Filename of the contributing file (the final segment of ``relative_path``)."""
+    """Name of the file (the final segment of ``relative_path``)."""
 
     origination: typing.Optional[str] = None
-    """Provenance of the contributing file, e.g. an invocation id or upload source."""
-
-    range_max_timestamp_ns: typing.Optional[int] = None
-    """Upper bound (inclusive) of the file's contribution, in Unix-epoch nanoseconds.
-    ``None`` means the contribution extends to the end of the file's recorded time window;
-    paired with ``range_min_timestamp_ns``."""
-
-    range_min_timestamp_ns: typing.Optional[int] = None
-    """Lower bound (inclusive) of the file's contribution, in Unix-epoch nanoseconds.
-    ``None`` means the contribution starts at the beginning of the file's recorded time window;
-    paired with ``range_max_timestamp_ns``."""
+    """Provenance of the file, e.g. an invocation id or upload source."""
 
     relative_path: typing.Optional[str] = None
-    """Path of the contributing file within its dataset."""
+    """Path of the file within its dataset."""
 
     size: typing.Optional[int] = None
-    """Size of the contributing file in bytes."""
+    """Size of the file in bytes."""
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """Tags on the contributing file."""
+    """Tags on the file."""
+
+    unix_epoch_offset_ns: typing.Optional[int] = None
+    """Wall-clock instant of stored time 0 for the file's data the Session holds, in nanoseconds since the
+    Unix epoch: what the platform added to the file's own timestamps to reach
+    ``min_wall_clock_timestamp_ns`` and ``max_wall_clock_timestamp_ns``, and what to subtract to read any
+    other instant back in the file's own timestamps. ``None`` when that data includes nothing registered,
+    and when it sits at more than one instant, which leaves no single offset to report."""

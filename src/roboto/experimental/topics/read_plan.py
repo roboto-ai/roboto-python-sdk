@@ -11,7 +11,7 @@ import typing
 import pydantic
 
 from ...domain.topics import RepresentationStorageFormat, TimelineSourceKind
-from ...domain.topics.record import FieldPath
+from ...domain.topics.record import DataRange, FieldPath
 from ...time import TimeUnit
 
 PLAN_VERSION: int = 1
@@ -24,7 +24,10 @@ misreading a newer plan.
 
 
 class TimeWindow(pydantic.BaseModel):
-    """A closed time window in absolute nanoseconds since the Unix epoch; both bounds inclusive."""
+    """A closed time window in absolute nanoseconds since the Unix epoch; both bounds inclusive.
+
+    The same shape serves the window a plan resolves over and the window each partition's rows are selected in.
+    """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -86,8 +89,8 @@ class ReadPlanTimestamp(pydantic.BaseModel):
     """Time unit of the designated field's stored values (a :py:class:`~roboto.time.TimeUnit` value, e.g. ``"ms"``).
 
     Only meaningful for a ``"schema_field"`` source, and only set when the schema declares the
-    field's unit. ``None`` when the schema does not record one;
-    a consumer then treats non-self-describing values as nanoseconds, matching how the plan's extents are recorded.
+    field's unit. ``None`` when the schema does not record one; a consumer then treats
+    non-self-describing values as nanoseconds, the unit the plan's windows and offsets are recorded in.
     Envelope-derived timestamps (message log/publish time) are always assumed nanoseconds.
     """
 
@@ -95,12 +98,14 @@ class ReadPlanTimestamp(pydantic.BaseModel):
     @classmethod
     def _unit_is_well_known(cls, unit: typing.Optional[str]) -> typing.Optional[str]:
         # Reject a malformed unit at the wire boundary, not later in the decode-side TimeUnit(unit)
-        # call. None stays valid: it means the schema records no unit.
-        if unit is not None and unit not in TimeUnit:
-            accepted = ", ".join(repr(member.value) for member in TimeUnit)
-            raise ValueError(f"unit {unit!r} is not a recognized TimeUnit; expected one of {accepted}")
+        # call. None stays valid: it means the schema records no unit. Membership is checked against
+        # the enum's values because `unit in TimeUnit` raises TypeError for a non-member before
+        # Python 3.12, and this package supports Python 3.10 and up.
+        if unit is None or unit in {member.value for member in TimeUnit}:
+            return unit
 
-        return unit
+        accepted = ", ".join(repr(member.value) for member in TimeUnit)
+        raise ValueError(f"unit {unit!r} is not a recognized TimeUnit; expected one of {accepted}")
 
     @pydantic.model_validator(mode="after")
     def _field_iff_schema_field(self) -> ReadPlanTimestamp:
@@ -160,24 +165,6 @@ class ReadPlanProjection(pydantic.BaseModel):
         return {"fields": list(serialized["fields"])}
 
 
-class ReadPlanExtent(pydantic.BaseModel):
-    """A partition's time bounds, clipped to the plan window."""
-
-    model_config = pydantic.ConfigDict(frozen=True)
-
-    min: int
-    """Inclusive lower bound, in absolute Unix-epoch nanoseconds."""
-
-    max: int
-    """Inclusive upper bound, in absolute Unix-epoch nanoseconds."""
-
-    @pydantic.model_validator(mode="after")
-    def _bounds_ordered(self) -> ReadPlanExtent:
-        if self.max < self.min:
-            raise ValueError("max must be greater than or equal to min")
-        return self
-
-
 class ReadPlanObjectRef(pydantic.BaseModel):
     """Points to the file backing a scan task. A consumer fetches the file's bytes from it."""
 
@@ -235,11 +222,41 @@ class ReadPlanPartition(pydantic.BaseModel):
     time_offset_ns: int
     """Offset a consumer adds to each decoded row timestamp; the same for every row in the partition."""
 
-    extent: ReadPlanExtent
-    """The partition's time bounds, clipped to the window."""
+    window: TimeWindow
+    """The window this partition's rows are selected in, in absolute Unix-epoch nanoseconds.
+
+    A consumer keeps only the rows whose stored timestamp, once ``time_offset_ns`` is added, falls inside
+    this window, inclusive on both ends. It is the only time filter a read applies.
+
+    It is the caller's window intersected with the part of this partition's backing file the read is
+    scoped to, so it can be narrower than :py:attr:`ReadPlan.window`: a read scoped to a Session narrows
+    it when the Session holds that file over only part of the file's time span. The narrowing is stated
+    per file, so every partition backed by one file carries the same window;
+    :py:attr:`ReadPlanPartition.data_range` separates the partitions packed into one file.
+    """
 
     timestamp: ReadPlanTimestamp
     """Where this partition's row timestamps come from."""
+
+    data_range: typing.Optional[DataRange] = None
+    """The slice of the file this partition owns, as ``(start, end)``, or ``None`` for the whole file.
+
+    ``start`` is the first owned position and ``end`` is one past the last, like a Python slice.
+    Positions are in the addressing native to the file the slice was declared against: stored-row
+    positions counted from 0, or nanoseconds of media time for video. Any slice a
+    consumer decodes is a range of stored rows.
+
+    A slice appears when one file packs several partitions' data (a LeRobot v3 data file, for
+    example). Each of those partitions carries its own ``time_offset_ns`` and may cover the same
+    instants as the partitions beside it in the file, so time alone cannot separate its rows from
+    theirs. Restrict each scan task's decode to this slice before filtering by time, or the read
+    returns the neighboring partitions' rows too.
+
+    A scan task may name a transformed representation of the file the slice was declared against
+    (see :py:attr:`ReadPlanScanTask.transformations`) rather than that file itself. The slice still
+    applies unchanged: a partition that owns a slice is served only by representations holding the
+    same content at the same positions.
+    """
 
     scan_tasks: tuple[ReadPlanScanTask, ...] = ()
     """The files to read for this partition; empty when the partition has no readable data.
@@ -260,14 +277,22 @@ class ReadPlan(pydantic.BaseModel):
     topic_id: str
     """The topic this plan reads."""
 
-    window: TimeWindow
-    """The time window the plan resolves over."""
+    window: typing.Optional[TimeWindow]
+    """The time window the caller asked to read, which the plan was resolved over.
+
+    A consumer selects rows by each partition's :py:attr:`ReadPlanPartition.window` alone, which can be
+    narrower than this one.
+
+    ``None`` only when the request omitted a bound and either its restrictions select no timestamped data for the
+    topic, or the bound it gave lies past the far end of that data (a start after the data ends, or an end before it
+    begins); the plan then has no partitions.
+    """
 
     schema_: typing.Optional[ReadPlanSchemaRef] = pydantic.Field(default=None, alias="schema")
     """The schema the plan reads under. Serializes as ``schema``.
 
-    ``None`` when no partition of the topic lies in the window (within the session, when the request names one),
-    and the plan then has no partitions. A plan that names a schema may also have no partitions.
+    ``None`` when no partition of the topic lies in the window (within the request's restrictions), and the plan then
+    has no partitions. A plan that names a schema may also have no partitions.
     """
 
     projection: ReadPlanProjection
@@ -276,7 +301,9 @@ class ReadPlan(pydantic.BaseModel):
     partitions: tuple[ReadPlanPartition, ...] = ()
     """One entry per partition in the window, each its own fetch-and-interpret plan.
 
-    Ordered by where each file's data begins. This orders whole partitions, not rows.
+    Ordered by when each file's data begins. Partitions backed by the same file are contiguous in this
+    tuple, ordered by where their ``data_range`` slice starts in that file, so they arrive in the order
+    their data sits in it. This orders whole partitions, not rows.
     """
 
     @pydantic.field_validator("plan_version")
@@ -285,6 +312,12 @@ class ReadPlan(pydantic.BaseModel):
         if plan_version != PLAN_VERSION:
             raise ValueError(f"unrecognized plan_version {plan_version}; this consumer understands {PLAN_VERSION}")
         return plan_version
+
+    @pydantic.model_validator(mode="after")
+    def _partitions_have_a_window(self) -> ReadPlan:
+        if self.window is None and self.partitions:
+            raise ValueError("a plan with partitions must have a window")
+        return self
 
     @pydantic.model_serializer(mode="wrap")
     def _schema_under_alias(self, handler: pydantic.SerializerFunctionWrapHandler) -> dict[str, typing.Any]:

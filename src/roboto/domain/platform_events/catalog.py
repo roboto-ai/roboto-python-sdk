@@ -28,9 +28,6 @@ from .events import (
     PlatformEvent,
     PlatformEventType,
     ScheduleFiredPayload,
-    SessionCreatedPayload,
-    SessionFileAddedPayload,
-    SessionUpdatedPayload,
     UploadCompletedPayload,
 )
 from .once_per import OncePer
@@ -101,10 +98,6 @@ def _invocation_id(event: PlatformEvent) -> str:
     return _subject_id(event, "invocation_id")
 
 
-def _session_id(event: PlatformEvent) -> str:
-    return _subject_id(event, "session_id")
-
-
 def _annotation_event_id(event: PlatformEvent) -> str:
     return _subject_id(event, "event_id")
 
@@ -152,8 +145,7 @@ class PlatformEventDescriptor:
     """The kind of entity this event is about — its CloudEvents ``subject``. The payload
     carries that entity's id under ``{subject_type}_id``, and may say more about it, such
     as the version a file was at. The rest is context around the entity: the upload
-    transaction a file arrived in, the session a file was added to, the applied
-    changeset."""
+    transaction a file arrived in, or the applied changeset."""
 
     subscribable: bool = True
     """Whether a trigger may name this type in an
@@ -396,52 +388,6 @@ DEFAULT_PLATFORM_EVENT_CATALOG = PlatformEventCatalog(
                 OncePer.Invocation: _invocation_id,
             },
             subject_type=RobotoUriType.Invocation,
-        ),
-        PlatformEventDescriptor(
-            event_type=PlatformEventType.SessionCreated,
-            payload_model=SessionCreatedPayload,
-            exposed_roots=frozenset({"session"}),
-            default_root="session",
-            once_per_projections={
-                OncePer.Occurrence: _event_id,
-                OncePer.Session: _session_id,
-            },
-            subject_type=RobotoUriType.Session,
-        ),
-        PlatformEventDescriptor(
-            event_type=PlatformEventType.SessionFileAdded,
-            payload_model=SessionFileAddedPayload,
-            exposed_roots=frozenset({"session", "file", "dataset"}),
-            # The dataset, as on every other file-subject event, so an unqualified
-            # condition field means the same thing here as on file.uploaded.
-            default_root="dataset",
-            # Files are added to a session repeatedly, and both coarse grains collapse
-            # those repeats: once_per=session dispatches for the first file added to a
-            # session and drops every later one, and once_per=file keys on the file
-            # alone, so adding the same file to a second session is dropped too.
-            once_per_projections={
-                OncePer.Occurrence: _event_id,
-                OncePer.File: _file_id,
-                OncePer.Session: _session_id,
-            },
-            # About the file, as file.uploaded is, so an action target takes the added
-            # file as its input. A trigger may subscribe to both types, but only at the
-            # grains they share -- occurrence and file, since this type offers no
-            # dataset grain -- and at those grains an action target must set
-            # required_inputs for the firing file to match.
-            subject_type=RobotoUriType.File,
-        ),
-        PlatformEventDescriptor(
-            event_type=PlatformEventType.SessionUpdated,
-            payload_model=SessionUpdatedPayload,
-            exposed_roots=frozenset({"session", "changed", "tag"}),
-            default_root="session",
-            # A session is updated repeatedly; a per-session grain would fire once and
-            # swallow every later update.
-            once_per_projections={
-                OncePer.Occurrence: _event_id,
-            },
-            subject_type=RobotoUriType.Session,
         ),
         PlatformEventDescriptor(
             event_type=PlatformEventType.EventCreated,

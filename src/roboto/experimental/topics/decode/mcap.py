@@ -41,8 +41,9 @@ class McapFileDecoder(FileDecoder):
     """Decodes one MCAP file of a partition through a cursor of the ``mcap_codec`` Rust extension.
 
     The cursor reads the MCAP channel on the group's topic, or the file's only channel when the group names no topic.
-    The codec reads the fields the group supplies, shifts each timestamp by the partition's ``time_offset_ns``,
-    and keeps the rows in the window.
+    The codec reads the fields the group supplies, keeps only the rows at the positions of the partition's
+    ``data_range`` when it has one, shifts each timestamp by the partition's ``time_offset_ns``, and keeps the rows in
+    the window.
     The cursor reads the file's summary when it opens, then only the chunks that hold the topic's messages
     (for a log-time timestamp, only those whose log times can fall in the window), all downloaded before the first
     batch is decoded.
@@ -65,14 +66,15 @@ class McapFileDecoder(FileDecoder):
         Args:
             group: The scan tasks that read the file, and the fields they supply.
             partition: The partition the file belongs to.
-            window: The plan's absolute window, both ends included.
+            window: The partition's absolute window, both ends included.
             params: How to reach the file.
 
         Raises:
             RobotoReadPlanExecutionException: With kind ``unsupported-timestamp`` for a timestamp kind other than a
                 message log time, message publish time or schema field, a schema field with no path, or a plan unit
-                other than s, ms, us or ns; with kind ``field-not-in-file`` for a supplied field or the timestamp field
-                that the file lacks.
+                other than s, ms, us or ns; then with kind ``field-not-in-file`` for a supplied field or the timestamp
+                field that the file lacks; then with kind ``data-range-not-in-file`` for a ``data_range`` that ends
+                past the topic's messages in the file, with the :py:class:`mcap_codec.CodecError` as its ``__cause__``.
             RobotoInternalException: The codec cannot open the file. Its ``__cause__`` is the
                 :py:class:`mcap_codec.CodecError`, whose ``code`` is for example ``unknown_channel``,
                 ``ambiguous_channel``, ``unsupported_mcap_layout`` or ``unsupported_encoding``.
@@ -99,13 +101,14 @@ class McapFileDecoder(FileDecoder):
                 projection=_projection(group.supplies),
                 channel=mcap_codec.TopicName(group.topic_name) if group.topic_name is not None else None,
                 time_window=(window.start, window.end),
+                row_number_range=partition.data_range,
                 timestamp_offset_ns=partition.time_offset_ns,
                 timestamp_column_base=TIMESTAMP_FIELD_NAME,
                 row_number_column_base=ROW_NUMBER_FIELD_NAME,
             )
         except mcap_codec.CodecError as exc:
             self.__http_reader.close()
-            raise self.__read_error(exc) from exc
+            raise self.__open_error(exc) from exc
         except BaseException:
             self.__http_reader.close()
             raise
@@ -150,6 +153,23 @@ class McapFileDecoder(FileDecoder):
             fields = typing.cast("pyarrow.StructType", field.type)
             names = [child.name for child in fields]
         return names
+
+    def __open_error(self, exc: "mcap_codec.CodecError") -> Exception:
+        """The read's exception for a failure of the codec to open the file."""
+        import mcap_codec
+
+        data_range = self.__partition.data_range
+        # The plan's models refuse a window or a data_range that ends before it starts, so the one input the codec can
+        # refuse at open is a data_range ending past the topic's messages in the file.
+        if exc.code == mcap_codec.ErrorCode.INVALID_INPUT and data_range is not None:
+            start, end = data_range
+            return RobotoReadPlanExecutionException(
+                f"data_range [{start}, {end}) of topic partition {self.__partition.topic_part_id} names stored rows "
+                "beyond the topic's messages in the file; the declared slice does not match the backing file. "
+                "Please reach out to Roboto support.",
+                kind=ReadPlanExecutionErrorKind.DATA_RANGE_NOT_IN_FILE,
+            )
+        return self.__read_error(exc)
 
     def __read_error(self, exc: "mcap_codec.CodecError") -> Exception:
         """The read's exception for a failure of the codec."""

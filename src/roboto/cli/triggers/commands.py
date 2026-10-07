@@ -233,7 +233,6 @@ def dry_run(args, context: CLIContext, parser: argparse.ArgumentParser):
         dataset_id=args.dataset_id,
         file_id=args.file_id,
         invocation_id=args.invocation_id,
-        session_id=args.session_id,
         event_id=args.event_id,
         event_type=PlatformEventType(args.on) if args.on else None,
         scheduled_for=args.scheduled_for,
@@ -262,7 +261,6 @@ def dry_run_setup_parser(parser):
     subject.add_argument("--dataset-id", type=str, help="Synthesize an event about this dataset.")
     subject.add_argument("--file-id", type=str, help="Synthesize an event about this file.")
     subject.add_argument("--invocation-id", type=str, help="Synthesize an event about this invocation.")
-    subject.add_argument("--session-id", type=str, help="Synthesize an event about this session.")
     subject.add_argument("--event-id", type=str, help="Synthesize a platform event about this event.")
     subject.add_argument(
         "--scheduled-for",

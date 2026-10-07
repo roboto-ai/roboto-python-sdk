@@ -120,46 +120,6 @@
     "subject_type": "invocation",
     "subscribable": true
   },
-  "session.created": {
-    "roots": [
-      "session"
-    ],
-    "default_root": "session",
-    "once_per": [
-      "occurrence",
-      "session"
-    ],
-    "subject_type": "session",
-    "subscribable": true
-  },
-  "session.file_added": {
-    "roots": [
-      "dataset",
-      "file",
-      "session"
-    ],
-    "default_root": "dataset",
-    "once_per": [
-      "file",
-      "occurrence",
-      "session"
-    ],
-    "subject_type": "file",
-    "subscribable": true
-  },
-  "session.updated": {
-    "roots": [
-      "changed",
-      "session",
-      "tag"
-    ],
-    "default_root": "session",
-    "once_per": [
-      "occurrence"
-    ],
-    "subject_type": "session",
-    "subscribable": true
-  },
   "event.created": {
     "roots": [
       "event"

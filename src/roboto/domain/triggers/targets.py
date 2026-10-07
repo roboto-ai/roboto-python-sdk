@@ -95,7 +95,7 @@ class InvokeActionTarget(_TargetSpecBase):
 
     invocation_input: typing.Optional[InvocationInput] = None
     """Optional query-based input selection (files, topics, sessions) resolved when the
-    invocation runs, e.g. ``InvocationInput.from_session_id("{{session.session_id}}")``.
+    invocation runs, e.g. ``InvocationInput.file_query('tags CONTAINS "{{event.name}}"')``.
     The way a trigger on an event that names no dataset selects its inputs; may also
     accompany the file patterns of an event that names one."""
 

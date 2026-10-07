@@ -11,9 +11,23 @@ import urllib.parse
 
 from ...association import Association
 from ...auth.scope import ApiScope
-from ...exceptions import RobotoDomainException, RobotoNotReadyException
-from ...experimental.sessions import Session, SessionRecord
-from ...http import RobotoClient
+from ...exceptions import (
+    RobotoConflictException,
+    RobotoDomainException,
+    RobotoNotReadyException,
+)
+from ...experimental.sessions import (
+    Session,
+    SessionDeclaration,
+    SessionFile,
+    SessionRecord,
+)
+from ...experimental.sessions.operations import CreateSessionsRequest
+from ...http import (
+    BatchResponse,
+    RobotoClient,
+)
+from ...time import Time, to_epoch_nanoseconds
 from ...updates import CustomFieldChangeset, MetadataChangeset
 from ...warnings import experimental
 from ..files import FileSystem
@@ -53,8 +67,8 @@ class Device:
 
     Note:
         Devices cannot be instantiated directly through the constructor. Use the class
-        methods :py:meth:`create`, :py:meth:`from_id`, or :py:meth:`for_org` to obtain
-        Device instances.
+        methods :py:meth:`create`, :py:meth:`from_id`, :py:meth:`get_or_create`, or :py:meth:`for_org`
+        to obtain Device instances.
     """
 
     __record: DeviceRecord
@@ -240,6 +254,60 @@ class Device:
         ).to_record(DeviceRecord)
         return cls(record=record, roboto_client=roboto_client)
 
+    @classmethod
+    @experimental
+    def get_or_create(
+        cls,
+        device_id: str,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
+        tags: typing.Optional[list[str]] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
+        caller_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> "Device":
+        """Register a device, or return the existing one if ``device_id`` is already taken.
+
+        ``metadata``, ``tags``, and ``custom_fields`` are applied only by the call that registers the
+        device; a device that is already registered comes back unchanged.
+
+        Args:
+            device_id: A user-provided identifier for the device, unique within the organization.
+            metadata: Optional key-value pairs to associate with the device on first registration.
+            tags: Optional tags to associate with the device on first registration.
+            custom_fields: Optional initial values for Ready custom fields, applied on first registration.
+            caller_org_id: The organization the device belongs to. Required if the caller
+                belongs to multiple organizations.
+            roboto_client: Optional RobotoClient instance for API communication.
+
+        Returns:
+            The newly registered or pre-existing Device.
+
+        Raises:
+            RobotoUnauthorizedException: If the caller lacks permission to create devices in,
+                or read devices from, the specified organization.
+            RobotoInvalidRequestException: If the device_id is invalid or the organization
+                ID is malformed.
+            RobotoNotFoundException: If the device is deleted between the registration attempt
+                and the lookup that follows it. Those are two calls rather than one atomic
+                operation, so the race is possible, though unlikely.
+
+        Examples:
+            >>> device = Device.get_or_create(device_id="aloha_001")
+            >>> device.device_id
+            'aloha_001'
+        """
+        try:
+            return cls.create(
+                device_id=device_id,
+                metadata=metadata,
+                tags=tags,
+                custom_fields=custom_fields,
+                caller_org_id=caller_org_id,
+                roboto_client=roboto_client,
+            )
+        except RobotoConflictException:
+            return cls.from_id(device_id, roboto_client=roboto_client, org_id=caller_org_id)
+
     def __init__(self, record: DeviceRecord, roboto_client: typing.Optional[RobotoClient] = None):
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__record = record
@@ -348,31 +416,90 @@ class Device:
     @experimental
     def create_session(
         self,
-        name: typing.Optional[str] = None,
+        name: str,
         description: typing.Optional[str] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
         tags: typing.Optional[collections.abc.Sequence[str]] = None,
         custom_fields: typing.Optional[dict[str, typing.Any]] = None,
+        anchor: typing.Optional[Time] = None,
+        files: typing.Optional[collections.abc.Sequence[SessionFile]] = None,
     ) -> Session:
-        """Create a new Session on this Device.
+        """Create one Session on this Device, optionally with its files, topics, and schemas.
 
-        A Session is an operational time window of this Device. After creation, compose the Session
-        by including files with :py:meth:`Session.add_file` or :py:meth:`Session.add_files`.
+        The one-session form of :py:meth:`create_sessions`, taking a single declaration's fields as arguments
+        and sharing its semantics: the Session, its file attachments, its topics, and its time ranges are
+        created together or not at all, and every file the declaration names must already be uploaded.
+        ``name`` identifies the Session within this Device, so resending the same call is safe;
+        the platform reuses the Session already registered under that name instead of creating a second one.
+        Arguments left at their defaults are left out of the request,
+        so a call that reuses an existing Session never overwrites attributes it does not name.
+        To create a Session with no name, or one spanning several Devices,
+        use :py:meth:`~roboto.experimental.sessions.Session.create`.
+
+        A declaration the platform refuses raises here. Only :py:meth:`create_sessions` reports a refusal
+        instead of raising it, because only a batch has positions to trace refusals back to.
+
+        Declared times are stored exactly as given, in each file's own timestamps, and read as nanoseconds
+        since the Unix epoch; the platform never invents a wall-clock time. To place the Session at the
+        wall-clock time it happened, supply ``anchor``, or call
+        :py:meth:`~roboto.experimental.sessions.Session.set_unix_offset` later.
 
         Args:
-            name: Optional short name for the Session (max 120 characters).
+            name: Name of the Session, unique within this Device (max 120 characters).
             description: Optional description of the Session.
             metadata: Optional initial metadata.
                 Sessions are not filterable or sortable by ``metadata`` keys;
-                for queryable structured attributes, define a custom cield on the ``Session`` entity type.
+                for queryable structured attributes, define a custom field on the ``Session`` entity type.
             tags: Optional initial tags.
                 Sessions can be filtered by tag membership but are not sortable by tag.
             custom_fields: Optional initial values for Ready custom fields defined on
                 Sessions in this Device's org. Keys must match Ready field names; values
                 must satisfy each field's declared type.
+            anchor: Optional wall-clock anchor, the real-world instant at which the declared data's time 0
+                occurred. An ``int`` is nanoseconds since the Unix epoch; any other
+                :py:data:`~roboto.time.Time` is read as :py:func:`~roboto.time.to_epoch_nanoseconds` reads it
+                (a ``datetime`` or ISO 8601 string is that instant; a ``float``, ``Decimal``, or numeric string
+                is seconds since the epoch). It applies to every file entry that does not carry its own
+                :py:attr:`~roboto.experimental.sessions.FileDeclaration.anchor_ns`.
+            files: Files composing this Session, with the topics whose data each one carries. Every file
+                must already be uploaded, and may appear at most once. Files can also be included after
+                creation with :py:meth:`~roboto.experimental.sessions.Session.add_file` or
+                :py:meth:`~roboto.experimental.sessions.Session.add_files`.
 
         Returns:
-            The newly created Session.
+            The created Session.
+
+        Raises:
+            TypeError: If ``anchor`` is not one of the :py:data:`~roboto.time.Time` types.
+            ValueError: If ``anchor`` is a boolean, a negative number (an ``int``, ``float``, ``Decimal``, or
+                numeric string), or a string that is neither a number of seconds nor an ISO 8601 timestamp. Raised
+                before anything is sent to the platform.
+            OverflowError: If ``anchor`` is an infinite ``float``, ``Decimal``, or string, such as ``"inf"``.
+                Raised before anything is sent to the platform.
+            pydantic.ValidationError: If ``name`` is empty or longer than 120 characters, ``anchor`` does
+                not fall after the Unix epoch or is too large for a signed 64-bit integer of nanoseconds, a
+                file appears in more than one entry, ``files`` declares more than
+                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files and topics
+                combined, or representations name one file in two storage formats. Raised while the request is
+                being built, before anything is sent to the platform.
+            RobotoInvalidRequestException: If the platform refuses the declaration, either because it
+                contradicts data the platform already holds or because it carries a value the platform
+                rejects, such as a ``custom_fields`` value that does not satisfy its field's declared
+                type. No Session, file attachment, topic, or time range is created; the topic identifiers
+                and schema definitions the declaration resolved stay stored, and a resend reuses them.
+            RobotoConflictException: If something the declaration was prepared against changed while it
+                was being written. Nothing is created; resending is the fix.
+            RobotoNotFoundException: If this Device is no longer registered, the ``file_id`` of a file entry,
+                or of a representation one of its topics lists, does not name a file in this Device's
+                organization whose status is :py:attr:`~roboto.domain.files.FileStatus.Available`,
+                or the declaration names something else that does not exist, such as a ``custom_fields`` key
+                naming a custom field the organization does not define on Sessions. Nothing is created.
+            RobotoUnauthorizedException: If the caller lacks permission to create Sessions on this Device, or
+                to edit a file the declaration declares topics on, a file it anchors, or a file a listed
+                representation names, or lacks topic edit access in this Device's organization while the
+                declaration states ``is_default_for_reads`` on a timeline source.
+            RobotoUnrecognizedErrorException: If the platform refuses the declaration under an error code
+                this SDK release does not define. Carries the code and message the platform sent.
 
         Examples:
             Create a Session and add a file to it:
@@ -380,17 +507,192 @@ class Device:
             >>> device = Device.from_id("robot_001", org_id="og_abc123")
             >>> session = device.create_session(name="2024-05-01_morning_run")
             >>> session.add_file("fl_0123456789abcdef")
+
+            Create a Session placed at the wall-clock time it was recorded:
+
+            >>> import datetime
+            >>> session = device.create_session(
+            ...     name="2024-05-01_morning_run",
+            ...     anchor=datetime.datetime(2024, 5, 1, 9, 30, tzinfo=datetime.timezone.utc),
+            ... )
         """
-        return Session.create(
+        # Building the declaration out of only the supplied arguments is what keeps the rest off the wire:
+        # the request body serializes with ``exclude_unset``.
+        optional_fields: dict[str, typing.Any] = {
+            "description": description,
+            "metadata": metadata,
+            "tags": None if tags is None else list(tags),
+            "custom_fields": custom_fields,
+            "anchor_ns": None if anchor is None else to_epoch_nanoseconds(anchor),
+            "files": None if files is None else list(files),
+        }
+        declaration = SessionDeclaration(
             name=name,
-            device_ids=[self.device_id],
-            description=description,
-            metadata=metadata,
-            tags=tags,
-            custom_fields=custom_fields,
-            caller_org_id=self.org_id,
-            roboto_client=self.__roboto_client,
+            **{field: value for field, value in optional_fields.items() if value is not None},
         )
+
+        return self.create_sessions([declaration]).single()
+
+    @experimental
+    def create_sessions(
+        self,
+        sessions: collections.abc.Sequence[SessionDeclaration],
+    ) -> BatchResponse[Session]:
+        """Create many Sessions on this Device, each with its files, topics, and schemas, in one call.
+
+        Each call accepts up to :py:data:`~roboto.experimental.sessions.MAX_SESSIONS_PER_REQUEST`
+        declarations, one per Session (e.g. the episodes of a LeRobot dataset), and up to
+        :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files and topics combined,
+        counted across every declaration; split anything larger across several calls.
+        Every file a declaration names must already be uploaded;
+        :py:meth:`~roboto.domain.datasets.Dataset.upload_files` returns the file IDs it creates,
+        and files from any number of datasets may appear in one batch.
+
+        The platform decides which declarations to refuse before writing anything, then writes the rest
+        together. A declaration's Session, file attachments, topics, and time ranges are created together or
+        not at all, and a declaration the platform refuses leaves the others written as if it were absent. None
+        of the declarations is written when a failure the platform did not anticipate, such as a timeout,
+        interrupts the call, or when a Session a declaration reuses is deleted before the call completes, which
+        raises :py:class:`~roboto.exceptions.RobotoNotFoundException`. Each declaration is written as it would be
+        had the ones before it been sent as calls of their own: a later declaration anchoring data an earlier one
+        holds moves the earlier Session's time range with it. A refused declaration, or a call that fails,
+        still leaves behind the topic identifiers and schema definitions it resolved, which a resend reuses.
+
+        Check :py:attr:`~roboto.http.BatchResponse.failed` before treating the batch as done. Each entry
+        there is the :py:class:`~roboto.exceptions.RobotoDomainException` the platform refused a declaration
+        with, so ``isinstance`` tells the reasons apart; a refusal under an error code this SDK release does
+        not define arrives as :py:class:`~roboto.exceptions.RobotoUnrecognizedErrorException`.
+
+        Resending the same call is safe. This Device plus each declaration's ``name`` identifies the Session
+        the declaration creates or reuses, so a resend fills in only what is missing rather than duplicating
+        what an earlier attempt created.
+
+        Declared times are stored exactly as given, in each file's own timestamps, and read as nanoseconds
+        since the Unix epoch; the platform never invents a wall-clock time. A recording whose timestamps
+        start at 0 therefore sits at the epoch until it is anchored. To place a Session at the wall-clock
+        time it happened, supply :py:attr:`~roboto.experimental.sessions.SessionDeclaration.anchor_ns`, or
+        call :py:meth:`~roboto.experimental.sessions.Session.set_unix_offset` later.
+
+        Args:
+            sessions: One declaration per Session to create. An empty sequence returns an empty response
+                without contacting the platform.
+
+        Returns:
+            A :py:class:`~roboto.http.BatchResponse` with one element per declaration, in request order,
+            holding either the Session the declaration created or why the platform refused it. A declaration
+            naming a Session this Device already holds yields that Session rather than a second one.
+
+        Raises:
+            pydantic.ValidationError: If more than
+                :py:data:`~roboto.experimental.sessions.MAX_SESSIONS_PER_REQUEST` declarations are given, the
+                batch declares more than
+                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files and topics
+                combined, the same session name is declared more than once, or representations name one file
+                in two storage formats. All are enforced when the request body is constructed, before
+                anything is sent to the platform.
+            RobotoInvalidRequestException: If the batch is malformed. Nothing is created.
+            RobotoNotFoundException: If this Device is no longer registered, the ``file_id`` of a file entry,
+                or of a representation one of its topics lists, does not name a file in this Device's
+                organization whose status is :py:attr:`~roboto.domain.files.FileStatus.Available`,
+                or a Session a declaration reuses is deleted before the call completes. Nothing is created.
+            RobotoUnauthorizedException: If the caller lacks permission to create Sessions on this Device, or
+                to edit a file a declaration declares topics on, a file it anchors, or a file a listed
+                representation names, or lacks topic edit access in this Device's organization while a
+                declaration states ``is_default_for_reads`` on a timeline source.
+
+        Examples:
+            Register two chunks of one recording as a single Session, each chunk's topic data read from the
+            chunk itself:
+
+            >>> import pathlib
+            >>> from roboto.domain.datasets import Dataset
+            >>> from roboto.domain.devices import Device
+            >>> from roboto.domain.topics import CanonicalDataType, RepresentationStorageFormat
+            >>> from roboto.experimental.ingest import (
+            ...     Field,
+            ...     McapLogTimeSource,
+            ...     RepresentationDeclaration,
+            ...     Schema,
+            ...     TopicDeclaration,
+            ... )
+            >>> from roboto.experimental.sessions import SessionDeclaration, SessionFile
+            >>> imu_schema = Schema(
+            ...     name="sensor_msgs/msg/Imu",
+            ...     fields=[
+            ...         Field(
+            ...             name="angular_velocity_x",
+            ...             data_type="float64",
+            ...             canonical_data_type=CanonicalDataType.Number,
+            ...         ),
+            ...     ],
+            ... )
+            >>> dataset = Dataset.from_id("ds_0123456789ab")
+            >>> device = Device.from_id("robot_001")
+            >>> chunks = [pathlib.Path("recording/chunk_0000.mcap"), pathlib.Path("recording/chunk_0001.mcap")]
+            >>> file_ids = dataset.upload_files(chunks)
+            >>> batch = device.create_sessions(
+            ...     [
+            ...         SessionDeclaration(
+            ...             name="morning_drive",
+            ...             files=[
+            ...                 SessionFile(
+            ...                     file_id=file_ids[chunks[0]],
+            ...                     topics=[
+            ...                         TopicDeclaration(
+            ...                             topic_name="/imu",
+            ...                             topic_schema=imu_schema,
+            ...                             timeline_sources=[
+            ...                                 McapLogTimeSource(
+            ...                                     min_file_timestamp_ns=1_785_974_400_000_000_000,
+            ...                                     max_file_timestamp_ns=1_785_974_404_000_000_000,
+            ...                                 ),
+            ...                             ],
+            ...                             representations=[
+            ...                                 RepresentationDeclaration(
+            ...                                     file_id=file_ids[chunks[0]],
+            ...                                     storage_format=RepresentationStorageFormat.MCAP,
+            ...                                 ),
+            ...                             ],
+            ...                         ),
+            ...                     ],
+            ...                 ),
+            ...                 SessionFile(
+            ...                     file_id=file_ids[chunks[1]],
+            ...                     topics=[
+            ...                         TopicDeclaration(
+            ...                             topic_name="/imu",
+            ...                             topic_schema=imu_schema,
+            ...                             timeline_sources=[
+            ...                                 McapLogTimeSource(
+            ...                                     min_file_timestamp_ns=1_785_974_404_000_000_000,
+            ...                                     max_file_timestamp_ns=1_785_974_408_000_000_000,
+            ...                                 ),
+            ...                             ],
+            ...                             representations=[
+            ...                                 RepresentationDeclaration(
+            ...                                     file_id=file_ids[chunks[1]],
+            ...                                     storage_format=RepresentationStorageFormat.MCAP,
+            ...                                 ),
+            ...                             ],
+            ...                         ),
+            ...                     ],
+            ...                 ),
+            ...             ],
+            ...         ),
+            ...     ],
+            ... )
+            >>> batch.failed
+            []
+        """
+        if not sessions:
+            return BatchResponse[Session](responses=[])
+
+        record_batch = self.__roboto_client.post(
+            f"v1/devices/id/{self.encoded_device_id}/sessions",
+            data=CreateSessionsRequest(sessions=list(sessions)),
+            owner_org_id=self.org_id,
+        ).to_record(BatchResponse[SessionRecord])
+        return record_batch.map_data(lambda record: Session(record, roboto_client=self.__roboto_client))
 
     def create_token(
         self,

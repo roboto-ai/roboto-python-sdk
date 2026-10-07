@@ -17,6 +17,8 @@ import pydantic
 
 from roboto.exceptions import (
     RobotoDomainException,
+    RobotoInternalException,
+    RobotoUnrecognizedErrorException,
 )
 
 from ..collection_utils import get_by_path
@@ -25,6 +27,7 @@ from ..logging import default_logger
 logger = default_logger()
 
 Model = typing.TypeVar("Model")
+MappedModel = typing.TypeVar("MappedModel")
 PydanticModel = typing.TypeVar("PydanticModel", bound=pydantic.BaseModel)
 
 DEFAULT_RESPONSE_JSONPATH = ("data",)
@@ -32,21 +35,74 @@ DEFAULT_RESPONSE_JSONPATH = ("data",)
 
 class BatchResponseElement(pydantic.BaseModel, typing.Generic[Model]):
     """
-    One element of a response to a batch request. This should only ever have data set (in case of a successful
-    operation) or error set (in case of a failed operation). For operations that do not return a response, an empty
-    (data = None, error = None) Batch Response Element will be effectively equivalent to a single requests 204 No
-    Content
+    One element of a response to a batch request, holding ``data`` when the operation succeeded and ``error`` when
+    it failed, never both. An element holding neither reports an operation that returns no content, the batch
+    equivalent of a 204 answer to a singular call.
     """
+
+    # ``Model`` is parametrized over domain classes such as Session (see :py:meth:`BatchResponse.map_data`), and those
+    # are plain classes rather than pydantic models. Pydantic cannot derive a schema for one, so without this it
+    # refuses the parametrization itself, before any response is parsed.
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
     data: typing.Optional[Model] = None
     error: typing.Optional[RobotoDomainException] = None
 
-    @pydantic.field_validator("error", mode="before")
-    def validate_error(cls, value: str) -> typing.Optional[RobotoDomainException]:
+    @pydantic.field_validator("error", mode="plain")
+    def validate_error(cls, value: typing.Any) -> typing.Optional[RobotoDomainException]:
+        """Build the exception an element was refused with, in whichever form the failure arrived.
+
+        Three forms reach this: an exception object, which is what an element copied from another batch
+        carries; the envelope :py:meth:`RobotoDomainException.to_dict` produces; and that envelope as JSON
+        text, which is what :py:class:`~roboto.exceptions.RobotoDomainException` declares to pydantic. Only a
+        literal ``None`` yields ``None``, which is how an element the platform applied or answered with no
+        content arrives.
+
+        Any other value is a refusal, whatever shape it has. An envelope naming an exception class this
+        release does not define, one missing its code or message, JSON that is not an envelope, and text
+        that is not JSON all read as a :py:class:`~roboto.exceptions.RobotoUnrecognizedErrorException`
+        carrying whatever code and message could be recovered, with the value's own text as the message when
+        no message could be. That way a refused element is always in :py:attr:`BatchResponse.failed`, so a
+        caller checking ``failed`` before treating a batch as done cannot mistake a garbled refusal for
+        success.
+
+        ``plain`` mode replaces the validation the ``error`` annotation would otherwise apply. That
+        annotation reads JSON text, so it would reject the exception object returned here.
+        """
+        if value is None or isinstance(value, RobotoDomainException):
+            return value
+
+        if isinstance(value, (str, bytes, bytearray)):
+            raw_text = value if isinstance(value, str) else value.decode(errors="replace")
+            try:
+                envelope = json.loads(value)
+            except ValueError:
+                return RobotoUnrecognizedErrorException(message=raw_text)
+        else:
+            raw_text = repr(value)
+            envelope = value
+
+        if not isinstance(envelope, dict):
+            return RobotoUnrecognizedErrorException(message=raw_text)
+
+        # from_json raises ValueError on a code no class in this release matches or an envelope missing its
+        # code or message, and TypeError on an envelope field the matched class's constructor rejects. Every
+        # exception is swallowed: letting one escape a validator fails the parse of the whole batch, hiding
+        # the platform's refusal of this one element behind a pydantic error.
         try:
-            return RobotoDomainException.from_json(json.loads(value))
+            return RobotoDomainException.from_json(envelope)
         except Exception:
-            return None
+            pass
+
+        error = envelope.get("error")
+        if not isinstance(error, dict):
+            error = {}
+
+        error_code, message = error.get("error_code"), error.get("message")
+        return RobotoUnrecognizedErrorException(
+            message=message if isinstance(message, str) else raw_text,
+            error_code=error_code if isinstance(error_code, str) else None,
+        )
 
     @pydantic.field_serializer("error")
     def serialize_error(
@@ -59,11 +115,68 @@ class BatchResponseElement(pydantic.BaseModel, typing.Generic[Model]):
 
 class BatchResponse(pydantic.BaseModel, typing.Generic[Model]):
     """
-    The response to a batch request. The responses element contains one response (either success data or failure error)
-    per request element, in the order in which the request was sent.
+    The response to a batch request, holding one element per request element, in the order the request sent them.
+
+    Every element of a batch is applied or refused on its own, so a batch can come back partly applied.
+    :py:attr:`succeeded` and :py:attr:`failed` split the outcomes for a caller that does not care which request
+    element produced which; read ``responses`` to trace an outcome back to the request element at its position.
     """
 
     responses: list[BatchResponseElement[Model]]
+
+    @property
+    def failed(self) -> list[RobotoDomainException]:
+        """The exception the platform reported for each element it refused, in request order."""
+        return [element.error for element in self.responses if element.error is not None]
+
+    @property
+    def succeeded(self) -> list[Model]:
+        """The result the platform returned for each element it applied, in request order."""
+        return [element.data for element in self.responses if element.data is not None]
+
+    def map_data(self, transform: collections.abc.Callable[[Model], MappedModel]) -> "BatchResponse[MappedModel]":
+        """Convert what each applied element carries, leaving positions and failures untouched.
+
+        A batch call parses the platform's answer into records and uses this to hand the caller domain objects
+        instead: a ``SessionRecord`` becomes a ``Session``. ``transform`` runs only on elements carrying data; a
+        refused element keeps its exception, and every element keeps its position.
+
+        Args:
+            transform: Builds the domain object an applied element's record stands for.
+
+        Returns:
+            A batch holding one element per element of this one, in the same order.
+        """
+        return BatchResponse[MappedModel](
+            responses=[
+                BatchResponseElement[MappedModel](
+                    data=None if element.data is None else transform(element.data),
+                    error=element.error,
+                )
+                for element in self.responses
+            ]
+        )
+
+    def single(self) -> Model:
+        """The result carried by the only element of a one-element batch.
+
+        A singular call such as :py:meth:`~roboto.domain.devices.Device.create_session` sends its one element
+        through the plural counterpart and unwraps the answer with this, so its caller gets a raised exception
+        rather than a batch to inspect.
+
+        Raises:
+            RobotoDomainException: Whatever the platform refused the element with.
+            RobotoInternalException: The batch does not hold exactly one element, or holds one carrying
+                neither a result nor an error.
+        """
+        if len(self.responses) != 1:
+            raise RobotoInternalException(f"Expected one response to a single-element batch, got {len(self.responses)}")
+        element = self.responses[0]
+        if element.error is not None:
+            raise element.error
+        if element.data is None:
+            raise RobotoInternalException("The platform reported neither a result nor an error for this element")
+        return element.data
 
 
 class PaginatedList(pydantic.BaseModel, typing.Generic[Model]):

@@ -11,6 +11,7 @@ from .operations import (
     RegisterMcpServerRequest,
     RegistrationMode,
     SetMcpServerOrgContextRequest,
+    SetMcpServerOrgCredentialRequest,
     StartOAuthFlowResponse,
     UpdateMcpServerAllowedToolsRequest,
     UpdateMcpServerOrgsRequest,
@@ -18,6 +19,7 @@ from .operations import (
 )
 from .record import (
     McpServerOrgContextRecord,
+    McpServerOrgCredentialRecord,
     McpServerRecord,
     McpServerStatus,
     McpTokenRecord,
@@ -29,6 +31,7 @@ __all__ = [
     "AdminRegisterMcpServerRequest",
     "CopyMcpServerAllowedToolsRequest",
     "McpServerOrgContextRecord",
+    "McpServerOrgCredentialRecord",
     "McpServerRecord",
     "McpServerStatus",
     "McpTokenRecord",
@@ -38,6 +41,7 @@ __all__ = [
     "RegisterMcpServerRequest",
     "RegistrationMode",
     "SetMcpServerOrgContextRequest",
+    "SetMcpServerOrgCredentialRequest",
     "StartOAuthFlowResponse",
     "UpdateMcpServerAllowedToolsRequest",
     "UpdateMcpServerOrgsRequest",

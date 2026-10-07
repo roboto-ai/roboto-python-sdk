@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import numbers
 import typing
+
+import pydantic
 
 from .compat import StrEnum
 from .logging import default_logger
@@ -62,6 +65,8 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
     Notes:
         * ``int`` formatted ``value``:
             - If not provided, ``unit`` defaults to :py:attr:`~roboto.time.TimeUnit.Nanoseconds`.
+            - Any integer type is accepted, such as a ``numpy.int64`` read out of a pandas or numpy column.
+            - A ``bool`` is refused: it is an ``int`` in Python, and ``True`` would otherwise read as 1.
         * ``float`` formatted ``value``:
             - Not recommended due to potential for precision loss.
               If possible, pass ``value`` as ``str`` or ``decimal.Decimal`` instead.
@@ -78,13 +83,23 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
         * ``datetime.datetime`` formatted ``value``:
             - ``unit``, if provided, is ignored.
               Datetimes are always converted from seconds to nanoseconds.
+            - A datetime before 1970 converts to a negative number of nanoseconds.
+
+    Raises:
+        TypeError: ``value`` is not one of the types above.
+        ValueError: ``value`` is a boolean, a negative ``int``, ``float``, ``Decimal``, or numeric string, or a string
+            that is neither a number of seconds nor an ISO 8601 timestamp.
+        OverflowError: ``value`` is an infinite ``float``, ``Decimal``, or string, such as ``"inf"``.
     """
+    if isinstance(value, bool):
+        raise ValueError(f"Expected a time, not a boolean; got {value}")
+
+    if isinstance(value, numbers.Integral) and not isinstance(value, int):
+        value = int(value)
+
     if isinstance(value, int):
         nano_multiplier = unit.nano_multiplier() if unit is not None else TimeUnit.Nanoseconds.nano_multiplier()
-        if value < 0:
-            raise ValueError(f"Cannot convert a negative number to epoch nanoseconds, got {value}")
-        else:
-            return value * nano_multiplier
+        return _refuse_negative_number(value * nano_multiplier, value)
 
     elif isinstance(value, float):
         log.debug(
@@ -95,17 +110,18 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
     elif isinstance(value, decimal.Decimal):
         # E.g., a ROS formatted timestamp, `<sec>.<nsec>`
         nano_multiplier = unit.nano_multiplier() if unit is not None else TimeUnit.Seconds.nano_multiplier()
-        return int(value * nano_multiplier)
+        return _refuse_negative_number(int(value * nano_multiplier), value)
 
     elif isinstance(value, str):
         try:
             # E.g., a ROS formatted timestamp `<sec>.<nsec>`
             nano_multiplier = unit.nano_multiplier() if unit is not None else TimeUnit.Seconds.nano_multiplier()
-            return int(decimal.Decimal(value) * nano_multiplier)
+            nanoseconds = int(decimal.Decimal(value) * nano_multiplier)
         except decimal.InvalidOperation:
             # ISO8601 fallback for customer-supplied timestamps outside the
             # `<sec>.<nsec>` shape, e.g. `"2024-05-16T10:25:47Z"`.
             return to_epoch_nanoseconds(_parse_iso8601(value))
+        return _refuse_negative_number(nanoseconds, value)
 
     elif isinstance(value, datetime.datetime):
         timezone_aware = _ensure_timezone_aware(value)
@@ -120,6 +136,33 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
         raise TypeError(
             "Input must be either an int, float, Decimal, str (e.g., ``<sec>.<nsec>``), or a datetime instance"
         )
+
+
+def _refuse_negative_number(nanoseconds: int, value: Time) -> int:
+    if nanoseconds < 0:
+        raise ValueError(f"Cannot convert a negative number to epoch nanoseconds, got {value}")
+    return nanoseconds
+
+
+def _validate_epoch_nanoseconds(value: typing.Any) -> typing.Any:
+    try:
+        return to_epoch_nanoseconds(value)
+    except (TypeError, ArithmeticError) as exc:
+        # Pydantic reports a ValueError raised here as a validation error but lets a TypeError or ArithmeticError
+        # escape uncaught, so re-raise the TypeError for a non-time value (such as a JSON object) and the
+        # OverflowError for an infinite value (such as "inf") as ValueError.
+        raise ValueError(str(exc)) from exc
+
+
+_EpochNanosecondsFromTime = typing.Annotated[int, pydantic.BeforeValidator(_validate_epoch_nanoseconds)]
+"""An integer of nanoseconds since the Unix epoch that type checkers see as ``int`` but that accepts any
+:py:data:`Time` during model validation.
+
+A value is converted as :py:func:`to_epoch_nanoseconds` converts it, so an ``int`` is nanoseconds, a ``float``,
+``Decimal``, or numeric string is seconds, and a ``datetime`` or ISO 8601 string is that instant. A value that
+:py:func:`to_epoch_nanoseconds` refuses fails validation with ``pydantic.ValidationError``. The type sets no range;
+a field declaring it states any bounds it needs, such as ``gt=0``.
+"""
 
 
 def utcnow() -> datetime.datetime:

@@ -85,20 +85,6 @@ class PlatformEventType(StrEnum):
     InvocationFailed = "invocation.failed"
     """An action invocation reached a failed terminal status (``Failed`` or ``Deadly``)."""
 
-    SessionCreated = "session.created"
-    """A session was created."""
-
-    SessionFileAdded = "session.file_added"
-    """A file became part of a session, and is available to read.
-
-    Adding several files at once publishes one event per file. Re-declaring the window or data
-    range of a file already in the session publishes none, since its membership is unchanged.
-    Adding a file whose upload is still in flight publishes none at that moment; the upload's
-    completion publishes it."""
-
-    SessionUpdated = "session.updated"
-    """A session's metadata or tags changed."""
-
     EventCreated = "event.created"
     """An event, the annotation marking a span of time on your data, was created."""
 
@@ -252,15 +238,6 @@ class InvocationFailedPayload(pydantic.BaseModel):
     """Terminal status the invocation reached (``Failed`` or ``Deadly``)."""
 
 
-class SessionCreatedPayload(pydantic.BaseModel):
-    """Payload for :attr:`PlatformEventType.SessionCreated`."""
-
-    model_config = _FROZEN
-
-    session_id: str
-    """The created session."""
-
-
 class EventCreatedPayload(pydantic.BaseModel):
     """Payload for :attr:`PlatformEventType.EventCreated`."""
 
@@ -268,38 +245,6 @@ class EventCreatedPayload(pydantic.BaseModel):
 
     event_id: str
     """The created event, an :class:`~roboto.domain.events.EventRecord`."""
-
-
-class SessionFileAddedPayload(pydantic.BaseModel):
-    """Payload for :attr:`PlatformEventType.SessionFileAdded`."""
-
-    model_config = _FROZEN
-
-    session_id: str
-    """The session the file was added to."""
-
-    dataset_id: str
-    """Dataset containing the added file."""
-
-    file_id: str
-    """The added file."""
-
-    file_version: int
-    """The file's version when the event was published; a newer version may exist by the time
-    a trigger evaluates. Versions number revisions of the file record, which a metadata or tag
-    edit advances just as an overwrite of the file's contents does."""
-
-
-class SessionUpdatedPayload(pydantic.BaseModel):
-    """Payload for :attr:`PlatformEventType.SessionUpdated`."""
-
-    model_config = _FROZEN
-
-    session_id: str
-    """The session whose metadata changed."""
-
-    changeset: MetadataChangeset
-    """The applied metadata/tag delta, served to conditions as the ``changed`` and ``tag`` roots."""
 
 
 class ScheduleFiredPayload(pydantic.BaseModel):
@@ -324,9 +269,6 @@ PlatformEventPayload = typing.Union[
     DatasetTagAddedPayload,
     InvocationCompletedPayload,
     InvocationFailedPayload,
-    SessionCreatedPayload,
-    SessionFileAddedPayload,
-    SessionUpdatedPayload,
     EventCreatedPayload,
     ScheduleFiredPayload,
 ]
@@ -482,6 +424,7 @@ __all__ = [
     "DatasetCreatedPayload",
     "DatasetMetadataUpdatedPayload",
     "DatasetTagAddedPayload",
+    "EventCreatedPayload",
     "FileIngestedPayload",
     "FileMetadataUpdatedPayload",
     "FileUploadedPayload",
@@ -491,9 +434,6 @@ __all__ = [
     "PlatformEventPayload",
     "PlatformEventType",
     "ScheduleFiredPayload",
-    "SessionCreatedPayload",
-    "SessionFileAddedPayload",
-    "SessionUpdatedPayload",
     "UploadCompletedPayload",
     "platform_event_source",
 ]

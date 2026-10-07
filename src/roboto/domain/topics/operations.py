@@ -18,11 +18,13 @@ from ...sentinels import (
     NotSetType,
     is_set,
 )
+from ...time import _EpochNanosecondsFromTime
 from ...updates import (
     MetadataChangeset,
     TaglessMetadataChangeset,
 )
 from .record import (
+    _INT64_MAX,
     CanonicalDataType,
     RepresentationStorageFormat,
 )
@@ -284,28 +286,32 @@ class UpdateTopicRequest(pydantic.BaseModel):
 
 
 class TimelineOffsetEntry(pydantic.BaseModel):
-    """Single offset entry for the file timeline-offset endpoint.
+    """One offset for :py:meth:`~roboto.domain.files.File.set_timeline_offsets`.
 
-    ``unix_epoch_offset_ns`` projects stored partition time onto Unix-epoch wall-clock
-    (``session_time_ns = stored_time_ns + unix_epoch_offset_ns``).
-
-    Optional selectors narrow which timeline extents this offset applies to:
+    Optional selectors narrow which of the file's timelines the offset applies to.
 
     Topic selector:
         - ``topic_name``: the topic's name (e.g. ``"/imu/raw"``); topic names are unique within a single file.
           Scopes the offset to a single topic on the file.
 
-    Timeline-source selector:
+    Timeline-source selector (give at most one):
         - ``timeline_source_name``: the source's name (e.g. ``"header.stamp"``). Source names are not unique,
-          so the server applies the offset to every matching extent in scope.
+          so the offset applies to every source with that name within the topic selector's scope.
         - ``timeline_source_id``: explicit id, for callers holding a :py:class:`TimelineSourceRecord`.
 
-    Omitting every selector applies the offset to every timeline extent on the file.
+    Omitting every selector applies the offset to every timeline on the file.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    unix_epoch_offset_ns: int
+    unix_epoch_offset_ns: _EpochNanosecondsFromTime = pydantic.Field(ge=0, le=_INT64_MAX)
+    """Nanoseconds added to the file's stored timestamps so they read as Unix-epoch time
+    (``session_time_ns = stored_time_ns + unix_epoch_offset_ns``). Must not be negative, and must fit in the signed
+    64-bit integer the platform stores it in. Also accepts any :py:data:`roboto.time.Time` at runtime, read as
+    :py:func:`roboto.time.to_epoch_nanoseconds` reads it, so an instant such as a ``datetime`` becomes the
+    nanoseconds since the Unix epoch at which stored time 0 occurred; convert with that function first to
+    satisfy a type checker."""
+
     topic_name: typing.Optional[str] = None
     timeline_source_name: typing.Optional[str] = None
     timeline_source_id: typing.Optional[str] = None
@@ -325,7 +331,10 @@ class SetTimelineOffsetsRequest(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    offsets: list[TimelineOffsetEntry]
+    offsets: list[TimelineOffsetEntry] = pydantic.Field(min_length=1)
+    """Offsets to apply, at least one. An entry whose selectors reach no extent on this file is skipped as long
+    as another entry reaches one; a request whose entries together reach none is refused. When two entries
+    reach the same extent, the later entry's offset applies."""
 
 
 class TimelineSourceUpdate(pydantic.BaseModel):

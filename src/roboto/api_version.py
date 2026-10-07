@@ -74,14 +74,49 @@ class RobotoApiVersion(StrEnum):
     file. Clients on older API versions, whose ``FSType`` has only ``file`` and ``directory``, never receive one: links
     are dropped from file listings, and reading one directly by ID or path reports it as not found."""
 
+    v2026_10_05 = "2026-10-05"
+    """``POST /v2/topics/id/<topic_id>/read-plan`` states the bounds each partition's rows are selected in
+    on a per-partition ``window``, instead of the ``extent`` it returned before.
+    Clients on older API versions continue to receive ``extent``, set on every partition to the plan's own window;
+    such a client selects rows by the plan's window alone.
+    Two kinds of read are refused with HTTP 400 and a message to upgrade rather than served that way:
+    a read scoped to a Session that holds a file over only part of the requested time span,
+    and a read covering a file that packs several partitions' data.
+    Either would otherwise return rows belonging to another Session, or to another partition packed into the same file.
+
+    Adding files to a Session, removing them, and publishing metrics answer with one element per entry the
+    request named, in the order it named them, each holding the entry's result or the error that refused
+    it. An entry the platform refuses leaves the others in place: an add decides every refusal before writing
+    anything and adds the rest together, and a remove removes together every file the Session holds and reports
+    the rest as not held. A failure the platform did not anticipate, such as a timeout, adds or removes none of
+    them. An add naming a file that does not exist is refused whole, before any entry is applied. A file entry
+    states the window the Session holds the file over in the file's own timestamps, on ``min_file_timestamp_ns``
+    and ``max_file_timestamp_ns``, and a call names at least one file. Listing a Session's files reports each
+    file's window in Unix-epoch nanoseconds on ``min_wall_clock_timestamp_ns`` and
+    ``max_wall_clock_timestamp_ns``.
+
+    Clients on older API versions keep the earlier contract for these four calls. Listing a Session's files
+    reports the same window on ``range_min_timestamp_ns`` and ``range_max_timestamp_ns``. A file entry carries
+    the file's id, an optional ``data_range``, and a window in Unix-epoch nanoseconds on
+    ``range_min_timestamp_ns`` and ``range_max_timestamp_ns``. Adds and removes accept a call naming no
+    files and answer with the Session's refreshed record. An add stands or falls whole: when the platform
+    refuses a file, it answers with the error for the first refused file and adds none of them, and a file
+    named twice is added over its last entry. A remove stands or falls whole too, and skips a file the
+    Session does not hold. Metric publication answers with a ``succeeded`` list and a ``failed`` list.
+    ``succeeded`` holds one record per metric and Session, carrying the last value written when a call published
+    the same pair more than once; each entry in ``failed`` is named by the metric name the caller submitted.
+    """
+
     @staticmethod
     def latest() -> RobotoApiVersion:
-        """Get the latest available API version.
+        """Get the newest API version this build of the SDK knows about.
+
+        Requests carry this version unless the caller names an older one.
 
         Returns:
-            The most recent API version supported by the platform.
+            The most recent member of this enum.
         """
-        return RobotoApiVersion.v2026_10_02
+        return RobotoApiVersion.v2026_10_05
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

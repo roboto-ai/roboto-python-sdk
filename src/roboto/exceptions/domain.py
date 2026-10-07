@@ -65,15 +65,19 @@ class RobotoDomainException(Exception):
     def from_json(contents: dict[str, Any], headers: dict[str, str] = {}) -> "RobotoDomainException":
         error_code = get_by_path(contents, ["error", "error_code"])
         inner_message = get_by_path(contents, ["error", "message"])
+
+        if error_code is None or inner_message is None:
+            raise ValueError("Need 'error_code' and 'message' available.")
+
+        # Every other field of the envelope goes to the constructor as a keyword argument. The check above
+        # guarantees both popped keys are present, so an envelope missing one raises the ValueError callers
+        # catch, rather than a KeyError from a pop.
         kwargs: dict[str, Any] = {}
         error = get_by_path(contents, ["error"])
         if error is not None:
             kwargs.update(error)
             kwargs.pop("error_code")
             kwargs.pop("message")
-
-        if error_code is None or inner_message is None:
-            raise ValueError("Need 'error_code' and 'message' available.")
 
         # Breadth-first walk of the full subclass tree so nested subclasses
         # (e.g. RobotoLayoutConflictException under RobotoConflictException)
@@ -86,7 +90,7 @@ class RobotoDomainException(Exception):
                 return subclass(message=inner_message, headers=headers, **kwargs)
             subclass_queue.extend(subclass.__subclasses__())
 
-        raise ValueError("Unrecognized error code 'error_code'")
+        raise ValueError(f"Unrecognized error code {error_code!r}")
 
     @staticmethod
     def from_json_string(contents: str) -> "RobotoDomainException":
@@ -515,6 +519,9 @@ class ReadPlanExecutionErrorKind(StrEnum):
     FIELD_NOT_IN_FILE = "field-not-in-file"
     """A file lacks a field the read takes from it: a field it supplies, or the partition's timestamp field."""
 
+    DATA_RANGE_NOT_IN_FILE = "data-range-not-in-file"
+    """A partition's ``data_range`` ends past its file's stored row count, so the file lacks rows the slice names."""
+
 
 class RobotoReadPlanExecutionException(RobotoInternalException):
     """
@@ -640,6 +647,39 @@ class RobotoContextTooLongException(RobotoDomainException):
     @property
     def http_status_code(self) -> int:
         return 400
+
+
+class RobotoUnrecognizedErrorException(RobotoDomainException):
+    """
+    An error the platform reported that this SDK release cannot resolve to a specific exception class.
+
+    Reported for an element of a :py:class:`~roboto.http.BatchResponse` whose error names a code this release
+    defines no class for, or that arrived without a code, without a message, or as text that is not an
+    error envelope at all. It carries whatever code and message the platform sent, so a caller handling the
+    failure still learns what went wrong; when no message could be read, the message is the error's raw text.
+
+    The error envelope carries no status code, so ``http_status_code`` reports the 500 inherited from
+    :py:class:`RobotoDomainException` rather than the status the failure actually had.
+    """
+
+    __error_code: Optional[str]
+
+    def __init__(
+        self,
+        message: str,
+        stack_trace: list[str] = [],
+        headers: dict[str, str] = {},
+        error_code: Optional[str] = None,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(message, stack_trace, headers, *args, **kwargs)
+        self.__error_code = error_code
+
+    @property
+    def error_code(self) -> str:
+        """The code the platform sent, or this class's name when the error arrived without one."""
+        return self.__error_code if self.__error_code is not None else self.__class__.__name__
 
 
 class RobotoHttpExceptionParse(object):

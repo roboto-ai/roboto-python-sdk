@@ -4,7 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import functools
 import typing
 import warnings
 
@@ -19,17 +18,7 @@ def roboto_default_warning_behavior():
 
 
 class ExperimentalWarning(Warning):
-    """Warning issued when an experimental API is used.
-
-    Experimental APIs may be incomplete, subject to change, or removed without notice.
-
-    Users can suppress these warnings with::
-
-        import warnings
-        from roboto import ExperimentalWarning
-
-        warnings.filterwarnings("ignore", category=ExperimentalWarning)
-    """
+    """Warning category for experimental APIs."""
 
 
 _T = typing.TypeVar("_T")
@@ -65,7 +54,9 @@ def experimental(
     """Mark a class, function, or method as experimental.
 
     Experimental APIs may be incomplete, subject to change, or removed without notice.
-    When called, the decorated target emits an :class:`ExperimentalWarning`.
+
+    Prepends a ``.. warning::`` notice to the target's docstring, so documentation rendered from it and ``help()``
+    show the target as experimental, then returns the target itself.
 
     Can be used in three ways::
 
@@ -79,64 +70,33 @@ def experimental(
 
         @experimental(message="Custom message about this API.")
         def my_function(): ...
+
+    Args:
+        target: The object to mark when applied as ``@experimental``, or the notice text when called as
+            ``@experimental("...")``.
+        message: The notice text. Defaults to "<qualified name of the target> is experimental and may change or be
+            removed without notice."
+
+    Raises:
+        TypeError: The target is not callable, as when the decorator is placed above ``@property`` or
+            ``@classmethod`` and not below it.
     """
-
-    def _decorate(obj: typing.Any, msg: str) -> typing.Any:
-        if isinstance(obj, type):
-            return _decorate_class(obj, msg)
-        if callable(obj):
-            return _decorate_callable(obj, msg)
-        raise TypeError(f"@experimental cannot be applied to {type(obj)}")
-
-    # @experimental (bare, no parentheses) — target is the decorated object
+    # @experimental (bare, no parentheses): target is the decorated object
     if target is not None and not isinstance(target, str):
-        msg = _DEFAULT_MESSAGE.format(name=getattr(target, "__qualname__", str(target)))
-        return _decorate(target, msg)
+        return _prepend_sphinx_notice(target, None)
 
     # @experimental("message") or @experimental(message="message")
     custom_message = target if isinstance(target, str) else message
 
     def decorator(obj: typing.Any) -> typing.Any:
-        if custom_message:
-            msg = custom_message
-        else:
-            msg = _DEFAULT_MESSAGE.format(name=getattr(obj, "__qualname__", str(obj)))
-        return _decorate(obj, msg)
+        return _prepend_sphinx_notice(obj, custom_message)
 
     return decorator
 
 
-def _prepend_sphinx_notice(obj: typing.Any, msg: str) -> None:
-    notice = _SPHINX_NOTICE.format(message=msg)
-    existing = obj.__doc__ or ""
-    obj.__doc__ = notice + existing
-
-
-def _decorate_class(cls: _C, msg: str) -> _C:
-    # Wrap __new__ rather than __init__ to avoid mypy soundness error [misc]
-    # ("Accessing '__init__' on an instance is unsound"). This mirrors the
-    # approach used by CPython's warnings.deprecated (PEP 702) and the
-    # `deprecated` PyPI package.
-    original_new = cls.__new__
-    has_custom_new = original_new is not object.__new__
-
-    def warned_new(target_cls: _C, *args: typing.Any, **kwargs: typing.Any) -> typing.Any:
-        if target_cls is cls:
-            warnings.warn(msg, ExperimentalWarning, stacklevel=2)
-        if has_custom_new:
-            return original_new(target_cls, *args, **kwargs)
-        return object.__new__(target_cls)
-
-    cls.__new__ = staticmethod(warned_new)  # type: ignore[assignment]
-    _prepend_sphinx_notice(cls, msg)
-    return cls
-
-
-def _decorate_callable(fn: _F, msg: str) -> _F:
-    @functools.wraps(fn)
-    def wrapper(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
-        warnings.warn(msg, ExperimentalWarning, stacklevel=2)
-        return fn(*args, **kwargs)
-
-    _prepend_sphinx_notice(wrapper, msg)
-    return typing.cast(_F, wrapper)
+def _prepend_sphinx_notice(obj: typing.Any, custom_message: typing.Optional[str]) -> typing.Any:
+    if not callable(obj):
+        raise TypeError(f"@experimental cannot be applied to {type(obj)}")
+    message = custom_message or _DEFAULT_MESSAGE.format(name=getattr(obj, "__qualname__", str(obj)))
+    obj.__doc__ = _SPHINX_NOTICE.format(message=message) + (obj.__doc__ or "")
+    return obj

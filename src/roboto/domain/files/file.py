@@ -17,7 +17,20 @@ from ...exceptions import (
     RobotoIllegalArgumentException,
     RobotoNotFoundException,
 )
-from ...http import BatchRequest, RobotoClient
+from ...experimental import topics as experimental_topics
+from ...experimental.ingest import (
+    DeclaredTimelineSource,
+    FileTopicDeclaration,
+    RepresentationDeclaration,
+    Schema,
+    TopicRepresentations,
+)
+from ...experimental.ingest.operations import DeclareTopicsRequest, SetRepresentationsRequest
+from ...http import (
+    BatchRequest,
+    BatchResponse,
+    RobotoClient,
+)
 from ...progress import (
     NoopProgressMonitor,
     TqdmProgressMonitor,
@@ -29,7 +42,7 @@ from ...sentinels import (
     remove_not_set,
 )
 from ...storage import FileService
-from ...time import TimeUnit
+from ...time import Time, TimeUnit, to_epoch_nanoseconds
 from ...updates import MetadataChangeset
 from ...uri import RobotoUri
 from ...warnings import experimental
@@ -39,6 +52,7 @@ from ..topics import (
     TimelineOffsetEntry,
     TimelineSourceRecord,
     Topic,
+    TopicIdentityRecord,
 )
 from .operations import (
     ImportFileRequest,
@@ -701,6 +715,264 @@ class File:
             roboto_client=self.__roboto_client,
         )
 
+    @experimental
+    def declare_topic(
+        self,
+        topic_name: str,
+        topic_schema: Schema,
+        timeline_sources: collections.abc.Sequence[DeclaredTimelineSource],
+        data_range: typing.Optional[tuple[int, int]] = None,
+        anchor: typing.Optional[Time] = None,
+        representations: collections.abc.Sequence[RepresentationDeclaration] = (),
+    ) -> experimental_topics.Topic:
+        """Register one topic this File contributes data to, without naming a Session.
+
+        The singular form of :py:meth:`declare_topics`, taking the fields of one
+        :py:class:`~roboto.experimental.ingest.FileTopicDeclaration` as separate arguments. That class
+        documents what each field means; :py:meth:`declare_topics` documents what the platform does with it.
+
+        Args:
+            topic_name: Topic this File contributes data to. Topic names are unique within an org.
+            topic_schema: Structure of the topic's data.
+            timeline_sources: Timeline sources this File's topic data carries, each with the bounds it
+                spans in this File, stated in the File's own timestamps.
+            data_range: The part of the File this topic's data occupies, or ``None`` for the whole File.
+            anchor: Optional wall-clock instant the data this declaration names was captured at: an ``int``
+                of nanoseconds since the Unix epoch, or any other :py:data:`~roboto.time.Time`, read as
+                :py:func:`~roboto.time.to_epoch_nanoseconds` reads it (a ``datetime`` or ISO 8601 string is
+                that instant; a ``float``, ``Decimal``, or numeric string is seconds since the epoch). Must fall
+                after the Unix epoch.
+            representations: The files a read of this topic's data opens, each with how it holds that data:
+                this File, when its own bytes are readable, and other files when the data is read from them,
+                such as files converted out of it. Empty lists none, and reads of a topic with no representations
+                return no rows.
+
+        Returns:
+            The topic this declaration registered against.
+
+        Raises:
+            TypeError: If ``anchor`` is not one of the :py:data:`~roboto.time.Time` types.
+            ValueError: If ``anchor`` is a boolean, a negative number (an ``int``, ``float``, ``Decimal``, or
+                numeric string), or a string that is neither a number of seconds nor an ISO 8601 timestamp.
+                Raised before anything is sent to the platform.
+            OverflowError: If ``anchor`` is an infinite ``float``, ``Decimal``, or string, such as ``"inf"``.
+                Raised before anything is sent to the platform.
+            pydantic.ValidationError: If these arguments do not form a valid
+                :py:class:`~roboto.experimental.ingest.FileTopicDeclaration`, for instance two representations of
+                the whole topic, or of one field, sharing a storage format, content format and transformations,
+                or any timeline source but :py:class:`~roboto.experimental.ingest.SchemaFieldSource` beside a
+                ``PARQUET`` representation, or if ``representations`` names one file in two storage formats.
+                Enforced before anything is sent to the platform.
+            RobotoDomainException: Whatever the platform refused this declaration with.
+
+        Examples:
+            >>> from roboto.domain.files import File
+            >>> from roboto.domain.topics import CanonicalDataType, RepresentationStorageFormat
+            >>> from roboto.experimental.ingest import Field, RepresentationDeclaration, Schema, SchemaFieldSource
+            >>> timestamp = Field(
+            ...     name="timestamp",
+            ...     data_type="float64",
+            ...     canonical_data_type=CanonicalDataType.Timestamp,
+            ...     unit="s",
+            ... )
+            >>> file = File.from_id("fl_0123456789ab")
+            >>> topic = file.declare_topic(
+            ...     topic_name="observation.state",
+            ...     topic_schema=Schema(
+            ...         name="observation.state",
+            ...         fields=[timestamp, Field(name="observation.state", data_type="float32")],
+            ...     ),
+            ...     timeline_sources=[
+            ...         SchemaFieldSource(
+            ...             field_path=["timestamp"],
+            ...             min_file_timestamp_ns=0,
+            ...             max_file_timestamp_ns=4_000,
+            ...         )
+            ...     ],
+            ...     representations=[
+            ...         RepresentationDeclaration(
+            ...             file_id=file.file_id,
+            ...             storage_format=RepresentationStorageFormat.PARQUET,
+            ...         )
+            ...     ],
+            ... )
+            >>> print(topic.topic_id)
+        """
+        declaration = FileTopicDeclaration(
+            topic_name=topic_name,
+            topic_schema=topic_schema,
+            timeline_sources=list(timeline_sources),
+            data_range=data_range,
+            anchor_ns=None if anchor is None else to_epoch_nanoseconds(anchor),
+            representations=list(representations),
+        )
+        return self.declare_topics([declaration]).single()
+
+    @experimental
+    def declare_topics(
+        self,
+        topics: collections.abc.Sequence[FileTopicDeclaration],
+    ) -> BatchResponse[experimental_topics.Topic]:
+        """Register the topic data this File carries, without naming a Session.
+
+        One call states everything the platform needs to serve this File's topic data: for each topic, the
+        structure of its rows, the timeline sources those rows carry with the bounds they span in this File,
+        and, when the File packs its data into slices, which slice the topic occupies. The platform does not
+        open the File when topics are declared on it, so this declaration is all it knows about the File's
+        contents.
+
+        The platform applies each declaration on its own: one it refuses leaves the others registered, and
+        the response says what became of each. Nothing about the call involves a Session, so declarations on
+        the Files of one recording can run concurrently, and a File's topic data can be registered before the
+        Session holding it exists. A Session takes that data on by attaching the File, through
+        :py:meth:`~roboto.experimental.sessions.Session.add_file` or a
+        :py:class:`~roboto.experimental.sessions.SessionFile` carrying no topics. A Session already holding
+        the File takes on what this call declares before the call returns, with its time bounds recomputed to
+        cover the newly declared data.
+
+        Resending the same call is safe: the platform identifies the data a declaration registers by the
+        topic plus the slice of the File that declaration names, so a resend converges on what the first
+        attempt registered rather than duplicating it, and a corrected redeclaration replaces what it
+        corrects.
+
+        A declaration states its bounds in the File's own timestamps, read as nanoseconds since the Unix
+        epoch; the platform never invents a wall-clock time. Data whose timestamps start at 0 therefore sits
+        at the epoch until it is anchored. To place it at the wall-clock time it was captured, supply
+        :py:attr:`~roboto.experimental.ingest.FileTopicDeclaration.anchor_ns`, which anchors the whole slice
+        it names rather than the one topic declaring it, so the topics sharing a slice must agree on it.
+
+        The topic data belongs to this File: its bounds, anchors and slices are stated against it, and a
+        Session holding this File holds the data. What makes the data readable is each topic's
+        :py:attr:`~roboto.experimental.ingest.TopicDeclaration.representations`: the files a read opens to get
+        it, each decoded in the storage format its representation states. A file's name and extension are not
+        used. A topic lists this File when its own bytes are readable, and other files when the data is read
+        from them, such as the per-topic MCAPs converted out of a PX4 ULog. A topic with no representations is
+        still registered and still counts toward the bounds of the Sessions holding the File,
+        but reads of it return no rows. :py:class:`~roboto.experimental.ingest.RepresentationDeclaration` states
+        what a representation's file must hold and when a read can decode an ``MCAP`` representation's file.
+
+        Redeclaring a topic adds the representations listed to the ones it has, each taking the place of the
+        stored ones it matches, as :py:attr:`~roboto.experimental.ingest.TopicDeclaration.representations`
+        describes. To remove a representation, or to replace a topic's representations outright,
+        use :py:meth:`set_representations`.
+
+        Args:
+            topics: One declaration per topic and slice of this File. An empty sequence returns an empty
+                response without contacting the platform.
+
+        Returns:
+            One element per declaration, in request order, holding either the topic it registered against or
+            why the platform refused it.
+
+        Raises:
+            pydantic.ValidationError: If more than
+                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` topics are given, one
+                topic is declared twice over the same slice, two topics anchor one slice at different
+                instants, or representations name one file in two storage formats. These are enforced when the
+                request body is constructed, before anything is sent to the platform; each declaration's own
+                rules are enforced earlier, when the caller builds it.
+            RobotoNotFoundException: If this File no longer exists, or a representation names a file that does
+                not exist in this File's org or whose status is not
+                :py:attr:`~roboto.domain.files.FileStatus.Available`. Nothing is registered.
+            RobotoUnauthorizedException: If the caller lacks edit access to this File or to a file a listed
+                representation names, or lacks topic edit access in this File's org while a declaration states
+                ``is_default_for_reads`` on a timeline source.
+
+        Examples:
+            Register the two topics a LeRobot episode file carries, each read from the file's own bytes:
+
+            >>> from roboto.domain.files import File
+            >>> from roboto.domain.topics import CanonicalDataType, RepresentationStorageFormat
+            >>> from roboto.experimental.ingest import (
+            ...     Field,
+            ...     FileTopicDeclaration,
+            ...     RepresentationDeclaration,
+            ...     Schema,
+            ...     SchemaFieldSource,
+            ... )
+            >>> timestamp = Field(
+            ...     name="timestamp",
+            ...     data_type="float64",
+            ...     canonical_data_type=CanonicalDataType.Timestamp,
+            ...     unit="s",
+            ... )
+            >>> file = File.from_id("fl_0123456789ab")
+            >>> from_file = RepresentationDeclaration(
+            ...     file_id=file.file_id,
+            ...     storage_format=RepresentationStorageFormat.PARQUET,
+            ... )
+            >>> registered = file.declare_topics(
+            ...     [
+            ...         FileTopicDeclaration(
+            ...             topic_name="observation.state",
+            ...             topic_schema=Schema(
+            ...                 name="observation.state",
+            ...                 fields=[timestamp, Field(name="observation.state", data_type="float32")],
+            ...             ),
+            ...             timeline_sources=[
+            ...                 SchemaFieldSource(
+            ...                     field_path=["timestamp"],
+            ...                     min_file_timestamp_ns=0,
+            ...                     max_file_timestamp_ns=4_000,
+            ...                 )
+            ...             ],
+            ...             representations=[from_file],
+            ...         ),
+            ...         FileTopicDeclaration(
+            ...             topic_name="action",
+            ...             topic_schema=Schema(
+            ...                 name="action",
+            ...                 fields=[timestamp, Field(name="action", data_type="float32")],
+            ...             ),
+            ...             timeline_sources=[
+            ...                 SchemaFieldSource(
+            ...                     field_path=["timestamp"],
+            ...                     min_file_timestamp_ns=0,
+            ...                     max_file_timestamp_ns=4_000,
+            ...                 )
+            ...             ],
+            ...             representations=[from_file],
+            ...         ),
+            ...     ],
+            ... )
+            >>> print([topic.topic_id for topic in registered.succeeded])
+
+            Register a topic over the slice of a shared file that holds one episode, anchored at the
+            instant that episode was recorded:
+
+            >>> registered = file.declare_topics(
+            ...     [
+            ...         FileTopicDeclaration(
+            ...             topic_name="observation.state",
+            ...             topic_schema=Schema(
+            ...                 name="observation.state",
+            ...                 fields=[timestamp, Field(name="observation.state", data_type="float32")],
+            ...             ),
+            ...             timeline_sources=[
+            ...                 SchemaFieldSource(
+            ...                     field_path=["timestamp"],
+            ...                     min_file_timestamp_ns=0,
+            ...                     max_file_timestamp_ns=4_000,
+            ...                 )
+            ...             ],
+            ...             data_range=(0, 80),
+            ...             anchor_ns=1_785_974_400_000_000_000,
+            ...             representations=[from_file],
+            ...         ),
+            ...     ],
+            ... )
+        """
+        if not topics:
+            return BatchResponse[experimental_topics.Topic](responses=[])
+
+        registered = self.__roboto_client.post(
+            f"v1/files/id/{self.file_id}/topics",
+            data=DeclareTopicsRequest(topics=list(topics)),
+        ).to_record(BatchResponse[TopicIdentityRecord])
+        return registered.map_data(
+            lambda record: experimental_topics.Topic.from_record(record, roboto_client=self.__roboto_client)
+        )
+
     def delete(self) -> None:
         """Delete this file from the Roboto platform.
 
@@ -1058,9 +1330,92 @@ class File:
         return self.update(device_id=device_id)
 
     @experimental
+    def set_representations(self, topics: collections.abc.Sequence[TopicRepresentations]) -> None:
+        """Replace the representations the named topics' data on this File is read from.
+
+        This File is the one the topics were declared on, through :py:meth:`declare_topics` or a Session. Each
+        topic listed ends up with exactly the representations listed, over the part of this File its entry's
+        ``data_range`` names; its other representations there are removed, whether they cover the whole topic
+        or one field of it. Topics and slices not listed keep theirs. Nothing else about the topics changes:
+        their schemas, timeline sources, bounds, anchors and slices stay as declared, and so do the time bounds
+        of every Session holding this File, which do not depend on which files the data is read from.
+
+        Use it for what redeclaring a topic cannot do:
+
+        1. Remove a representation.
+        2. Replace a representation with one that names another file and differs from it in what it covers,
+           its storage format, its content format or its transformations. Those four identify a representation,
+           as :py:class:`~roboto.experimental.ingest.RepresentationDeclaration` describes,
+           so declaring the new one adds it beside the first.
+        3. Stop a topic being read at all, by listing no representations for it.
+
+        The platform checks every entry before writing any, and one refused entry refuses the whole call.
+
+        Args:
+            topics: One entry per topic and slice, at most
+                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST`; split a larger set
+                across several calls. An empty sequence returns without contacting the platform.
+
+        Raises:
+            pydantic.ValidationError: ``topics`` is longer than the cap, lists one topic and slice twice, or
+                lists representations naming one file in two storage formats. Raised before any request is made.
+                The rules for one topic's own representations are enforced earlier, when the caller builds its
+                :py:class:`~roboto.experimental.ingest.TopicRepresentations`.
+            RobotoNotFoundException: This File does not exist, a topic is not declared on it, an entry's
+                ``data_range`` is not one the topic is declared over on it, or a representation names a file that
+                does not exist in this File's org or whose status is not
+                :py:attr:`~roboto.domain.files.FileStatus.Available`. Nothing is written.
+            RobotoInvalidRequestException: A topic declared with a timeline source other than
+                :py:class:`~roboto.experimental.ingest.SchemaFieldSource` (MCAP log or publish time, MP4
+                presentation time) would get a ``PARQUET`` representation, a topic declared over a ``data_range``
+                would be left with a representation that cannot be read by row position and none that can
+                covering the same fields, as
+                :py:attr:`~roboto.experimental.ingest.RepresentationDeclaration.transformations` describes,
+                or a representation's ``field_path`` names no field of the schema the topic is declared under on
+                this File. Nothing is written.
+            RobotoUnauthorizedException: The caller cannot edit this File or a file a listed representation names.
+
+        Examples:
+            Replace a camera topic's representation re-encoded as JPEG with one downsampled and re-encoded as
+            PNG, keeping the untransformed one that names the recording, and stop reading a debug topic at all:
+
+            >>> from roboto.domain.files import File
+            >>> from roboto.domain.topics import RepresentationStorageFormat
+            >>> from roboto.experimental.ingest import RepresentationDeclaration, TopicRepresentations
+            >>> recording = File.from_id("fl_recording_0412_mcap")
+            >>> recording.set_representations(
+            ...     [
+            ...         TopicRepresentations(
+            ...             topic_name="/camera/front/image_raw",
+            ...             representations=[
+            ...                 RepresentationDeclaration(
+            ...                     file_id=recording.file_id,
+            ...                     storage_format=RepresentationStorageFormat.MCAP,
+            ...                 ),
+            ...                 RepresentationDeclaration(
+            ...                     file_id="fl_front_png",
+            ...                     storage_format=RepresentationStorageFormat.MCAP,
+            ...                     content_format="png",
+            ...                     transformations=["downsample:0.5", "encode:png"],
+            ...                 ),
+            ...             ],
+            ...         ),
+            ...         TopicRepresentations(topic_name="/debug/raw_dump", representations=[]),
+            ...     ]
+            ... )
+        """
+        if not topics:
+            return
+
+        self.__roboto_client.put(
+            f"v1/files/id/{self.file_id}/representations",
+            data=SetRepresentationsRequest(topics=list(topics)),
+        )
+
+    @experimental
     def set_timeline_offset(
         self,
-        unix_epoch_offset_ns: int,
+        offset: Time,
         *,
         topic: typing.Optional[Topic] = None,
         topic_name: typing.Optional[str] = None,
@@ -1071,8 +1426,9 @@ class File:
 
         Contract:
 
-        1. The offset is added to stored partition time to produce session wall-clock:
-           ``session_time_ns = stored_time_ns + unix_epoch_offset_ns``.
+        1. The offset, in nanoseconds, is added to stored partition time to produce session wall-clock:
+           ``session_time_ns = stored_time_ns + offset_ns``. An offset given as an instant, such as a
+           ``datetime``, is the nanoseconds since the Unix epoch at which stored time 0 occurred.
         2. ``topic`` / ``topic_name`` scopes the update to a single topic in this file;
            ``timeline_source`` / ``timeline_source_name`` scopes it to a single source.
            With no selectors, the offset applies to every timeline on the file.
@@ -1080,7 +1436,10 @@ class File:
         Use :meth:`set_timeline_offsets` to send several offsets in one atomic request.
 
         Args:
-            unix_epoch_offset_ns: Offset to apply, in nanoseconds.
+            offset: Offset to apply: an ``int`` of nanoseconds, or any other :py:data:`~roboto.time.Time`, read as
+                :py:func:`~roboto.time.to_epoch_nanoseconds` reads it (a ``datetime`` or ISO 8601 string is that
+                instant; a ``float``, ``Decimal``, or numeric string is seconds). Must not be negative, and must fit in
+                a signed 64-bit integer of nanoseconds.
             topic: Topic to scope the update to. Mutually exclusive with ``topic_name``.
             topic_name: Topic name to scope the update to (e.g. ``"/imu/raw"``). Mutually exclusive with ``topic``.
             timeline_source: Source record to scope the update to. Mutually exclusive with ``timeline_source_name``.
@@ -1090,11 +1449,31 @@ class File:
         Returns:
             The updated :class:`TimelineExtentRecord` objects returned by the server.
 
+        Raises:
+            TypeError: ``offset`` is not one of the :py:data:`~roboto.time.Time` types.
+            ValueError: ``offset`` is a boolean, a negative number (an ``int``, ``float``, ``Decimal``, or numeric
+                string), or a string that is neither seconds nor ISO 8601; or both of a mutually exclusive pair of
+                selectors are given. Raised before any request is made.
+            OverflowError: ``offset`` is an infinite ``float``, ``Decimal``, or string, such as ``"inf"``. Raised
+                before any request is made.
+            pydantic.ValidationError: ``offset`` converts to a negative number of nanoseconds, or to more than a signed
+                64-bit integer holds. A subclass of ``ValueError``, raised before any request is made.
+            RobotoUnauthorizedException: The caller cannot edit this file.
+            RobotoNotFoundException: The file carries no timeline data, or the selectors match none of it.
+            RobotoInvalidRequestException: The offset would place the data it reaches, or a session time range
+                declared over that data, before the Unix epoch or past the largest storable Unix-epoch nanosecond
+                value. Nothing is written.
+
         Examples:
             Apply a file-wide offset:
 
             >>> file = File.from_id("file_abc123")
             >>> file.set_timeline_offset(1_700_000_000_000_000_000)
+
+            Apply the same offset as a ``datetime``, the instant stored time 0 occurred:
+
+            >>> import datetime
+            >>> file.set_timeline_offset(datetime.datetime(2023, 11, 14, 22, 13, 20, tzinfo=datetime.timezone.utc))
 
             Apply an offset to a single topic by name:
 
@@ -1114,7 +1493,7 @@ class File:
             raise ValueError("Specify at most one of timeline_source, timeline_source_name.")
 
         entry = TimelineOffsetEntry(
-            unix_epoch_offset_ns=unix_epoch_offset_ns,
+            unix_epoch_offset_ns=to_epoch_nanoseconds(offset),
             topic_name=topic.topic_name if topic is not None else topic_name,
             timeline_source_id=(timeline_source.timeline_source_id if timeline_source is not None else None),
             timeline_source_name=timeline_source_name,
@@ -1139,6 +1518,15 @@ class File:
 
         Returns:
             The updated :class:`TimelineExtentRecord` objects returned by the server.
+
+        Raises:
+            pydantic.ValidationError: ``offsets`` is empty. Raised before any request is made.
+            RobotoUnauthorizedException: The caller cannot edit this file.
+            RobotoNotFoundException: The file carries no timeline data, or the selectors of every entry together
+                match none of it.
+            RobotoInvalidRequestException: An entry's offset would place the data it reaches, or a session time range
+                declared over that data, before the Unix epoch or past the largest storable Unix-epoch nanosecond
+                value. The whole request is refused and nothing is written.
 
         Examples:
             Apply per-topic offsets in a single request:

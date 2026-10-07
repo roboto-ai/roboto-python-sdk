@@ -4,16 +4,19 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+from __future__ import annotations
+
 import collections.abc
-import dataclasses
 import datetime
 import typing
 import urllib.parse
 
 from roboto.warnings import experimental
 
-from ...http import RobotoClient
-from ...logging import default_logger
+from ...http import (
+    BatchResponse,
+    RobotoClient,
+)
 from ...query import ConditionType
 from ...sentinels import NotSet, NotSetType, remove_not_set
 from ...time import Time, to_epoch_nanoseconds
@@ -29,22 +32,10 @@ from .record import (
     NumericAggregateMetricRecord,
     NumericAggregateMetricsResponse,
     NumericAggregation,
-    PublishMetricsError,
     PublishMetricsRequest,
-    PublishMetricsResponse,
     QueryMetricsRequest,
     UpdateMetricDefinitionRequest,
 )
-
-logger = default_logger()
-
-
-@dataclasses.dataclass
-class BulkPublishMetricsResult:
-    """Result of a bulk metric publish — may contain both successes and per-item failures."""
-
-    succeeded: list["Metric"]
-    failed: list[PublishMetricsError]
 
 
 @experimental
@@ -270,9 +261,8 @@ class Metric:
     metrics suitable for recording per-session summary statistics that are computed
     once (or updated as reprocessing happens), not for streaming time-series data.
 
-    **Recording a metric** requires a :py:class:`MetricDefinition` to already
-    exist under the given name. If the definition doesn't exist it will be
-    created automatically.
+    **Recording a metric** (:py:meth:`publish`) stores the value under the
+    :py:class:`MetricDefinition` with the given name.
 
     **Querying metrics** (:py:meth:`query`) returns the data points with a session
     timestamp in the given range.
@@ -296,55 +286,56 @@ class Metric:
         device_id: typing.Union[NotSetType, typing.Optional[str]] = NotSet,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
-    ) -> "BulkPublishMetricsResult":
+    ) -> BatchResponse[Metric]:
         """Record metric values for a session in a single network call.
 
         Each ``(metric, session)`` pair is upserted: republishing under the same
-        name and ``session_id`` replaces the previous value.
+        name and ``session_id`` replaces the previous value. Repeating a metric name
+        within one call stores the last value given for it that the platform accepted,
+        and every accepted entry naming that metric reports the stored value.
 
-        If a metric definition does not already exist for a given name it is
-        created automatically. When called from within a Roboto action,
-        successfully inserted records are automatically linked to the action
-        invocation.
+        A metric definition is created for any name the org does not already have one
+        for. When called from within a Roboto action, every recorded value is linked to
+        that action invocation.
 
         Args:
             session_id: Session to attach every published value to.
-            metrics: Metric names and values to record.
-            device_id: Device to associate with each published metric, or
-                :py:data:`None` to associate no device with the metric.
-                When omitted, Roboto attempts to infer a device from the session's
-                attached devices. If the session has more than 1 device, device_id
-                must be provided explicitly for each metric, or a
-                :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`
-                will be raised.
+            metrics: Metric names and values to record. An empty list returns an empty
+                response without contacting the platform.
+            device_id: Device to associate with every published value, or
+                :py:data:`None` to associate none. When omitted, Roboto infers the
+                device from the session's attached devices, which succeeds only when
+                exactly one device is attached.
             caller_org_id: Organization context for the request. Defaults to
                 the authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
                 configured in the environment.
 
         Returns:
-            A :py:class:`BulkPublishMetricsResult` with ``succeeded`` and
-            ``failed`` lists. Items whose values are invalid, or whose names
-            contain characters outside the URL-safe set, appear in ``failed``;
-            the remaining items are recorded and returned in ``succeeded``.
+            A :py:class:`~roboto.http.BatchResponse` holding one element per entry, in request
+            order, carrying either the recorded :py:class:`Metric` or the exception the platform
+            refused that entry with. An entry whose value is not finite, or whose name uses a
+            character other than an ASCII letter, a digit, ``-``, ``.``, ``_``, or ``~``, is refused
+            on its own; the remaining entries are recorded. A database error while recording
+            stores none of the entries and is reported on every entry not already refused.
 
         Raises:
             :py:exc:`~roboto.exceptions.RobotoNotFoundException`: ``session_id``
                 does not exist in the caller's organization.
             :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`:
-                ``device_id`` was omitted and the session has more than
-                one attached device.
+                ``device_id`` was omitted and the session has no attached device or
+                more than one.
 
         Examples:
             Publish with an explicit device:
 
             >>> from roboto.domain.metrics import Metric, MetricEntry
-            >>> result = Metric.publish(
+            >>> published = Metric.publish(
             ...     session_id="ss_abc123",
             ...     metrics=[MetricEntry(name="cpu.usage_max", value=87.2)],
             ...     device_id="robot01",
             ... )
-            >>> len(result.succeeded)
+            >>> len(published.succeeded)
             1
 
             Let the server infer the device from the session's single attached device:
@@ -362,18 +353,18 @@ class Metric:
             ...     device_id=None,
             ... )
         """
+        if not metrics:
+            return BatchResponse[Metric](responses=[])
+
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = PublishMetricsRequest(session_id=session_id, device_id=device_id, metrics=metrics)
-        response = roboto_client.post(
+        published = roboto_client.post(
             "v1/metrics",
             data=request,
             idempotent=True,
             caller_org_id=caller_org_id,
-        ).to_record(PublishMetricsResponse)
-        return BulkPublishMetricsResult(
-            succeeded=[cls(r, roboto_client) for r in response.succeeded],
-            failed=response.failed,
-        )
+        ).to_record(BatchResponse[MetricRecord])
+        return published.map_data(lambda record: cls(record, roboto_client))
 
     @classmethod
     def get_by_session(

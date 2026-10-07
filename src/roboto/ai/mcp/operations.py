@@ -194,3 +194,14 @@ class SetMcpServerOrgContextRequest(pydantic.BaseModel):
 
     context: str = pydantic.Field(default="", max_length=_ORG_CONTEXT_MAX_LENGTH)
     """Plaintext context (max 4000 chars). Empty string clears it."""
+
+
+class SetMcpServerOrgCredentialRequest(pydantic.BaseModel):
+    """Request body for ``PUT /v1/mcp/servers/{server_id}/org-credential``.
+
+    Sets the org-wide token the caller's org uses for the server, replacing any already set. Org admins only.
+    """
+
+    secret_name: str = pydantic.Field(min_length=1)
+    """Name of an existing :py:class:`~roboto.domain.secrets.Secret` in the caller's org. Its value is the
+    token the server accepts as a bearer token."""

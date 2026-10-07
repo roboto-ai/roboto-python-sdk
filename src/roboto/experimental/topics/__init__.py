@@ -15,11 +15,11 @@ from .operations import (
     ReadPlanRequest,
     RepresentationOverride,
     RepresentationPreference,
+    SetTopicUnixOffsetRequest,
 )
 from .read_plan import (
     PLAN_VERSION,
     ReadPlan,
-    ReadPlanExtent,
     ReadPlanFieldRef,
     ReadPlanObjectRef,
     ReadPlanPartition,
@@ -30,15 +30,25 @@ from .read_plan import (
     TimeWindow,
 )
 from .record import RepresentationRecord, RepresentationSelector
-from .topic import FieldAddressLike, SessionContext, Topic
+from .topic import (
+    DatasetContext,
+    DeviceContext,
+    FieldAddressLike,
+    FileContext,
+    SessionContext,
+    Topic,
+    TopicContext,
+)
 
 __all__ = [
     "PLAN_VERSION",
     "TIMESTAMP_FIELD_METADATA_KEY",
+    "DatasetContext",
+    "DeviceContext",
     "FieldAddress",
     "FieldAddressLike",
+    "FileContext",
     "ReadPlan",
-    "ReadPlanExtent",
     "ReadPlanFieldRef",
     "ReadPlanObjectRef",
     "ReadPlanPartition",
@@ -52,7 +62,9 @@ __all__ = [
     "RepresentationRecord",
     "RepresentationSelector",
     "SessionContext",
+    "SetTopicUnixOffsetRequest",
     "TimeWindow",
     "Topic",
+    "TopicContext",
     "timestamp_column_index",
 ]

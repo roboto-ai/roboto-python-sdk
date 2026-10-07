@@ -72,6 +72,12 @@ class ParquetFileDecoder(FileDecoder):
     plan gives none. Row groups whose timestamp statistics, shifted by the partition's ``time_offset_ns``, rule the
     window out are not read. Every timestamp of a row group that is read must have a signed 64-bit nanosecond value
     once shifted, whether or not the window keeps its row.
+
+    A partition that declares a ``data_range`` owns only that half-open span of the file's stored rows, counted from 0.
+    Position in the file, not time, separates the partition's rows from the file's other slices, so the slice applies
+    before the window. Row groups entirely outside the slice are not read, a row group that straddles a boundary is
+    read and trimmed, and only the timestamps of rows inside the slice must have a signed 64-bit nanosecond value.
+    See :py:attr:`~roboto.experimental.topics.ReadPlanPartition.data_range` for the slice contract.
     """
 
     def __init__(
@@ -86,14 +92,18 @@ class ParquetFileDecoder(FileDecoder):
         Args:
             group: The scan tasks that read the file, and the fields they supply.
             partition: The partition the file belongs to.
-            window: The plan's absolute window, both ends included.
+            window: The partition's absolute window, both ends included.
             params: How to reach the file and whether to cache it.
 
         Raises:
             RobotoReadPlanExecutionException: With kind ``unsupported-timestamp`` for a timestamp that is not a schema
-                field, a timestamp field with no path, a plan unit other than s, ms, us or ns,
-                or a timestamp field inside a list or map, holding a date or time of day, or not a number;
-                ``field-not-in-file`` for a supplied field or the timestamp field that the file lacks.
+                field, a timestamp field with no path, or a plan unit other than s, ms, us or ns;
+                then ``field-not-in-file`` for a supplied field or the timestamp field that the file lacks;
+                then ``unsupported-timestamp`` for a timestamp field inside a list or map, holding a date or time of
+                day, or not a number;
+                then ``data-range-not-in-file`` for a ``data_range`` that ends past the file's stored row count: the
+                declared slice names rows the file does not contain (wrong declaration, replaced file, or wrong file),
+                and truncating would silently drop rows the plan promised.
         """
         self.__partition = partition
         self.__window = window
@@ -124,6 +134,15 @@ class ParquetFileDecoder(FileDecoder):
                     field_path=missing,
                 )
             self.__timestamp = _timestamp_field(self.__schema, timestamp_path, unit, partition)
+            row_count = self.__file.metadata.num_rows
+            if partition.data_range is not None and partition.data_range[1] > row_count:
+                start, end = partition.data_range
+                raise RobotoReadPlanExecutionException(
+                    f"data_range [{start}, {end}) of topic partition {partition.topic_part_id} names stored rows "
+                    f"beyond the file's row count ({row_count}); the declared slice does not match the backing file. "
+                    "Please reach out to Roboto support.",
+                    kind=ReadPlanExecutionErrorKind.DATA_RANGE_NOT_IN_FILE,
+                )
 
             self.__selections = [
                 FieldSelection(path_in_schema=path) for path in _included_paths(self.__schema, group.supplies)
@@ -153,6 +172,7 @@ class ParquetFileDecoder(FileDecoder):
         start = self.__window.start
         end = self.__window.end
         offset = self.__partition.time_offset_ns
+        data_range = self.__partition.data_range
         schema = topic_data_schema(self.__value_fields)
         value_names = [field.name for field in self.__value_fields]
         # metadata is a pyarrow property that rebuilds a wrapper on each access, so it is read once.
@@ -160,17 +180,31 @@ class ParquetFileDecoder(FileDecoder):
         row_group_end = 0
         for row_group_index in range(file_metadata.num_row_groups):
             row_group_metadata = file_metadata.row_group(row_group_index)
-            first_row_number = row_group_end
+            row_group_start = row_group_end
             row_group_end += row_group_metadata.num_rows
+            # The row group's rows the partition owns, by position in the file: all of them, or those in its data_range.
+            first_row_number = row_group_start
+            end_row_number = row_group_end
+            if data_range is not None:
+                first_row_number = max(row_group_start, data_range[0])
+                end_row_number = min(row_group_end, data_range[1])
+                if end_row_number <= first_row_number:
+                    continue
             if not _row_group_may_hold_window(row_group_metadata, self.__timestamp, start, end, offset):
                 continue
 
             table = self.__file.read_row_group(row_group_index, columns=self.__columns)
-            # Read before the value columns are narrowed, which drops a timestamp nested in a struct when no supplied
-            # field holds it.
-            timestamps = self.__absolute_timestamps(table, first_row_number)
-            row_numbers = pa.array(np.arange(first_row_number, row_group_end, dtype=np.uint64), type=pa.uint64())
-            values = self.__value_table(table).select(value_names)
+            start_in_row_group = first_row_number - row_group_start
+            owned_row_count = end_row_number - first_row_number
+            # Narrow first, trim second: narrow_list_nested_fields rebuilds a list column from its offsets plus its
+            # whole child array, which pyarrow refuses once that column is both cut to a sub-range and nullable ("Null
+            # bitmap with offsets slice not supported"). Neither step reorders or drops rows, so the surviving rows
+            # are the same whichever runs first.
+            values = self.__value_table(table).select(value_names).slice(start_in_row_group, owned_row_count)
+            # Timestamps come from the table as read, not the narrowed values: narrowing drops a timestamp nested in a
+            # struct when no supplied field holds it.
+            timestamps = self.__absolute_timestamps(table.slice(start_in_row_group, owned_row_count), first_row_number)
+            row_numbers = pa.array(np.arange(first_row_number, end_row_number, dtype=np.uint64), type=pa.uint64())
 
             # When statistics prove every timestamp non-null and in the window, the mask would keep every row.
             if not _row_group_fully_in_window(row_group_metadata, self.__timestamp, start, end, offset):

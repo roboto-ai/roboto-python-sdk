@@ -273,27 +273,6 @@ class PublishMetricsRequest(pydantic.BaseModel):
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)
 
 
-class PublishMetricsError(pydantic.BaseModel):
-    """One failed item from a bulk metric publish."""
-
-    name: str
-    """Name of the metric that failed to insert."""
-
-    error: str
-    """Human-readable description of why the insert failed."""
-
-
-class PublishMetricsResponse(pydantic.BaseModel):
-    """Server response from a bulk metric publish.
-
-    May contain a mix of successes and per-item failures if some metric
-    values are invalid.
-    """
-
-    succeeded: list[MetricRecord]
-    failed: list[PublishMetricsError]
-
-
 # ---------------------------------------------------------------------------
 # Query and aggregation requests
 # ---------------------------------------------------------------------------

@@ -209,6 +209,10 @@ def execute_read_plan(
     8. Partitions: read in plan order, each one's schema checked against the first partition's when its files open,
        before any of its rows.
 
+    Each partition yields only the rows inside its own :py:attr:`~roboto.experimental.topics.ReadPlanPartition.window`,
+    which can be narrower than the plan's: a read scoped to a Session that holds a file over part of its time span
+    returns that part of the file and nothing else.
+
     Partitions without scan tasks are skipped. Partitions are yielded in plan order and their rows are never
     interleaved; within a partition, rows keep their stored order. Nothing is sorted by time or deduplicated, so a
     consumer that needs rows in time order sorts them.
@@ -236,19 +240,20 @@ def execute_read_plan(
             partition's, raised before any error in that partition's rows and even when it has no rows in the window
             (step 8);
             and the kinds ``open_file_decoder`` and its decoders raise, such as ``unsupported-format``,
-            ``unsupported-timestamp``, ``invalid-timestamp`` and ``field-not-in-file`` (step 5).
+            ``unsupported-timestamp``, ``invalid-timestamp``, ``field-not-in-file`` and ``data-range-not-in-file``
+            (step 5).
     """
     partitions = [partition for partition in plan.partitions if partition.scan_tasks]
     leaf_most = leaf_most_paths(projected)
 
     if len(partitions) <= 1:
         for partition in partitions:
-            with _open_partition(plan, partition, leaf_most, open_file_decoder) as opened:
+            with _open_partition(partition, leaf_most, open_file_decoder) as opened:
                 yield from opened.batches()
         return
 
     def read(partition: ReadPlanPartition) -> _PartitionRows:
-        return _read_partition(plan, partition, leaf_most, open_file_decoder)
+        return _read_partition(partition, leaf_most, open_file_decoder)
 
     first_schema: typing.Optional["pyarrow.Schema"] = None
     for partition, rows in zip(partitions, _read_in_plan_order(read, partitions)):
@@ -342,7 +347,6 @@ def _read_in_plan_order(
 
 @contextlib.contextmanager
 def _open_partition(
-    plan: ReadPlan,
     partition: ReadPlanPartition,
     leaf_most: collections.abc.Sequence[FieldPath],
     open_file_decoder: FileDecoderOpener,
@@ -355,7 +359,7 @@ def _open_partition(
     """
     groups = assign_scan_tasks(partition, leaf_most)
     if len(groups) == 1:
-        with open_file_decoder(groups[0], partition, plan.window) as decoder:
+        with open_file_decoder(groups[0], partition, partition.window) as decoder:
             yield _OpenedPartition(value_fields=decoder.value_fields, batches=decoder.batches)
         return
 
@@ -366,7 +370,7 @@ def _open_partition(
         contextlib.ExitStack() as decoders_to_close,
         concurrent.futures.ThreadPoolExecutor(max_workers=min(_MAX_FILE_WORKERS, len(groups))) as executor,
     ):
-        opening = [executor.submit(open_file_decoder, group, partition, plan.window) for group in groups]
+        opening = [executor.submit(open_file_decoder, group, partition, partition.window) for group in groups]
         concurrent.futures.wait(opening)
         for future in opening:
             if future.exception() is None:
@@ -386,7 +390,6 @@ def _open_partition(
 
 
 def _read_partition(
-    plan: ReadPlan,
     partition: ReadPlanPartition,
     leaf_most: collections.abc.Sequence[FieldPath],
     open_file_decoder: FileDecoderOpener,
@@ -396,7 +399,7 @@ def _read_partition(
     An error opening the files propagates. An error decoding the rows is kept in the result, with the value columns
     known at open, so the read checks the partition's schema before it raises the error.
     """
-    with _open_partition(plan, partition, leaf_most, open_file_decoder) as opened:
+    with _open_partition(partition, leaf_most, open_file_decoder) as opened:
         try:
             batches = list(opened.batches())
         except Exception as error:
