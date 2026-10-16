@@ -36,6 +36,7 @@ SAMPLE_EVENT_ID = "ev_7g3n5kq2wxrd"
 SAMPLE_FILE_ID = "fl_q8v2n6ty4mcs"
 SAMPLE_FILE_VERSION = 2
 SAMPLE_INVOCATION_ID = "iv_2x9pd7wk5rhf"
+SAMPLE_SESSION_ID = "se_m4t7c1zq9bvn"
 SAMPLE_TRANSACTION_ID = "tx_5jw8r3ne2kpq"
 SAMPLE_ACTION_NAME = "ros-ingest"
 SAMPLE_ACTION_DIGEST = "sha256:9f1c2e7b4a0d8c6f3e5b1a7d2c4f8e6a0b3d5c7e9f1a2b4c6d8e0f2a4b6c8d0e"
@@ -84,6 +85,8 @@ def _payload_for(event_type: PlatformEventType) -> dict[str, typing.Any]:
             "action_owner_id": SAMPLE_ORG_ID,
             "status": status,
         }
+    if event_type is PlatformEventType.SessionIngested:
+        return {"session_id": SAMPLE_SESSION_ID, "ingestion_number": 1}
     if event_type is PlatformEventType.EventCreated:
         return {"event_id": SAMPLE_EVENT_ID}
     if event_type is PlatformEventType.ScheduleFired:
@@ -99,9 +102,15 @@ def sample_platform_event(event_type: PlatformEventType) -> PlatformEvent:
     # what :attr:`PlatformEvent.subject` resolves to.
     subject_type = DEFAULT_PLATFORM_EVENT_CATALOG.descriptor(event_type).subject_type
     subject_id = payload[f"{subject_type.value}_id"]
+    event_id = (
+        # A session is announced ingested more than once; the published id numbers each announcement.
+        f"evt:{subject_id}:{payload['ingestion_number']}:ingested"
+        if event_type is PlatformEventType.SessionIngested
+        else f"evt:{subject_id}:{event_type.value}"
+    )
     return PlatformEvent.model_validate(
         {
-            "id": f"evt:{subject_id}:{event_type.value}",
+            "id": event_id,
             "source": platform_event_source(SAMPLE_API_DOMAIN, SAMPLE_ORG_ID),
             "type": event_type,
             "time": SAMPLE_TIME,
@@ -122,6 +131,7 @@ __all__ = [
     "SAMPLE_FILE_VERSION",
     "SAMPLE_INVOCATION_ID",
     "SAMPLE_ORG_ID",
+    "SAMPLE_SESSION_ID",
     "SAMPLE_TAGS_ADDED",
     "SAMPLE_TIME",
     "SAMPLE_TRANSACTION_ID",

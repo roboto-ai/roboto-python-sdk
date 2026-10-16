@@ -179,11 +179,12 @@ class Org:
         return self.__record.model_dump_json()
 
     @property
-    def files(self) -> FileSystem:
-        """The files associated with the org itself, rather than with one of its datasets or devices.
+    def assets(self) -> FileSystem:
+        """Files associated with the org itself, rather than with one of its datasets or devices.
 
-        Shared URDFs, runbooks, and other files that belong to the org as a whole live here. Files
-        associated with a dataset or a device are reached through that dataset's or device's ``files``.
+        Files that belong to the org as a whole, such as runbooks, live here. A dataset's files are reached
+        through :py:attr:`~roboto.domain.datasets.Dataset.files`, and a device's configurations through
+        :py:attr:`~roboto.domain.devices.Device.configurations`.
         """
         return FileSystem(Association.org(self.org_id), roboto_client=self.__roboto_client, org_id=self.org_id)
 

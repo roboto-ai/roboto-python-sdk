@@ -25,7 +25,11 @@ from .query_templates import (
     iter_query_templates,
     placeholders_outside_string_literals,
 )
-from .record import TriggerRecord
+from .record import (
+    ManagedBy,
+    ManagedByKind,
+    TriggerRecord,
+)
 from .sources import (
     EventSubscription,
     Schedule,
@@ -68,7 +72,12 @@ class TriggerValidator:
         Raises:
             ValueError: Any rule in :meth:`validate` fails.
         """
-        self.validate(fires_on=record.fires_on, condition=record.condition, targets=record.targets)
+        self.validate(
+            fires_on=record.fires_on,
+            condition=record.condition,
+            targets=record.targets,
+            managed_by=record.managed_by,
+        )
 
     def validate(
         self,
@@ -76,6 +85,7 @@ class TriggerValidator:
         fires_on: TriggerSource,
         condition: typing.Optional[ConditionType],
         targets: collections.abc.Sequence[TriggerTargetSpec],
+        managed_by: typing.Optional[ManagedBy] = None,
     ) -> None:
         """Validate the cross-field rules for one trigger's parts.
 
@@ -83,6 +93,9 @@ class TriggerValidator:
             fires_on: The trigger's firing source.
             condition: Optional predicate over the firing's namespace.
             targets: The trigger's target specs.
+            managed_by: The trigger's owner, if it is managed. An ingestion rule's trigger accepts
+                only the files the rule's path patterns match, so its per-file targets need no
+                ``required_inputs``.
 
         Raises:
             ValueError: The first rule that fails, with a message naming the offending
@@ -91,7 +104,10 @@ class TriggerValidator:
         event_types = self.__event_types(fires_on)
         shared_roots = self.__shared_roots(event_types)
         self.__validate_condition(condition, event_types, shared_roots)
-        self.__validate_targets(targets, fires_on, event_types, shared_roots, self.__subject_type(fires_on))
+        owner_gates_files = managed_by is not None and managed_by.kind is ManagedByKind.IngestionRule
+        self.__validate_targets(
+            targets, fires_on, event_types, shared_roots, self.__subject_type(fires_on), owner_gates_files
+        )
 
     def __event_types(self, fires_on: TriggerSource) -> list[PlatformEventType]:
         """The event types the source fires for, after validating the source itself."""
@@ -201,6 +217,7 @@ class TriggerValidator:
         event_types: collections.abc.Sequence[PlatformEventType],
         shared_roots: frozenset[str],
         subject_type: typing.Optional[RobotoUriType],
+        owner_gates_files: bool,
     ) -> None:
         if not targets:
             raise ValueError("A trigger must have at least one target.")
@@ -231,6 +248,7 @@ class TriggerValidator:
                 and subject_type is RobotoUriType.File
                 and fires_on.once_per is not OncePer.Dataset
                 and not target.required_inputs
+                and not owner_gates_files
             ):
                 raise ValueError(
                     f"Target {target.target_id!r} has no required_inputs, but at once_per={fires_on.once_per.value!r} "

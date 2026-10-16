@@ -23,19 +23,37 @@ from ...sentinels import (
 )
 from ...time import Time, to_epoch_nanoseconds
 from ...updates import CustomFieldChangeset, MetadataChangeset, StrSequence
+from ...waiters import TimeoutError as WaitTimeoutError
+from ...waiters import wait_for
 from ..ingest import TopicDeclaration
 from ..topics import SessionContext, Topic
 from .operations import (
+    MAX_INGESTION_SUMMARIES,
     AddFilesRequest,
     AttachToDeviceRequest,
+    CreateSessionIfNotExistsRequest,
     CreateSessionRequest,
     DetachFromDeviceRequest,
     RemoveFilesRequest,
     SessionFile,
+    SessionIngestionSummariesRequest,
+    SessionIngestionSummariesResponse,
     SessionUpdate,
     SetUnixOffsetRequest,
+    SkipWaitingRequest,
 )
-from .record import SessionFileView, SessionRecord
+from .record import (
+    CompletionPolicy,
+    SessionFileView,
+    SessionIngestionState,
+    SessionIngestionStatus,
+    SessionIngestionSummary,
+    SessionRecord,
+    SessionStatus,
+    SkipWaitingResponse,
+)
+
+_MAX_PENDING_PATHS_IN_MESSAGE = 10
 
 if typing.TYPE_CHECKING:
     from ...domain.files import File
@@ -95,6 +113,7 @@ class Session:
         custom_fields: typing.Optional[dict[str, typing.Any]] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
+        completion_policy: typing.Union[CompletionPolicy, None, NotSetType] = NotSet,
     ) -> "Session":
         """Create a new Session, optionally associating it with one or more devices.
 
@@ -118,6 +137,11 @@ class Session:
                 must satisfy each field's declared type.
             caller_org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
             roboto_client: Optional RobotoClient; defaults to the ambient one.
+            completion_policy: When Roboto marks the Session complete on its own. Left unset, the
+                Session gets the org's default completion policy, if an org admin has set one, and
+                :py:attr:`completion_policy` on the returned Session shows the policy applied. ``None``
+                means the Session is marked complete only by :py:meth:`complete`, whatever the org's
+                default. Change it later with :py:meth:`update`.
 
         Returns:
             The created Session.
@@ -137,13 +161,14 @@ class Session:
             ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        request = CreateSessionRequest(
+        request = cls.__create_request(
             name=name,
-            device_ids=list(device_ids),
+            device_ids=device_ids,
             description=description,
-            metadata=metadata or {},
-            tags=list(tags) if tags else [],
+            metadata=metadata,
+            tags=tags,
             custom_fields=custom_fields,
+            completion_policy=completion_policy,
         )
         record = roboto_client.post(
             "v1/sessions",
@@ -151,6 +176,107 @@ class Session:
             caller_org_id=caller_org_id,
         ).to_record(SessionRecord)
         return cls(record=record, roboto_client=roboto_client)
+
+    @classmethod
+    def create_if_not_exists(
+        cls,
+        match_roboql_query: str,
+        name: typing.Optional[str] = None,
+        device_ids: collections.abc.Sequence[str] = (),
+        description: typing.Optional[str] = None,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
+        tags: typing.Optional[collections.abc.Sequence[str]] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
+        completion_policy: typing.Union[CompletionPolicy, None, NotSetType] = NotSet,
+        caller_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> "Session":
+        """Return the first Session matching a RoboQL query, creating one when none matches.
+
+        Concurrent calls with the same query create one Session between them, so a process handling
+        one file at a time (such as an S3 event handler) can use it to put each file into the
+        Session it belongs to.
+
+        The Session created must match ``match_roboql_query``. If ``name``, ``tags`` and the other
+        arguments describe a Session the query does not match, every later call creates another one.
+
+        When several Sessions match, which one is returned is not defined unless the query ends with a
+        ``SORT BY`` clause, e.g. ``name = 'flight-0042' SORT BY session_id``.
+
+        A matching Session is returned as it is: the arguments below apply only to a Session this call
+        creates, so ``completion_policy`` and the rest are ignored on a match. Use :py:meth:`update` to
+        change a matched Session. The Session returned may be complete; adding a file to it puts it back in
+        progress. To match only Sessions in progress, add ``AND status = 'in_progress'`` to the query.
+
+        Args:
+            match_roboql_query: RoboQL query over Sessions, e.g. ``name = 'flight-0042'``.
+            name: Name of the Session to create when none matches.
+            device_ids: Devices to associate with a created Session.
+            description: Description of a created Session.
+            metadata: Metadata of a created Session.
+            tags: Tags of a created Session.
+            custom_fields: Custom-field values of a created Session.
+            completion_policy: Completion policy of a created Session; see :py:meth:`create`.
+            caller_org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
+            roboto_client: Optional RobotoClient; defaults to the ambient one.
+
+        Returns:
+            The matching or created Session.
+
+        Raises:
+            RobotoServiceUnavailableException: Other calls with the same query kept this one waiting for
+                more than 10 seconds, after the SDK's own retries. Calling again is safe.
+
+        Examples:
+            >>> from roboto.experimental.sessions import CompletionPolicy, Session
+            >>> session = Session.create_if_not_exists(
+            ...     "name = 'flight-0042'",
+            ...     name="flight-0042",
+            ...     completion_policy=CompletionPolicy(inactivity_minutes=15),
+            ... )
+            >>> session.add_file("fl_0123456789abcdef")
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        request = CreateSessionIfNotExistsRequest(
+            match_roboql_query=match_roboql_query,
+            create_request=cls.__create_request(
+                name=name,
+                device_ids=device_ids,
+                description=description,
+                metadata=metadata,
+                tags=tags,
+                custom_fields=custom_fields,
+                completion_policy=completion_policy,
+            ),
+        )
+        record = roboto_client.post(
+            "v1/sessions/create_if_not_exists",
+            data=request,
+            caller_org_id=caller_org_id,
+        ).to_record(SessionRecord)
+        return cls(record=record, roboto_client=roboto_client)
+
+    @staticmethod
+    def __create_request(
+        name: typing.Optional[str],
+        device_ids: collections.abc.Sequence[str],
+        description: typing.Optional[str],
+        metadata: typing.Optional[dict[str, typing.Any]],
+        tags: typing.Optional[collections.abc.Sequence[str]],
+        custom_fields: typing.Optional[dict[str, typing.Any]],
+        completion_policy: typing.Union[CompletionPolicy, None, NotSetType],
+    ) -> CreateSessionRequest:
+        return remove_not_set(
+            CreateSessionRequest(
+                name=name,
+                device_ids=list(device_ids),
+                description=description,
+                metadata=metadata or {},
+                tags=list(tags) if tags else [],
+                custom_fields=custom_fields,
+                completion_policy=completion_policy,
+            )
+        )
 
     @classmethod
     def for_dataset(
@@ -229,6 +355,43 @@ class Session:
                 break
 
     @classmethod
+    def ingestion_summaries(
+        cls,
+        session_ids: collections.abc.Sequence[str],
+        org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> list[SessionIngestionSummary]:
+        """Where each of many Sessions stands in ingestion, in counts, a hundred Sessions per request.
+
+        Cheaper than :meth:`ingestion_status` on each Session for finding which of many are stuck: a summary has
+        no file lists, only counts, including how many waiting files failed to ingest.
+
+        Args:
+            session_ids: Sessions in the caller's org. Others are left out of the result.
+            org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
+            roboto_client: Optional RobotoClient; defaults to the ambient one.
+
+        Returns:
+            One summary per Session found, in request order.
+
+        Examples:
+            >>> summaries = Session.ingestion_summaries(["se_abc123", "se_def456"])
+            >>> [s.session_id for s in summaries if s.failed_file_count]
+            ['se_def456']
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        ids = list(dict.fromkeys(session_ids))
+        summaries: list[SessionIngestionSummary] = []
+        for start in range(0, len(ids), MAX_INGESTION_SUMMARIES):
+            response = roboto_client.post(
+                "v1/sessions/ingestion/summaries",
+                caller_org_id=org_id,
+                data=SessionIngestionSummariesRequest(session_ids=ids[start : start + MAX_INGESTION_SUMMARIES]),
+            ).to_record(SessionIngestionSummariesResponse)
+            summaries.extend(response.summaries)
+        return summaries
+
+    @classmethod
     def from_id(
         cls,
         session_id: str,
@@ -297,6 +460,31 @@ class Session:
     def description(self) -> typing.Optional[str]:
         """Optional description of this Session."""
         return self.__record.description
+
+    @property
+    def ingestion_count(self) -> int:
+        """How many times this Session has been announced ingested."""
+        return self.__record.ingestion_count
+
+    @property
+    def status(self) -> SessionStatus:
+        """Whether this Session is in progress or complete (see :py:meth:`complete`)."""
+        return self.__record.status
+
+    @property
+    def completes_at(self) -> typing.Optional[datetime.datetime]:
+        """When Roboto will mark this Session complete unless another file is added first, per its
+        :py:attr:`completion_policy`.
+
+        ``None`` while the Session is complete, has no completion policy, or has no files.
+        """
+        return self.__record.completes_at
+
+    @property
+    def completion_policy(self) -> typing.Optional[CompletionPolicy]:
+        """When Roboto marks this Session complete on its own, or ``None`` if it is marked complete only by
+        :py:meth:`complete`."""
+        return self.__record.completion_policy
 
     @property
     def max_timestamp_ns(self) -> typing.Optional[int]:
@@ -568,6 +756,34 @@ class Session:
         self.__record = record
         return self
 
+    def complete(self) -> "Session":
+        """Mark this Session complete: declare that all of its files have been added.
+
+        Once it is complete, the platform announces the ``session.ingested`` platform event, which triggers
+        can subscribe to, as soon as every ingestable file in the Session is ingested. A file is
+        ingestable when its path matched one of the org's ingestion rules when its current version was
+        created, or it has since been partly or fully ingested. Files that are not ingestable never delay
+        the announcement.
+
+        Adding a file to a complete Session puts it back in progress; mark it complete again once the
+        new files are added. If its ingestable files change while it stays complete (a new version, a
+        file removed or deleted), it is announced again once they are all ingested. Marking a complete
+        Session complete changes nothing.
+
+        Returns:
+            This Session, refreshed from the server response.
+
+        Examples:
+            >>> session.add_file("fl_0123456789abcdef")
+            >>> session = session.complete()
+            >>> session.status is SessionStatus.Complete
+            True
+        """
+        self.__record = self.__roboto_client.post(
+            f"v1/sessions/id/{self.session_id}/complete",
+        ).to_record(SessionRecord)
+        return self
+
     def delete(self) -> None:
         """Delete this Session. The files it included and the devices attached to it are not deleted."""
         self.__roboto_client.delete(
@@ -622,6 +838,50 @@ class Session:
                 end_time=self.max_timestamp_ns,
             ),
         )
+
+    def ingestion_status(self) -> SessionIngestionStatus:
+        """Return where this Session stands in ingestion, with the files it is still waiting on.
+
+        Returns:
+            The current status. It does not refresh this Session instance.
+
+        Examples:
+            >>> status = session.ingestion_status()
+            >>> status.state
+            <SessionIngestionState.Processing: 'processing'>
+            >>> [f.relative_path for f in status.pending_files]
+            ['flight_002.mcap']
+        """
+        return self.__roboto_client.get(
+            f"v1/sessions/id/{self.session_id}/ingestion",
+        ).to_record(SessionIngestionStatus)
+
+    def skip_waiting_for(self, file_ids: collections.abc.Sequence[str]) -> SkipWaitingResponse:
+        """Stop waiting for these files to be ingested, e.g. ones whose ingestion failed.
+
+        A complete Session is announced ingested once its other ingestable files are. The skip
+        covers each file's current upload: uploading it again makes the Session wait for it again,
+        while editing its tags or metadata does not. Skipped files stay in the Session and are listed
+        in :attr:`SessionIngestionStatus.skipped_files`.
+
+        Args:
+            file_ids: Files in this Session.
+
+        Returns:
+            Where this Session stands in ingestion afterwards, and the requested files that are not
+            in it.
+
+        Examples:
+            >>> response = session.skip_waiting_for(["fl_0123456789abcdef"])
+            >>> response.ingestion.state
+            <SessionIngestionState.Ingested: 'ingested'>
+            >>> response.not_in_session
+            []
+        """
+        return self.__roboto_client.post(
+            f"v1/sessions/id/{self.session_id}/ingestion/skip",
+            data=SkipWaitingRequest(file_ids=list(file_ids)),
+        ).to_record(SkipWaitingResponse)
 
     def list_devices(self) -> collections.abc.Generator[str, None, None]:
         """Iterate the device IDs attached as subjects of this Session, paginated."""
@@ -1015,11 +1275,12 @@ class Session:
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
         name: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None,
+        completion_policy: typing.Union[CompletionPolicy, None, NotSetType] = NotSet,
     ) -> "Session":
         """Update mutable Session fields.
 
         Fields left at the ``NotSet`` default are preserved;
-        for nullable string fields (``description``, ``name``), pass ``None`` to clear.
+        for nullable fields (``description``, ``name``, ``completion_policy``), pass ``None`` to clear.
 
         Args:
             description: New description for the Session. Set to ``None`` to clear the description.
@@ -1032,12 +1293,21 @@ class Session:
             custom_fields_changeset: Changes to apply to Ready custom-field values
                 on this session. Field names not referenced by the changeset are
                 left unchanged.
+            completion_policy: When Roboto marks the Session complete on its own. ``None`` removes the
+                policy, so the Session is marked complete only by :py:meth:`complete`. On a Session in
+                progress that has files, a new policy counts its inactivity from now. A complete Session
+                stays complete, and the policy applies after a file is added to it.
 
         Returns:
             This Session, refreshed from the server response.
 
         Examples:
             >>> session.update(description="formation flight #4", name="flight-2026-04-23-001")
+
+            Let Roboto mark a Session complete 30 minutes after its last file is added:
+
+            >>> from roboto.experimental.sessions import CompletionPolicy
+            >>> session.update(completion_policy=CompletionPolicy(inactivity_minutes=30))
         """
         request = remove_not_set(
             SessionUpdate(
@@ -1045,6 +1315,7 @@ class Session:
                 metadata_changeset=metadata_changeset,
                 name=name,
                 custom_fields_changeset=custom_fields_changeset,
+                completion_policy=completion_policy,
             )
         )
         record = self.__roboto_client.put(
@@ -1053,3 +1324,100 @@ class Session:
         ).to_record(SessionRecord)
         self.__record = record
         return self
+
+    def wait_until_ingested(self, timeout: float = 600, poll_interval: int = 15) -> "Session":
+        """Block until every ingestable file in this Session is ingested and Roboto has announced it ingested.
+
+        The wait ends once Roboto records the announcement that fires ``session.ingested``, which raises
+        :py:attr:`ingestion_count`. A Session already announced ingested since it was last marked complete
+        returns at once.
+
+        A Session in progress is waited for when it will complete on its own: it has a
+        :py:attr:`completion_policy` and files, so :py:attr:`completes_at` is set. The wait then includes the
+        policy's inactivity. A Session in progress that will not complete on its own is refused, as only
+        :py:meth:`complete` would complete it.
+
+        The default ``timeout`` of 10 minutes may be too short for a Session of large recordings. Pass a
+        longer one, e.g. ``timeout=2 * 60 * 60`` for two hours.
+
+        Args:
+            timeout: Maximum seconds to wait.
+            poll_interval: Seconds between status checks.
+
+        Returns:
+            This Session, refreshed from the server.
+
+        Raises:
+            RuntimeError: This Session is in progress and will not complete on its own: it has no completion
+                policy, or it has one but no files.
+            roboto.waiters.TimeoutError: ``timeout`` elapsed first. The message says where the Session stands
+                and lists up to 10 of the files it is still waiting for. It is also a built-in
+                :py:exc:`TimeoutError`.
+
+        Examples:
+            >>> session = session.complete().wait_until_ingested(timeout=2 * 60 * 60)
+        """
+        last_status: typing.Optional[SessionIngestionStatus] = None
+        starting_count: typing.Optional[int] = None
+        saw_files_pending = False
+
+        def is_announced() -> bool:
+            nonlocal last_status, starting_count, saw_files_pending
+            last_status = self.ingestion_status()
+            if starting_count is None:
+                starting_count = last_status.ingestion_count
+            if last_status.state is not SessionIngestionState.Ingested:
+                saw_files_pending = True
+                if last_status.state is SessionIngestionState.InProgress:
+                    self.refresh()
+                    self.__refuse_if_it_will_not_complete()
+                return False
+            if last_status.ingestion_count > starting_count:
+                return True
+            if saw_files_pending:
+                return False
+            # Ingested at the first poll: either announced already, or the announcement is not recorded yet.
+            self.refresh()
+            completed_at, ingested_at = self.__record.completed_at, self.__record.ingested_at
+            return completed_at is not None and ingested_at is not None and ingested_at >= completed_at
+
+        try:
+            wait_for(is_announced, timeout=timeout, interval=poll_interval)
+        except WaitTimeoutError:
+            raise WaitTimeoutError(self.__wait_timeout_message(timeout, last_status)) from None
+        return self.refresh()
+
+    def __refuse_if_it_will_not_complete(self) -> None:
+        if self.completes_at is not None:
+            return
+        if self.completion_policy is None:
+            raise RuntimeError(
+                f"Session '{self.session_id}' is in progress and has no completion policy, so it will not complete "
+                "on its own. Call complete() after every file is added, or set a completion policy."
+            )
+        raise RuntimeError(
+            f"Session '{self.session_id}' is in progress and has no files, so it will not complete on its own: its "
+            "completion policy counts inactivity from the last file added. Add its files, or call complete()."
+        )
+
+    def __wait_timeout_message(self, timeout: float, status: typing.Optional[SessionIngestionStatus]) -> str:
+        message = f"Timed out after {timeout:g}s waiting for session '{self.session_id}' to be ingested."
+        if status is None:
+            return message
+        if status.state is SessionIngestionState.InProgress:
+            message += " It is still in progress"
+            message += (
+                f"; Roboto marks it complete at {self.completes_at.isoformat()} unless another file is added first."
+                if self.completes_at is not None
+                else "."
+            )
+        else:
+            message += " It is complete."
+        pending_count = max(status.pending_file_count, len(status.pending_files))
+        if pending_count:
+            shown = [f.relative_path for f in status.pending_files[:_MAX_PENDING_PATHS_IN_MESSAGE]]
+            more = pending_count - len(shown)
+            message += f" {pending_count} file(s) are not ingested yet: {', '.join(shown)}"
+            message += f", and {more} more." if more > 0 else "."
+            message += " ingestion_status() shows each file's latest ingestion run."
+        return message

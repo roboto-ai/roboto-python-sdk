@@ -213,7 +213,6 @@ detect-same-package = false
 known-first-party = [
     "database_administration",
     "executor_sidecar",
-    "image_management_service",
     "invocation_scheduling_service",
     "ops_observer",
     "roboto",

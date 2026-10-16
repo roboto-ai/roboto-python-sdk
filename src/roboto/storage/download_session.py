@@ -110,10 +110,17 @@ class DownloadSession:
     def make_credential_provider(self, bucket_name: typing.Optional[str] = None) -> CredentialProvider:
         """Return a credential provider for read-only access to the association's files."""
 
+        association_id = self.__association.association_id
+        credentials_route = (
+            f"v1/datasets/id/{association_id}/credentials"
+            if self.__association.is_dataset
+            else f"v1/files/association/id/{association_id}/credentials"
+        )
+
         def _get_download_credentials() -> Credentials:
             query_params: dict[str, str] = {"mode": Permissions.ReadOnly.value}
             response = self.__roboto_client.get(
-                f"v1/files/association/id/{self.__association.association_id}/credentials",
+                credentials_route,
                 query=query_params,
                 caller_org_id=self.__caller_org_id,
             ).to_record_list(RobotoCredentials)

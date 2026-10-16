@@ -439,7 +439,7 @@ class File:
 
     @property
     def association(self) -> Association:
-        """The dataset, device, or org this file is associated with.
+        """The dataset, device, device type, or org this file is associated with.
 
         Every file has exactly one association, inferred from the prefix of its association ID. Read
         ``file.association.association_type`` to branch on it.
@@ -506,7 +506,7 @@ class File:
     def is_link(self) -> bool:
         """Whether this file is a link to one version of another file.
 
-        A link sits at its own path under its own dataset, device, or org, and stores no object.
+        A link sits at its own path under its own device or org, and stores no object.
         :py:meth:`download` and :py:meth:`get_signed_url` fetch the target at the version the link pins.
         """
         return self.__record.is_link

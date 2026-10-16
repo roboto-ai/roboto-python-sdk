@@ -51,7 +51,7 @@ class Device:
     identified by a device_id within its organization and can be assigned API tokens for
     secure authentication.
 
-    Common device types include:
+    Common kinds of device include:
 
     - Robots that upload log data directly from their onboard software
     - Automated upload stations that collect and transmit data from multiple sources
@@ -59,7 +59,7 @@ class Device:
 
     Devices are associated with :py:class:`~roboto.domain.orgs.Org` entities and can create
     :py:class:`~roboto.domain.tokens.Token` objects for authentication. The underlying data
-    is stored in :py:class:`DeviceRecord` objects for wire transmission.
+    is a :py:class:`DeviceRecord`, the raw record as returned by Roboto.
 
     Device IDs are typically meaningful identifiers like serial numbers, asset tags, or
     other organization-specific naming schemes that help identify the physical or logical
@@ -83,6 +83,7 @@ class Device:
         custom_fields: typing.Optional[dict[str, typing.Any]] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
+        device_type_id: typing.Optional[str] = None,
     ) -> "Device":
         """Register a new device with the Roboto platform.
 
@@ -106,6 +107,8 @@ class Device:
                 Required if the caller belongs to multiple organizations.
             roboto_client: Optional RobotoClient instance for API communication. If not provided,
                 the default client configuration will be used.
+            device_type_id: Optional ``dt_`` ID of a :py:class:`~roboto.domain.device_types.DeviceType` in the
+                same organization to assign to the device.
 
         Returns:
             A Device instance representing the newly registered device.
@@ -115,8 +118,9 @@ class Device:
                 in the specified organization.
             RobotoUnauthorizedException: If the caller lacks permission to create devices
                 in the specified organization.
-            RobotoInvalidRequestException: If the device_id is invalid or the organization
-                ID is malformed.
+            RobotoInvalidRequestException: If the device_id is invalid, the organization
+                ID is malformed, or ``device_type_id`` is given and the organization has no such
+                device type or does not have device types enabled.
 
         Examples:
             Register a robot device:
@@ -138,6 +142,7 @@ class Device:
             metadata=metadata or {},
             tags=tags or [],
             custom_fields=custom_fields,
+            device_type_id=device_type_id,
         )
         record = roboto_client.post("v1/devices/create", caller_org_id=caller_org_id, data=request).to_record(
             DeviceRecord
@@ -334,6 +339,11 @@ class Device:
         return self.__record.device_id
 
     @property
+    def device_type_id(self) -> typing.Optional[str]:
+        """The ``dt_`` ID of the device type assigned to this device, or ``None`` when it has no type."""
+        return self.__record.device_type_id
+
+    @property
     def encoded_device_id(self) -> str:
         """
         The device ID, URL-encoded. This is useful for constructing URLs to Roboto APIs which contain the device ID.
@@ -341,20 +351,24 @@ class Device:
         return urllib.parse.quote(self.device_id, safe="")
 
     @property
-    def files(self) -> FileSystem:
-        """The files associated with this device: its calibrations, part manifests, and the like.
+    def configurations(self) -> FileSystem:
+        """Files specific to this device.
 
-        These are the device's own files, distinct from the dataset files whose ``device_id`` names this
-        device as the one that recorded them.
+        Configurations hold files such as URDFs, calibration files, manifests, and maintenance logs. Data the
+        device records goes to datasets instead: a dataset file whose ``device_id`` names this device is not one
+        of its configurations.
+
+        A device with a device type also inherits the type's configurations. Pass ``include_inherited=True`` to
+        :py:meth:`~roboto.domain.files.FileSystem.list_files` or
+        :py:meth:`~roboto.domain.files.FileSystem.download_files` to include them; the other methods act on the
+        device's own files only.
 
         Raises:
-            RobotoNotReadyException: The device has no ``universal_device_id``, which only a Roboto
-                deployment that predates device files returns.
+            RobotoNotReadyException: The device has no ``universal_device_id``.
         """
         if self.__record.universal_device_id is None:
             raise RobotoNotReadyException(
-                f"Device '{self.device_id}' has no universal_device_id, so its files cannot be addressed; "
-                "the Roboto deployment it was loaded from predates device files."
+                f"Device '{self.device_id}' has no universal_device_id, so its configurations cannot be addressed."
             )
         return FileSystem(
             Association.device(self.__record.universal_device_id),
@@ -403,7 +417,7 @@ class Device:
     def record(self) -> DeviceRecord:
         """Underlying :py:class:`DeviceRecord` for this device.
 
-        This is the wire representation used in API requests and may evolve over time; prefer the public
+        This is the raw record as returned by Roboto and may evolve over time; prefer the public
         :py:class:`Device` API unless you need direct access to the record.
         """
         return self.__record
@@ -769,21 +783,21 @@ class Device:
             record.secret,
         )
 
-    def delete(self, keep_files: bool = False) -> None:
+    def delete(self, keep_configurations: bool = False) -> None:
         """Delete this device from the Roboto platform.
 
-        Permanently removes this device and all associated tokens. This action cannot
+        Permanently removes this device, its configurations, and all associated tokens. This action cannot
         be undone. Any tokens created for this device will be immediately invalidated.
 
-        The device's own files (:py:attr:`files`) are deleted with it, every version of each, shortly after this
-        call returns. With ``keep_files=True`` they move to the org root instead, under
-        ``devices/<universal_device_id>/``, keeping their file IDs and every version, so they stay reachable through
-        ``org.files``. Links among the device's files are deleted in both cases, never moved; their targets are left
-        alone.
+        The device's configurations (:py:attr:`configurations`) are deleted with it, every version of each file,
+        shortly after this call returns. With ``keep_configurations=True`` they move to the org's assets
+        (:py:attr:`~roboto.domain.orgs.Org.assets`) instead, under ``devices/<universal_device_id>/``, keeping their
+        file IDs and every version. Links among the device's configurations are deleted in both cases, and
+        the files they point at are left alone.
 
         Args:
-            keep_files: Move the device's files to the org root instead of deleting them. Requires permission to
-                upload files to the org.
+            keep_configurations: Move the device's configurations to the org's assets instead of deleting them.
+                Requires permission to upload files to the org.
 
         Raises:
             RobotoUnauthorizedException: If the caller lacks permission to delete this device.
@@ -799,15 +813,15 @@ class Device:
             Deleting device: old_robot_001
             Device deleted successfully
 
-            Delete a device but keep its calibrations and manifests in the org root:
+            Delete a device but keep its configurations in the org's assets:
 
             >>> device = Device.from_id("old_robot_001")
-            >>> device.delete(keep_files=True)
+            >>> device.delete(keep_configurations=True)
         """
         self.__roboto_client.delete(
             f"v1/devices/id/{self.encoded_device_id}",
             owner_org_id=self.org_id,
-            query={"keep_files": "true"} if keep_files else None,
+            query={"keep_configurations": "true"} if keep_configurations else None,
         )
 
     @experimental
@@ -906,6 +920,32 @@ class Device:
             >>> updated_device = device.remove_tags(["old_tag", "deprecated"])
         """
         return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(remove_tags=tags)))
+
+    def set_device_type(self, device_type_id: typing.Optional[str]) -> "Device":
+        """Assign a device type to this device, or remove its type.
+
+        The device's own configurations are unaffected. Listing them with ``include_inherited=True`` afterwards
+        includes the new type's configurations, or no device type's if the type was removed.
+
+        Args:
+            device_type_id: ``dt_`` ID of a :py:class:`~roboto.domain.device_types.DeviceType` in this device's
+                organization, or ``None`` to leave the device without a type.
+
+        Returns:
+            Updated Device instance with the new device type.
+
+        Raises:
+            RobotoInvalidRequestException: ``device_type_id`` is not ``None`` and the organization has no such
+                device type or does not have device types enabled.
+
+        Examples:
+            >>> device = Device.from_id("robot_001")
+            >>> device.set_device_type("dt_abc123").device_type_id
+            'dt_abc123'
+            >>> device.set_device_type(None).device_type_id is None
+            True
+        """
+        return self.update(UpdateDeviceRequest(device_type_id=device_type_id))
 
     @experimental
     def set_custom_field(self, name: str, value: typing.Any) -> "Device":

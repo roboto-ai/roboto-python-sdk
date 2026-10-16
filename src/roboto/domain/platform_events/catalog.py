@@ -28,6 +28,7 @@ from .events import (
     PlatformEvent,
     PlatformEventType,
     ScheduleFiredPayload,
+    SessionIngestedPayload,
     UploadCompletedPayload,
 )
 from .once_per import OncePer
@@ -388,6 +389,18 @@ DEFAULT_PLATFORM_EVENT_CATALOG = PlatformEventCatalog(
                 OncePer.Invocation: _invocation_id,
             },
             subject_type=RobotoUriType.Invocation,
+        ),
+        PlatformEventDescriptor(
+            event_type=PlatformEventType.SessionIngested,
+            payload_model=SessionIngestedPayload,
+            exposed_roots=frozenset({"session"}),
+            default_root="session",
+            # Each announcement is its own occurrence, so a trigger fires again when a changed
+            # session is ingested again; ingestion_number tells the announcements apart.
+            once_per_projections={
+                OncePer.Occurrence: _event_id,
+            },
+            subject_type=RobotoUriType.Session,
         ),
         PlatformEventDescriptor(
             event_type=PlatformEventType.EventCreated,

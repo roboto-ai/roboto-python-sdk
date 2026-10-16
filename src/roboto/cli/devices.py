@@ -15,6 +15,7 @@ from ..config import (
 from ..domain import devices
 from ..exceptions import RobotoConflictException
 from ..logging import default_logger
+from ..sentinels import maybe_null, null
 from .command import (
     RobotoCommand,
     RobotoCommandSet,
@@ -45,18 +46,19 @@ def delete_device(args: argparse.Namespace, context: CLIContext, parser: argpars
         roboto_client=context.roboto_client,
     )
 
-    device.delete(keep_files=args.keep_files)
+    device.delete(keep_configurations=args.keep_configurations)
 
 
 def delete_device_setup_parser(parser: argparse.ArgumentParser) -> None:
     __add_device_arg(parser)
     add_org_arg(parser)
     parser.add_argument(
-        "--keep-files",
+        "--keep-configurations",
         action="store_true",
         help=(
-            "Move the device's files to the org root under devices/<universal_device_id>/ instead of deleting them. "
-            "Links among the device's files are deleted either way."
+            "Move the device's configurations (its own files, such as URDFs and calibration files) to the org's "
+            "assets, under devices/<universal_device_id>/, instead of deleting them. "
+            "Links among the device's configurations are deleted either way."
         ),
     )
 
@@ -192,6 +194,7 @@ def register_device(args: argparse.Namespace, context: CLIContext, parser: argpa
             device_id=args.device_id,
             caller_org_id=org_id,
             roboto_client=context.roboto_client,
+            device_type_id=args.device_type_id,
         )
     except RobotoConflictException:
         device = devices.Device.from_id(
@@ -220,6 +223,12 @@ def register_device_setup_parser(parser: argparse.ArgumentParser) -> None:
         help="Where on local disk to save the config file containing the newly registered device's Roboto credentials. "
         + "Defaults to 'config.json' in the current directory.",
     )
+    parser.add_argument(
+        "--device-type-id",
+        type=str,
+        help="The ID (dt_...) of a device type in the org to assign to the device. "
+        + "Ignored when the device is already registered; use ``roboto devices update`` to change its type.",
+    )
     add_org_arg(parser)
 
 
@@ -237,6 +246,28 @@ def show_device(args: argparse.Namespace, context: CLIContext, parser: argparse.
 
 def show_device_setup_parser(parser: argparse.ArgumentParser) -> None:
     __add_device_arg(parser)
+    add_org_arg(parser)
+
+
+def update_device(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    device = devices.Device.from_id(
+        device_id=args.device_id,
+        org_id=get_defaulted_org_id(args.org),
+        roboto_client=context.roboto_client,
+    )
+
+    print(device.set_device_type(None if args.device_type_id is null else args.device_type_id))
+
+
+def update_device_setup_parser(parser: argparse.ArgumentParser) -> None:
+    __add_device_arg(parser)
+    parser.add_argument(
+        "--device-type-id",
+        type=maybe_null,
+        required=True,
+        help="The ID (dt_...) of a device type in the org to assign to the device. "
+        + "Specify ``null`` to remove the device's type.",
+    )
     add_org_arg(parser)
 
 
@@ -296,6 +327,13 @@ show_command = RobotoCommand(
     command_kwargs={"help": "Gets info about an individual device."},
 )
 
+update_command = RobotoCommand(
+    name="update",
+    logic=update_device,
+    setup_parser=update_device_setup_parser,
+    command_kwargs={"help": "Assigns a device type to a device, or removes its type."},
+)
+
 commands = [
     enable_access_command,
     disable_access_command,
@@ -304,6 +342,7 @@ commands = [
     list_command,
     register_command,
     show_command,
+    update_command,
 ]
 
 command_set = RobotoCommandSet(

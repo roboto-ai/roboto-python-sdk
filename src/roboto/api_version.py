@@ -107,6 +107,14 @@ class RobotoApiVersion(StrEnum):
     the same pair more than once; each entry in ``failed`` is named by the metric name the caller submitted.
     """
 
+    v2026_10_06 = "2026-10-06"
+    """A saved View's filter rows (:py:class:`~roboto.query.SavedFilters`) can carry ``or_null``, and a ``boolean``
+    ``EQUALS`` row can name both values. Clients on older API versions, whose filter rows forbid unknown fields and
+    allow a boolean exactly one value, never receive a View they cannot parse: a boolean ``EQUALS`` over both values
+    reaches them as the ``IS_NOT_NULL`` it means, a View with a row using ``or_null`` is dropped from View listings and
+    reported as not found when read by ID, and updating such a View is refused with HTTP 400 and a message to
+    upgrade."""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the newest API version this build of the SDK knows about.
@@ -116,7 +124,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent member of this enum.
         """
-        return RobotoApiVersion.v2026_10_05
+        return RobotoApiVersion.v2026_10_06
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

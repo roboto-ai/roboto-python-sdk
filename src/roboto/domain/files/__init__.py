@@ -10,6 +10,7 @@ from .lazy_lookup_file import LazyLookupFile
 from .operations import (
     CreateDirectoryRequest,
     CreateLinkRequest,
+    DeleteDirectoriesRequest,
     DeleteFileRequest,
     DirectoryContentsPage,
     FileRecordRequest,
@@ -36,6 +37,7 @@ from .record import (
 __all__ = (
     "CreateDirectoryRequest",
     "CreateLinkRequest",
+    "DeleteDirectoriesRequest",
     "DeleteFileRequest",
     "DirectoryContentsPage",
     "DirectoryRecord",

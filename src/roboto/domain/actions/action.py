@@ -505,6 +505,7 @@ class Action:
             data_source_id: If set, should be a dataset ID for backward compatibility.
             input_data:
                 Either a list of file name patterns, or an `InvocationInput` specification.
+                None or an empty list selects no inputs; in both cases data_source_id sets the invocation's data source.
             upload_destination:
                 Default upload destination (e.g. dataset) for files written to the invocation's
                 output directory.
@@ -562,7 +563,7 @@ class Action:
 
         if isinstance(input_data, InvocationInput):
             resolved_input_data = input_data
-        elif isinstance(input_data, list):
+        elif isinstance(input_data, list) and input_data:
             if not data_source_id:
                 raise RobotoIllegalArgumentException(
                     "'data_source_id' is required when 'input_data' is a list of file name patterns!"

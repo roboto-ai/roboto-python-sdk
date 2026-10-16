@@ -265,7 +265,37 @@ class _FilterBase(pydantic.BaseModel):
             raise ValueError(f"comparator {self.comparator} requires a value")  # type: ignore[attr-defined]
 
 
-class StringFilter(_FilterBase):
+class _EqualityFilterBase(_FilterBase):
+    """Shared shape of the types that offer ``EQUALS`` and ``NOT_EQUALS``."""
+
+    or_null: bool = False
+    """Whether the row also matches records where the field is not set.
+
+    ``EQUALS`` over several values matches any of them, and ``NOT_EQUALS`` over several matches
+    none of them, but neither ever matches a field that is not set. This is how a row says "a, b,
+    or not set" (``EQUALS``) or "neither a nor b, or not set" (``NOT_EQUALS``). Accepted only with
+    those two comparators.
+
+    Left out of the serialized row while false, so a row that does not use it serializes as it did
+    before the field existed, and SDK releases from before then can still read it.
+    """
+
+    @pydantic.model_validator(mode="after")
+    def _or_null_only_on_equality(self) -> "_EqualityFilterBase":
+        comparator = self.comparator  # type: ignore[attr-defined]
+        if self.or_null and comparator not in (Comparator.Equals, Comparator.NotEquals):
+            raise ValueError(f"or_null applies only to EQUALS and NOT_EQUALS, not {comparator}")
+        return self
+
+    @pydantic.model_serializer(mode="wrap")
+    def _omit_or_null_unless_set(self, handler: pydantic.SerializerFunctionWrapHandler) -> dict[str, typing.Any]:
+        serialized = handler(self)
+        if not self.or_null:
+            serialized.pop("or_null", None)
+        return serialized
+
+
+class StringFilter(_EqualityFilterBase):
     """Text matching."""
 
     type: typing.Literal["string"] = "string"
@@ -290,7 +320,7 @@ class StringFilter(_FilterBase):
         return self
 
 
-class NumericFilter(_FilterBase):
+class NumericFilter(_EqualityFilterBase):
     """Ordering and equality over a numeric property."""
 
     type: typing.Literal["numeric"] = "numeric"
@@ -312,7 +342,7 @@ class NumericFilter(_FilterBase):
         return self
 
 
-class MetricFilter(_FilterBase):
+class MetricFilter(_EqualityFilterBase):
     """Ordering and equality over a user-defined metric.
 
     Numeric in every respect except that ``field`` is a metric path. Kept a distinct variant
@@ -398,7 +428,7 @@ class DateFilter(_FilterBase):
         return self
 
 
-class BooleanFilter(_FilterBase):
+class BooleanFilter(_EqualityFilterBase):
     """True or false, or unset."""
 
     type: typing.Literal["boolean"] = "boolean"
@@ -413,8 +443,8 @@ class BooleanFilter(_FilterBase):
     def _check_values(self) -> "BooleanFilter":
         if _is_valueless(self.comparator):
             return self
-        if len(self.values) != 1:
-            raise ValueError("a boolean filter carries exactly one value")
+        if len(self.values) not in (1, 2):
+            raise ValueError("a boolean filter carries no more than 2 values")
         return self
 
 
@@ -436,7 +466,7 @@ class SetFilter(_FilterBase):
         return self
 
 
-class EnumFilter(_FilterBase):
+class EnumFilter(_EqualityFilterBase):
     """Equality against a closed set of options."""
 
     type: typing.Literal["enum"] = "enum"

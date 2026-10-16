@@ -9,9 +9,39 @@ import typing
 
 import pydantic
 
+from ...compat import StrEnum
 from ...query import ConditionType
 from .sources import TriggerSource
 from .targets import TriggerTargetSpec
+
+
+class ManagedByKind(StrEnum):
+    """What kind of thing in Roboto manages a trigger."""
+
+    System = "system"
+    """Roboto installed the trigger to run a platform feature."""
+
+    IngestionRule = "ingestion_rule"
+    """An ingestion rule owns the trigger and is its only edit surface."""
+
+
+class ManagedBy(pydantic.BaseModel):
+    """The owner of a trigger whose definition is managed by something other than the org's members.
+
+    No managed trigger can be deleted, or have its definition changed, through the triggers API.
+    Org members may enable or disable a system-managed trigger. A trigger owned by an ingestion
+    rule may not be enabled, disabled, edited or deleted directly: change the rule instead, e.g.
+    turn its auto-ingest off. An org has at most one trigger per owner.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    kind: ManagedByKind
+    """What kind of thing manages the trigger."""
+
+    id: str
+    """Which one: for :attr:`ManagedByKind.System`, the platform feature's key (e.g.
+    ``"session_metrics"``); for :attr:`ManagedByKind.IngestionRule`, the rule's id."""
 
 
 class TriggerRecord(pydantic.BaseModel):
@@ -59,6 +89,11 @@ class TriggerRecord(pydantic.BaseModel):
     carries it. Defaults to ``"v1"`` for a response that omits it, which is what a
     Roboto deployment older than the field sends."""
 
+    managed_by: typing.Optional[ManagedBy] = None
+    """The owner of the trigger's definition when it is not the org's members, e.g. the
+    ingestion rule the trigger ingests files for; ``None`` for a trigger a user created.
+    Server-assigned and read-only; no request model carries it."""
+
     created: datetime.datetime
     """Timestamp when the trigger was created."""
 
@@ -72,4 +107,4 @@ class TriggerRecord(pydantic.BaseModel):
     """User ID who last modified the trigger."""
 
 
-__all__ = ["TriggerRecord"]
+__all__ = ["ManagedBy", "ManagedByKind", "TriggerRecord"]

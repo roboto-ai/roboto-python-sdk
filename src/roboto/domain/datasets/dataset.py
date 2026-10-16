@@ -197,6 +197,16 @@ class Dataset:
         dataset is found, returns that dataset. If no match is found, creates a new
         dataset with the specified properties and returns it.
 
+        Concurrent calls with the same ``match_roboql_query`` in one organization create
+        one dataset between them: the service runs them one at a time from the search
+        through the create. Calls with different queries are not serialized, even when
+        both queries would match the same dataset.
+
+        The dataset created must match ``match_roboql_query``. If ``name``, ``tags`` or
+        ``metadata`` describe a dataset the query does not match, every later call creates
+        another one. When several datasets match, which one is returned is not defined unless
+        the query ends with a ``SORT BY`` clause.
+
         Args:
             match_roboql_query: RoboQL query string to search for existing datasets.
                 If this query matches any dataset, that dataset will be returned
@@ -224,6 +234,8 @@ class Dataset:
             RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
                 a device registered with Roboto for the organization.
             RobotoInvalidRequestException: Invalid dataset parameters or malformed RoboQL query.
+            RobotoServiceUnavailableException: Other calls with the same query kept this one waiting for more
+                than 10 seconds, after the SDK's own retries. Calling again is safe.
             RobotoUnauthorizedException: Caller lacks permission to create datasets or search existing ones.
 
         Examples:

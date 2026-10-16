@@ -24,6 +24,7 @@ class AssociationType(enum.Enum):
 
     Dataset = "dataset"
     Device = "device"
+    DeviceType = "device_type"
     File = "file"
     Topic = "topic"
     MessagePath = "message_path"
@@ -112,6 +113,7 @@ class Association(pydantic.BaseModel):
         - ``mp_`` → MessagePath
         - ``dv_`` → Device
         - ``og_`` → Org
+        - ``dt_`` → DeviceType
 
         Args:
             association_id: A Roboto entity ID with a recognized prefix.
@@ -133,6 +135,7 @@ class Association(pydantic.BaseModel):
             "mp_": AssociationType.MessagePath,
             "dv_": AssociationType.Device,
             "og_": AssociationType.Org,
+            "dt_": AssociationType.DeviceType,
         }
 
         for prefix, assoc_type in prefix_to_type.items():
@@ -162,6 +165,20 @@ class Association(pydantic.BaseModel):
             Association(association_id='dv_abc123', association_type=<AssociationType.Device: 'device'>, ...)
         """
         return cls(association_id=universal_device_id, association_type=AssociationType.Device)
+
+    @classmethod
+    def device_type(cls, device_type_id: str) -> Association:
+        """Create an association with a device type.
+
+        Args:
+            device_type_id: The device type's Roboto-assigned ``dt_`` ID
+                (:py:attr:`~roboto.domain.device_types.DeviceTypeRecord.device_type_id`), not its name.
+
+        Examples:
+            >>> Association.device_type("dt_abc123")
+            Association(association_id='dt_abc123', association_type=<AssociationType.DeviceType: 'device_type'>, ...)
+        """
+        return cls(association_id=device_type_id, association_type=AssociationType.DeviceType)
 
     @classmethod
     def org(cls, org_id: str) -> Association:
@@ -237,6 +254,10 @@ class Association(pydantic.BaseModel):
     @property
     def is_device(self) -> bool:
         return self.association_type == AssociationType.Device
+
+    @property
+    def is_device_type(self) -> bool:
+        return self.association_type == AssociationType.DeviceType
 
     @property
     def is_file(self) -> bool:

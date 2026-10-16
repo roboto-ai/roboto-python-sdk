@@ -8,6 +8,7 @@ import typing
 
 import pydantic
 
+from ...sentinels import NotSet, NotSetType
 from ...updates import CustomFieldChangeset, MetadataChangeset
 
 
@@ -52,13 +53,16 @@ class CreateDeviceRequest(pydantic.BaseModel):
     rejected with a structured error.
     """
 
+    device_type_id: typing.Optional[str] = None
+    """ID (``dt_...``) of a device type in the device's org to assign to the device. ``None`` leaves the device
+    without a type."""
+
 
 class UpdateDeviceRequest(pydantic.BaseModel):
     """Request payload for updating device properties.
 
-    Used to modify device metadata and tags. Supports granular updates
-    through metadata changesets that can add, update, or remove specific
-    fields and tags without affecting other properties.
+    Used to modify a device's metadata, tags, custom fields, and device type. Supports granular updates through
+    metadata changesets that can add, update, or remove specific fields and tags without affecting other properties.
     """
 
     metadata_changeset: typing.Optional[MetadataChangeset] = None
@@ -75,6 +79,12 @@ class UpdateDeviceRequest(pydantic.BaseModel):
     are undefined or not ``Ready`` are rejected with a structured error. Field
     names not mentioned by the changeset are left unchanged.
     """
+
+    device_type_id: typing.Optional[typing.Union[str, NotSetType]] = NotSet
+    """ID (``dt_...``) of a device type in the device's org to assign to the device. Set to ``None`` to remove the
+    device's type; the default, :py:obj:`~roboto.sentinels.NotSet`, leaves it unchanged."""
+
+    model_config = pydantic.ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)
 
 
 class InferDevicesRequest(pydantic.BaseModel):

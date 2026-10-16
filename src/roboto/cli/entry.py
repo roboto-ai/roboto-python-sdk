@@ -32,6 +32,9 @@ from .context import CLIContext, cli_roboto_env, make_cli_client
 from .datasets import (
     command_set as datasets_command_set,
 )
+from .device_types import (
+    command_set as device_types_command_set,
+)
 from .devices import (
     command_set as devices_command_set,
 )
@@ -66,6 +69,7 @@ COMMAND_SETS = [
     chat_command_set,
     collections_command_set,
     datasets_command_set,
+    device_types_command_set,
     devices_command_set,
     images_command_set,
     invocations_command_set,

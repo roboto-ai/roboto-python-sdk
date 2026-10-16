@@ -9,7 +9,40 @@ import typing
 
 import pydantic
 
+from ...compat import StrEnum
+from ...domain.files import IngestionStatus
 from ...pydantic.serializers import field_serializer_custom_field_values
+from ..ingestion_runs import IngestionRun
+
+MAX_INACTIVITY_MINUTES = 7 * 24 * 60
+"""Longest inactivity a :py:class:`CompletionPolicy` may wait for: one week."""
+
+
+class CompletionPolicy(pydantic.BaseModel):
+    """When Roboto marks a session complete on its own.
+
+    A session's completion policy is set when the session is created and can be changed with an
+    update. Roboto marks the session complete once ``inactivity_minutes`` have passed since a file
+    was last added to it, or since the policy was changed, whichever is later. A session
+    that no file has been added to yet is not completed this way. Adding a file to a session Roboto
+    completed puts it back in progress, and Roboto marks it complete again after the same inactivity.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    inactivity_minutes: int = pydantic.Field(ge=1, le=MAX_INACTIVITY_MINUTES)
+    """Minutes without a new file after which Roboto marks the session complete."""
+
+
+class SessionStatus(StrEnum):
+    """Whether a session is still receiving files."""
+
+    InProgress = "in_progress"
+    """Files may still be added. Roboto does not announce the session ingested."""
+
+    Complete = "complete"
+    """All of the session's files have been added. Roboto announces ``session.ingested`` once every
+    ingestable file in it is ingested."""
 
 
 class SessionRecord(pydantic.BaseModel):
@@ -27,6 +60,22 @@ class SessionRecord(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(frozen=True)
 
+    completed_at: typing.Optional[datetime.datetime] = None
+    """When the session was last marked complete. ``None`` if it never was. Adding a file to a complete
+    session puts it back in progress and keeps this value, so check ``status`` to tell whether the session
+    is complete now."""
+
+    completed_by: typing.Optional[str] = None
+    """User ID or service account that last marked the session complete. ``None`` if it never was."""
+
+    completes_at: typing.Optional[datetime.datetime] = None
+    """When Roboto will mark the session complete unless another file is added first. ``None`` while the
+    session is complete, has no completion policy, or has no files."""
+
+    completion_policy: typing.Optional[CompletionPolicy] = None
+    """When Roboto marks the session complete on its own. ``None``: the session is marked complete only
+    by request."""
+
     created: typing.Optional[datetime.datetime] = None
     """When the session was created."""
 
@@ -43,6 +92,16 @@ class SessionRecord(pydantic.BaseModel):
 
     description: typing.Optional[str] = None
     """Optional description of the Session."""
+
+    ingested_at: typing.Optional[datetime.datetime] = None
+    """When the session was last announced ingested. ``None`` until the first announcement."""
+
+    ingestion_count: int = 0
+    """How many times the session has been announced ingested. Each announcement fires a
+    ``session.ingested`` event. A session is announced again when it is put back in progress and marked
+    complete again, or when its ingestable files change while it is complete, once they are all ingested
+    again. A file uploaded again, removed, or deleted changes them; editing a file's tags, metadata, or
+    description does not."""
 
     max_timestamp_ns: typing.Optional[int] = None
     """Latest time covered by the Session, in Unix-epoch nanoseconds. ``None`` while none of its files
@@ -76,6 +135,10 @@ class SessionRecord(pydantic.BaseModel):
     session_id: str
     """Stable, unique identifier for the Session."""
 
+    status: SessionStatus = SessionStatus.InProgress
+    """Whether the session is in progress or complete. Adding a file to a complete session puts it back
+    in progress."""
+
     tags: list[str] = pydantic.Field(default_factory=list)
     """User-supplied tags.
 
@@ -86,6 +149,120 @@ class SessionRecord(pydantic.BaseModel):
     @pydantic.field_serializer("custom_fields", when_used="json")
     def _serialize_custom_fields(self, custom_fields: dict[str, typing.Any]) -> dict[str, typing.Any]:
         return field_serializer_custom_field_values(custom_fields)
+
+
+class SessionIngestionState(StrEnum):
+    """Where a session's ingestion stands."""
+
+    InProgress = "in_progress"
+    """The session is in progress, so it is not announced ingested."""
+
+    Processing = "processing"
+    """The session is complete and at least one of its ingestable files is not ingested yet."""
+
+    Ingested = "ingested"
+    """The session is complete and every ingestable file in it is ingested."""
+
+
+class PendingIngestionFile(pydantic.BaseModel):
+    """A file in a session that is ingestable and not ingested yet."""
+
+    file_id: str
+    """ID of the file."""
+    relative_path: str
+    """Path of the file within its dataset, device, or org."""
+    ingestion_status: IngestionStatus
+    """How much of the file's current version is ingested: not at all, or partly."""
+    uploaded: typing.Optional[datetime.datetime] = None
+    """When the file's current version was uploaded."""
+    last_run: typing.Optional[IngestionRun] = None
+    """The latest time an ingestion rule's trigger ran on the file. ``None`` when none has."""
+
+
+class SkippedIngestionFile(pydantic.BaseModel):
+    """A file in a session that is ingestable and not ingested, which the session no longer waits for.
+
+    The skip covers the upload of the file that was current when it was made: editing the file's tags,
+    metadata, or description keeps it, and uploading the file again ends it."""
+
+    file_id: str
+    """ID of the file."""
+    relative_path: str
+    """Path of the file within its dataset, device, or org."""
+    skipped_at: typing.Optional[datetime.datetime] = None
+    """When the session was told to stop waiting for the file."""
+    skipped_by: typing.Optional[str] = None
+    """User ID or service account that told the session to stop waiting for the file."""
+
+
+class SessionIngestionStatus(pydantic.BaseModel):
+    """Where a session stands in ingestion, with the files it is still waiting for.
+
+    Response of ``GET /v1/sessions/id/<session_id>/ingestion``.
+    """
+
+    session_id: str
+    """ID of the session."""
+    state: SessionIngestionState
+    """Whether the session is in progress, waiting for files to be ingested, or ingested."""
+    ingestion_count: int
+    """How many times the session has been announced ingested."""
+
+    pending_files: list[PendingIngestionFile] = pydantic.Field(default_factory=list)
+    """Ingestable files not ingested yet, which keep a complete session from being announced. Holds at
+    most the first 100, ordered by path; :attr:`pending_file_count` counts them all."""
+
+    pending_file_count: int = 0
+    """How many ingestable files are not ingested yet, leaving out skipped ones."""
+
+    failed_file_count: int = 0
+    """Pending files whose latest ingestion run failed, or finished without ingesting the file. Counts only the
+    files in :attr:`pending_files`, so at most 100."""
+
+    ingested_file_count: int = 0
+    """How many ingestable files are ingested."""
+
+    not_ingestable_file_count: int = 0
+    """How many files are not ingestable. The session never waits for them."""
+
+    skipped_files: list[SkippedIngestionFile] = pydantic.Field(default_factory=list)
+    """Ingestable files not ingested that the session was told to stop waiting for. At most the first 100;
+    :attr:`skipped_file_count` counts them all."""
+
+    skipped_file_count: int = 0
+    """How many ingestable files not ingested the session was told to stop waiting for."""
+
+
+class SessionIngestionSummary(pydantic.BaseModel):
+    """Where one session's ingestion stands, in counts: what a sessions list shows per row.
+
+    Response item of ``POST /v1/sessions/ingestion/summaries``.
+    """
+
+    session_id: str
+    """ID of the session."""
+    state: SessionIngestionState
+    """Whether the session is in progress, waiting for files to be ingested, or ingested."""
+    ingested_file_count: int = 0
+    """How many ingestable files are ingested."""
+    pending_file_count: int = 0
+    """How many ingestable files are not ingested yet, leaving out skipped ones."""
+    not_ingestable_file_count: int = 0
+    """How many files are not ingestable. The session never waits for them."""
+    skipped_file_count: int = 0
+    """Ingestable files not ingested that the session no longer waits for."""
+    failed_file_count: int = 0
+    """Pending files whose latest ingestion run failed, or finished without ingesting the file. Counted among the
+    first 100 pending files, as :attr:`SessionIngestionStatus.pending_files` lists them."""
+
+
+class SkipWaitingResponse(pydantic.BaseModel):
+    """Response of ``POST /v1/sessions/id/<session_id>/ingestion/skip``."""
+
+    ingestion: SessionIngestionStatus
+    """Where the session stands in ingestion after the skip."""
+    not_in_session: list[str] = pydantic.Field(default_factory=list)
+    """Requested file ids that are not in the session, so nothing was skipped for them."""
 
 
 class SessionFileRecord(pydantic.BaseModel):
@@ -192,6 +369,13 @@ class SessionFileView(pydantic.BaseModel):
     """Lower bound (inclusive) of the part of the file the Session holds, in Unix-epoch nanoseconds.
     ``None`` means the Session holds the file from the beginning of its recorded time window;
     paired with ``max_wall_clock_timestamp_ns``."""
+
+    ingestable: typing.Optional[bool] = None
+    """Whether the file is meant to be ingested: its path matched one of its org's ingestion rules when its
+    current version was created, or it has since been partly or fully ingested."""
+
+    ingestion_status: typing.Optional[IngestionStatus] = None
+    """How much of the contributing file has been ingested."""
 
     modified: typing.Optional[datetime.datetime] = None
     """When the file was last modified."""

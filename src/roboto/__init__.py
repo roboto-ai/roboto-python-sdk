@@ -88,6 +88,12 @@ from .domain.datasets import (
     QueryDatasetsRequest,
     UpdateDatasetRequest,
 )
+from .domain.device_types import (
+    CreateDeviceTypeRequest,
+    DeviceType,
+    DeviceTypeRecord,
+    UpdateDeviceTypeRequest,
+)
 from .domain.devices import (
     CreateDeviceRequest,
     Device,
@@ -210,6 +216,7 @@ __all__ = [
     "CreateDatasetIfNotExistsRequest",
     "CreateDatasetRequest",
     "CreateDeviceRequest",
+    "CreateDeviceTypeRequest",
     "CreateInvocationRequest",
     "CreateTopicRequest",
     "CreateTriggerRequest",
@@ -220,6 +227,8 @@ __all__ = [
     "DeleteMessagePathRequest",
     "Device",
     "DeviceRecord",
+    "DeviceType",
+    "DeviceTypeRecord",
     "EvaluateTriggersRequest",
     "Event",
     "EventDisplayOptions",
@@ -300,6 +309,7 @@ __all__ = [
     "UpdateCollectionRequest",
     "UpdateCommentRequest",
     "UpdateDatasetRequest",
+    "UpdateDeviceTypeRequest",
     "UpdateFileRecordRequest",
     "UpdateInvocationStatus",
     "UpdateMessagePathRequest",

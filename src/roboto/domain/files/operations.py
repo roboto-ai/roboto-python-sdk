@@ -42,6 +42,13 @@ class CreateLinkRequest(pydantic.BaseModel):
     """Version of the target to pin. Defaults to the target's current version."""
 
 
+class DeleteDirectoriesRequest(pydantic.BaseModel):
+    """Request body for deleting directories and everything beneath them from one association's files."""
+
+    directory_paths: list[str]
+    """Paths of the directories to delete, relative to the root of the association's files."""
+
+
 class DeleteFileRequest(pydantic.BaseModel):
     """Request payload for deleting a file from the platform.
 
@@ -187,7 +194,7 @@ class DirectoryContentsPage(pydantic.BaseModel):
 
 
 class QueryDatasetFilesRequest(pydantic.BaseModel):
-    """Request payload for listing the files associated with a dataset, an org, or a device.
+    """Request payload for listing the files associated with a dataset, a device, a device type, or an org.
 
     Supports gitignore-style patterns for flexible file selection and pagination. Despite
     the name, the same body lists the files of any association type.
@@ -210,6 +217,13 @@ class QueryDatasetFilesRequest(pydantic.BaseModel):
 
     sort_direction: typing.Optional[str] = None
     """Sort direction ('ASC' or 'DESC'). Defaults to 'DESC'."""
+
+    include_inherited: bool = False
+    """When listing a device's configurations, also list those of its device type. Rejected for any other association.
+
+    Where the device and its type both have a file at the same path, only the device's is listed. Each listed
+    file's ``association_id`` says whether it came from the device or from its type.
+    """
 
 
 class RenameDirectoryRequest(pydantic.BaseModel):

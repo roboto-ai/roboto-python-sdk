@@ -53,7 +53,11 @@ from .query_templates import (
     map_query_templates,
     substitute_query_template,
 )
-from .record import TriggerRecord
+from .record import (
+    ManagedBy,
+    ManagedByKind,
+    TriggerRecord,
+)
 from .samples import (
     PlatformEventSample,
     PlatformEventSamplesResponse,
@@ -71,6 +75,7 @@ from .sources import (
     TriggerSourceType,
 )
 from .targets import (
+    ActionInvocationSpec,
     InvokeActionTarget,
     SendSlackMessageTarget,
     StartAgentTarget,
@@ -82,6 +87,7 @@ from .trigger import Trigger
 from .validation import TriggerValidator
 
 __all__ = [
+    "ActionInvocationSpec",
     "MAX_TRIGGER_NAME_LENGTH",
     "TRIGGER_NAME_PATTERN",
     "ConditionLeafTrace",
@@ -95,6 +101,8 @@ __all__ = [
     "EventSubscription",
     "PlatformEventSamplesResponse",
     "InvokeActionTarget",
+    "ManagedBy",
+    "ManagedByKind",
     "NamespaceSource",
     "PlatformEventSample",
     "SampleNamespaceSource",

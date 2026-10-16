@@ -46,9 +46,7 @@ class Trigger:
     """A trigger: a firing source (event subscriptions or a schedule), an optional condition, and targets.
 
     Triggers created through the older ``causes``/``for_each`` API
-    (:class:`roboto.domain.actions.Trigger`) are listed and loaded here too, projected
-    onto this shape and marked ``engine == "v1"``; they accept a narrower set of edits
-    (see :meth:`update`).
+    (:class:`roboto.domain.actions.Trigger`) are listed and loaded here too, in this shape.
 
     Examples:
         Start an agent whenever a dataset gains a ``ready`` tag:
@@ -201,8 +199,7 @@ class Trigger:
 
     @property
     def engine(self) -> str:
-        """Which trigger shape this trigger was created in: ``"v2"``, or ``"v1"`` for a trigger
-        created through the older ``causes``/``for_each`` API."""
+        """Which engine evaluates this trigger; see :py:attr:`TriggerRecord.engine`."""
         return self.__record.engine
 
     @property
@@ -213,7 +210,7 @@ class Trigger:
 
     @property
     def fires_on(self) -> TriggerSource:
-        """What makes the trigger fire: an event subscription or a schedule."""
+        """What makes the trigger fire, an event subscription or a schedule."""
         return self.__record.fires_on
 
     @property
@@ -248,8 +245,20 @@ class Trigger:
         return self.__record.trigger_id
 
     def delete(self) -> None:
-        """Delete this trigger. Idempotent."""
-        self.__roboto_client.delete(f"v1/triggers/{self.name}", owner_org_id=self.org_id)
+        """Delete this trigger and its dispatch history.
+
+        Deleting a trigger that is already deleted is a no-op.
+
+        Raises:
+            RobotoInvalidRequestException: The trigger is managed (see ``TriggerRecord.managed_by``): disable
+                a trigger Roboto manages instead, or delete the ingestion rule that owns the trigger.
+            RobotoUnauthorizedException: The caller is not a member of the trigger's org.
+
+        Examples:
+            >>> trigger = Trigger.from_name("weekly-status")
+            >>> trigger.delete()
+        """
+        self.__roboto_client.delete(f"v1/triggers/id/{self.trigger_id}")
 
     def disable(self) -> "Trigger":
         """Disable this trigger."""
@@ -347,10 +356,45 @@ class Trigger:
         Only provided fields change; ``condition=None`` clears the condition. The
         firing source is replaced whole: pass ``fires_on``, or the ``events`` /
         ``once_per`` / ``schedule`` shorthands, which are merged over the current
-        source before being sent. A trigger with ``engine == "v1"`` accepts only edits
-        its older shape can express — a single invoke-action target, event types that
-        map onto it, ``once_per`` of ``file`` or ``dataset`` — and rejects the rest with
-        a message naming what it cannot store.
+        source before being sent.
+
+        Args:
+            fires_on: The new firing source, replacing the current one.
+            events: Event types to subscribe to, keeping the current ``once_per``.
+            once_per: What the trigger fires at most once per, keeping the current events. Required
+                with ``events`` to move a schedule-fired trigger onto events.
+            schedule: A cron expression (UTC) to fire on instead of events.
+            condition: The new condition, or ``None`` to clear it.
+            targets: The new targets, replacing the current ones.
+            enabled: Whether the trigger is active.
+
+        Raises:
+            ValueError: The trigger fires on a schedule and ``events`` is given without ``once_per``.
+            RobotoNotFoundException: The trigger no longer exists, or a target names an action that does not.
+            RobotoInvalidRequestException: The updated trigger fails validation, a target names an agent or
+                Slack channel the org does not have, or the trigger is managed (see
+                ``TriggerRecord.managed_by``): a trigger an ingestion rule owns changes only through its rule,
+                and one Roboto manages can only be enabled or disabled.
+            RobotoUnauthorizedException: The caller is not a member of the trigger's org, or a target names
+                an action the org may not run or a dataset the caller may not upload to.
+            RobotoLimitExceededException: Enabling the trigger would put the org over its limit of active
+                triggers, or a target's timeout exceeds the org's limit for action timeouts.
+            RobotoConflictException: The trigger kept changing while the update was applied; retry it.
+
+        Examples:
+            Disable a trigger:
+
+            >>> trigger = Trigger.from_name("analyze-ready-datasets")
+            >>> trigger.update(enabled=False)
+
+            Fire on dataset creation instead, keeping its ``once_per``:
+
+            >>> from roboto.domain.platform_events import PlatformEventType
+            >>> trigger.update(events=[PlatformEventType.DatasetCreated])
+
+            Clear its condition:
+
+            >>> trigger.update(condition=None)
         """
         new_source: typing.Union[TriggerSource, NotSetType] = fires_on
         if isinstance(new_source, NotSetType) and not all(
@@ -378,11 +422,7 @@ class Trigger:
                 enabled=enabled,
             )
         )
-        response = self.__roboto_client.put(
-            f"v1/triggers/{self.name}",
-            data=request,
-            owner_org_id=self.org_id,
-        )
+        response = self.__roboto_client.put(f"v1/triggers/id/{self.trigger_id}", data=request)
         self.__record = response.to_record(TriggerRecord)
         return self
 

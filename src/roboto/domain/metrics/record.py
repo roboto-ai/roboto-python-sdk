@@ -13,6 +13,7 @@ from pydantic import ConfigDict
 from roboto.sentinels import NotSet, NotSetType
 
 from ...compat import StrEnum
+from ...http.response import PaginatedList
 from ...query import ConditionType
 
 
@@ -202,6 +203,17 @@ class NumericAggregateMetricsResponse(pydantic.BaseModel):
     records: list[NumericAggregateMetricRecord]
     """Period buckets returned by the aggregation, sorted by start_time ascending."""
 
+    total_groups: typing.Optional[int] = None
+    """How many distinct named values of :py:attr:`AggregateMetricsRequest.group_by` have data in the
+    returned periods, counting none for data points with no value. The periods can reach past the
+    requested window to whole-period bounds, so this includes a value whose data falls only in that
+    margin. ``None`` on an ungrouped aggregation."""
+
+    groups_truncated: bool = False
+    """Whether :py:attr:`total_groups` exceeds :py:data:`MAX_METRIC_GROUPS`, so only the named groups
+    with the most sessions in the window (plus the null group) came back. See
+    :py:attr:`AggregateMetricsRequest.group_by`."""
+
 
 # OpenTelemetry caps a metric instrument's unit at 63 characters; the 64th byte
 # is reserved for the ``\0`` terminator so units fit a fixed 64-byte buffer. We
@@ -277,6 +289,17 @@ class PublishMetricsRequest(pydantic.BaseModel):
 # Query and aggregation requests
 # ---------------------------------------------------------------------------
 
+MAX_METRIC_GROUPS: int = 100
+"""The most named groups a grouped metrics read returns.
+
+A read with ``group_by`` keeps the named values with the most sessions (data points) in the
+requested window, ties broken alphabetically by value, and drops every data point of the rest. The
+null group (data points with no value for the field) is never dropped and does not count toward the
+cap. The ranking does not depend on the aggregation, the period, or which page of a raw query is
+read, so the same window always keeps the same groups. Responses report the full count in
+``total_groups`` and whether anything was dropped in ``groups_truncated``.
+"""
+
 MAX_METRIC_LIST_RESULTS: int = 10_000
 """Upper bound on the page size accepted by metric query and list calls.
 
@@ -289,6 +312,21 @@ request smaller pages by setting
 and is still capped at this many rows; sessions with more data points should
 use the paginated :py:meth:`~roboto.domain.metrics.Metric.query` instead.
 """
+
+
+class MetricQueryPage(PaginatedList[MetricRecord]):
+    """One page of raw metric data points, from :py:meth:`~roboto.domain.metrics.Metric.query`.
+
+    Carries the same group summary on every page of one read.
+    """
+
+    total_groups: typing.Optional[int] = None
+    """How many distinct named values of :py:attr:`QueryMetricsRequest.group_by` have data in the
+    queried window, counting none for data points with no value. ``None`` on an ungrouped query."""
+
+    groups_truncated: bool = False
+    """Whether :py:attr:`total_groups` exceeds :py:data:`MAX_METRIC_GROUPS`, so data points under the
+    named values with the fewest sessions were dropped from every page."""
 
 
 class QueryMetricsRequest(pydantic.BaseModel):
@@ -318,9 +356,11 @@ class QueryMetricsRequest(pydantic.BaseModel):
     """Field to order data points by, with ``session_id`` as a deterministic tiebreaker.
 
     One of ``time`` (the session time selected by ``time_filter``), ``value``, ``published``,
-    ``device_id``, ``session_id`` or ``invocation_id``; any other field is rejected with
-    :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`. Data points with no ``device_id`` or
-    ``invocation_id`` sort after every other value. Defaults to ``time``."""
+    ``device_id``, ``session_id``, ``invocation_id``, or ``group_key`` (the value of ``group_by``,
+    carried on :py:attr:`MetricRecord.group_key`, and accepted only when ``group_by`` is set); any other
+    field is rejected with :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`. Data points with
+    no ``device_id``, ``invocation_id`` or group key sort after every other value. Defaults to
+    ``time``."""
 
     descending: bool = False
     """Order data points from the largest ``sort_by`` value to the smallest, instead of smallest first.
@@ -376,10 +416,10 @@ class QueryMetricsRequest(pydantic.BaseModel):
     """Field whose value each returned data point should carry, under
     :py:attr:`MetricRecord.group_key`.
 
-    Unlike :py:attr:`AggregateMetricsRequest.group_by`, this does not change which rows come back or
-    how many: a raw query already returns one data point per session, so there is nothing to split.
-    It projects the field's value onto each one, which is what lets a caller separate the points
-    into a series per distinct value without resolving the field itself.
+    Unlike :py:attr:`AggregateMetricsRequest.group_by`, this does not add rows: a raw query already
+    returns one data point per session, so there is nothing to split. It projects the field's value
+    onto each one, which is what lets a caller separate the points into a series per distinct value
+    without resolving the field itself.
 
     ``None`` leaves :py:attr:`MetricRecord.group_key` null on every data point. Accepts the same
     vocabulary the aggregation does — ``device.device_id`` and String, Enum, or Boolean custom
@@ -387,6 +427,12 @@ class QueryMetricsRequest(pydantic.BaseModel):
     rejects every other field of :py:attr:`condition`'s vocabulary with
     :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`. A data point carrying no value for
     the field gets a null ``group_key`` rather than being dropped.
+
+    Grouping can drop rows, though: at most :py:data:`MAX_METRIC_GROUPS` named values are kept
+    across every page, those with the most sessions in the queried window, and data points under
+    the rest are dropped. Each :py:class:`MetricQueryPage` reports the full count in
+    :py:attr:`~MetricQueryPage.total_groups` and whether any were dropped in
+    :py:attr:`~MetricQueryPage.groups_truncated`.
     """
 
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)
@@ -448,8 +494,9 @@ class AggregateMetricsRequest(pydantic.BaseModel):
     (``session.custom.<name>``, ``device.custom.<name>``); every other field of the vocabulary
     :py:attr:`condition` accepts is rejected, since a group key must be single-valued and
     low-cardinality to be a series. Data points carrying no value for the field are grouped under a
-    null ``group_key`` rather than dropped, and the response is not capped: every distinct value
-    with data in the window comes back.
+    null ``group_key`` rather than dropped. At most :py:data:`MAX_METRIC_GROUPS` named values come
+    back — those with the most sessions in the requested window — plus the null group; the response
+    reports the full count in :py:attr:`NumericAggregateMetricsResponse.total_groups`.
     """
 
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)

@@ -89,6 +89,7 @@
         "device_id": "rover-07",
         "file_id": "fl_q8v2n6ty4mcs",
         "fs_type": "file",
+        "ingestable": false,
         "ingestion_status": "ingested",
         "metadata": {
           "lap": 2,
@@ -173,6 +174,7 @@
       "file.device_id",
       "file.file_id",
       "file.fs_type",
+      "file.ingestable",
       "file.ingestion_status",
       "file.metadata",
       "file.metadata.lap",
@@ -415,6 +417,7 @@
         "device_id": "rover-07",
         "file_id": "fl_q8v2n6ty4mcs",
         "fs_type": "file",
+        "ingestable": false,
         "ingestion_status": "ingested",
         "metadata": {
           "lap": 2,
@@ -499,6 +502,7 @@
       "file.device_id",
       "file.file_id",
       "file.fs_type",
+      "file.ingestable",
       "file.ingestion_status",
       "file.metadata",
       "file.metadata.lap",
@@ -641,6 +645,7 @@
         "device_id": "rover-07",
         "file_id": "fl_q8v2n6ty4mcs",
         "fs_type": "file",
+        "ingestable": false,
         "ingestion_status": "ingested",
         "metadata": {
           "lap": 2,
@@ -743,6 +748,7 @@
       "file.device_id",
       "file.file_id",
       "file.fs_type",
+      "file.ingestable",
       "file.ingestion_status",
       "file.metadata",
       "file.metadata.lap",
@@ -1595,6 +1601,127 @@
       "invocation.status",
       "invocation.duration",
       "invocation.timeout"
+    ]
+  },
+  "session.ingested": {
+    "event_type": "session.ingested",
+    "event": {
+      "id": "evt:se_m4t7c1zq9bvn:1:ingested",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "session.ingested",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "session_id": "se_m4t7c1zq9bvn",
+        "ingestion_number": 1
+      },
+      "subject": "roboto://session/se_m4t7c1zq9bvn"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:se_m4t7c1zq9bvn:1:ingested",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://session/se_m4t7c1zq9bvn",
+        "type": "session.ingested",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "session_id": "se_m4t7c1zq9bvn",
+          "ingestion_number": 1
+        }
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "session": {
+        "completed_at": "2026-08-28T14:02:11Z",
+        "completed_by": "maria.chen@acme-robotics.com",
+        "completes_at": null,
+        "completion_policy": null,
+        "created": "2026-08-28T11:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "custom_fields": {},
+        "description": "All drives from rover-07's 2026-08-28 morning shift.",
+        "ingested_at": "2026-08-28T14:32:11Z",
+        "ingestion_count": 1,
+        "max_timestamp_ns": 1787003600000000000,
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "shift": "morning"
+        },
+        "min_timestamp_ns": 1787000000000000000,
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 morning shift",
+        "org_id": "og_k3m8w2rq7nxd",
+        "session_id": "se_m4t7c1zq9bvn",
+        "status": "complete",
+        "tags": [
+          "nightly"
+        ]
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "envelope.data",
+      "envelope.data.session_id",
+      "envelope.data.ingestion_number",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "session.completed_at",
+      "session.completed_by",
+      "session.completes_at",
+      "session.completion_policy",
+      "session.created",
+      "session.created_by",
+      "session.custom_fields",
+      "session.description",
+      "session.ingested_at",
+      "session.ingestion_count",
+      "session.max_timestamp_ns",
+      "session.metadata",
+      "session.metadata.vehicle_id",
+      "session.metadata.shift",
+      "session.min_timestamp_ns",
+      "session.modified",
+      "session.modified_by",
+      "session.name",
+      "session.org_id",
+      "session.session_id",
+      "session.status",
+      "session.tags"
     ]
   },
   "event.created": {

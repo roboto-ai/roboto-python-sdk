@@ -18,6 +18,10 @@ from .query import (
     ConditionOperator,
 )
 
+DOTFILE_PATTERN = ".**"
+"""Git wildmatch pattern for a path with any component that starts with a dot, e.g. ``.env`` or
+``.cache/run.bag``. Triggers never run on these files, and file listings leave them out."""
+
 
 def join_within(directory: pathlib.Path, relative_path: str) -> pathlib.Path:
     """Return ``directory / relative_path``, refusing a path that resolves outside ``directory``.
@@ -68,17 +72,39 @@ def path_matches(
     """
     Does the given path match the given include pattern(s) and not match the given exclude pattern(s)?
     """
+    return path_matches_specs(
+        path,
+        include_spec=None if include_patterns is None else pathspec_from_patterns(include_patterns),
+        exclude_spec=None if exclude_patterns is None else pathspec_from_patterns(exclude_patterns),
+    )
+
+
+def path_matches_specs(
+    path: str,
+    include_spec: typing.Optional[pathspec.PathSpec] = None,
+    exclude_spec: typing.Optional[pathspec.PathSpec] = None,
+) -> bool:
+    """
+    :func:`path_matches` for patterns already compiled with :func:`pathspec_from_patterns`, for callers that
+    match many paths against the same patterns.
+    """
     # Include patterns are provided, and the file isn't included, ignore it
-    if include_patterns is not None:
-        if not pathspec_from_patterns(include_patterns).match_file(path):
-            return False
+    if include_spec is not None and not include_spec.match_file(path):
+        return False
 
     # Exclude pattern is provided, and the file is included, ignore it
-    if exclude_patterns is not None:
-        if pathspec_from_patterns(exclude_patterns).match_file(path):
-            return False
+    if exclude_spec is not None and exclude_spec.match_file(path):
+        return False
 
     return True
+
+
+_DOTFILE_SPEC = pathspec_from_patterns([DOTFILE_PATTERN])
+
+
+def is_dotfile_path(path: str) -> bool:
+    """Whether ``path`` matches :data:`DOTFILE_PATTERN`."""
+    return _DOTFILE_SPEC.match_file(path)
 
 
 def pattern_to_like_value(pattern: str) -> str:

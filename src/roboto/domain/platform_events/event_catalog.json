@@ -120,6 +120,17 @@
     "subject_type": "invocation",
     "subscribable": true
   },
+  "session.ingested": {
+    "roots": [
+      "session"
+    ],
+    "default_root": "session",
+    "once_per": [
+      "occurrence"
+    ],
+    "subject_type": "session",
+    "subscribable": true
+  },
   "event.created": {
     "roots": [
       "event"

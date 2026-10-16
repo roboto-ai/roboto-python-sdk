@@ -16,6 +16,7 @@ from ...sentinels import NotSet, NotSetType
 from ...updates import CustomFieldChangeset, MetadataChangeset
 from ..files.operations import (
     CreateDirectoryRequest,
+    DeleteDirectoriesRequest,
     QueryDatasetFilesRequest,
     RenameDirectoryRequest,
 )
@@ -129,17 +130,6 @@ class UpdateDatasetRequest(pydantic.BaseModel):
     """
 
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
-
-
-class DeleteDirectoriesRequest(pydantic.BaseModel):
-    """Request payload for deleting directories within a dataset.
-
-    Used to remove entire directory structures and all contained files
-    from a dataset. This is a bulk operation that affects multiple files.
-    """
-
-    directory_paths: list[str]
-    """List of directory paths to delete from the dataset."""
 
 
 class CreateDatasetIfNotExistsRequest(pydantic.BaseModel):

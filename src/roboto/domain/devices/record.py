@@ -45,6 +45,9 @@ class DeviceRecord(pydantic.BaseModel):
     org_id: str
     """The org to which this device belongs."""
 
+    device_type_id: typing.Optional[str] = None
+    """ID (``dt_...``) of the device type assigned to this device, or ``None`` when it has no type."""
+
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     """Key-value metadata pairs associated with this device."""
 

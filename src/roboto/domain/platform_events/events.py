@@ -39,7 +39,7 @@ class PlatformEventType(StrEnum):
 
     @property
     def cloudevents_type(self) -> str:
-        """This type as a CloudEvents ``type`` attribute: ``ai.roboto.file.uploaded``."""
+        """This type as a CloudEvents ``type`` attribute, such as ``ai.roboto.file.uploaded``."""
         return f"{CLOUDEVENTS_TYPE_PREFIX}{self.value}"
 
     @classmethod
@@ -84,6 +84,10 @@ class PlatformEventType(StrEnum):
 
     InvocationFailed = "invocation.failed"
     """An action invocation reached a failed terminal status (``Failed`` or ``Deadly``)."""
+
+    SessionIngested = "session.ingested"
+    """Every ingestable file in a complete session is ingested. Fires again, as a new occurrence, each
+    time the session's ingestable files change and are all ingested again."""
 
     EventCreated = "event.created"
     """An event, the annotation marking a span of time on your data, was created."""
@@ -247,6 +251,18 @@ class EventCreatedPayload(pydantic.BaseModel):
     """The created event, an :class:`~roboto.domain.events.EventRecord`."""
 
 
+class SessionIngestedPayload(pydantic.BaseModel):
+    """Payload for :attr:`PlatformEventType.SessionIngested`."""
+
+    model_config = _FROZEN
+
+    session_id: str
+    """The session whose ingestable files are all ingested."""
+
+    ingestion_number: int
+    """Which announcement this is for the session, starting at 1."""
+
+
 class ScheduleFiredPayload(pydantic.BaseModel):
     """Payload for :attr:`PlatformEventType.ScheduleFired`."""
 
@@ -269,6 +285,7 @@ PlatformEventPayload = typing.Union[
     DatasetTagAddedPayload,
     InvocationCompletedPayload,
     InvocationFailedPayload,
+    SessionIngestedPayload,
     EventCreatedPayload,
     ScheduleFiredPayload,
 ]
@@ -434,6 +451,7 @@ __all__ = [
     "PlatformEventPayload",
     "PlatformEventType",
     "ScheduleFiredPayload",
+    "SessionIngestedPayload",
     "UploadCompletedPayload",
     "platform_event_source",
 ]

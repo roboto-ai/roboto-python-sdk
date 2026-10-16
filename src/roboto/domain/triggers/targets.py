@@ -56,42 +56,21 @@ class _TargetSpecBase(pydantic.BaseModel):
         self.__pydantic_fields_set__.add("type")
 
 
-class InvokeActionTarget(_TargetSpecBase):
-    """Stored configuration for invoking an action when a trigger fires.
+class ActionInvocationSpec(pydantic.BaseModel):
+    """How to run an action: which action, its parameters, overrides, and input selectors.
 
-    Spec only — dispatch behavior lives server-side. String leaves of
-    :attr:`parameter_values`, :attr:`required_inputs`, :attr:`additional_inputs`, and
+    The part of an invoke-action target that says nothing about when it runs, shared by
+    :class:`InvokeActionTarget` and anything else that stores an action invocation to run
+    later, such as an ingestion rule. String leaves of :attr:`parameter_values` and
     :attr:`invocation_input` may contain ``{{...}}`` placeholders resolved against the
     event namespace at dispatch time.
-
-    An event that names a dataset invokes the action against that dataset, with inputs
-    matched from its files by the file patterns. An event that names no dataset has no
-    files to match: the invocation has no data source and selects its inputs with
-    :attr:`invocation_input`.
     """
 
     model_config = _FROZEN
 
-    type: typing.Literal[TriggerTargetType.InvokeAction] = TriggerTargetType.InvokeAction
-    """Discriminator for :data:`TriggerTargetSpec`."""
-
-    target_id: str
-    """Stable id of this target within its trigger. Part of the dispatch idempotency
-    key: the target's once-per history is kept under this id, so renaming it (or
-    replacing it with an identical target under a new id) starts a fresh history and
-    the target fires again for subjects the old id already fired for."""
-
     action: ActionReference
     """The action to invoke. ``owner`` defaults to the trigger's org when omitted and
     ``digest`` to the action's latest version."""
-
-    required_inputs: list[str] = pydantic.Field(default_factory=list)
-    """File patterns (e.g. ``**/*.bag``) that gate dispatch on the firing event's files.
-    Only for events that name a dataset; must be empty otherwise."""
-
-    additional_inputs: typing.Optional[list[str]] = None
-    """Optional extra file patterns passed as invocation inputs beyond the required ones.
-    Only for events that name a dataset; must be empty otherwise."""
 
     invocation_input: typing.Optional[InvocationInput] = None
     """Optional query-based input selection (files, topics, sessions) resolved when the
@@ -114,6 +93,67 @@ class InvokeActionTarget(_TargetSpecBase):
     upload_destination: typing.Optional[InvocationUploadDestination] = None
     """Optional destination for the invocation's output files."""
 
+    def referenced_placeholders(self) -> set[str]:
+        """Return every ``{{name}}`` placeholder referenced by this spec's templated fields."""
+        return collect_placeholders(self.parameter_values) | collect_placeholders(
+            self.invocation_input.model_dump(mode="json") if self.invocation_input is not None else {}
+        )
+
+
+class InvokeActionTarget(ActionInvocationSpec, _TargetSpecBase):
+    """Stored configuration for invoking an action when a trigger fires.
+
+    Spec only — dispatch behavior lives server-side. The :class:`ActionInvocationSpec`
+    fields say how to run the action; this class adds the target's identity and its file
+    patterns. String leaves of :attr:`required_inputs` and :attr:`additional_inputs` may
+    contain ``{{...}}`` placeholders, as the spec's may.
+
+    An event that names a dataset invokes the action against that dataset, with inputs
+    matched from its files by the file patterns. An event that names no dataset has no
+    files to match: the invocation has no data source and selects its inputs with
+    :attr:`invocation_input`.
+    """
+
+    model_config = _FROZEN
+
+    type: typing.Literal[TriggerTargetType.InvokeAction] = TriggerTargetType.InvokeAction
+    """Discriminator for :data:`TriggerTargetSpec`."""
+
+    target_id: str
+    """Stable id of this target within its trigger. Part of the dispatch idempotency
+    key: the target's once-per history is kept under this id, so renaming it (or
+    replacing it with an identical target under a new id) starts a fresh history and
+    the target fires again for subjects the old id already fired for."""
+
+    required_inputs: list[str] = pydantic.Field(default_factory=list)
+    """File patterns (e.g. ``**/*.bag``) that gate dispatch on the firing event's files.
+    Only for events that name a dataset; must be empty otherwise."""
+
+    additional_inputs: typing.Optional[list[str]] = None
+    """Optional extra file patterns passed as invocation inputs beyond the required ones.
+    Only for events that name a dataset; must be empty otherwise."""
+
+    @classmethod
+    def from_invocation(
+        cls,
+        invocation: ActionInvocationSpec,
+        *,
+        target_id: str,
+        required_inputs: typing.Optional[list[str]] = None,
+        additional_inputs: typing.Optional[list[str]] = None,
+    ) -> "InvokeActionTarget":
+        """A target that runs ``invocation``, with the given identity and file patterns."""
+        return cls(
+            **{field: getattr(invocation, field) for field in ActionInvocationSpec.model_fields},
+            target_id=target_id,
+            required_inputs=required_inputs or [],
+            additional_inputs=additional_inputs,
+        )
+
+    def invocation(self) -> ActionInvocationSpec:
+        """How this target runs its action, without its identity or file patterns."""
+        return ActionInvocationSpec(**{field: getattr(self, field) for field in ActionInvocationSpec.model_fields})
+
     @pydantic.field_validator("required_inputs")
     @classmethod
     def _validate_required_inputs(cls, value: list[str]) -> list[str]:
@@ -127,12 +167,9 @@ class InvokeActionTarget(_TargetSpecBase):
     def referenced_placeholders(self) -> set[str]:
         """Return every ``{{name}}`` placeholder referenced by this target's templated fields."""
         return (
-            collect_placeholders(self.parameter_values)
+            super().referenced_placeholders()
             | collect_placeholders(self.required_inputs)
             | collect_placeholders(self.additional_inputs or [])
-            | collect_placeholders(
-                self.invocation_input.model_dump(mode="json") if self.invocation_input is not None else {}
-            )
         )
 
 
@@ -216,6 +253,7 @@ def target_catalog_manifest() -> dict[str, typing.Any]:
 
 __all__ = [
     "target_catalog_manifest",
+    "ActionInvocationSpec",
     "InvokeActionTarget",
     "SendSlackMessageTarget",
     "StartAgentTarget",

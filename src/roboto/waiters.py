@@ -4,6 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import builtins
 import collections.abc
 import time
 import typing
@@ -12,11 +13,18 @@ Condition = typing.Callable[..., bool]
 Interval = typing.Union[int, typing.Callable[[int], int]]
 
 
-class TimeoutError(Exception):
-    msg: str
+class TimeoutError(builtins.TimeoutError):
+    """A wait gave up before its condition was met.
 
-    def __init__(self, msg: str, *args) -> None:
-        super().__init__(*args)
+    Subclasses the built-in :py:exc:`TimeoutError`, so ``except TimeoutError`` catches it whether or not
+    the caller imported this class.
+    """
+
+    msg: str
+    """What was being waited for, and where it stood when the wait gave up."""
+
+    def __init__(self, msg: str) -> None:
+        super().__init__(msg)
         self.msg = msg
 
 

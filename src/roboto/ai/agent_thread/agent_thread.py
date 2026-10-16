@@ -396,7 +396,7 @@ class AgentThread:
 
     @property
     def visibility(self) -> ThreadVisibility:
-        """Read scope for this thread: creator-only (``PRIVATE``) or open to the thread's org (``ORG``)."""
+        """Who can read this thread, its creator only (``PRIVATE``) or anyone in its org (``ORG``)."""
         return self.__record.visibility
 
     @property

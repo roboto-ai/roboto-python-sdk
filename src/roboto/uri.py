@@ -40,6 +40,7 @@ class RobotoUriType(StrEnum):
     Collection = "collection"
     Dataset = "dataset"
     Device = "device"
+    DeviceType = "device_type"
     Event = "event"
     File = "file"
     Invocation = "invocation"

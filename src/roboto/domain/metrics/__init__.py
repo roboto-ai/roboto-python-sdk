@@ -6,12 +6,14 @@
 
 from .metric import Metric, MetricDefinition
 from .record import (
+    MAX_METRIC_GROUPS,
     MAX_METRIC_LIST_RESULTS,
     AggregateMetricsRequest,
     AggregationPeriod,
     CreateMetricDefinitionRequest,
     MetricDefinitionRecord,
     MetricEntry,
+    MetricQueryPage,
     MetricRecord,
     MetricTimeFilter,
     NumericAggregateMetricRecord,
@@ -24,6 +26,7 @@ from .record import (
 
 __all__ = [
     "AggregateMetricsRequest",
+    "MAX_METRIC_GROUPS",
     "MAX_METRIC_LIST_RESULTS",
     "AggregationPeriod",
     "CreateMetricDefinitionRequest",
@@ -31,6 +34,7 @@ __all__ = [
     "MetricDefinition",
     "MetricDefinitionRecord",
     "MetricEntry",
+    "MetricQueryPage",
     "MetricRecord",
     "MetricTimeFilter",
     "NumericAggregation",

@@ -44,6 +44,12 @@ class ClientViewingContext(pydantic.BaseModel):
     Device IDs are user-chosen rather than minted by Roboto, so unlike the
     other fields here a value may look like anything at all."""
 
+    device_type_ids: list[str] = pydantic.Field(default_factory=list)
+    """IDs of device types the user is currently viewing."""
+
+    session_ids: list[str] = pydantic.Field(default_factory=list)
+    """IDs of sessions the user is currently viewing."""
+
     view_ids: list[str] = pydantic.Field(default_factory=list)
     """IDs of Views -- saved, shareable searches over one resource type --
     applied to a resource table the user is looking at.

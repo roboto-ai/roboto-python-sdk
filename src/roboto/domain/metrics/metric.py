@@ -17,16 +17,19 @@ from ...http import (
     BatchResponse,
     RobotoClient,
 )
+from ...logging import default_logger
 from ...query import ConditionType
 from ...sentinels import NotSet, NotSetType, remove_not_set
 from ...time import Time, to_epoch_nanoseconds
 from .record import (
+    MAX_METRIC_GROUPS,
     MAX_METRIC_LIST_RESULTS,
     AggregateMetricsRequest,
     AggregationPeriod,
     CreateMetricDefinitionRequest,
     MetricDefinitionRecord,
     MetricEntry,
+    MetricQueryPage,
     MetricRecord,
     MetricTimeFilter,
     NumericAggregateMetricRecord,
@@ -36,6 +39,22 @@ from .record import (
     QueryMetricsRequest,
     UpdateMetricDefinitionRequest,
 )
+
+logger = default_logger()
+
+
+def _warn_if_groups_truncated(name: str, total_groups: typing.Optional[int], groups_truncated: bool) -> None:
+    # The service sets groups_truncated only alongside a count, but the two are independent fields
+    # on the response, so a malformed one could carry the flag alone. Say nothing rather than warn
+    # that the metric "grouped into None named groups".
+    if groups_truncated and total_groups is not None:
+        logger.warning(
+            "Metric '%s' grouped into %s named groups; only the %d with the most sessions were returned "
+            "(plus data points with no value). Narrow the read with a condition to see the others.",
+            name,
+            total_groups,
+            MAX_METRIC_GROUPS,
+        )
 
 
 @experimental
@@ -452,8 +471,10 @@ class Metric:
                 several collections or to none.
             group_by: Field whose value each yielded data point carries under
                 :py:attr:`~roboto.domain.metrics.MetricRecord.group_key`, for separating the points
-                into a series per distinct value. Does not change which data points are returned;
-                see :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.group_by` for the accepted
+                into a series per distinct value. Keeps data points under at most
+                :py:data:`~roboto.domain.metrics.MAX_METRIC_GROUPS` named values (plus those with no
+                value) and logs a warning when it drops any; see
+                :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.group_by` for the accepted
                 fields.
             owner_org_id: Organization that owns the metric data. Defaults to
                 the authenticated caller's organization.
@@ -582,7 +603,10 @@ class Metric:
                 owner_org_id=owner_org_id,
                 idempotent=True,
                 query=query_params,
-            ).to_paginated_list(MetricRecord)
+            ).to_record(MetricQueryPage)
+            if next_token is None:
+                # Every page of one read carries the same group summary, so warn on the first only.
+                _warn_if_groups_truncated(name, results.total_groups, results.groups_truncated)
             for record in results.items:
                 yield cls(record, roboto_client)
             next_token = results.next_token
@@ -651,7 +675,9 @@ class Metric:
                 ``device.custom.<name>``); any other field is rejected. Data points carrying no
                 value for the field come back under a null
                 :py:attr:`~roboto.domain.metrics.NumericAggregateMetricRecord.group_key` rather
-                than being dropped. Defaults to no split.
+                than being dropped. At most :py:data:`~roboto.domain.metrics.MAX_METRIC_GROUPS`
+                named values come back, those with the most sessions in the window; a warning is
+                logged when others were dropped. Defaults to no split.
             owner_org_id: Organization that owns the metric data. Defaults to
                 the authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
@@ -742,16 +768,14 @@ class Metric:
             condition=condition,
             group_by=group_by,
         )
-        return (
-            roboto_client.post(
-                "v1/metrics/aggregate",
-                data=request,
-                owner_org_id=owner_org_id,
-                idempotent=True,
-            )
-            .to_record(NumericAggregateMetricsResponse)
-            .records
-        )
+        response = roboto_client.post(
+            "v1/metrics/aggregate",
+            data=request,
+            owner_org_id=owner_org_id,
+            idempotent=True,
+        ).to_record(NumericAggregateMetricsResponse)
+        _warn_if_groups_truncated(name, response.total_groups, response.groups_truncated)
+        return response.records
 
     def __init__(self, record: MetricRecord, roboto_client: typing.Optional[RobotoClient]):
         self.__record = record

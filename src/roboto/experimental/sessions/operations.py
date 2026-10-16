@@ -28,6 +28,7 @@ from ..ingest import (
     TopicDeclaration,
 )
 from ..ingest.operations import _reject_files_named_in_different_storage_formats
+from .record import CompletionPolicy, SessionIngestionSummary
 
 MAX_SESSIONS_PER_REQUEST = 100
 """Cap on the number of sessions one request may declare on a device; split a larger batch across several
@@ -41,7 +42,10 @@ applies it again on arrival, so a body built by hand cannot exceed it either.
 class SessionAttributes(pydantic.BaseModel):
     """Descriptive attributes a caller can set on a session, whichever call creates it."""
 
-    model_config = pydantic.ConfigDict(extra="ignore")
+    model_config = pydantic.ConfigDict(
+        extra="ignore",
+        json_schema_extra=NotSetType.openapi_schema_modifier,
+    )
 
     description: typing.Optional[str] = None
     """Optional description of the Session."""
@@ -67,6 +71,11 @@ class SessionAttributes(pydantic.BaseModel):
     rejected with a structured error.
     """
 
+    completion_policy: typing.Optional[typing.Union[CompletionPolicy, NotSetType]] = NotSet
+    """When Roboto marks the session complete on its own. Omit it to use the org's default completion
+    policy, if the org has one. ``None``: the session is marked complete only by request, whatever the
+    org's default."""
+
 
 class CreateSessionRequest(SessionAttributes):
     """Request body for ``POST /v1/sessions``.
@@ -79,6 +88,16 @@ class CreateSessionRequest(SessionAttributes):
 
     device_ids: list[str] = pydantic.Field(default_factory=list)
     """Devices to attach to the Session as subjects; empty creates a Session with no devices."""
+
+
+class CreateSessionIfNotExistsRequest(pydantic.BaseModel):
+    """Request body for ``POST /v1/sessions/create_if_not_exists``."""
+
+    match_roboql_query: str
+    """RoboQL query over sessions. The first matching session is returned instead of creating one."""
+
+    create_request: CreateSessionRequest
+    """The session to create when none matches."""
 
 
 class SessionUpdate(pydantic.BaseModel):
@@ -113,6 +132,15 @@ class SessionUpdate(pydantic.BaseModel):
     each ``set_fields`` value must satisfy the field's declared type. Names that
     are undefined or not ``Ready`` are rejected with a structured error. Field
     names not mentioned by the changeset are left unchanged.
+    """
+
+    completion_policy: typing.Optional[typing.Union[CompletionPolicy, NotSetType]] = NotSet
+    """New completion policy for the Session. ``None`` removes it, so the Session is marked complete only by
+    request.
+
+    On a Session in progress that has files, setting a policy restarts its inactivity: Roboto marks the
+    Session complete ``inactivity_minutes`` from now, unless a file is added first. A complete Session
+    stays complete; the policy applies after a file is added to it, which puts it back in progress.
     """
 
 
@@ -379,6 +407,13 @@ class DetachFromDeviceRequest(pydantic.BaseModel):
     device_id: str
 
 
+class SkipWaitingRequest(pydantic.BaseModel):
+    """Request body for ``POST /v1/sessions/id/<session_id>/ingestion/skip``."""
+
+    file_ids: list[str] = pydantic.Field(min_length=1, max_length=1000)
+    """Member files the session stops waiting for. Files not in the session are reported back, not skipped."""
+
+
 class RemoveFilesRequest(pydantic.BaseModel):
     """Request body for ``DELETE /v1/sessions/id/<session_id>/files``.
 
@@ -509,3 +544,21 @@ class CreateSessionsRequest(pydantic.BaseModel):
             for representation in topic.representations
         )
         return self
+
+
+MAX_INGESTION_SUMMARIES = 100
+"""Most sessions one ``POST /v1/sessions/ingestion/summaries`` takes."""
+
+
+class SessionIngestionSummariesRequest(pydantic.BaseModel):
+    """Request body for ``POST /v1/sessions/ingestion/summaries``."""
+
+    session_ids: list[str] = pydantic.Field(min_length=1, max_length=MAX_INGESTION_SUMMARIES)
+    """Sessions to summarize, at most :py:data:`MAX_INGESTION_SUMMARIES`."""
+
+
+class SessionIngestionSummariesResponse(pydantic.BaseModel):
+    """Response of ``POST /v1/sessions/ingestion/summaries``."""
+
+    summaries: list[SessionIngestionSummary]
+    """One per requested session in the caller's org, in request order. Others are left out."""

@@ -267,11 +267,11 @@ class Invocation:
 
     @property
     def input_data(self) -> typing.Optional[InvocationInput]:
-        """The input data specification for this invocation, if any."""
+        """The inputs this invocation selects, or None if it selects none, with or without a `data_source` dataset."""
         if self.__record.rich_input_data:
             return self.__record.rich_input_data
 
-        if not self.__record.data_source.is_unspecified():
+        if self.__record.input_data and not self.__record.data_source.is_unspecified():
             return InvocationInput.from_dataset_file_paths(
                 dataset_id=self.__record.data_source.data_source_id,
                 file_paths=self.__record.input_data,

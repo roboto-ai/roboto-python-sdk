@@ -50,7 +50,7 @@ def _parse_condition(condition_json: typing.Optional[dict], parser: argparse.Arg
     parser.error("Provided '--condition-json' could not be parsed as a Condition or a ConditionGroup.")
 
 
-_TARGETS_ADAPTER = pydantic.TypeAdapter(list[TriggerTargetSpec])
+_TARGETS_ADAPTER: pydantic.TypeAdapter[list[TriggerTargetSpec]] = pydantic.TypeAdapter(list[TriggerTargetSpec])
 
 
 def _parse_targets(targets_json: typing.Any, parser: argparse.ArgumentParser) -> list[TriggerTargetSpec]:

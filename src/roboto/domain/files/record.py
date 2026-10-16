@@ -159,6 +159,11 @@ class FileRecord(pydantic.BaseModel):
     device_id: typing.Optional[str] = None
     file_id: str
     fs_type: FSType = FSType.File
+    ingestable: bool = False
+    """Whether this file is meant to be ingested: its path matched one of its org's ingestion rules when this
+    version was created or when the file was last renamed or moved, or it has since been partly or fully ingested.
+    A file that is ingestable and
+    :attr:`ingestion_status` ``not_ingested`` is awaiting ingestion."""
     ingestion_status: IngestionStatus = IngestionStatus.NotIngested
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
     modified: datetime.datetime
