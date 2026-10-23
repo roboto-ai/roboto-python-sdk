@@ -343,6 +343,7 @@ class Trigger:
     def update(
         self,
         *,
+        name: typing.Union[str, NotSetType] = NotSet,
         fires_on: typing.Union[TriggerSource, NotSetType] = NotSet,
         events: typing.Union[typing.List[PlatformEventType], NotSetType] = NotSet,
         once_per: typing.Union[OncePer, NotSetType] = NotSet,
@@ -359,6 +360,8 @@ class Trigger:
         source before being sent.
 
         Args:
+            name: A new name for the trigger. Afterward, ``Trigger.from_name`` finds the trigger only
+                under this name.
             fires_on: The new firing source, replacing the current one.
             events: Event types to subscribe to, keeping the current ``once_per``.
             once_per: What the trigger fires at most once per, keeping the current events. Required
@@ -379,7 +382,8 @@ class Trigger:
                 an action the org may not run or a dataset the caller may not upload to.
             RobotoLimitExceededException: Enabling the trigger would put the org over its limit of active
                 triggers, or a target's timeout exceeds the org's limit for action timeouts.
-            RobotoConflictException: The trigger kept changing while the update was applied; retry it.
+            RobotoConflictException: Another trigger in the organization already has ``name``, or the
+                trigger kept changing while the update was applied; retry it.
 
         Examples:
             Disable a trigger:
@@ -416,6 +420,7 @@ class Trigger:
                 )
         request = remove_not_set(
             UpdateTriggerRequest(
+                name=name,
                 fires_on=new_source,
                 condition=condition,
                 targets=targets,

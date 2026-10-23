@@ -384,6 +384,11 @@ class AgentThreadRecord(pydantic.BaseModel):
     status: AgentThreadStatus
     """Current status of this agent thread."""
 
+    activity: Optional[str] = None
+    """A sentence for display saying what the agent is doing that the thread's messages don't show yet. For example,
+    while the service summarizes the thread's older messages so the conversation fits the model's context window, it is
+    "Summarizing older messages to fit the model's context window". ``None`` when there is no such activity."""
+
     title: Optional[str] = None
     """Title of this agent thread."""
 
@@ -487,6 +492,13 @@ class AgentThreadDelta(pydantic.BaseModel):
 
     status: Optional[AgentThreadStatus] = None
     """Updated status of the agent thread."""
+
+    activity: Optional[str] = None
+    """The thread's :py:attr:`AgentThreadRecord.activity` as of this delta.
+
+    Unlike ``status``, ``title``, ``goals`` and ``tasks``, ``None`` does not mean unchanged: every delta carries the
+    thread's current activity, so ``None`` means there is none. A client replaces the activity it holds with this
+    value on every delta."""
 
     title: Optional[str] = None
     """Updated title of the agent thread."""

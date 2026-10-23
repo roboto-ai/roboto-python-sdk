@@ -832,6 +832,7 @@ class AgentThread:
                                 name=content.tool_name,
                                 tool_use_id=content.tool_use_id,
                                 input=content.input,
+                                answered_by_server=content.answered_by_server,
                             )
                         elif isinstance(content, AgentToolResultContent):
                             yield AgentToolResultEvent(
@@ -886,7 +887,12 @@ class AgentThread:
         callback, an ``error`` result is submitted automatically with a
         descriptive message so the agent can recover, and execution continues.
         If a registered callback raises, the exception is caught and also
-        submitted as an ``error`` result.
+        submitted as an ``error`` result. A tool use flagged
+        :py:attr:`~roboto.ai.core.content.AgentToolUseContent.answered_by_server`,
+        or one for a tool this session did not declare, is left for the server
+        or another client to answer. When only such tool uses are unanswered,
+        nothing is submitted, and polling continues until the session leaves
+        ``CLIENT_TOOL_TURN``.
 
         Args:
             on_event: Optional callback invoked for each :class:`AgentEvent`
@@ -941,7 +947,12 @@ class AgentThread:
 
             if status == AgentThreadStatus.CLIENT_TOOL_TURN:
                 results = self.__dispatch_pending_client_tools()
-                self.submit_client_tool_results(results)
+                if len(results) > 0:
+                    self.submit_client_tool_results(results)
+                else:
+                    # Every unanswered tool_use is the server's or another client's to answer. ``events`` returns
+                    # after one poll while the status is CLIENT_TOOL_TURN, so this loop waits between polls.
+                    time.sleep(tick)
                 continue
 
             if status == AgentThreadStatus.GOALS_FAILED:
@@ -981,6 +992,10 @@ class AgentThread:
         if delta.status is not None:
             self.__record.status = delta.status
 
+        # Copied even when None, unlike status and title: every delta carries the current activity, and None means
+        # there is none.
+        self.__record.activity = delta.activity
+
         if delta.title is not None:
             self.__record.title = delta.title
 
@@ -1014,8 +1029,7 @@ class AgentThread:
     def __dispatch_pending_client_tools(self) -> list[ClientToolResult]:
         """Collect ClientToolResults for every tool_use the server expects us to answer.
 
-        The server promotes the session to ``CLIENT_TOOL_TURN`` in two ways
-        (see ``calculate_thread_status`` in ``roboto_service``):
+        The server promotes the session to ``CLIENT_TOOL_TURN`` in two ways:
 
         1. The latest message is an assistant message ending in a client
            ``tool_use`` block. All unanswered tool_uses live on
@@ -1024,13 +1038,12 @@ class AgentThread:
            server tool_uses, but the preceding assistant message also asked
            for one or more client tools whose results are still outstanding.
            In this mixed-tool case, the unanswered tool_uses live on
-           ``messages[-2]`` and the already-submitted results live on
+           ``messages[-2]`` and the results written so far live on
            ``messages[-1]``.
 
-        Scanning only ``latest_message`` misses case 2 — the method would
-        return ``[]``, ``submit_client_tool_results([])`` would fire a no-op
-        POST, and the server would keep re-asserting ``CLIENT_TOOL_TURN`` on
-        the next poll, producing a loop bounded only by ``run(timeout=...)``.
+        Scanning only ``latest_message`` misses case 2: the method would
+        return ``[]``, and :py:meth:`run` would post nothing and wait for a
+        result that only it can submit, until ``run(timeout=...)`` ends it.
         """
         messages = self.__record.messages
         if len(messages) == 0:
@@ -1055,12 +1068,14 @@ class AgentThread:
 
         results: list[ClientToolResult] = []
         for tool_use in tool_uses:
-            if tool_use.tool_use_id in answered_ids:
+            # A tool_use the server answers itself gets its result from the server, which may not have
+            # reached this copy of the thread yet.
+            if tool_use.tool_use_id in answered_ids or tool_use.answered_by_server:
                 continue
             # Dispatch only tool_uses whose name was declared as client-side
             # on this session. In case 2 (mixed server+client turn),
             # messages[-2] may also carry server tool_uses; if the server
-            # hasn't yet mirrored its own tool_result into messages[-1],
+            # hasn't yet written its own tool_result to messages[-1],
             # those would appear unanswered from our perspective. Submitting
             # an error result for a server tool_use_id would collide with
             # the server's own tool_result once it lands, producing two

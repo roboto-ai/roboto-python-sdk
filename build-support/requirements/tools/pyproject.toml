@@ -198,6 +198,10 @@ convention = "google"
     "S608", # TODO(ENG-2086): avoid sql injection
 ]
 
+"packages/roboto_service/src/roboto_service/ai/tools/topic_data/result_facts.py" = [
+    "S608", # Fact queries wrap the caller's own analyze_topic SQL in an in-process DuckDB; identifiers are quoted and values bound.
+]
+
 "packages/roboto_service/src/roboto_service/ai/tools/topic_data/search_logs.py" = [
     "S608", # Generated SQL runs against an in-process DuckDB over the caller's own topic data; patterns are LIKE-escaped.
 ]

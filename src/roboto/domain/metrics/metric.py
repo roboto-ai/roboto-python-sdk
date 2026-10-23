@@ -27,6 +27,7 @@ from .record import (
     AggregateMetricsRequest,
     AggregationPeriod,
     CreateMetricDefinitionRequest,
+    DayOfWeek,
     MetricDefinitionRecord,
     MetricEntry,
     MetricQueryPage,
@@ -433,9 +434,10 @@ class Metric:
     ) -> collections.abc.Generator["Metric", None, None]:
         """Yield stored metric values whose session time falls in a range.
 
-        The time window is matched against either ``session_min_timestamp_ns``
-        or ``session_max_timestamp_ns`` on each metric row depending on
-        ``time_filter``.
+        The time window is matched against the session's start or end time, whichever ``time_filter`` selects.
+        A session with no start or end time counts as starting and ending when it was created,
+        both for matching the window and for sorting by time.
+        The data point yielded for it has ``None`` for ``min_timestamp_ns`` and ``max_timestamp_ns``.
 
         This method auto-paginates: ``max_results`` is the **page size**
         (capped at :py:data:`MAX_METRIC_LIST_RESULTS`), not a total result
@@ -627,17 +629,16 @@ class Metric:
         include_invocation_ids: typing.Optional[typing.Union[list[str], NotSetType]] = NotSet,
         condition: typing.Optional[ConditionType] = None,
         group_by: typing.Optional[str] = None,
+        time_zone: str = "UTC",
+        week_start: DayOfWeek = DayOfWeek.Monday,
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> list[NumericAggregateMetricRecord]:
         """Aggregate a metric across sessions, grouped by calendar period.
 
-        Sessions whose ``session_min_timestamp_ns`` or
-        ``session_max_timestamp_ns`` (selected via ``time_filter``) falls
-        inside the [``start_time``, ``end_time``)
-        window are grouped into UTC calendar buckets sized by ``period``, and
-        the chosen :py:class:`~roboto.domain.metrics.NumericAggregation` is
-        applied to the values in each bucket.
+        Groups the sessions whose start or end time (selected by ``time_filter``) falls inside the [``start_time``,
+        ``end_time``) window into periods of size ``period``, each starting at midnight in ``time_zone``, and applies
+        the chosen :py:class:`~roboto.domain.metrics.NumericAggregation` to the values in each period.
 
         The server snaps the requested window outward to whole-period
         boundaries to guarantee apples-to-apples comparisons.
@@ -678,6 +679,9 @@ class Metric:
                 than being dropped. At most :py:data:`~roboto.domain.metrics.MAX_METRIC_GROUPS`
                 named values come back, those with the most sessions in the window; a warning is
                 logged when others were dropped. Defaults to no split.
+            time_zone: IANA name of the time zone in which each period starts at midnight, such as
+                ``"America/Los_Angeles"``. Defaults to UTC.
+            week_start: The day each week starts on when ``period`` is weekly. Defaults to Monday.
             owner_org_id: Organization that owns the metric data. Defaults to
                 the authenticated caller's organization.
             roboto_client: Roboto client to use. Defaults to the client
@@ -695,8 +699,9 @@ class Metric:
             :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`: ``condition``
                 references a field or comparator the request does not accept; ``condition`` or
                 ``group_by`` references a custom field that is either undefined in your
-                organization or defined but not in the ``Ready`` state; or ``group_by`` names a
-                field that cannot be a series.
+                organization or defined but not in the ``Ready`` state; ``group_by`` names a
+                field that cannot be a series; or ``time_zone`` is ``CET``, ``EET``, ``MET``, ``WET``, or a
+                name not in the IANA time zone database.
 
         Examples:
             Daily max CPU usage over a month, passing ``datetime`` directly:
@@ -753,6 +758,20 @@ class Metric:
             ... )
             >>> for bucket in per_device:
             ...     print(bucket.group_key, bucket.start_time, bucket.value)
+
+            Weekly totals for a team in Los Angeles whose weeks start on Sunday. Each bucket starts at
+            00:00 on a Sunday, Los Angeles time, and ends at 00:00 on the following Sunday:
+
+            >>> from roboto.domain.metrics import DayOfWeek
+            >>> weekly = Metric.aggregate(
+            ...     name="track.length_km",
+            ...     period=AggregationPeriod.Weekly,
+            ...     aggregation=NumericAggregation.Sum,
+            ...     start_time="2026-05-03T00:00:00-07:00",
+            ...     end_time="2026-05-31T00:00:00-07:00",
+            ...     time_zone="America/Los_Angeles",
+            ...     week_start=DayOfWeek.Sunday,
+            ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = AggregateMetricsRequest(
@@ -767,6 +786,8 @@ class Metric:
             include_invocation_ids=include_invocation_ids,
             condition=condition,
             group_by=group_by,
+            time_zone=time_zone,
+            week_start=week_start,
         )
         response = roboto_client.post(
             "v1/metrics/aggregate",

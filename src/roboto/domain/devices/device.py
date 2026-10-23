@@ -795,6 +795,9 @@ class Device:
         file IDs and every version. Links among the device's configurations are deleted in both cases, and
         the files they point at are left alone.
 
+        Shortly after this call returns, this device's ID is also cleared from the ``device_id`` of the org's datasets
+        and of every version of the org's files, unless a device with the same ID is registered in the org before then.
+
         Args:
             keep_configurations: Move the device's configurations to the org's assets instead of deleting them.
                 Requires permission to upload files to the org.
@@ -925,7 +928,7 @@ class Device:
         """Assign a device type to this device, or remove its type.
 
         The device's own configurations are unaffected. Listing them with ``include_inherited=True`` afterwards
-        includes the new type's configurations, or no device type's if the type was removed.
+        includes the new type's configurations, or only the device's own when the type was removed.
 
         Args:
             device_type_id: ``dt_`` ID of a :py:class:`~roboto.domain.device_types.DeviceType` in this device's

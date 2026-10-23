@@ -265,6 +265,15 @@ class ReadPlanPartition(pydantic.BaseModel):
     the read takes each field from the highest-precedence scan task whose subtree contains it.
     """
 
+    fs_node_id: typing.Optional[str] = None
+    """Identifier of the file this partition's data was recorded in.
+
+    A scan task can read a transformed representation of that file (see
+    :py:attr:`ReadPlanScanTask.transformations`), which is stored as a different file, so a scan task's
+    ``object`` does not always name the recording a partition's rows came from; this id does.
+    ``None`` when the plan does not name the file.
+    """
+
 
 class ReadPlan(pydantic.BaseModel):
     """Resolves a read of one topic over a time window into the files to fetch and how to interpret them."""

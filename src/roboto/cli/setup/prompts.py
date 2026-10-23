@@ -10,7 +10,8 @@ import collections.abc
 import dataclasses
 import getpass
 import typing
-import webbrowser
+
+from ..auth.login_flow import browser_cannot_reach_loopback, open_in_browser
 
 # What the user may type, in any letter case, at a question whose default is yes. An empty answer takes the default.
 YES_ANSWERS = ("", "y", "yes")
@@ -43,10 +44,8 @@ class Prompts:
             env: Environment variables, read to tell whether a browser can be opened for the user.
             platform: The value of :py:data:`sys.platform`.
         """
-        no_browser = bool(env.get("SSH_CONNECTION") or env.get("SSH_TTY")) or (
-            platform.startswith("linux") and not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"))
-        )
-        return cls(ask=input, ask_hidden=getpass.getpass, open_browser=None if no_browser else _open_browser)
+        no_browser = browser_cannot_reach_loopback(env, platform)
+        return cls(ask=input, ask_hidden=getpass.getpass, open_browser=None if no_browser else open_in_browser)
 
 
 class InputEnded(Exception):
@@ -88,10 +87,3 @@ def confirm(prompts: Prompts, question: str) -> bool:
             return True
         if answer in NO_ANSWERS:
             return False
-
-
-def _open_browser(url: str) -> bool:
-    try:
-        return webbrowser.open(url)
-    except webbrowser.Error:
-        return False

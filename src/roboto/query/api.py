@@ -11,6 +11,7 @@ import typing
 import pydantic
 
 from ..compat import StrEnum
+from ..warnings import experimental
 from .specification import QuerySpecification
 
 
@@ -93,6 +94,101 @@ class QueryScheme(StrEnum):
     """
 
 
+MAX_VALUE_COUNTS_LIMIT: int = 1_000
+"""The largest and the default :py:attr:`ValueCountsSpec.limit`: the most values one :py:class:`ValueCounts` lists."""
+
+
+@experimental
+class ValueCountsSpec(pydantic.BaseModel):
+    """
+    A request to count how many of the records a query matches hold each value of one field. Submit it as
+    :py:attr:`SubmitStructuredQueryRequest.value_counts`, then read the :py:class:`ValueCounts` with
+    ``GET /v1/query/id/<query_id>/value-counts``. The endpoint is enabled per caller; a caller it is not enabled for
+    gets :py:exc:`~roboto.exceptions.RobotoFeatureNotAvailableException`.
+
+    Supported for the ``events``, ``sessions``, ``datasets``, ``devices``, ``collections``, and ``files`` query
+    targets. Every record the query's ``condition`` matches is counted: the query's ``sort_by``, ``sort_direction``,
+    ``limit``, ``after`` and ``max_results`` do not apply.
+    """
+
+    field: str = pydantic.Field(
+        min_length=1,
+        description=(
+            "The field whose values are counted: a field the query's target accepts as QuerySpecification.sort_by, "
+            "under its name or one of its aliases, or custom.<name> for one of the organization's custom fields "
+            "with status CustomFieldStatus.Ready."
+        ),
+    )
+    limit: int = pydantic.Field(
+        default=MAX_VALUE_COUNTS_LIMIT,
+        ge=1,
+        le=MAX_VALUE_COUNTS_LIMIT,
+        description="The most values returned, most common first.",
+    )
+    time_field: typing.Optional[str] = pydantic.Field(
+        default=None,
+        description=(
+            "A time field the query's target accepts as QuerySpecification.sort_by, such as start_time on sessions "
+            "and events, or created on the other targets; a custom field is not accepted. Each value then carries "
+            "the earliest and latest time among the records holding it."
+        ),
+    )
+
+
+@experimental
+class ValueCount(pydantic.BaseModel):
+    """
+    One value of the counted field, and how many of the matched records hold it.
+    """
+
+    value: typing.Any = pydantic.Field(
+        description=(
+            "The value, as JSON of the field's type: a string, number or boolean. An audit time (created, modified) "
+            "or a custom timestamp field is an ISO 8601 string; a recorded time (start_time) is integer nanoseconds "
+            "since the Unix epoch."
+        )
+    )
+    count: int = pydantic.Field(description="How many of the matched records hold the value.")
+    first_time: typing.Union[int, str, None] = pydantic.Field(
+        default=None,
+        description=(
+            "The earliest time_field value among the records holding the value: integer nanoseconds for a recorded "
+            "time such as start_time, an ISO 8601 string for an audit time such as created. Null when no time_field "
+            "was named or none of those records has a time."
+        ),
+    )
+    last_time: typing.Union[int, str, None] = pydantic.Field(
+        default=None,
+        description="The latest time_field value among the records holding the value, as first_time is.",
+    )
+
+
+@experimental
+class ValueCounts(pydantic.BaseModel):
+    """
+    Response of ``GET /v1/query/id/<query_id>/value-counts``: the values of the field the query's
+    :py:class:`ValueCountsSpec` names, over the records the query matches.
+    """
+
+    field: str = pydantic.Field(description="The counted field, as ValueCountsSpec.field spelled it.")
+    matched: int = pydantic.Field(description="How many records the query matches.")
+    without_value: int = pydantic.Field(description="How many of the matched records hold no value for the field.")
+    distinct_values: int = pydantic.Field(
+        description="How many distinct values the matched records hold, including values past the limit."
+    )
+    values: list[ValueCount] = pydantic.Field(
+        description=(
+            "Up to ValueCountsSpec.limit values, most common first; values with equal counts are in ascending order."
+        )
+    )
+
+    @pydantic.computed_field  # type: ignore[prop-decorator]
+    @property
+    def truncated(self) -> bool:
+        """True when the matched records hold more distinct values than ``values`` lists."""
+        return self.distinct_values > len(self.values)
+
+
 class QueryContext(pydantic.BaseModel):
     """
     Context for a query
@@ -163,6 +259,15 @@ class SubmitStructuredQueryRequest(pydantic.BaseModel):
     )
     query: QuerySpecification = pydantic.Field(description="The conditions, sorting behavior, and limit of this query.")
     target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
+    value_counts: typing.Optional[ValueCountsSpec] = pydantic.Field(
+        default=None,
+        description=(
+            "Experimental: this field may change or be removed without notice. A field whose values to count over "
+            "this query's matching records. Read the counts with GET /v1/query/id/<query_id>/value-counts, which "
+            "is enabled per caller and refuses others with RobotoFeatureNotAvailableException. Supported for the "
+            "events, sessions, datasets, devices, collections, and files targets."
+        ),
+    )
 
 
 class SubmitRoboqlQueryRequest(pydantic.BaseModel):

@@ -19,15 +19,26 @@ If this is your first time using Roboto, start with the [docs](https://docs.robo
 pip install roboto
 ```
 
-Then authenticate:
+Then sign in:
 
-1. Sign up at [app.roboto.ai](https://app.roboto.ai) and create an access token ([docs](https://docs.roboto.ai/getting-started/programmatic-access.html))
-2. Save your access token to `~/.roboto/config.json`
-3. Verify your credentials are configured correctly:
+1. Sign up at [app.roboto.ai](https://app.roboto.ai).
+2. Sign in through your browser:
+
+```shell
+python -m roboto.cli auth login
+```
+
+The command opens the Roboto web app. Check that the page shows the confirmation code printed in your terminal, then click **Approve**. Over SSH, or on Linux without a display, the command opens no browser. Instead, open the URL it prints on any device, approve the sign-in there, and paste the authorization code the page shows into your terminal.
+
+The command saves the new access token to `~/.roboto/config.json`, in the file's default profile. If that profile already exists, the command stops before signing you in unless you add `--overwrite`, which replaces the profile's token.
+
+3. Check that you're signed in:
 
 ```shell
 python -m roboto.cli users whoami
 ```
+
+Where nobody can approve a sign-in in a browser, such as in a CI job, create an access token in the web app instead, as [Programmatic Access](https://docs.roboto.ai/getting-started/programmatic-access.html) describes.
 
 See the complete [SDK documentation](https://docs.roboto.ai/reference/python-sdk.html).
 

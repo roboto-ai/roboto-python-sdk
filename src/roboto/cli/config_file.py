@@ -18,9 +18,10 @@ import typing
 import filelock
 import pydantic
 
-from ...config import (
+from ..config import (
     DEFAULT_ROBOTO_PROFILE_NAME,
     RobotoConfigFileV1,
+    resolved_profile_name,
 )
 
 _PROFILE_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]{1,100}")
@@ -38,7 +39,7 @@ class ProfileAlreadyExistsError(ConfigFileError):
         super().__init__(
             f"Profile '{profile_name}' already exists in '{config_file}'. "
             + f"Existing profiles: {', '.join(existing_profiles)}. "
-            + "Choose another name with --profile, or pass --overwrite to replace its credentials."
+            + "Choose another name with --profile, or pass --overwrite to replace its token and endpoint."
         )
         self.profile_name = profile_name
         self.existing_profiles = existing_profiles
@@ -54,6 +55,9 @@ class ProfileWriteResult:
     created_file: bool
     """The config file did not exist before this write."""
 
+    profile_name: str
+    """Profile the token was written to: the one the caller named, or else the file's default profile."""
+
     is_default: bool
     """The written profile is the one used when no profile is selected."""
 
@@ -61,31 +65,55 @@ class ProfileWriteResult:
     """Copy of the original file, when a legacy (V0) file was converted to the V1 format."""
 
 
-def ensure_profile_writable(config_file: pathlib.Path, profile_name: str, overwrite: bool) -> None:
-    """Raise early, without changing anything, for most of the reasons :py:func:`write_profile` would refuse a profile.
+@dataclasses.dataclass(frozen=True)
+class WritableProfile:
+    """A profile :py:func:`check_profile_writable` found :py:func:`write_profile` could write."""
+
+    exists: bool
+    """The file already has the profile."""
+
+    name: str
+    """The profile's name: the one the caller named, or else the file's default profile."""
+
+
+def check_profile_writable(
+    config_file: pathlib.Path, profile_name: typing.Optional[str], overwrite: bool, set_default: bool = False
+) -> WritableProfile:
+    """Check, without changing anything, that :py:func:`write_profile` could write the profile now.
 
     Lets a caller fail before doing work whose result it would then have nowhere to store. Checks the profile name,
-    the file's format, and whether the profile already exists. Does not check that the updated file would pass
-    validation, and it takes no lock, so :py:func:`write_profile` can still refuse if the file changes in between.
+    that the file can be read and is in a format this module can update, that an existing profile is replaced only
+    with ``overwrite``, and that the file would be valid with the profile written. It takes no lock and writes nothing,
+    so :py:func:`write_profile` can still refuse if the file changes in between, if the lock times out, or if the file
+    or its directory can't be written.
 
     Args:
         config_file: Path of the config file. A missing file passes.
-        profile_name: Profile the caller intends to write.
+        profile_name: Profile the caller intends to write. Defaults to the file's default profile.
         overwrite: Whether the caller will pass ``overwrite=True`` to :py:func:`write_profile`.
+        set_default: Whether the caller will pass ``set_default=True`` to :py:func:`write_profile`.
+
+    Returns:
+        The profile's name, and whether the file already has it.
 
     Raises:
         ProfileAlreadyExistsError: The profile exists and ``overwrite`` is false.
-        ConfigFileError: The profile name is invalid or the file is not a config file this module can update.
+        ConfigFileError: The profile name is invalid, the file is not a config file this module can update, or the
+            file would not be valid with the profile written to it.
+        OSError: The file could not be read.
     """
-    _validate_profile_name(profile_name)
     document = _read_document(config_file)
-    if document is not None:
-        _raise_if_profile_exists(config_file, document.profiles, profile_name, overwrite)
+    name = _profile_name_or_default(document, profile_name)
+    exists = document is not None and name in document.profiles
+    # Edits the parsed document, which is then discarded. Any token and endpoint leave the file valid, so placeholders
+    # stand in for them.
+    _put_profile(config_file, document, name, "api_key", "endpoint", overwrite, set_default)
+    return WritableProfile(exists=exists, name=name)
 
 
 def write_profile(
     config_file: pathlib.Path,
-    profile_name: str,
+    profile_name: typing.Optional[str],
     api_key: str,
     endpoint: str,
     overwrite: bool,
@@ -100,18 +128,22 @@ def write_profile(
 
     Args:
         config_file: Path of the config file. Created, along with an owner-only parent directory, if missing.
-        profile_name: Profile to write.
+        profile_name: Profile to write. Defaults to the file's default profile: the one its ``default_profile``
+            names, or ``default`` when it names none.
         api_key: Personal access token to store in the profile.
         endpoint: Roboto API endpoint to store in the profile.
-        overwrite: Replace the credentials of an existing profile of the same name, keeping its other settings.
+        overwrite: Replace the token and endpoint of an existing profile of the same name, keeping its other
+            settings.
         set_default: Make this profile the default. A newly created file always defaults to its only profile.
 
     Raises:
         ProfileAlreadyExistsError: The profile exists and ``overwrite`` is false.
         ConfigFileError: The profile name is invalid, the file is not a config file this module can update, or the
             lock could not be acquired.
+        OSError: The file could not be read or written, or its directory could not be created.
     """
-    _validate_profile_name(profile_name)
+    if profile_name is not None:
+        _validate_profile_name(profile_name)
     # Write the file a symlink points at: replacing the link itself would detach a dotfiles-managed config.
     config_file = config_file.resolve()
 
@@ -200,13 +232,50 @@ def _write_lock(config_file: pathlib.Path) -> collections.abc.Iterator[None]:
 
 def _write_profile_locked(
     config_file: pathlib.Path,
-    profile_name: str,
+    profile_name: typing.Optional[str],
     api_key: str,
     endpoint: str,
     overwrite: bool,
     set_default: bool,
 ) -> ProfileWriteResult:
     document = _read_document(config_file)
+    created_file = document is None
+    document, profile_name, model = _put_profile(
+        config_file, document, profile_name, api_key, endpoint, overwrite, set_default
+    )
+    v0_backup = _replace_file(config_file, document)
+
+    return ProfileWriteResult(
+        config_file=config_file,
+        created_file=created_file,
+        profile_name=profile_name,
+        is_default=(model.default_profile or DEFAULT_ROBOTO_PROFILE_NAME) == profile_name,
+        v0_backup=v0_backup,
+    )
+
+
+def _put_profile(
+    config_file: pathlib.Path,
+    document: typing.Optional[_Document],
+    profile_name: typing.Optional[str],
+    api_key: str,
+    endpoint: str,
+    overwrite: bool,
+    set_default: bool,
+) -> tuple[_Document, str, RobotoConfigFileV1]:
+    """Set the token and endpoint of a profile in ``document``, or in a new document when it is ``None``.
+
+    Points ``default_profile`` at the profile in a new document or with ``set_default``, and keeps a V0 document's
+    readers on the profile they read.
+
+    Returns the document, the profile's name, and the document validated as a config file.
+
+    Raises:
+        ProfileAlreadyExistsError: The profile exists and ``overwrite`` is false.
+        ConfigFileError: The profile name is invalid, or the document would not be a valid config file.
+    """
+    profile_name = _profile_name_or_default(document, profile_name)
+    _validate_profile_name(profile_name)
     created_file = document is None
     if document is None:
         document = _Document(raw={"version": "v1", "profiles": {}})
@@ -225,21 +294,13 @@ def _write_profile_locked(
     elif document.v0_text is not None:
         _keep_v0_default_profile(document, otherwise=profile_name)
 
-    model = _validate_document(config_file, document)
-    v0_backup = _replace_file(config_file, document)
-
-    return ProfileWriteResult(
-        config_file=config_file,
-        created_file=created_file,
-        is_default=(model.default_profile or DEFAULT_ROBOTO_PROFILE_NAME) == profile_name,
-        v0_backup=v0_backup,
-    )
+    return document, profile_name, _validate_document(config_file, document)
 
 
 def _read_existing_document(config_file: pathlib.Path) -> _Document:
     document = _read_document(config_file)
     if document is None:
-        raise ConfigFileError(f"'{config_file}' does not exist.")
+        raise ConfigFileError(f"'{config_file}' doesn't exist.")
     return document
 
 
@@ -247,11 +308,16 @@ def _find_profile(
     config_file: pathlib.Path, document: _Document, profile_name: typing.Optional[str]
 ) -> tuple[str, dict[str, typing.Any]]:
     """Return the name and contents of the profile ``profile_name``, or of the file's default profile when ``None``."""
-    name = profile_name or document.raw.get("default_profile") or DEFAULT_ROBOTO_PROFILE_NAME
+    name = _profile_name_or_default(document, profile_name)
     profile = document.profiles.get(name)
     if not isinstance(profile, dict):
         raise ConfigFileError(f"'{config_file}' has no profile '{name}'.")
     return name, profile
+
+
+def _profile_name_or_default(document: typing.Optional[_Document], profile_name: typing.Optional[str]) -> str:
+    """Return ``profile_name``, or when it is ``None`` or empty the profile the SDK reads by default from this file."""
+    return resolved_profile_name(profile_name, document.raw.get("default_profile") if document is not None else None)
 
 
 def _keep_v0_default_profile(document: _Document, otherwise: str) -> None:
@@ -283,13 +349,13 @@ def _validate_document(config_file: pathlib.Path, document: _Document) -> Roboto
             for error in exc.errors(include_input=False, include_url=False)
         )
         raise ConfigFileError(
-            f"'{config_file}' would not be a valid config file with this change ({problems})."
+            f"'{config_file}' wouldn't be a valid config file with this change ({problems})."
         ) from None
 
 
 def _validate_profile_name(profile_name: str) -> None:
     if not _PROFILE_NAME_PATTERN.fullmatch(profile_name):
-        raise ConfigFileError(f"Invalid profile name '{profile_name}': use 1-100 letters, digits, '.', '_' or '-'.")
+        raise ConfigFileError(f"Invalid profile name '{profile_name}': use 1-100 letters, digits, '.', '_', or '-'.")
 
 
 def _raise_if_profile_exists(
@@ -312,16 +378,16 @@ def _read_document(config_file: pathlib.Path) -> typing.Optional[_Document]:
     try:
         raw = json.loads(text)
     except json.JSONDecodeError:
-        raise ConfigFileError(f"'{config_file}' is not valid JSON.") from None
+        raise ConfigFileError(f"'{config_file}' isn't valid JSON.") from None
 
     if not isinstance(raw, dict):
-        raise ConfigFileError(f"'{config_file}' does not contain a JSON object.")
+        raise ConfigFileError(f"'{config_file}' isn't a JSON object.")
 
     if "version" in raw:
         if raw["version"] != "v1":
-            raise ConfigFileError(f"'{config_file}' has unsupported version {raw['version']!r}.")
+            raise ConfigFileError(f"'{config_file}' has an unsupported version, {raw['version']!r}.")
         if not isinstance(raw.get("profiles"), dict):
-            raise ConfigFileError(f"'{config_file}' has no 'profiles' object.")
+            raise ConfigFileError(f"'{config_file}' has no \"profiles\" object.")
         return _Document(raw=raw)
 
     return _convert_v0(config_file, raw, text)
@@ -332,8 +398,8 @@ def _convert_v0(config_file: pathlib.Path, raw: dict[str, typing.Any], text: str
     for name, entry in raw.items():
         if not isinstance(entry, dict) or not isinstance(entry.get("token"), str):
             raise ConfigFileError(
-                f"'{config_file}' is in an older format, and its entry '{name}' cannot be converted to the "
-                + "current format."
+                f"'{config_file}' has no \"version\" key, and its entry '{name}' can't be converted to the v1 "
+                + "format."
             )
         profile: dict[str, typing.Any] = {"api_key": entry["token"]}
         if "default_endpoint" in entry:

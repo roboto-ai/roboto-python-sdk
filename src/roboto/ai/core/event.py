@@ -37,6 +37,10 @@ class AgentToolUseEvent(pydantic.BaseModel):
     input: Optional[dict[str, Any]] = None
     """Parsed tool input parameters chosen by the LLM."""
 
+    answered_by_server: bool = False
+    """Whether the server answers this call to a client-side tool itself; a client must not run the tool when
+    ``True``. See :py:attr:`~roboto.ai.core.content.AgentToolUseContent.answered_by_server`."""
+
 
 class AgentToolResultEvent(pydantic.BaseModel):
     """Contains the result of a tool invocation."""

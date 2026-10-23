@@ -126,6 +126,8 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
         parser.error("'--schedule' cannot be combined with '--on' or '--once-per'.")
     trigger = Trigger.from_name(name=args.name, owner_org_id=args.org, roboto_client=context.roboto_client)
     updates: dict[str, typing.Any] = {}
+    if args.new_name is not None:
+        updates["name"] = args.new_name
     if args.on:
         updates["events"] = [PlatformEventType(event) for event in args.on]
     if args.once_per is not None:
@@ -146,6 +148,14 @@ def update(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 def update_setup_parser(parser):
     parser.add_argument("name", type=str, help=NAME_PARAM_HELP)
+    parser.add_argument(
+        "--new-name",
+        type=str,
+        help=(
+            "Rename the trigger to this name, which no other trigger in the org may have. "
+            "Afterward, the trigger's current name no longer finds it."
+        ),
+    )
     parser.add_argument(
         "--on",
         nargs="+",
@@ -290,7 +300,7 @@ update_command = RobotoCommand(
     name="update",
     logic=update,
     setup_parser=update_setup_parser,
-    command_kwargs={"help": "Changes a trigger's firing source, condition, or targets."},
+    command_kwargs={"help": "Changes a trigger's name, firing source, condition, or targets."},
 )
 
 get_command = RobotoCommand(

@@ -19,6 +19,7 @@ from .actions import (
     command_set as actions_command_set,
 )
 from .argparse import SortingHelpFormatter
+from .auth import command_set as auth_command_set
 from .cache import (
     command_set as cache_command_set,
 )
@@ -65,6 +66,7 @@ from .users import (
 
 COMMAND_SETS = [
     actions_command_set,
+    auth_command_set,
     cache_command_set,
     chat_command_set,
     collections_command_set,
@@ -257,15 +259,16 @@ def entry():
         elif "func_without_context" in args:
             args.func_without_context(args)
         elif "func" in args:
-            __populate_context(
-                context=context,
-                parser=parser,
-                profile_override=args.profile,
-                cache_dir_override=args.cache_dir,
-                config_file_override=args.config_file,
-            )
-            apply_roboto_cli_context_extensions(base_context=context)
-            apply_profile_org_default(args, context.roboto_config)
+            if getattr(args, "requires_config", True):
+                __populate_context(
+                    context=context,
+                    parser=parser,
+                    profile_override=args.profile,
+                    cache_dir_override=args.cache_dir,
+                    config_file_override=args.config_file,
+                )
+                apply_roboto_cli_context_extensions(base_context=context)
+                apply_profile_org_default(args, context.roboto_config)
 
             args.func(args)
         else:

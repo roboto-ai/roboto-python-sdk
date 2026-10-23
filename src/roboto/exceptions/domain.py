@@ -273,6 +273,13 @@ class RobotoInvalidRequestException(RobotoDomainException):
         return 400
 
 
+class RobotoUnknownFieldAddressException(RobotoInvalidRequestException):
+    """
+    Thrown when a :py:class:`~roboto.experimental.topics.FieldAddress` names a ``path`` or a ``field_id`` that the
+    topic's schema does not have
+    """
+
+
 class RobotoNotImplementedException(RobotoDomainException):
     """
     Thrown by shimmed out APIs which have not yet been implemented
@@ -331,6 +338,36 @@ class RobotoConflictException(RobotoDomainException):
     @property
     def http_status_code(self) -> int:
         return 409
+
+
+class RobotoBoardRevisionConflictException(RobotoConflictException):
+    """
+    Thrown when a board update carries a ``base_revision`` that no longer matches the stored revision. Someone
+    wrote definition content after the requester loaded the board, so applying the update could erase their edit.
+
+    ``current_board`` holds the board record as stored when the update was rejected, in its JSON form, so a client
+    can show both versions and let the user resolve the conflict without another request.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        current_board: dict[str, Any],
+        stack_trace: list[str] = [],
+        headers: dict[str, str] = {},
+        *args,
+        **kwargs,
+    ):
+        super().__init__(message, stack_trace, headers, *args, **kwargs)
+        self.current_board = current_board
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        # The payload key must match this class's ``current_board`` constructor parameter:
+        # RobotoDomainException.from_json splats the error body into the constructor, so
+        # renaming one without the other breaks SDK deserialization.
+        result["error"]["current_board"] = self.current_board
+        return result
 
 
 class RobotoLayoutConflictException(RobotoConflictException):

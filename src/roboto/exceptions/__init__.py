@@ -6,6 +6,7 @@
 
 from .domain import (
     ReadPlanExecutionErrorKind,
+    RobotoBoardRevisionConflictException,
     RobotoConditionException,
     RobotoConflictException,
     RobotoContextTooLongException,
@@ -35,6 +36,7 @@ from .domain import (
     RobotoServiceUnavailableException,
     RobotoThreadReadOnlyException,
     RobotoUnauthorizedException,
+    RobotoUnknownFieldAddressException,
     RobotoUnknownOperationException,
     RobotoUnrecognizedErrorException,
 )
@@ -55,6 +57,7 @@ __all__ = [
     "ReadPlanExecutionErrorKind",
     "ServerError",
     "TimestampFieldNotFoundException",
+    "RobotoBoardRevisionConflictException",
     "RobotoConditionException",
     "RobotoConflictException",
     "RobotoContextTooLongException",
@@ -84,6 +87,7 @@ __all__ = [
     "RobotoOperationTimeoutException",
     "RobotoThreadReadOnlyException",
     "RobotoUnauthorizedException",
+    "RobotoUnknownFieldAddressException",
     "RobotoUnknownOperationException",
     "RobotoUnrecognizedErrorException",
 ]

@@ -21,7 +21,8 @@ class AggregationPeriod(StrEnum):
     """
     Calendar bucket size used when grouping metric observations.
 
-    All aggregation start/end times are based on UTC time.
+    Each period starts at midnight in :py:attr:`AggregateMetricsRequest.time_zone`, and each week starts on
+    :py:attr:`AggregateMetricsRequest.week_start`.
     """
 
     Daily = "daily"
@@ -38,6 +39,18 @@ class AggregationPeriod(StrEnum):
 
     Yearly = "yearly"
     """One bucket per calendar year."""
+
+
+class DayOfWeek(StrEnum):
+    """A day of the week, such as the day an aggregation's weeks start on."""
+
+    Monday = "monday"
+    Tuesday = "tuesday"
+    Wednesday = "wednesday"
+    Thursday = "thursday"
+    Friday = "friday"
+    Saturday = "saturday"
+    Sunday = "sunday"
 
 
 class NumericAggregation(StrEnum):
@@ -115,14 +128,27 @@ class MetricRecord(pydantic.BaseModel):
     """Session this metric is associated with."""
 
     min_timestamp_ns: typing.Optional[int] = None
-    """Lower bound of the source session's aggregate timestamps, in Unix-epoch
-    nanoseconds. ``None`` until the session has at least one file contribution.
-    Mirrors :py:attr:`~roboto.experimental.sessions.SessionRecord.min_timestamp_ns`."""
+    """Earliest time covered by the data point's session, in Unix-epoch nanoseconds:
+    that session's :py:attr:`~roboto.experimental.sessions.SessionRecord.min_timestamp_ns`.
+    ``None`` while the session has no start or end time,
+    because none of its files gives it timestamped data (for example, before it holds any file)."""
 
     max_timestamp_ns: typing.Optional[int] = None
-    """Upper bound of the source session's aggregate timestamps, in Unix-epoch
-    nanoseconds. ``None`` until the session has at least one file contribution.
-    Mirrors :py:attr:`~roboto.experimental.sessions.SessionRecord.max_timestamp_ns`."""
+    """Latest time covered by the data point's session, in Unix-epoch nanoseconds:
+    that session's :py:attr:`~roboto.experimental.sessions.SessionRecord.max_timestamp_ns`.
+    ``None`` in the same cases as :py:attr:`min_timestamp_ns`."""
+
+    session_start_time_ns: typing.Optional[int] = None
+    """The time a ``time_filter`` of :py:attr:`MetricTimeFilter.StartTime` places this data point at, in Unix-epoch
+    nanoseconds: the session's :py:attr:`min_timestamp_ns`, or the time the session was created while it has no start
+    or end time. A query or aggregation window holds the data point when it holds this time, and an aggregation counts
+    it in the period that holds this time. ``None`` only on a record from a service older than this field."""
+
+    session_end_time_ns: typing.Optional[int] = None
+    """The time a ``time_filter`` of :py:attr:`MetricTimeFilter.EndTime` places this data point at, in Unix-epoch
+    nanoseconds: the session's :py:attr:`max_timestamp_ns`, or the time the session was created while it has no start
+    or end time. Used as :py:attr:`session_start_time_ns` is. ``None`` only on a record from a service older than this
+    field."""
 
     value: float
     """Observed numeric value."""
@@ -164,10 +190,13 @@ class AggregateMetricRecord(pydantic.BaseModel):
     """Calendar bucket size used for this aggregation."""
 
     start_time: int
-    """Inclusive start of this period bucket, in Unix-epoch nanoseconds (UTC)."""
+    """Inclusive start of this period bucket, in Unix-epoch nanoseconds: midnight in the request's
+    :py:attr:`~AggregateMetricsRequest.time_zone` on the period's first day."""
 
     end_time: int
-    """Exclusive end of this period bucket, in Unix-epoch nanoseconds (UTC)."""
+    """Exclusive end of this period bucket, in Unix-epoch nanoseconds: midnight in the request's
+    :py:attr:`~AggregateMetricsRequest.time_zone` on the next period's first day. A period in which that zone's
+    clocks change is longer or shorter by the size of the change, so a daily bucket can span 23 or 25 hours."""
 
     total: int
     """Number of raw observations that contributed to this bucket."""
@@ -205,7 +234,8 @@ class NumericAggregateMetricsResponse(pydantic.BaseModel):
 
     total_groups: typing.Optional[int] = None
     """How many distinct named values of :py:attr:`AggregateMetricsRequest.group_by` have data in the
-    returned periods, counting none for data points with no value. The periods can reach past the
+    returned periods, counting none for data points with no value. When
+    :py:attr:`AggregateMetricsRequest.widen_to_whole_periods` is true, the periods can reach past the
     requested window to whole-period bounds, so this includes a value whose data falls only in that
     margin. ``None`` on an ungrouped aggregation."""
 
@@ -330,10 +360,25 @@ class MetricQueryPage(PaginatedList[MetricRecord]):
 
 
 class QueryMetricsRequest(pydantic.BaseModel):
-    """Request payload to query raw metric data points."""
+    """Request payload to query raw metric data points.
 
-    name: str
+    Exactly one of ``name`` and ``names`` selects the metrics to read.
+    """
+
+    name: typing.Optional[str] = None
     """Name of the metric to query."""
+
+    names: typing.Optional[list[str]] = None
+    """Experimental: ``names`` may change or be removed without notice.
+
+    Names of the metrics to read together as one paginated result: at least one, none repeated. Each
+    returned :py:class:`MetricRecord` carries its own ``name`` and ``metric_id``, which tell the rows of
+    different metrics apart. A list of one name reads and pages as ``name`` does.
+
+    Replay a page token only with the list of names it was issued under. A token issued under ``name``
+    or a one-name list is rejected with :py:exc:`~roboto.exceptions.RobotoInvalidRequestException` when
+    replayed with two or more names, and a token issued under two or more names is rejected when
+    replayed with one."""
 
     time_filter: MetricTimeFilter = MetricTimeFilter.EndTime
     """Whether to filter by session start time or end time."""
@@ -353,7 +398,8 @@ class QueryMetricsRequest(pydantic.BaseModel):
     """Maximum number of data points to return. Must be between 1 and :py:data:`MAX_METRIC_LIST_RESULTS` (10,000)."""
 
     sort_by: typing.Optional[str] = None
-    """Field to order data points by, with ``session_id`` as a deterministic tiebreaker.
+    """Field to order data points by, with ``session_id`` as a deterministic tiebreaker and, when
+    ``names`` lists several metrics, ``metric_id`` after it.
 
     One of ``time`` (the session time selected by ``time_filter``), ``value``, ``published``,
     ``device_id``, ``session_id``, ``invocation_id``, or ``group_key`` (the value of ``group_by``,
@@ -437,6 +483,18 @@ class QueryMetricsRequest(pydantic.BaseModel):
 
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)
 
+    @pydantic.model_validator(mode="after")
+    def _validate_name_or_names(self) -> "QueryMetricsRequest":
+        if (self.name is None) == (self.names is None):
+            raise ValueError("Exactly one of 'name' and 'names' must be set.")
+        if self.names is None:
+            return self
+        if len(self.names) == 0:
+            raise ValueError("'names' must list at least one metric name.")
+        if len(set(self.names)) != len(self.names):
+            raise ValueError("'names' must not repeat a metric name.")
+        return self
+
 
 class AggregateMetricsRequest(pydantic.BaseModel):
     """Request payload for a numeric metric aggregation."""
@@ -498,5 +556,27 @@ class AggregateMetricsRequest(pydantic.BaseModel):
     back — those with the most sessions in the requested window — plus the null group; the response
     reports the full count in :py:attr:`NumericAggregateMetricsResponse.total_groups`.
     """
+
+    widen_to_whole_periods: bool = True
+    """Whether to widen the window to whole periods. When true, the service moves
+    :py:attr:`start_time_ns` back to the start of its period and :py:attr:`end_time_ns` forward to the end of its
+    period, so the first and last buckets aggregate every data point of their period, including those of sessions
+    outside the requested window. When false, a bucket aggregates only the data points inside
+    [:py:attr:`start_time_ns`, :py:attr:`end_time_ns`), the same data points a :py:class:`QueryMetricsRequest` with
+    the same window, ``time_filter`` and filters returns, so the first and last buckets can hold part of their period.
+    Either way, each bucket's :py:attr:`~AggregateMetricRecord.start_time` and
+    :py:attr:`~AggregateMetricRecord.end_time` are the bounds of its whole period."""
+
+    time_zone: str = "UTC"
+    """IANA name of the time zone in which each period starts at midnight, such as ``"America/Los_Angeles"``. The
+    periods, and the window when :py:attr:`widen_to_whole_periods` widens it, are cut in this zone, and a day on which
+    the zone's clocks change is longer or shorter than 24 hours. A name not in the IANA time zone database raises
+    :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`, as do ``CET``, ``EET``, ``MET``, and ``WET``, which
+    the service would read as fixed UTC offsets without daylight saving time; name such a zone by area and location
+    instead, such as ``"Europe/Paris"`` for ``CET``."""
+
+    week_start: DayOfWeek = DayOfWeek.Monday
+    """The day each week starts on when :py:attr:`period` is :py:attr:`AggregationPeriod.Weekly`. Other periods ignore
+    it."""
 
     model_config = ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)

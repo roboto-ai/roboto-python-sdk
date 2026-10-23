@@ -59,14 +59,8 @@ class AgentContentType(StrEnum):
     written before this type existed; nothing emits it any more."""
 
     COMPRESSION_FILLER = "compression_filler"
-    """Stand-in block kept in a message the deletion pass emptied entirely.
-
-    A message reduced to nothing but tombstones would break user/assistant
-    alternation if it dropped from the payload. Replacing its content with this
-    single filler keeps the message — and its role — in place. The model sees it
-    as ``<Deleted in compression>``. Only the cross-message deletion pass produces
-    it, so it appears only inside a ``DELETED``-tier compressed variant, never in
-    the verbatim ``original`` thread the SDK and UI read."""
+    """Stand-in block for a message that has nothing left to send to the model (see
+    :class:`AgentCompressionFillerContent`). Never in the verbatim ``original`` thread the SDK and UI read."""
 
 
 class AgentTextContent(pydantic.BaseModel):
@@ -91,6 +85,13 @@ class AgentToolUseContent(pydantic.BaseModel):
     """Parsed tool input parameters chosen by the LLM (provider-agnostic)."""
     raw_request: Optional[dict[str, Any]] = None
     """Raw, unparsed request payload for this tool invocation."""
+    answered_by_server: bool = False
+    """Whether the server answers this call to a client-side tool itself, instead of handing it to the client.
+
+    ``True`` when the server refused the call. The server then writes an error result for it, so the client must not
+    run the tool: the server rejects a submission of client tool results that includes a result for this tool use.
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.run` skips such tool uses when it runs client tools. Always ``False``
+    on a call to a server-side tool."""
 
 
 class AgentToolResultContent(pydantic.BaseModel):
@@ -226,15 +227,11 @@ class AgentDeletedContent(pydantic.BaseModel):
 
 
 class AgentCompressionFillerContent(pydantic.BaseModel):
-    """Filler standing in for a message the compression deletion pass emptied.
+    """Stands in for the content of a message that was shortened away when a long conversation was condensed for the
+    model.
 
-    Carries no payload. A message reduced to nothing but tombstones keeps this
-    single block instead of an empty content list, so it stays in the Bedrock
-    payload at its original role and turn alternation survives without
-    relocating content. The Bedrock boundary renders it as
-    ``<Deleted in compression>``. Produced only by the compression deletion pass
-    and stored only at the ``DELETED`` tier; the verbatim ``original`` thread
-    (what the SDK and UI render) never contains one.
+    Carries no payload. It occurs only in the condensed copies of messages the platform sends to the model: the
+    messages of a thread as the SDK returns them, and as the web UI shows them, never contain one.
     """
 
     content_type: typing.Literal[AgentContentType.COMPRESSION_FILLER] = AgentContentType.COMPRESSION_FILLER

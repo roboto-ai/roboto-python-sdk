@@ -5,6 +5,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from .api import (
+    MAX_VALUE_COUNTS_LIMIT,
     QualifiedRoboqlQuery,
     QueryContentMode,
     QueryContext,
@@ -17,6 +18,9 @@ from .api import (
     SubmitRoboqlQueryRequest,
     SubmitStructuredQueryRequest,
     SubmitTermQueryRequest,
+    ValueCount,
+    ValueCounts,
+    ValueCountsSpec,
 )
 from .client import Query, QueryClient
 from .conditions import (
@@ -29,6 +33,7 @@ from .conditions import (
     Field,
 )
 from .filters import (
+    CUSTOM_FIELD_PREFIX,
     METRIC_FIELD_PATTERN,
     METRIC_FIELD_PREFIX,
     BooleanFilter,
@@ -57,6 +62,7 @@ from .visitor import BaseVisitor, ConditionVisitor
 __all__ = (
     "BaseVisitor",
     "BooleanFilter",
+    "CUSTOM_FIELD_PREFIX",
     "Comparator",
     "Condition",
     "ConditionGroup",
@@ -75,6 +81,7 @@ __all__ = (
     "IdentityFilter",
     "LabeledOption",
     "MAX_PAGE_SIZE",
+    "MAX_VALUE_COUNTS_LIMIT",
     "METRIC_FIELD_PATTERN",
     "METRIC_FIELD_PREFIX",
     "MetricFilter",
@@ -98,4 +105,7 @@ __all__ = (
     "SubmitRoboqlQueryRequest",
     "SubmitStructuredQueryRequest",
     "SubmitTermQueryRequest",
+    "ValueCount",
+    "ValueCounts",
+    "ValueCountsSpec",
 )

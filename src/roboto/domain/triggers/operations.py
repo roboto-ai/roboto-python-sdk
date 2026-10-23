@@ -56,6 +56,16 @@ class UpdateTriggerRequest(pydantic.BaseModel):
     rule.
     """
 
+    name: typing.Union[
+        typing.Annotated[
+            str, pydantic.StringConstraints(pattern=TRIGGER_NAME_PATTERN, max_length=MAX_TRIGGER_NAME_LENGTH)
+        ],
+        NotSetType,
+    ] = NotSet
+    """Renames the trigger. No other trigger in its organization may have this name.
+    Afterward, looking the trigger up by name finds it only under this name; its
+    ``trigger_id`` does not change."""
+
     fires_on: typing.Union[TriggerSource, NotSetType] = NotSet
     """New firing source. Replaces the whole source: an event subscription's events
     and ``once_per`` change together, and a trigger may switch between events and a

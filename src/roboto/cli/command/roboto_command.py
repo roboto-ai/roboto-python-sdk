@@ -21,6 +21,7 @@ class RobotoCommand(object):
     _logic: Callable[[Any, CLIContext, argparse.ArgumentParser], None]  # Args, CLIContext
     _inner_setup_parser: Optional[Callable[[Any], None]]  # Parser
     _command_kwargs: Optional[dict[str, Any]]
+    _requires_config: bool
 
     def __init__(
         self,
@@ -28,11 +29,23 @@ class RobotoCommand(object):
         logic: Callable[[Any, CLIContext, argparse.ArgumentParser], None],
         command_kwargs: Optional[dict],
         setup_parser: Optional[Callable[[Any], None]] = None,
+        requires_config: bool = True,
     ):
+        """
+        Args:
+            name: Subcommand name, as typed after the command set's name.
+            logic: Runs the command with the parsed arguments, the CLI context, and the subcommand's parser.
+            command_kwargs: Extra keyword arguments for the subparser, such as ``help`` and ``description``.
+            setup_parser: Adds the subcommand's own arguments to its parser.
+            requires_config: Whether the CLI loads the Roboto config and builds an authenticated client before
+                running the command. When False, the context passed to ``logic`` has neither, so commands that must
+                work before any config exists, such as ``roboto auth login``, set it to False.
+        """
         self._name = name
         self._logic = logic
         self._inner_setup_parser = setup_parser
         self._command_kwargs = command_kwargs
+        self._requires_config = requires_config
 
     @property
     def name(self):
@@ -61,7 +74,7 @@ class RobotoCommand(object):
             except RobotoDomainException as exc:
                 print_error_and_exit(f"{exc.__class__.__name__}: {exc}")
 
-        parser.set_defaults(func=context_aware_logic)
+        parser.set_defaults(func=context_aware_logic, requires_config=self._requires_config)
         if self._inner_setup_parser is not None:
             self._inner_setup_parser(parser)
 

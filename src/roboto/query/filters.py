@@ -36,6 +36,14 @@ from ..compat import StrEnum
 from ..principal import RobotoPrincipalType
 from .conditions import Comparator
 
+CUSTOM_FIELD_PREFIX: typing.Final[str] = "custom."
+"""Prefix that addresses one of the organization's custom fields in a query field.
+
+``custom.<field_name>`` names the custom field ``<field_name>`` wherever a query takes a field: a
+:class:`~roboto.query.Condition`'s ``field``, a :class:`~roboto.query.QuerySpecification`'s ``sort_by``,
+a :class:`~roboto.query.ValueCountsSpec`'s ``field``, and a saved filter's ``field``.
+"""
+
 METRIC_FIELD_PREFIX: typing.Final[str] = "metric."
 """Prefix distinguishing a user-defined metric from an ordinary numeric property.
 

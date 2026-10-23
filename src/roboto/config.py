@@ -56,6 +56,39 @@ def resolve_config_file(env: RobotoEnv) -> pathlib.Path:
     return DEFAULT_ROBOTO_CONFIG_DIR
 
 
+def requested_profile_name(profile_override: typing.Optional[str], env: RobotoEnv) -> typing.Optional[str]:
+    """Return the config file profile named by the caller or by ``ROBOTO_PROFILE``.
+
+    :py:meth:`RobotoConfig.from_env` reads that profile when one is named.
+
+    Args:
+        profile_override: Profile the caller names, ahead of ``ROBOTO_PROFILE``. An empty value counts as none.
+        env: Roboto environment variables, whose ``ROBOTO_PROFILE`` applies when ``profile_override`` names none.
+
+    Returns:
+        The profile's name, or ``None`` when neither names one, which selects the config file's default profile.
+        ``ROBOTO_PROFILE`` set to an empty value names the ``default`` profile.
+    """
+    if profile_override:
+        return profile_override
+    if env.profile is None:
+        return None
+    return env.profile or DEFAULT_ROBOTO_PROFILE_NAME
+
+
+def resolved_profile_name(requested: typing.Optional[str], default_profile: typing.Optional[str]) -> str:
+    """Return the profile ``requested`` names, else the file's ``default_profile``, else ``default``.
+
+    :py:meth:`RobotoConfig.from_env` reads this profile, and ``roboto auth login`` and ``roboto setup`` save a new token
+    to it.
+
+    Args:
+        requested: Profile the caller or ``ROBOTO_PROFILE`` names, from :py:func:`requested_profile_name`.
+        default_profile: The config file's ``default_profile``, or ``None`` when it names none.
+    """
+    return requested or default_profile or DEFAULT_ROBOTO_PROFILE_NAME
+
+
 class RobotoConfig(pydantic.BaseModel):
     """
     RobotoConfig captures an ``api_key`` and ``endpoint`` required to programmatically
@@ -127,15 +160,14 @@ class RobotoConfig(pydantic.BaseModel):
                 f"Roboto config file at path '{config_file}' is not a JSON object. " + _CONFIG_ERROR_SUFFIX
             )
 
-        profile_name: typing.Optional[str] = env.profile
+        default_profile: typing.Optional[str] = None
         profiles: dict[str, RobotoConfig] = {}
 
         # First try to interpret it as a V1 new-style config file
         try:
             model = RobotoConfigFileV1.model_validate(config_file_dict)
             profiles = model.profiles
-            if model.default_profile is not None and profile_name is None:
-                profile_name = model.default_profile
+            default_profile = model.default_profile
 
         # If that doesn't work, interpret the config file as a list of profiles (V0 format)
         except pydantic.ValidationError:
@@ -151,12 +183,7 @@ class RobotoConfig(pydantic.BaseModel):
         if len(profiles) == 0:
             raise ValueError(f"No user profiles found in config file '{config_file}'. " + _CONFIG_ERROR_SUFFIX)
 
-        # If a profile name was explicitly passed to this function (for example when called in the CLI's entry.py),
-        # that blows over anything else we've seen. Otherwise, use the profile name extracted from either
-        # an env variable or the default_profile_name param of a config file.
-        #
-        # If none of those match, just fall back to the default profile name.
-        profile_name = profile_override or profile_name or DEFAULT_ROBOTO_PROFILE_NAME
+        profile_name = resolved_profile_name(requested_profile_name(profile_override, env), default_profile)
 
         if profile_name not in profiles.keys():
             raise ValueError(

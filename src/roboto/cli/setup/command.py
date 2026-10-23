@@ -9,6 +9,8 @@ import dataclasses
 import sys
 import typing
 
+from ...domain.tokens import MAX_CREDENTIAL_REQUEST_TOKEN_EXPIRY_DAYS
+from ..auth.login_flow import parse_token_expiry_days
 from ..context import cli_roboto_env, make_cli_client
 from ..outcome import (
     StepOutcome,
@@ -16,7 +18,7 @@ from ..outcome import (
     print_heading,
     print_outcomes,
 )
-from .credentials import set_up_credentials
+from .credentials import DEFAULT_SETUP_TOKEN_EXPIRY_DAYS, set_up_credentials
 from .environment import AiTool, SetupEnvironment
 from .mcp import ROBOTO_MCP_URL, register_mcp_server
 from .prerequisites import check_docker, check_uv
@@ -30,15 +32,19 @@ from .prompts import (
 )
 from .skills import SKILL_READERS, set_up_agent_skills
 
-HELP = "Set up this machine to use Roboto: check your access token, install agent skills, and connect your AI tools."
+HELP = (
+    "Set up this machine to use Roboto: check your access token or sign in, install agent skills, and connect your "
+    + "AI tools."
+)
 
 DESCRIPTION = (
     "Set up this machine to use Roboto from the command line, the Python SDK, and your AI tools. "
-    + "Checks your access token, or asks for one, and asks which organization to use by default if you belong to "
-    + "several. For the AI tools you choose among Claude Code, Codex, Cursor, and VS Code, installs Roboto's agent "
-    + "skills and adds the Roboto MCP server, then signs Claude Code and Codex in to it. Checks for uv and Docker, "
-    + "which the skills use, and offers to install uv. Running it again updates the agent skills and changes nothing "
-    + "else that is already set up."
+    + "Checks your access token and offers to sign you in through your browser if it's missing or rejected. Asks "
+    + "which organization to use by default if you belong to several and have no default. For the AI tools you "
+    + "choose among Claude Code, Codex, Cursor, and VS Code, installs Roboto's agent skills and adds the Roboto MCP "
+    + "server, then signs Claude Code and Codex in to it. "
+    + "Checks for uv and Docker, which the skills use, and offers to install uv. Running it again updates the agent "
+    + "skills and changes nothing else that is already set up."
 )
 
 
@@ -46,8 +52,16 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--no-input",
         action="store_true",
-        help="Ask nothing: report a missing access token or default organization, connect every AI tool found, and "
-        + "skip each sign-in and the offer to install uv. Implied when standard input isn't a terminal.",
+        help="Ask nothing: report a missing or rejected access token and a missing default organization, connect "
+        + "every AI tool found, and skip every sign-in and the offer to install uv. Implied when standard input isn't "
+        + "a terminal.",
+    )
+    parser.add_argument(
+        "--expiry-days",
+        type=parse_token_expiry_days,
+        default=DEFAULT_SETUP_TOKEN_EXPIRY_DAYS,
+        help=f"Number of days, from 1 to {MAX_CREDENTIAL_REQUEST_TOKEN_EXPIRY_DAYS}, that a new access token stays "
+        + f"valid when setup signs you in. Defaults to {DEFAULT_SETUP_TOKEN_EXPIRY_DAYS}.",
     )
     parser.add_argument(
         "--skip-skills",
@@ -73,16 +87,16 @@ def run(args: argparse.Namespace) -> None:
     and, when a default organization is known and an AI tool was chosen, ask that tool a first question.
 
     Exits with status 1 when any step failed. The user stops setup by pressing Ctrl-C, which exits with status 130,
-    or by pressing Ctrl-D at a question, which exits with status 1. During an AI tool's sign-in, Ctrl-C skips that
-    sign-in instead.
+    or by pressing Ctrl-D at a question, which exits with status 1. Ctrl-C stops setup even while it waits for a
+    sign-in to Roboto to be approved in the browser, but during an AI tool's sign-in, it skips that sign-in instead.
     """
     color = sys.stdout.isatty()
     try:
         result = _run_steps(args, color)
     except (KeyboardInterrupt, InputEnded) as stop:
-        # Stopping here leaves no file half-written: AI tools' config files, an existing Roboto config file, and each
-        # skill directory are written under a temporary name and renamed into place, and a new Roboto config file
-        # that is interrupted mid-write is deleted. Running setup again redoes whatever was cut short.
+        # Stopping here leaves no file half-written: AI tools' config files, the Roboto config file, and each skill
+        # directory are written under a temporary name and renamed into place, and a token issued by a sign-in that
+        # was cut short before it was saved is deleted. Running setup again redoes whatever was cut short.
         print()
         print("Setup stopped. Run `roboto setup` again to finish.")
         sys.exit(130 if isinstance(stop, KeyboardInterrupt) else 1)
@@ -133,6 +147,7 @@ def _run_steps(args: argparse.Namespace, color: bool) -> _SetupResult:
         profile=args.profile,
         # Printed before setup asks which organization to use, so the question follows the token it depends on.
         report_token=report,
+        token_expiry_days=args.expiry_days,
     )
     if access.organization is not None:
         report(access.organization)
