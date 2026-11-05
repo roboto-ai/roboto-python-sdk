@@ -695,7 +695,8 @@ class FileSystem:
             >>> file_ids[pathlib.Path("/path/to/front_cam.yaml")]
             'fl_0123456789abcdef'
         """
-        file_count = len(list(files))
+        files = list(files)
+        file_count = len(files)
         progress_monitor = (
             TqdmProgressMonitor(
                 total=sum(file.stat().st_size for file in files),
