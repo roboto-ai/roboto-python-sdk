@@ -115,6 +115,14 @@ class RobotoApiVersion(StrEnum):
     reported as not found when read by ID, and updating such a View is refused with HTTP 400 and a message to
     upgrade."""
 
+    v2026_10_22 = "2026-10-22"
+    """Event search (:py:attr:`~roboto.query.QueryTarget.Events`) also returns events created on a session
+    (:py:class:`~roboto.experimental.events.EventRecord`, IDs ``evt_*``), beside dataset events
+    (:py:class:`~roboto.domain.events.EventRecord`, IDs ``ev_*``). It returns them only in organizations that have
+    session events enabled, and only to a caller who may view the organization's sessions. Clients on older API
+    versions receive dataset events only. They also never receive the ``session_event.created`` sample, triggers
+    subscribed to that event, or the dispatches it produced, which their ``PlatformEventType`` cannot parse."""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the newest API version this build of the SDK knows about.
@@ -124,7 +132,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent member of this enum.
         """
-        return RobotoApiVersion.v2026_10_06
+        return RobotoApiVersion.v2026_10_22
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

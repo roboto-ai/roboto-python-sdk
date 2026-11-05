@@ -62,8 +62,24 @@ class ViewDisplay(pydantic.BaseModel):
     sort_direction: typing.Optional[SortDirection] = None
     """Direction to sort in. Only meaningful alongside :attr:`sort_by`."""
 
+    # TODO(eng-2960): fold sort_by, sort_direction and unsorted into one field that states sorted, unsorted or the
+    # target's default, so the three cannot disagree.
+    unsorted: bool = False
+    """Whether the results are shown with no sort at all.
+
+    A ``None`` :attr:`sort_by` cannot say this: it means the target's default sort. ``True`` is how a View
+    saved from an unsorted table keeps its results unsorted, and cannot be combined with :attr:`sort_by`.
+    """
+
     page_size: typing.Optional[int] = pydantic.Field(default=None, gt=0)
     """Rows per page, or ``None`` to accept whatever the client's table would pick on its own."""
+
+    @pydantic.model_validator(mode="after")
+    def __unsorted_names_no_column(self) -> "ViewDisplay":
+        """Reject a display that both names a column to sort by and asks for no sort."""
+        if self.unsorted and self.sort_by is not None:
+            raise ValueError("unsorted cannot be combined with sort_by")
+        return self
 
 
 class ViewDefinition(pydantic.BaseModel):

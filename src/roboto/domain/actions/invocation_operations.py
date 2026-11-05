@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 import pydantic
 
+from ...query import ConditionType
 from .action_record import (
     ComputeRequirements,
     ContainerParameters,
@@ -39,6 +40,14 @@ class CancelActiveInvocationsRequest(pydantic.BaseModel):
     """Only cancel invocations created before this timestamp.
 
     If not provided, cancels all active invocations regardless of age.
+    """
+
+    condition: Optional[ConditionType] = None
+    """Only cancel the invocations this condition matches.
+
+    Takes the fields and comparators of ``POST /v1/actions/invocations/query``; for example,
+    ``input.session_id`` equal to a session ID cancels the invocations whose input names that session.
+    If not provided, cancels all of the organization's active invocations.
     """
 
 

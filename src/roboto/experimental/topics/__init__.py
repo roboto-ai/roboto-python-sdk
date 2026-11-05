@@ -7,9 +7,11 @@
 """Topics APIs in active refinement; see :py:mod:`roboto.experimental` for the stability contract."""
 
 from .batch_transforms import (
+    ELEMENT_NAMES_FIELD_METADATA_KEY,
     TIMESTAMP_FIELD_METADATA_KEY,
     timestamp_column_index,
 )
+from .named_array import NamedArray
 from .operations import (
     FieldAddress,
     ReadPlanRequest,
@@ -21,6 +23,7 @@ from .read_plan import (
     PLAN_VERSION,
     ReadPlan,
     ReadPlanFieldRef,
+    ReadPlanNamedArray,
     ReadPlanObjectRef,
     ReadPlanPartition,
     ReadPlanProjection,
@@ -33,6 +36,7 @@ from .record import RepresentationRecord, RepresentationSelector
 from .topic import (
     DatasetContext,
     DeviceContext,
+    EventContext,
     FieldAddressLike,
     FileContext,
     SessionContext,
@@ -41,15 +45,19 @@ from .topic import (
 )
 
 __all__ = [
+    "ELEMENT_NAMES_FIELD_METADATA_KEY",
     "PLAN_VERSION",
     "TIMESTAMP_FIELD_METADATA_KEY",
     "DatasetContext",
     "DeviceContext",
+    "EventContext",
     "FieldAddress",
     "FieldAddressLike",
     "FileContext",
+    "NamedArray",
     "ReadPlan",
     "ReadPlanFieldRef",
+    "ReadPlanNamedArray",
     "ReadPlanObjectRef",
     "ReadPlanPartition",
     "ReadPlanProjection",

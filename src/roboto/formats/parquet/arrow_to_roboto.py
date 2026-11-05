@@ -53,9 +53,13 @@ def arrow_type_to_canonical_type(
     if pa.types.is_map(arrow_type) or pa.types.is_struct(arrow_type):
         return CanonicalDataType.Object
 
-    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
-        value_type = typing.cast("pyarrow.ListType", arrow_type).value_type
-        # list<numeric> -> NumberArray, list<non-numeric> or list<struct> -> Array
+    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type) or pa.types.is_fixed_size_list(arrow_type):
+        value_type = typing.cast(
+            "pyarrow.ListType | pyarrow.LargeListType | pyarrow.FixedSizeListType", arrow_type
+        ).value_type
+        # A list of 8-bit integers is typically raw bytes (an image, a serialized blob), not a signal to plot.
+        if pa.types.is_int8(value_type) or pa.types.is_uint8(value_type):
+            return CanonicalDataType.Array
         if pa.types.is_integer(value_type) or pa.types.is_floating(value_type) or pa.types.is_decimal(value_type):
             return CanonicalDataType.NumberArray
         return CanonicalDataType.Array
@@ -345,8 +349,10 @@ def _traverse_field(
             path_in_schema=full_field_path,
         )
         struct_children = typing.cast("pyarrow.StructType", arrow_type)
-    elif pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
-        value_type = typing.cast("pyarrow.ListType", arrow_type).value_type
+    elif pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type) or pa.types.is_fixed_size_list(arrow_type):
+        value_type = typing.cast(
+            "pyarrow.ListType | pyarrow.LargeListType | pyarrow.FixedSizeListType", arrow_type
+        ).value_type
 
         # Yield the list field itself.
         metadata = compute_field_metadata(
@@ -364,8 +370,8 @@ def _traverse_field(
             path_in_schema=full_field_path,
         )
 
-        # For list<struct>, recurse into the element struct's fields, marking the
-        # children as inside a list.
+        # For a list, large_list or fixed_size_list of structs, recurse into the
+        # element struct's fields, marking the children as inside a list.
         if pa.types.is_struct(value_type):
             struct_children = typing.cast("pyarrow.StructType", value_type)
             children_inside_list = True

@@ -9,6 +9,8 @@ from .org_invite import OrgInvite
 from .org_operations import (
     BindEmailDomainRequest,
     CreateOrgRequest,
+    CreateOrgResponse,
+    EmailDomainBindingOutcome,
     InviteUserRequest,
     ModifyRoleForUserRequest,
     OrgRecordUpdates,
@@ -17,6 +19,7 @@ from .org_operations import (
     UpdateOrgUserRequest,
 )
 from .org_records import (
+    EventModel,
     OrgInviteRecord,
     OrgRecord,
     OrgRoleName,
@@ -28,6 +31,9 @@ from .org_records import (
 __all__ = [
     "BindEmailDomainRequest",
     "CreateOrgRequest",
+    "CreateOrgResponse",
+    "EmailDomainBindingOutcome",
+    "EventModel",
     "InviteUserRequest",
     "ModifyRoleForUserRequest",
     "Org",

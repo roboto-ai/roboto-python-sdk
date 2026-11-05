@@ -10,6 +10,8 @@ from .achieve_inputs import (
     DatasetTriageAchieveInput,
     EventSpec,
     LabelDecision,
+    SessionSummaryAchieveInput,
+    SessionTriageAchieveInput,
 )
 from .results import (
     CreateEventsGoalResult,
@@ -17,6 +19,8 @@ from .results import (
     DatasetTriageGoalResult,
     GoalResult,
     GoalResultBase,
+    SessionSummaryGoalResult,
+    SessionTriageGoalResult,
 )
 from .types import (
     AgentGoal,
@@ -25,6 +29,8 @@ from .types import (
     DatasetSummaryAgentGoal,
     DatasetTriageGoal,
     GoalType,
+    SessionSummaryAgentGoal,
+    SessionTriageGoal,
 )
 
 __all__ = [
@@ -44,4 +50,10 @@ __all__ = [
     "GoalResultBase",
     "GoalType",
     "LabelDecision",
+    "SessionSummaryAchieveInput",
+    "SessionSummaryAgentGoal",
+    "SessionSummaryGoalResult",
+    "SessionTriageAchieveInput",
+    "SessionTriageGoal",
+    "SessionTriageGoalResult",
 ]

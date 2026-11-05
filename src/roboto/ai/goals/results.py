@@ -49,6 +49,9 @@ from .achieve_inputs import (
     CreateEventsAchieveInput,
     DatasetSummaryAchieveInput,
     DatasetTriageAchieveInput,
+    SessionSummaryAchieveInput,
+    SessionTriageAchieveInput,
+    TriageAchieveInput,
 )
 from .types import AgentGoalStatus, GoalType
 
@@ -88,27 +91,33 @@ class DatasetSummaryGoalResult(GoalResultBase, DatasetSummaryAchieveInput):
     """Discriminator. Always :attr:`GoalType.DATASET_SUMMARY`."""
 
 
-class DatasetTriageGoalResult(GoalResultBase, DatasetTriageAchieveInput):
-    """Result of a :class:`GoalType.DATASET_TRIAGE` achieve-tool invocation.
+class TriageGoalResultBase(GoalResultBase, TriageAchieveInput):
+    """Shared base for the results of triage goals, on a dataset or a session.
 
     Exposes the full per-label deliberation in ``label_decisions``; use
-    :attr:`applied_labels` for the convenience subset that actually became
-    tags on the dataset.
+    :attr:`applied_labels` for the subset that became tags.
     """
-
-    goal_type: Literal[GoalType.DATASET_TRIAGE] = GoalType.DATASET_TRIAGE
-    """Discriminator. Always :attr:`GoalType.DATASET_TRIAGE`."""
 
     @property
     def applied_labels(self) -> list[str]:
         """Labels for which the LLM voted ``applies=True``.
 
-        Matches the set of tags the achieve-tool persisted on the dataset.
-        Returned in declaration order, not the (sorted) order in which the
-        achieve-tool writes them to the dataset; for stable ordering use
+        Matches the set of tags the achieve-tool stored on the triaged dataset
+        or session. Returned in declaration order, not the (sorted) order in
+        which the achieve-tool writes them as tags; for stable ordering use
         ``sorted(result.applied_labels)``.
         """
         return [d.label for d in self.label_decisions if d.applies]
+
+
+class DatasetTriageGoalResult(TriageGoalResultBase, DatasetTriageAchieveInput):
+    """Result of a :class:`GoalType.DATASET_TRIAGE` achieve-tool invocation.
+
+    :attr:`applied_labels` are the labels that became tags on the dataset.
+    """
+
+    goal_type: Literal[GoalType.DATASET_TRIAGE] = GoalType.DATASET_TRIAGE
+    """Discriminator. Always :attr:`GoalType.DATASET_TRIAGE`."""
 
 
 class CreateEventsGoalResult(GoalResultBase, CreateEventsAchieveInput):
@@ -126,8 +135,35 @@ class CreateEventsGoalResult(GoalResultBase, CreateEventsAchieveInput):
     """Discriminator. Always :attr:`GoalType.CREATE_EVENTS`."""
 
 
+class SessionSummaryGoalResult(GoalResultBase, SessionSummaryAchieveInput):
+    """Result of a :class:`GoalType.SESSION_SUMMARY` achieve-tool invocation.
+
+    Exposes the LLM-submitted ``summary`` directly alongside the raw
+    ``achieve_tool_use`` / ``achieve_tool_result`` blocks.
+    """
+
+    goal_type: Literal[GoalType.SESSION_SUMMARY] = GoalType.SESSION_SUMMARY
+    """Discriminator. Always :attr:`GoalType.SESSION_SUMMARY`."""
+
+
+class SessionTriageGoalResult(TriageGoalResultBase, SessionTriageAchieveInput):
+    """Result of a :class:`GoalType.SESSION_TRIAGE` achieve-tool invocation.
+
+    :attr:`applied_labels` are the labels that became tags on the session.
+    """
+
+    goal_type: Literal[GoalType.SESSION_TRIAGE] = GoalType.SESSION_TRIAGE
+    """Discriminator. Always :attr:`GoalType.SESSION_TRIAGE`."""
+
+
 GoalResult = Annotated[
-    Union[DatasetSummaryGoalResult, DatasetTriageGoalResult, CreateEventsGoalResult],
+    Union[
+        DatasetSummaryGoalResult,
+        DatasetTriageGoalResult,
+        CreateEventsGoalResult,
+        SessionSummaryGoalResult,
+        SessionTriageGoalResult,
+    ],
     pydantic.Field(discriminator="goal_type"),
 ]
 """Closed, Roboto-controlled discriminated union of every typed goal result.

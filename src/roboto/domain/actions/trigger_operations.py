@@ -66,7 +66,7 @@ class CreateTriggerRequest(pydantic.BaseModel):
     for_each: TriggerForEachPrimitive
     """Granularity of execution - Dataset or DatasetFile."""
 
-    name: str = pydantic.Field(pattern=r"[\w\-]+", max_length=256)
+    name: str = pydantic.Field(pattern=r"^[\w\-]+$", max_length=256)
     """Unique name for the trigger (alphanumeric, hyphens, underscores only, max 256 characters)."""
     parameter_values: typing.Optional[dict[str, typing.Any]] = None
     """Parameter values to pass to the action when invoked."""

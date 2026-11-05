@@ -336,6 +336,8 @@ class AgentThread:
                 them for server tools) but have no callback and require manual
                 submission via :py:meth:`submit_client_tool_results`.
         """
+        # Every request about this thread passes caller_org_id=record.org_id: for a caller in several orgs,
+        # the service cannot tell which org is meant and refuses some thread routes when none is named.
         self.__record: AgentThreadRecord = record
         self.__roboto_client: RobotoClient = RobotoClient.defaulted(roboto_client)
         # Tools with a registered callback — the set :py:meth:`run` will
@@ -393,6 +395,14 @@ class AgentThread:
     def status(self) -> AgentThreadStatus:
         """Current status of the thread."""
         return self.__record.status
+
+    @property
+    def turn_notice(self) -> Optional[str]:
+        """A short note about the turn in progress, such as that its worker stopped and the turn is being retried.
+
+        ``None`` when there is nothing to report. Current as of the last :py:meth:`refresh` or event poll.
+        """
+        return self.__record.turn_notice
 
     @property
     def visibility(self) -> ThreadVisibility:
@@ -573,6 +583,7 @@ class AgentThread:
 
         self.__roboto_client.post(
             f"v1/ai/threads/{self.__record.thread_id}/messages",
+            caller_org_id=self.__record.org_id,
             data=request,
         )
 
@@ -654,6 +665,7 @@ class AgentThread:
         )
         self.__roboto_client.post(
             f"v1/ai/threads/{self.__record.thread_id}/tool-results",
+            caller_org_id=self.__record.org_id,
             data=request,
         )
         self.__register_tools(client_tools)
@@ -687,6 +699,7 @@ class AgentThread:
         """
         self.__roboto_client.post(
             f"v1/ai/threads/{self.__record.thread_id}/visibility",
+            caller_org_id=self.__record.org_id,
             data=UpdateThreadVisibilityRequest(visibility=visibility),
         )
         self.__record.visibility = visibility
@@ -731,6 +744,7 @@ class AgentThread:
         """
         self.__roboto_client.post(
             f"v1/ai/threads/{self.__record.thread_id}/pin",
+            caller_org_id=self.__record.org_id,
             data=PinThreadRequest(pinned=pinned),
         )
         return self
@@ -970,6 +984,7 @@ class AgentThread:
     def __get_delta_and_update(self) -> AgentThreadDelta:
         delta = self.__roboto_client.get(
             f"v1/ai/threads/{self.__record.thread_id}/delta",
+            caller_org_id=self.__record.org_id,
             query={"next_token": self.__record.continuation_token},
         ).to_record(AgentThreadDelta)
 
@@ -995,6 +1010,8 @@ class AgentThread:
         # Copied even when None, unlike status and title: every delta carries the current activity, and None means
         # there is none.
         self.__record.activity = delta.activity
+        # Copied even when None, like activity: a recovery that ended leaves no notice behind.
+        self.__record.turn_notice = delta.turn_notice
 
         if delta.title is not None:
             self.__record.title = delta.title
@@ -1185,6 +1202,7 @@ class AgentThread:
         )
         return self.__roboto_client.post(
             f"v1/ai/threads/{self.__record.thread_id}/messages/{message_sequence_num}/feedback",
+            caller_org_id=self.__record.org_id,
             data=request,
         ).to_record(UserFeedbackRecord)
 
@@ -1218,6 +1236,7 @@ class AgentThread:
         request = ForkAgentThreadRequest(message_sequence_num=message_sequence_num)
         record = self.__roboto_client.post(
             f"v1/ai/threads/{self.__record.thread_id}/fork",
+            caller_org_id=self.__record.org_id,
             data=request,
         ).to_record(AgentThreadRecord)
         return AgentThread(record=record, roboto_client=self.__roboto_client)

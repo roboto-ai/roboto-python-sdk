@@ -1845,6 +1845,188 @@
       "event.display_options"
     ]
   },
+  "session_event.created": {
+    "event_type": "session_event.created",
+    "event": {
+      "id": "evt:evt_4p8m2xk7qw9tdr3n:session_event.created",
+      "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+      "type": "session_event.created",
+      "time": "2026-08-28T14:32:11Z",
+      "org_id": "og_k3m8w2rq7nxd",
+      "schema_version": 1,
+      "data": {
+        "event_id": "evt_4p8m2xk7qw9tdr3n",
+        "session_id": "se_m4t7c1zq9bvn"
+      },
+      "subject": "roboto://event/evt_4p8m2xk7qw9tdr3n"
+    },
+    "namespace": {
+      "envelope": {
+        "id": "evt:evt_4p8m2xk7qw9tdr3n:session_event.created",
+        "source": "https://api.roboto.ai/v1/orgs/og_k3m8w2rq7nxd",
+        "subject": "roboto://event/evt_4p8m2xk7qw9tdr3n",
+        "type": "session_event.created",
+        "time": "2026-08-28T14:32:11Z",
+        "org_id": "og_k3m8w2rq7nxd",
+        "data": {
+          "event_id": "evt_4p8m2xk7qw9tdr3n",
+          "session_id": "se_m4t7c1zq9bvn"
+        }
+      },
+      "trigger": {
+        "trigger_id": "tr_3nq7wk2mx9pd",
+        "name": "ingest-rover-drives",
+        "org_id": "og_k3m8w2rq7nxd",
+        "enabled": true,
+        "fires_on": {
+          "type": "events",
+          "events": [
+            "file.uploaded"
+          ],
+          "once_per": "file"
+        },
+        "engine": "v2",
+        "created": "2026-07-29T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-26T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com"
+      },
+      "event": {
+        "event_id": "evt_4p8m2xk7qw9tdr3n",
+        "org_id": "og_k3m8w2rq7nxd",
+        "name": "hard-brake",
+        "description": "Emergency stop halfway round the warehouse loop.",
+        "session_id": "se_m4t7c1zq9bvn",
+        "topics": [
+          {
+            "topic_id": "ti_6r2m8kq4xw7p",
+            "topic_name": "/imu",
+            "fields": [
+              {
+                "field_id": "sf_3k8w2mq7xp4n",
+                "path_in_schema": [
+                  "accel",
+                  "x"
+                ]
+              }
+            ]
+          }
+        ],
+        "start_time": 1787000120000000000,
+        "end_time": 1787000123500000000,
+        "tags": [
+          "safety"
+        ],
+        "metadata": {
+          "severity": "high"
+        },
+        "custom_fields": {},
+        "display_options": null,
+        "created": "2026-08-28T14:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "topic_names": [
+          "/imu"
+        ],
+        "topic_ids": [
+          "ti_6r2m8kq4xw7p"
+        ]
+      },
+      "session": {
+        "completed_at": "2026-08-28T14:02:11Z",
+        "completed_by": "maria.chen@acme-robotics.com",
+        "completes_at": null,
+        "completion_policy": null,
+        "created": "2026-08-28T11:32:11Z",
+        "created_by": "maria.chen@acme-robotics.com",
+        "custom_fields": {},
+        "description": "All drives from rover-07's 2026-08-28 morning shift.",
+        "ingested_at": "2026-08-28T14:32:11Z",
+        "ingestion_count": 1,
+        "max_timestamp_ns": 1787003600000000000,
+        "metadata": {
+          "vehicle_id": "rover-07",
+          "shift": "morning"
+        },
+        "min_timestamp_ns": 1787000000000000000,
+        "modified": "2026-08-28T14:32:11Z",
+        "modified_by": "maria.chen@acme-robotics.com",
+        "name": "rover-07 morning shift",
+        "org_id": "og_k3m8w2rq7nxd",
+        "session_id": "se_m4t7c1zq9bvn",
+        "status": "complete",
+        "tags": [
+          "nightly"
+        ]
+      }
+    },
+    "paths": [
+      "envelope.id",
+      "envelope.source",
+      "envelope.subject",
+      "envelope.type",
+      "envelope.time",
+      "envelope.org_id",
+      "envelope.data",
+      "envelope.data.event_id",
+      "envelope.data.session_id",
+      "trigger.trigger_id",
+      "trigger.name",
+      "trigger.org_id",
+      "trigger.enabled",
+      "trigger.fires_on",
+      "trigger.fires_on.type",
+      "trigger.fires_on.events",
+      "trigger.fires_on.once_per",
+      "trigger.engine",
+      "trigger.created",
+      "trigger.created_by",
+      "trigger.modified",
+      "trigger.modified_by",
+      "event.event_id",
+      "event.org_id",
+      "event.name",
+      "event.description",
+      "event.session_id",
+      "event.topics",
+      "event.start_time",
+      "event.end_time",
+      "event.tags",
+      "event.metadata",
+      "event.metadata.severity",
+      "event.custom_fields",
+      "event.display_options",
+      "event.created",
+      "event.created_by",
+      "event.modified",
+      "event.modified_by",
+      "event.topic_names",
+      "event.topic_ids",
+      "session.completed_at",
+      "session.completed_by",
+      "session.completes_at",
+      "session.completion_policy",
+      "session.created",
+      "session.created_by",
+      "session.custom_fields",
+      "session.description",
+      "session.ingested_at",
+      "session.ingestion_count",
+      "session.max_timestamp_ns",
+      "session.metadata",
+      "session.metadata.vehicle_id",
+      "session.metadata.shift",
+      "session.min_timestamp_ns",
+      "session.modified",
+      "session.modified_by",
+      "session.name",
+      "session.org_id",
+      "session.session_id",
+      "session.status",
+      "session.tags"
+    ]
+  },
   "schedule.fired": {
     "event_type": "schedule.fired",
     "event": {

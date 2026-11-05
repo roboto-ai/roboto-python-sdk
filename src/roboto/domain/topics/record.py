@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 import collections.abc
+import dataclasses
 import datetime
 import enum
+import re
 import typing
 
 import pydantic
@@ -274,6 +276,20 @@ class CanonicalDataType(enum.Enum):
     """Special purpose type for data that can be rendered as an image."""
     Number = "number"
     NumberArray = "number_array"
+    """A flat sequence of numeric scalars, of fixed or variable length.
+
+    Elements are ints, floats, or decimals: never booleans, strings, nested sequences, or structs, so a
+    ``NumberArray`` message path never has child message paths. A fixed length appears as the trailing ``[N]``
+    of ``data_type`` (``float64[7]``, ``fixed_size_list<element: double>[3]``) and is read by
+    :py:attr:`~roboto.domain.topics.MessagePath.array_length`; ``float64[]`` and ``list<element: double>``
+    declare none.
+
+    Code that creates message paths (ingestion actions, :py:meth:`~roboto.domain.topics.Topic.create_from_df`)
+    must not assign this type to arrays of byte-width element types (``uint8``, ``int8``, ``byte``, ``char``),
+    because those typically hold raw bytes (images, serialized blobs), not signals to plot. ULog ingestion is the
+    exception: it types ``int8_t[N]`` and ``uint8_t[N]`` as ``NumberArray``. Code that must exclude byte payloads
+    therefore checks ``data_type`` for a byte-width element type rather than relying on this type alone.
+    """
     Object = "object"
     """A struct with attributes."""
     String = "string"
@@ -296,6 +312,59 @@ class CanonicalDataType(enum.Enum):
     """Geographic point in degrees, expressed as an integer. E.g. 317534036 (used in ULog ver_data_format < 2)"""
     LonDegInt = "londegint"
     """Geographic point in degrees, expressed as an integer. E.g. 1199146398 (used in ULog ver_data_format < 2)"""
+
+
+_FIXED_ARRAY_DATA_TYPE = re.compile(r"([^\[]+)\[(\d+)\]")
+_ARROW_FIXED_SIZE_LIST_ELEMENT = re.compile(r"fixed_size_list<[^:<>]+:\s*(.+)>")
+_BYTE_WIDTH_ELEMENT_TYPES = frozenset({"byte", "char", "int8", "int8_t", "octet", "uint8", "uint8_t"})
+
+
+@dataclasses.dataclass(frozen=True)
+class FixedArrayDataType:
+    """The element type and length that a flat, fixed-length array declares in its ``data_type``.
+
+    Read one with :py:meth:`parse`.
+    """
+
+    element_type: str
+    """Type of each element, as the recording format spells it: ``float32`` for ``float32[6]``, and ``float`` for
+    the Arrow ``fixed_size_list<element: float not null>[6]``."""
+
+    length: int
+    """Number of elements, from the trailing ``[N]``."""
+
+    @classmethod
+    def parse(cls, data_type: str) -> typing.Optional[FixedArrayDataType]:
+        """Read the element type and length from a ``data_type`` that ends in a single ``[N]``.
+
+        ``float64[7]``, ``Point[3]`` and ``fixed_size_list<element: double>[3]`` parse. ``None`` for a
+        variable-length array (``float64[]``, ``list<element: double>``), a ROS 2 bounded one (``float64[<=10]``),
+        a multi-dimensional one (``float64[2][3]``, ``fixed_size_list<element: list<element: double>>[3]``) and a
+        scalar.
+
+        Args:
+            data_type: A field's or message path's native data type.
+        """
+        # Each Arrow "list<" opener (in list<, large_list< and fixed_size_list<) is one dimension.
+        # fixed_size_list<element: list<element: double>>[3] ends in the outer list's [3] alone, which the pattern
+        # below would read as a flat length.
+        if data_type.count("list<") > 1:
+            return None
+        match = _FIXED_ARRAY_DATA_TYPE.fullmatch(data_type)
+        if match is None:
+            return None
+        element_type, length = match.groups()
+        arrow_element = _ARROW_FIXED_SIZE_LIST_ELEMENT.fullmatch(element_type)
+        if arrow_element is not None:
+            element_type = arrow_element.group(1).removesuffix(" not null")
+        return cls(element_type=element_type.strip(), length=int(length))
+
+    @property
+    def has_byte_width_elements(self) -> bool:
+        """Whether each element is one byte wide: ``uint8``, ``int8``, ``uint8_t``, ``int8_t``, ``byte``, ``char``
+        or ``octet``, in any letter case. Such arrays typically hold raw bytes, not signals
+        (see :py:attr:`CanonicalDataType.NumberArray`)."""
+        return self.element_type.lower() in _BYTE_WIDTH_ELEMENT_TYPES
 
 
 class MessagePathStatistic(enum.Enum):
@@ -658,6 +727,10 @@ class SchemaFieldRecord(pydantic.BaseModel):
     schema_id: str
     unit: typing.Optional[str] = None
     """Optional unit of the field's values (e.g., ``"ns"``, ``"m/s"``). None if the field is unitless or unknown."""
+
+    element_names: typing.Optional[tuple[str, ...]] = None
+    """Name of each element of a fixed-width numeric array, in element order, as declared with
+    :py:attr:`roboto.experimental.ingest.Field.element_names`. None when the field's elements are not named."""
 
 
 @experimental

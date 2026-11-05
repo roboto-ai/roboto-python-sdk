@@ -8,7 +8,7 @@ import typing
 
 import pydantic
 
-from ...domain.topics.record import CanonicalDataType
+from ...domain.topics.record import CanonicalDataType, FixedArrayDataType
 from ...time import TimeUnit
 
 
@@ -18,8 +18,9 @@ class Field(pydantic.BaseModel):
     ``path`` lists the names from the schema root down to this field, so a nested field's path extends its
     parent's. ``name`` and ``path`` state one fact twice (the last path element is the field's name), so
     either may be omitted and derives from the other: a top-level field needs only ``name``, and a nested
-    field needs only ``path``. A vector column (e.g. a LeRobot ``observation.state`` feature) is expressed as
-    a parent field holding the array plus one child field per named element.
+    field needs only ``path``. A vector column (e.g. a LeRobot ``observation.state`` feature) is one field typed
+    :py:attr:`~roboto.domain.topics.record.CanonicalDataType.NumberArray`, whose elements may be named with
+    :py:attr:`element_names`.
 
     This is what a caller declares. :py:class:`~roboto.domain.topics.record.SchemaFieldRecord` is what the
     platform returns for a field it has stored, and carries the identifiers it assigns.
@@ -46,6 +47,15 @@ class Field(pydantic.BaseModel):
     """Unit of the field's values (e.g. ``"rad"``). A field typed
     :py:attr:`~roboto.domain.topics.record.CanonicalDataType.Timestamp` must carry a
     :py:class:`~roboto.time.TimeUnit` value (one of ``"s"``, ``"ms"``, ``"us"``, ``"ns"``)."""
+
+    element_names: typing.Optional[list[str]] = None
+    """Name of each element of a fixed-width numeric array, in element order (e.g. ``["shoulder", "elbow"]`` for a
+    ``float32[2]`` joint vector). Only a top-level field typed
+    :py:attr:`~roboto.domain.topics.record.CanonicalDataType.NumberArray` whose ``data_type`` ends in a single
+    ``[N]`` may carry names, and only when its elements are not one byte wide (``uint8``, ``int8``, ``uint8_t``,
+    ``int8_t``, ``byte``, ``char`` or ``octet``, in any letter case). It takes exactly N names, each non-empty and
+    unique within the array, and the field must have no child fields. Names are part of schema identity: the same
+    array with and without names is two schemas."""
 
     @pydantic.model_validator(mode="before")
     @classmethod
@@ -75,6 +85,39 @@ class Field(pydantic.BaseModel):
         return self
 
     @pydantic.model_validator(mode="after")
+    def _validate_element_names(self) -> "Field":
+        if self.element_names is None:
+            return self
+
+        if len(self.path) != 1:
+            raise ValueError(f"only a top-level field may declare element_names; field {self.path!r} is nested")
+        if self.canonical_data_type is not CanonicalDataType.NumberArray:
+            raise ValueError(
+                f"field {self.name!r} declares element_names, so its canonical_data_type must be "
+                f"{CanonicalDataType.NumberArray.value!r}, not {self.canonical_data_type.value!r}"
+            )
+        fixed_array = FixedArrayDataType.parse(self.data_type)
+        if fixed_array is None:
+            raise ValueError(
+                f"field {self.name!r} declares element_names, so its data_type must be a flat fixed-width array "
+                f"ending in one [N], such as 'float32[6]'; got {self.data_type!r}"
+            )
+        if fixed_array.has_byte_width_elements:
+            raise ValueError(
+                f"field {self.name!r} holds byte-width elements ({fixed_array.element_type!r}), which may not be named"
+            )
+        if len(self.element_names) != fixed_array.length:
+            raise ValueError(
+                f"field {self.name!r} is {fixed_array.length} elements wide "
+                f"but declares {len(self.element_names)} element_names"
+            )
+        if any(not name for name in self.element_names):
+            raise ValueError(f"field {self.name!r} has an empty name in element_names {self.element_names!r}")
+        if len(set(self.element_names)) != len(self.element_names):
+            raise ValueError(f"field {self.name!r} repeats a name in element_names {self.element_names!r}")
+        return self
+
+    @pydantic.model_validator(mode="after")
     def _require_time_unit_on_timestamp_fields(self) -> "Field":
         if self.canonical_data_type is not CanonicalDataType.Timestamp:
             return self
@@ -97,8 +140,8 @@ class Schema(pydantic.BaseModel):
 
     However a schema is produced, whether hand-written field by field or converted from a source format's own
     metadata, the registered result is the same: schemas are content-addressed server-side. Identity covers
-    every attribute of every field (name, path, source data type, canonical type, and unit), so identical
-    declarations collapse to a single stored schema no matter how many times they are repeated, while
+    every attribute of every field (name, path, source data type, canonical type, unit, and element names), so
+    identical declarations collapse to a single stored schema no matter how many times they are repeated, while
     declarations differing in any field attribute are stored separately.
 
     A column a timeline source reads is declared by typing it
@@ -130,4 +173,15 @@ class Schema(pydantic.BaseModel):
             if path in seen:
                 raise ValueError(f"duplicate field path {list(path)!r}; each field must have a unique path")
             seen.add(path)
+        return self
+
+    @pydantic.model_validator(mode="after")
+    def _reject_child_fields_under_a_named_array(self) -> "Schema":
+        named_arrays = {tuple(field.path) for field in self.fields if field.element_names is not None}
+        for field in self.fields:
+            if len(field.path) > 1 and (field.path[0],) in named_arrays:
+                raise ValueError(
+                    f"field {field.path!r} sits under the named array {field.path[0]!r}, "
+                    "which must have no child fields"
+                )
         return self

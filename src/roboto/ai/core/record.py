@@ -247,6 +247,15 @@ class AgentMessage(pydantic.BaseModel):
     created: datetime.datetime = pydantic.Field(default_factory=utcnow)
     """Timestamp when this message was created."""
 
+    created_by: Optional[str] = None
+    """ID of the Roboto user who sent this message.
+
+    Set by Roboto on user messages that a person sent, so that in a thread shared with an organization you can tell
+    which member asked what. ``None`` on assistant and Roboto messages, on messages an agent launch, trigger, or Slack
+    mention wrote, and on messages sent before Roboto recorded authors. A forked thread keeps the authors of the
+    messages it copied. Roboto ignores this field on messages you send; the author is always the caller.
+    """
+
     @classmethod
     def text(cls, text: str, role: AgentRole = AgentRole.USER) -> "AgentMessage":
         """Create a simple text message.
@@ -387,7 +396,8 @@ class AgentThreadRecord(pydantic.BaseModel):
     activity: Optional[str] = None
     """A sentence for display saying what the agent is doing that the thread's messages don't show yet. For example,
     while the service summarizes the thread's older messages so the conversation fits the model's context window, it is
-    "Summarizing older messages to fit the model's context window". ``None`` when there is no such activity."""
+    "Summarizing older messages to fit the model's context window". While a tool runs and reports its progress, it is
+    that tool's latest report, such as "Starting the Python sandbox". ``None`` when there is no such activity."""
 
     title: Optional[str] = None
     """Title of this agent thread."""
@@ -461,6 +471,12 @@ class AgentThreadRecord(pydantic.BaseModel):
     means tasks were not loaded for this record; an empty list means they were
     loaded but the thread has none."""
 
+    turn_notice: Optional[str] = None
+    """A short, human-readable note about the turn in progress, for example that the
+    worker running it stopped unexpectedly and the turn is being retried. ``None``
+    when there is nothing to report, including whenever the thread is not in
+    :attr:`AgentThreadStatus.ROBOTO_TURN`. Display-only; not persisted with the thread."""
+
 
 class AgentThreadDelta(pydantic.BaseModel):
     """Incremental update to an agent thread.
@@ -516,6 +532,13 @@ class AgentThreadDelta(pydantic.BaseModel):
     snapshot they already hold. An empty list means the thread has no tasks. A
     non-empty list is the authoritative current snapshot and replaces any prior
     value."""
+
+    turn_notice: Optional[str] = None
+    """The thread's :py:attr:`AgentThreadRecord.turn_notice` as of this delta.
+
+    Like ``activity``, and unlike ``status``, ``title``, ``goals`` and ``tasks``, ``None`` does not mean unchanged:
+    every delta carries the thread's current notice, so ``None`` means there is nothing to report. A client replaces
+    the notice it holds with this value on every delta."""
 
 
 # Explicit public surface. Includes the message-content primitives and

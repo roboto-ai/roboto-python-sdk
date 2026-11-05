@@ -171,6 +171,12 @@ class ReadPlanRequest(pydantic.BaseModel):
 
     A file belongs to the device it names, or, when it names none, to the device its dataset names."""
 
+    accepts_element_selection: bool = False
+    """Whether the reader can execute a plan that selects elements of a named array.
+
+    When true, ``fields_include`` and ``fields_exclude`` may address one element of a named array as the array's
+    path plus the element's name. When false, such an address is refused like any path absent from the schema."""
+
     @pydantic.model_validator(mode="after")
     def _window_ordered(self) -> ReadPlanRequest:
         if self.start_time is not None and self.end_time is not None and self.end_time < self.start_time:

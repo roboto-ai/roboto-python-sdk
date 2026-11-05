@@ -33,6 +33,7 @@ from .decode import (
     FileDecodeParams,
     make_file_decoder_opener,
 )
+from .named_array import named_array_type
 from .operations import (
     FieldAddress,
     ReadPlanRequest,
@@ -83,6 +84,28 @@ class SessionContext(pydantic.BaseModel):
     the default end_time for get_data*. None when the Session includes no files."""
 
 
+class EventContext(pydantic.BaseModel):
+    """The session event a Topic is scoped to: limits topic operations to the files of the event's Session and
+    supplies the event's time span as the default window for those operations.
+
+    A Topic that :py:meth:`~roboto.experimental.events.Event.get_topic` or
+    :py:meth:`~roboto.experimental.events.Event.get_topics` returns carries one."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    event_id: str
+    """ID of the event (``evt_*``) whose span supplies the default window."""
+
+    session_id: str
+    """The Session the event belongs to; reads are limited to its files."""
+
+    start_time: int
+    """Start of the event (Unix-epoch ns, inclusive); the default start_time for get_data*."""
+
+    end_time: int
+    """End of the event (Unix-epoch ns, inclusive); the default end_time for get_data*."""
+
+
 class FileContext(pydantic.BaseModel):
     """The file a Topic is scoped to: limits topic operations to the topic's data in that file.
 
@@ -117,8 +140,8 @@ class DeviceContext(pydantic.BaseModel):
     device_id: str
 
 
-TopicContext = typing.Union[SessionContext, FileContext, DatasetContext, DeviceContext]
-"""The scope a :py:class:`Topic` reads within: one Session, file, dataset or device."""
+TopicContext = typing.Union[SessionContext, EventContext, FileContext, DatasetContext, DeviceContext]
+"""The scope a :py:class:`Topic` reads within: one Session, one session event, or one file, dataset or device."""
 
 
 class Topic:
@@ -135,6 +158,10 @@ class Topic:
       :py:meth:`~roboto.experimental.sessions.Session.list_topics` or
       :py:meth:`~roboto.experimental.sessions.Session.get_topic`,
       scopes to that Session's files and defaults the window to the span of time the Session covers.
+    * An :py:class:`EventContext`, as on a Topic returned by
+      :py:meth:`~roboto.experimental.events.Event.get_topic` or
+      :py:meth:`~roboto.experimental.events.Event.get_topics`,
+      scopes to the files of the event's Session and defaults the window to the event's span.
     * A :py:class:`FileContext`, :py:class:`DatasetContext` or :py:class:`DeviceContext` scopes to that file, to that
       dataset's files, or to that device's files, and defaults the window to the start and end of the topic's data
       there.
@@ -158,8 +185,9 @@ class Topic:
         Args:
             topic_id: Identifier of the topic (``ti_*``).
             roboto_client: Roboto client instance. Uses the default if omitted.
-            context: Optional. When provided, limits topic operations to the topic's data in one Session, file,
-                dataset or device, and supplies the default read window, as described on :py:class:`Topic`.
+            context: Optional. When provided, limits topic operations to the topic's data in one Session, session
+                event, file, dataset or device, and supplies the default read window, as described on
+                :py:class:`Topic`.
                 ``None`` reads org-wide.
 
         Returns:
@@ -302,7 +330,8 @@ class Topic:
         Arrow RecordBatch into one ``(timestamp, record)`` tuple per row.
         ``timestamp`` is the row's absolute Unix-epoch nanosecond timestamp (an
         ``int``); ``record`` is a ``dict`` of the projected fields, with
-        struct fields as nested dicts and list fields as lists.
+        struct fields as nested dicts and list fields as lists, except that an array whose elements are named is a
+        :py:class:`~roboto.experimental.topics.NamedArray`, which also takes an element by its name.
         A field the data omits for a row is absent from (or null within) that row's dict.
 
         Time windowing, field projection, representation selection, sort order,
@@ -339,6 +368,13 @@ class Topic:
             >>> topic = Topic.from_id("ti_abc123")
             >>> for timestamp, record in topic.get_data(start_time=t0, end_time=t1):
             ...     print(timestamp, record)
+
+            Read one element of a named array by its name:
+
+            >>> for timestamp, record in topic.get_data(
+            ...     start_time=t0, end_time=t1, fields_include=[("action", "main_gripper")]
+            ... ):
+            ...     print(record["action"].main_gripper)
         """
         for batch in self.get_data_as_record_batches(
             start_time=start_time,
@@ -359,6 +395,14 @@ class Topic:
                 batch.schema.field(index).name for index in range(batch.num_columns) if index != timestamp_index
             ]
             rows = batch.select(field_names).to_pylist() if field_names else [{} for _ in timestamps]
+            for field in batch.schema:
+                element_names = batch_transforms.element_names(field)
+                if element_names is None:
+                    continue
+                named_array = named_array_type(tuple(element_names))
+                for row in rows:
+                    if row[field.name] is not None:
+                        row[field.name] = named_array._make(row[field.name])
             yield from zip(timestamps, rows)
 
     def get_data_as_df(
@@ -387,7 +431,8 @@ class Topic:
 
         A struct field is returned as a single schema-shaped column of dicts unless ``flatten`` is set,
         which expands every struct level into dot-delimited leaf columns (e.g. ``pose.position.x``).
-        List-typed fields are unaffected by ``flatten``.
+        List-typed fields stay whole under ``flatten``; an array whose elements are named also gets one
+        ``<array>.<element name>`` column per element after it.
 
         Read parameters and error behavior are as documented on :py:meth:`get_data_as_record_batches`.
 
@@ -487,6 +532,8 @@ class Topic:
         struct and list types mirroring the topic's schema, pruned to the
         projection, plus a dedicated ``int64`` column of Unix-epoch nanosecond
         timestamps; locate that column with :py:func:`~roboto.experimental.topics.timestamp_column_index`.
+        An array whose elements are named carries their names as a JSON list in its field metadata, under
+        :py:data:`~roboto.experimental.topics.ELEMENT_NAMES_FIELD_METADATA_KEY`.
         A field the data omits for a row surfaces as null at the deepest level that
         represents the omission (a whole absent subtree is a single null).
 
@@ -507,13 +554,20 @@ class Topic:
                 ``None`` defaults to the start of the topic's data in this topic's file, dataset or device context,
                 or to the earliest time the Session covers in a :py:class:`SessionContext` (such as on a topic
                 obtained from :py:meth:`~roboto.experimental.sessions.Session.list_topics` or
-                :py:meth:`~roboto.experimental.sessions.Session.get_topic`);
+                :py:meth:`~roboto.experimental.sessions.Session.get_topic`), or to the event's start in an
+                :py:class:`EventContext`;
                 otherwise required (a ``ValueError`` is raised when it cannot be resolved).
-                An explicit bound narrows the read within the context and never widens it.
+                An explicit bound narrows the read within the context and never widens it. In an
+                :py:class:`EventContext`, the context is the event's Session rather than the event's span, so an
+                explicit bound may reach past the event, to read around it, but not past the Session's data.
             end_time: Inclusive window upper bound, same forms as ``start_time``;
-                defaults to the end of the topic's data, or to the latest time the Session covers, on the same terms.
-            fields_include: Field subtrees to project. ``None`` projects every field.
-            fields_exclude: Field subtrees to drop from the projection. ``None`` drops none.
+                defaults to the end of the topic's data, to the latest time the Session covers, or to the event's end,
+                on the same terms.
+            fields_include: Field subtrees to project. ``None`` projects every field. An address may also name one
+                element of a named array, as the array's path plus the element's name; the array then holds only
+                the elements named, in element order and numbered from 0, unless the array itself is also included.
+            fields_exclude: Field subtrees to drop from the projection. ``None`` drops none. An element address
+                drops that element from its array.
             prefer: Preferred representation per field subtree, selecting which
                 stored variant of a field to read. ``None`` applies the default
                 selection everywhere.
@@ -571,6 +625,9 @@ class Topic:
                   scan task, but names no schema.
                 * ``data-range-not-in-file``: a topic partition's declared slice of its file (``data_range``) ends
                   past the file's stored row count, so the slice does not match the file.
+                * ``element-count-mismatch``: a named array holds a different number of elements than it has
+                  names. Stored as a fixed-size list, it is refused before any row is read; stored as a list of
+                  varying length, it is refused at the first such row, which ``row_number`` names.
             RobotoInternalException: An MCAP file backing this topic cannot be decoded, such as one with no chunk or
                 message index, or one whose messages are ``protobuf``-encoded.
             RobotoUnauthorizedException: The caller lacks read access to at
@@ -794,7 +851,7 @@ class Topic:
         start_ns = to_epoch_nanoseconds(start_time) if start_time is not None else None
         end_ns = to_epoch_nanoseconds(end_time) if end_time is not None else None
         session_id: typing.Optional[str] = None
-        if isinstance(context, SessionContext):
+        if isinstance(context, (SessionContext, EventContext)):
             session_id = context.session_id
             start_ns = start_ns if start_ns is not None else context.start_time
             end_ns = end_ns if end_ns is not None else context.end_time
@@ -823,6 +880,7 @@ class Topic:
             file_id=context.file_id if isinstance(context, FileContext) else None,
             dataset_id=context.dataset_id if isinstance(context, DatasetContext) else None,
             device_id=context.device_id if isinstance(context, DeviceContext) else None,
+            accepts_element_selection=True,
         )
         return self.__roboto_client.post(
             f"v2/topics/id/{self.topic_id}/read-plan",

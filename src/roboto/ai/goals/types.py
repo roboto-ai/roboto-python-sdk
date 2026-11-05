@@ -21,7 +21,7 @@ class GoalType(StrEnum):
     """
 
     DATASET_SUMMARY = "dataset_summary"
-    """Produce and persist a dataset summary via ``SummaryService.set_dataset_summary``."""
+    """Summarize a dataset and store the summary that ``Dataset.get_summary()`` returns."""
 
     DATASET_TRIAGE = "dataset_triage"
     """Deliberate over a caller-supplied label vocabulary and apply the labels that fit (zero or more) as tags
@@ -30,6 +30,13 @@ class GoalType(StrEnum):
     CREATE_EVENTS = "create_events"
     """Investigate a dataset and create events on it, drawn from a caller-supplied event vocabulary;
     optionally file each created event into a caller-supplied collection."""
+
+    SESSION_SUMMARY = "session_summary"
+    """Summarize a session and store the summary that ``Session.get_summary()`` returns."""
+
+    SESSION_TRIAGE = "session_triage"
+    """Deliberate over a caller-supplied label vocabulary and apply the labels that fit (zero or more) as tags
+    on the session, with a per-label justification recorded in the agent session log."""
 
 
 class AgentGoalStatus(StrEnum):
@@ -86,14 +93,17 @@ class AgentGoalBase(pydantic.BaseModel):
         return self
 
 
-class DatasetSummaryAgentGoal(AgentGoalBase):
-    """Goal: summarize a specific dataset and persist the result.
+_MAX_SUMMARY_FORMAT_SPEC_CHARS = 4000
+"""Length cap on ``summary_format_spec_prompt`` for both summary goals; keeps the prompt budget predictable."""
 
-    The achieve-tool wired to this goal must call
-    ``SummaryService.set_dataset_summary`` against the dataset identified by
-    :attr:`dataset_id` (no other dataset). The format spec is supplied to the
-    LLM as part of the goal prompt block; the achieve-tool itself does not
-    interpret it.
+
+class DatasetSummaryAgentGoal(AgentGoalBase):
+    """Goal: summarize a specific dataset and store the result.
+
+    The achieve-tool wired to this goal stores the summary on the dataset
+    identified by :attr:`dataset_id` and no other, where ``Dataset.get_summary()``
+    returns it. The format spec is supplied to the LLM as part of the goal
+    prompt block; the achieve-tool itself does not interpret it.
     """
 
     goal_type: Literal[GoalType.DATASET_SUMMARY] = GoalType.DATASET_SUMMARY
@@ -102,15 +112,17 @@ class DatasetSummaryAgentGoal(AgentGoalBase):
     dataset_id: str
     """Identifier of the dataset to summarize. The achieve-tool enforces this as an invariant."""
 
-    summary_format_spec_prompt: Optional[str] = pydantic.Field(default=None, min_length=1, max_length=4000)
+    summary_format_spec_prompt: Optional[str] = pydantic.Field(
+        default=None, min_length=1, max_length=_MAX_SUMMARY_FORMAT_SPEC_CHARS
+    )
     """Caller-provided natural-language guidance about the desired summary structure. ``None`` means use the
     handler's opinionated default. When set, must be 1-4000 characters; an empty string is rejected so callers
     don't accidentally suppress the default with whitespace-stripped input."""
 
 
 _TRIAGE_LABEL_PATTERN = r"^[a-zA-Z0-9_\-]+$"
-"""Pattern label keys must satisfy. Mirrors the conservative subset of characters
-that work cleanly as Roboto dataset tags and as Bedrock-tool enum values: ASCII
+"""Pattern label keys must satisfy: the characters that work cleanly both as Roboto tags
+on datasets and sessions and as enum values in the LLM-facing tool schema. ASCII
 alphanumerics plus underscore and hyphen."""
 
 _MAX_TRIAGE_LABELS = 50
@@ -118,6 +130,32 @@ _MAX_TRIAGE_LABELS = 50
 
 _MAX_TRIAGE_DESCRIPTION_CHARS = 500
 """Per-label description length cap; keeps the prompt budget predictable."""
+
+
+def _validate_triage_vocabulary(value: dict[str, str]) -> dict[str, str]:
+    """Shared entry validator for the ``label_vocabulary`` of :class:`DatasetTriageGoal` and
+    :class:`SessionTriageGoal`."""
+    import re
+
+    label_re = re.compile(_TRIAGE_LABEL_PATTERN)
+    for label, description in value.items():
+        if not label_re.match(label):
+            raise ValueError(
+                f"label_vocabulary key {label!r} is not a valid label: must match {_TRIAGE_LABEL_PATTERN!r} "
+                "(ASCII alphanumerics, underscore, hyphen). Labels are persisted as tags and reflected "
+                "into the LLM-facing tool schema, so we keep them to a conservative character set."
+            )
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError(
+                f"label_vocabulary value for {label!r} must be a non-empty string describing what the label "
+                "signifies; this description is rendered into the prompt so the LLM can pick correctly."
+            )
+        if len(description) > _MAX_TRIAGE_DESCRIPTION_CHARS:
+            raise ValueError(
+                f"label_vocabulary value for {label!r} exceeds {_MAX_TRIAGE_DESCRIPTION_CHARS} characters "
+                f"(got {len(description)}). Tighten the description or split into multiple labels."
+            )
+    return value
 
 
 class DatasetTriageGoal(AgentGoalBase):
@@ -146,27 +184,7 @@ class DatasetTriageGoal(AgentGoalBase):
     @pydantic.field_validator("label_vocabulary")
     @classmethod
     def _validate_vocabulary_entries(cls, value: dict[str, str]) -> dict[str, str]:
-        import re
-
-        label_re = re.compile(_TRIAGE_LABEL_PATTERN)
-        for label, description in value.items():
-            if not label_re.match(label):
-                raise ValueError(
-                    f"label_vocabulary key {label!r} is not a valid label: must match {_TRIAGE_LABEL_PATTERN!r} "
-                    "(ASCII alphanumerics, underscore, hyphen). Labels are persisted as dataset tags and reflected "
-                    "into the LLM-facing tool schema, so we keep them to a conservative character set."
-                )
-            if not isinstance(description, str) or not description.strip():
-                raise ValueError(
-                    f"label_vocabulary value for {label!r} must be a non-empty string describing what the label "
-                    "signifies; this description is rendered into the prompt so the LLM can pick correctly."
-                )
-            if len(description) > _MAX_TRIAGE_DESCRIPTION_CHARS:
-                raise ValueError(
-                    f"label_vocabulary value for {label!r} exceeds {_MAX_TRIAGE_DESCRIPTION_CHARS} characters "
-                    f"(got {len(description)}). Tighten the description or split into multiple labels."
-                )
-        return value
+        return _validate_triage_vocabulary(value)
 
 
 _MAX_EVENT_FOCUS_PROMPT_CHARS = 4000
@@ -275,8 +293,54 @@ class CreateEventsGoal(AgentGoalBase):
         return _validate_vocabulary(value, field_name="tag_vocabulary")
 
 
+class SessionSummaryAgentGoal(AgentGoalBase):
+    """Goal: summarize a specific session and store the result.
+
+    The achieve-tool wired to this goal stores the summary on the session
+    identified by :attr:`session_id` and no other, where ``Session.get_summary()``
+    returns it. The format spec is supplied to the LLM as part of the goal
+    prompt block; the achieve-tool itself does not interpret it.
+    """
+
+    goal_type: Literal[GoalType.SESSION_SUMMARY] = GoalType.SESSION_SUMMARY
+    """Discriminator. Always :attr:`GoalType.SESSION_SUMMARY`."""
+
+    session_id: str
+    """Identifier of the session to summarize. The achieve-tool enforces this as an invariant."""
+
+    summary_format_spec_prompt: Optional[str] = pydantic.Field(
+        default=None, min_length=1, max_length=_MAX_SUMMARY_FORMAT_SPEC_CHARS
+    )
+    """Caller-provided natural-language guidance about the desired summary structure. ``None`` means use the
+    handler's opinionated default. When set, must be 1-4000 characters."""
+
+
+class SessionTriageGoal(AgentGoalBase):
+    """Goal: deliberate over a caller-supplied label vocabulary and apply the labels that fit to a session.
+
+    The session counterpart of :class:`DatasetTriageGoal`. The achieve-tool requires one decision per
+    vocabulary entry; labels with ``applies=true`` (zero or more) become tags on the session identified
+    by :attr:`session_id`, and the per-label reasoning lives in the agent session log.
+    """
+
+    goal_type: Literal[GoalType.SESSION_TRIAGE] = GoalType.SESSION_TRIAGE
+    """Discriminator. Always :attr:`GoalType.SESSION_TRIAGE`."""
+
+    session_id: str
+    """Identifier of the session to triage. The achieve-tool enforces this as an invariant."""
+
+    label_vocabulary: dict[str, str] = pydantic.Field(min_length=1, max_length=_MAX_TRIAGE_LABELS)
+    """Allowable labels for this triage action, mapped to descriptions, with the same constraints as
+    :attr:`DatasetTriageGoal.label_vocabulary`."""
+
+    @pydantic.field_validator("label_vocabulary")
+    @classmethod
+    def _validate_vocabulary_entries(cls, value: dict[str, str]) -> dict[str, str]:
+        return _validate_triage_vocabulary(value)
+
+
 AgentGoal = Annotated[
-    Union[DatasetSummaryAgentGoal, DatasetTriageGoal, CreateEventsGoal],
+    Union[DatasetSummaryAgentGoal, DatasetTriageGoal, CreateEventsGoal, SessionSummaryAgentGoal, SessionTriageGoal],
     pydantic.Field(discriminator="goal_type"),
 ]
 """Closed, Roboto-controlled discriminated union of all declarable agent goals.

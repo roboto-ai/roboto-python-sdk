@@ -43,6 +43,27 @@ class OrgTier(StrEnum):
     """Premium tier with advanced features and higher usage limits."""
 
 
+class EventModel(StrEnum):
+    """Which event stores an organization has.
+
+    Events attached to datasets, files, topics and message paths (IDs starting ``ev_``) live in the legacy store.
+    Events on sessions (IDs starting ``evt_``) live in the session store. An organization moves forward through these
+    states, never back, as its events move from the legacy store to the session store.
+    """
+
+    Legacy = "legacy"
+    """Only the legacy store. Session events cannot be created or read."""
+
+    Dual = "dual"
+    """Both stores, each readable and writable."""
+
+    Migrating = "migrating"
+    """Both stores. The legacy store is read-only while its events are copied to the session store."""
+
+    Session = "session"
+    """Only the session store. Legacy events are no longer readable or writable."""
+
+
 class OrgRecord(pydantic.BaseModel):
     """A wire-transmissible representation of an organization."""
 
@@ -63,6 +84,9 @@ class OrgRecord(pydantic.BaseModel):
 
     created_by: typing.Optional[str] = None
     """User ID of the organization creator."""
+
+    event_model: EventModel = EventModel.Legacy
+    """Which event stores the organization has."""
 
 
 class OrgRoleName(StrEnum):

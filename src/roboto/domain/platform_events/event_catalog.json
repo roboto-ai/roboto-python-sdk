@@ -143,6 +143,19 @@
     "subject_type": "event",
     "subscribable": true
   },
+  "session_event.created": {
+    "roots": [
+      "event",
+      "session"
+    ],
+    "default_root": "event",
+    "once_per": [
+      "event",
+      "occurrence"
+    ],
+    "subject_type": "event",
+    "subscribable": true
+  },
   "schedule.fired": {
     "roots": [
       "schedule"

@@ -9,6 +9,12 @@ import datetime
 import typing
 import urllib.parse
 
+from ...ai.record import SetSummaryRequest
+from ...ai.summary import (
+    AISummary,
+    PollingStreamingAISummary,
+    StreamingAISummary,
+)
 from ...domain.metrics.metric import Metric
 from ...domain.metrics.record import MetricEntry
 from ...domain.topics.record import (
@@ -25,6 +31,7 @@ from ...time import Time, to_epoch_nanoseconds
 from ...updates import CustomFieldChangeset, MetadataChangeset, StrSequence
 from ...waiters import TimeoutError as WaitTimeoutError
 from ...waiters import wait_for
+from ..events import MAX_EVENTS_PER_PAGE, Event, EventRecord, EventTopicRequest
 from ..ingest import TopicDeclaration
 from ..topics import SessionContext, Topic
 from .operations import (
@@ -50,6 +57,9 @@ from .record import (
     SessionIngestionSummary,
     SessionRecord,
     SessionStatus,
+    SessionTopicRecord,
+    SessionTopicStats,
+    SessionTopicStatsRun,
     SkipWaitingResponse,
 )
 
@@ -784,8 +794,69 @@ class Session:
         ).to_record(SessionRecord)
         return self
 
+    def create_event(
+        self,
+        name: str,
+        start_time: Time,
+        end_time: typing.Optional[Time] = None,
+        topics: collections.abc.Sequence[EventTopicRequest] = (),
+        description: typing.Optional[str] = None,
+        tags: typing.Optional[StrSequence] = None,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
+        color: typing.Optional[str] = None,
+        custom_fields: typing.Optional[dict[str, typing.Any]] = None,
+    ) -> Event:
+        """Create an event on this Session.
+
+        Args:
+            name: A brief human-readable name, such as ``"Hard landing"``. Many events can share a name.
+            start_time: The start of the event, inclusive, as nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+            end_time: The end of the event, inclusive. Omit it for an instantaneous event.
+            topics: The topics, or topic fields, the event is about. Empty means all of the Session's data.
+            description: An optional description.
+            tags: Initial tags.
+            metadata: Initial metadata.
+            color: A CSS color to display the event in.
+            custom_fields: Initial values for Ready custom fields defined on events in this Session's org.
+
+        Returns:
+            The created event.
+
+        Raises:
+            RobotoIllegalArgumentException: A custom field is not a Ready field defined on events in this Session's
+                org, or its value does not satisfy the field's type.
+            RobotoInvalidRequestException: The name is blank, the start is negative or after the end, or ``topics`` is
+                invalid: it names a topic twice, names a topic that does not exist, gives a topic an empty
+                ``field_ids``, or names a field that is in none of the schemas of that topic's data in this Session.
+            RobotoUnauthorizedException: The caller may not create events on this Session.
+
+        Examples:
+            >>> session = Session.from_id("se_0123456789ab")
+            >>> event = session.create_event(
+            ...     "Hard landing",
+            ...     start_time=1_722_870_127_000_000_000,
+            ...     end_time=1_722_870_128_500_000_000,
+            ...     tags=["landing"],
+            ... )
+        """
+        return Event.create(
+            name=name,
+            session_id=self.session_id,
+            start_time=start_time,
+            end_time=end_time,
+            topics=topics,
+            description=description,
+            tags=tags,
+            metadata=metadata,
+            color=color,
+            custom_fields=custom_fields,
+            caller_org_id=self.org_id,
+            roboto_client=self.__roboto_client,
+        )
+
     def delete(self) -> None:
-        """Delete this Session. The files it included and the devices attached to it are not deleted."""
+        """Delete this Session and its events. The files it included and the devices attached to it are not deleted."""
         self.__roboto_client.delete(
             f"v1/sessions/id/{self.session_id}",
         )
@@ -800,6 +871,66 @@ class Session:
             f"v1/sessions/id/{self.session_id}/devices",
             data=DetachFromDeviceRequest(device_id=device_id),
         )
+
+    def generate_summary(self) -> StreamingAISummary:
+        """Generate a new AI summary for this Session.
+
+        An AI agent investigates the Session's topics, metrics, files and devices and
+        writes a summary. Generation is asynchronous: the returned summary starts
+        ``Pending`` and can be awaited or streamed. Each generation is charged against
+        the org's AI credits.
+
+        A Session has a single summary, which every generation and every
+        :meth:`set_summary` call overwrites:
+
+        - Starting a generation clears the current summary text immediately.
+        - If the generation fails, the summary is left ``Failed`` with no text.
+        - Text written with :meth:`set_summary` is replaced when a later generation completes.
+
+        Returns:
+            StreamingAISummary for the summary being generated.
+
+        Raises:
+            RobotoLimitExceededException: The org is out of AI credits. Nothing is
+                generated, and the current summary is unchanged.
+            RobotoUnauthorizedException: Caller may not manage Sessions in this Session's org.
+
+        Examples:
+            >>> session = Session.from_id("se_abc123")
+            >>> summary = session.generate_summary()
+            >>> print(summary.complete_text)
+        """
+        initial_summary = self.__roboto_client.post(f"v1/sessions/id/{self.session_id}/summary").to_record(AISummary)
+        return PollingStreamingAISummary(
+            poll_fn=self.__get_latest_summary,
+            poll_on_init=False,
+            initial_summary=initial_summary,
+        )
+
+    def get_summary(self) -> StreamingAISummary:
+        """Retrieve this Session's existing AI summary.
+
+        Reading never generates a summary: a Session that has never been summarized
+        raises :class:`RobotoNotFoundException`. Call :meth:`generate_summary` to create one.
+
+        Returns:
+            StreamingAISummary wrapping the Session's summary. If a generation started
+            elsewhere is still running, the summary is ``Pending``; poll it with
+            ``await_completion`` or ``text_stream``.
+
+        Raises:
+            RobotoNotFoundException: This Session has no AI summary yet.
+
+        Examples:
+            >>> from roboto.exceptions import RobotoNotFoundException
+            >>> session = Session.from_id("se_abc123")
+            >>> try:
+            ...     summary = session.get_summary()
+            ... except RobotoNotFoundException:
+            ...     summary = session.generate_summary()
+            >>> print(summary.complete_text)
+        """
+        return PollingStreamingAISummary(poll_fn=self.__get_latest_summary, poll_on_init=True)
 
     def get_topic(self, topic_name: str) -> Topic:
         """Return the named Topic, scoped to this Session.
@@ -903,6 +1034,42 @@ class Session:
             if not next_token:
                 break
 
+    def list_events(
+        self,
+        start_time: typing.Optional[Time] = None,
+        end_time: typing.Optional[Time] = None,
+    ) -> collections.abc.Generator[Event, None, None]:
+        """Yield the events created on this Session, ordered by start time.
+
+        Args:
+            start_time: Only events that end at or after this time.
+            end_time: Only events that start at or before this time.
+
+        Yields:
+            Matching events, fetched one page at a time.
+
+        Raises:
+            RobotoUnauthorizedException: The caller may not view this Session's events.
+
+        Examples:
+            >>> for event in Session.from_id("se_0123456789ab").list_events():
+            ...     print(event.name, event.start_time)
+        """
+        params: dict[str, typing.Any] = {"limit": MAX_EVENTS_PER_PAGE}
+        if start_time is not None:
+            params["start_time"] = to_epoch_nanoseconds(start_time)
+        if end_time is not None:
+            params["end_time"] = to_epoch_nanoseconds(end_time)
+        while True:
+            page = self.__roboto_client.get(f"v1/sessions/id/{self.session_id}/events", query=params).to_paginated_list(
+                EventRecord
+            )
+            for record in page.items:
+                yield Event(record=record, roboto_client=self.__roboto_client)
+            if page.next_token is None:
+                return
+            params["page_token"] = page.next_token
+
     def list_files(self) -> collections.abc.Generator[SessionFileView, None, None]:
         """Iterate the files this Session includes, following pagination automatically.
 
@@ -929,8 +1096,22 @@ class Session:
             if not next_token:
                 break
 
-    def list_metrics(self) -> list[Metric]:
-        """Return all metrics published to this Session.
+    def list_metrics(
+        self,
+        name_prefix: typing.Optional[str] = None,
+        exclude_name_prefix: typing.Optional[str] = None,
+    ) -> list[Metric]:
+        """Return the metrics published to this Session, at most
+        :py:data:`~roboto.domain.metrics.MAX_METRIC_LIST_RESULTS` (10,000) of them.
+
+        For a Session with more metrics than that, the listing returns that many and gives no sign that it left any
+        out; which ones it leaves out is unspecified. Narrow the listing with ``name_prefix`` or
+        ``exclude_name_prefix`` to read such a Session's metrics in parts. The statistics Roboto computes for the
+        Session's topics are metrics whose names start with ``topic_stats.``.
+
+        Args:
+            name_prefix: Return only metrics whose name starts with this text.
+            exclude_name_prefix: Leave out metrics whose name starts with this text.
 
         Returns:
             List of :py:class:`~roboto.domain.metrics.Metric` instances for this Session.
@@ -939,10 +1120,13 @@ class Session:
             >>> metrics = session.list_metrics()
             >>> for m in metrics:
             ...     print(m.name, m.value)
+            >>> own_metrics = session.list_metrics(exclude_name_prefix="topic_stats.")
         """
         return Metric.get_by_session(
             session_id=self.session_id,
             roboto_client=self.__roboto_client,
+            name_prefix=name_prefix,
+            exclude_name_prefix=exclude_name_prefix,
         )
 
     def list_topics(self) -> collections.abc.Generator[Topic, None, None]:
@@ -956,6 +1140,10 @@ class Session:
         A yielded Topic is scoped to this Session's files and defaults its read window to this
         Session's aggregate bounds, so :py:meth:`~roboto.experimental.topics.Topic.get_data`
         (and the other ``get_data*`` methods) read just this Session's data without an explicit window.
+        Its :py:attr:`~roboto.experimental.topics.Topic.record` is a :py:class:`SessionTopicRecord`, which also
+        carries the topic's schemas, time span, file count and message count in this Session. The property is
+        annotated as :py:class:`~roboto.domain.topics.TopicIdentityRecord`, so narrow it with ``isinstance`` before
+        reading those fields.
 
         Yields:
             :py:class:`~roboto.experimental.topics.Topic` instances.
@@ -974,7 +1162,7 @@ class Session:
             page = self.__roboto_client.get(
                 f"v1/sessions/id/{self.session_id}/topics",
                 query=query,
-            ).to_paginated_list(TopicIdentityRecord)
+            ).to_paginated_list(SessionTopicRecord)
 
             for item in page.items:
                 yield Topic.from_record(
@@ -990,6 +1178,54 @@ class Session:
             next_token = page.next_token
             if not next_token:
                 break
+
+    def get_topic_stats(self, topic_id: str) -> SessionTopicStats:
+        """Return the statistics of one topic over this Session's data, grouped by field.
+
+        The statistics are this Session's ``topic_stats`` metrics, which Roboto computes after the Session is
+        ingested. A field with no statistics, such as a string or an array, is absent.
+
+        Args:
+            topic_id: Topic whose statistics to return, as yielded by :py:meth:`list_topics`.
+
+        Returns:
+            The topic's statistics. Its ``fields`` is empty and its ``message_count`` is ``None`` while no
+            statistics have been computed for the topic.
+
+        Raises:
+            RobotoFeatureNotAvailableException: Topic statistics are not available in this Session's organization.
+            RobotoNotFoundException: This Session takes no data of the topic.
+
+        Examples:
+            >>> for topic in session.list_topics():
+            ...     stats = session.get_topic_stats(topic.topic_id)
+            ...     for field in stats.fields:
+            ...         print(topic.name, ".".join(field.path), field.stats.get("max"))
+        """
+        return self.__roboto_client.get(
+            f"v1/sessions/id/{self.session_id}/topics/id/{topic_id}/stats",
+        ).to_record(SessionTopicStats)
+
+    def get_topic_stats_run(self) -> SessionTopicStatsRun:
+        """Return where the latest run Roboto triggered to compute this Session's topic statistics stands.
+
+        Roboto runs the ``session_metrics`` action on a Session each time the Session is announced ingested, but
+        only while the organization's session-metrics trigger is installed and enabled. When no run was triggered
+        on the latest announcement and none is scheduled, the status may describe the run on an earlier one. While a
+        run is ``running``, :py:meth:`get_topic_stats` may return statistics from an earlier run, or none.
+
+        Raises:
+            RobotoFeatureNotAvailableException: Topic statistics are not available in this Session's organization.
+
+        Examples:
+            >>> from roboto.experimental.sessions import SessionTopicStatsRunStatus
+            >>> run = session.get_topic_stats_run()
+            >>> if run.status == SessionTopicStatsRunStatus.Running:
+            ...     print("Topic statistics are still being computed")
+        """
+        return self.__roboto_client.get(f"v1/sessions/id/{self.session_id}/topic-stats/run").to_record(
+            SessionTopicStatsRun
+        )
 
     def publish_metrics(
         self,
@@ -1195,6 +1431,29 @@ class Session:
         """
         return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
 
+    def set_summary(self, summary: str) -> "Session":
+        """Set the AI summary text for this Session.
+
+        Use this when an action or other component writes a more specialized summary
+        than :meth:`generate_summary` would. The text stays until the next generation
+        starts or this method is called again.
+
+        Args:
+            summary: The summary text, rendered as Markdown. It may include ``roboto://``
+                entity links.
+
+        Returns:
+            This Session, for method chaining.
+
+        Raises:
+            RobotoUnauthorizedException: Caller may not manage Sessions in this Session's org.
+        """
+        self.__roboto_client.put(
+            f"v1/sessions/id/{self.session_id}/summary",
+            data=SetSummaryRequest(summary=summary),
+        )
+        return self
+
     def set_unix_offset(self, anchor: Time) -> "Session":
         """Anchor this Session's data to wall-clock time.
 
@@ -1386,6 +1645,9 @@ class Session:
         except WaitTimeoutError:
             raise WaitTimeoutError(self.__wait_timeout_message(timeout, last_status)) from None
         return self.refresh()
+
+    def __get_latest_summary(self) -> AISummary:
+        return self.__roboto_client.get(f"v1/sessions/id/{self.session_id}/summary").to_record(AISummary)
 
     def __refuse_if_it_will_not_complete(self) -> None:
         if self.completes_at is not None:

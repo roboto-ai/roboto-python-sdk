@@ -102,7 +102,7 @@ class FileStorageType(StrEnum):
     """
 
     S3Imported = "imported"
-    """File was imported from a read-only customer-managed S3 bucket.
+    """File was imported from a customer-managed S3 bucket.
 
     These files remain in the customer's bucket and are accessed using
     customer-provided credentials. The customer retains full control over

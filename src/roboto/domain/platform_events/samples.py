@@ -33,6 +33,7 @@ SAMPLE_TRIGGER_ID = "tr_3nq7wk2mx9pd"
 SAMPLE_USER = "maria.chen@acme-robotics.com"
 SAMPLE_DATASET_ID = "ds_7h2k9m4qxp3w"
 SAMPLE_EVENT_ID = "ev_7g3n5kq2wxrd"
+SAMPLE_SESSION_EVENT_ID = "evt_4p8m2xk7qw9tdr3n"
 SAMPLE_FILE_ID = "fl_q8v2n6ty4mcs"
 SAMPLE_FILE_VERSION = 2
 SAMPLE_INVOCATION_ID = "iv_2x9pd7wk5rhf"
@@ -89,6 +90,8 @@ def _payload_for(event_type: PlatformEventType) -> dict[str, typing.Any]:
         return {"session_id": SAMPLE_SESSION_ID, "ingestion_number": 1}
     if event_type is PlatformEventType.EventCreated:
         return {"event_id": SAMPLE_EVENT_ID}
+    if event_type is PlatformEventType.SessionEventCreated:
+        return {"event_id": SAMPLE_SESSION_EVENT_ID, "session_id": SAMPLE_SESSION_ID}
     if event_type is PlatformEventType.ScheduleFired:
         return {"trigger_id": SAMPLE_TRIGGER_ID, "scheduled_for": SAMPLE_TIME.replace(second=0, microsecond=0)}
     raise ValueError(f"No sample payload for event type {event_type.value!r}.")
@@ -131,6 +134,7 @@ __all__ = [
     "SAMPLE_FILE_VERSION",
     "SAMPLE_INVOCATION_ID",
     "SAMPLE_ORG_ID",
+    "SAMPLE_SESSION_EVENT_ID",
     "SAMPLE_SESSION_ID",
     "SAMPLE_TAGS_ADDED",
     "SAMPLE_TIME",

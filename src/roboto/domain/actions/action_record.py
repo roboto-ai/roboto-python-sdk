@@ -61,7 +61,8 @@ class ActionParameter(pydantic.BaseModel):
     default: typing.Optional[typing.Any] = None
     """Default value applied for parameter if it is not required and no value is given at invocation.
 
-    Accepts any default value, but coerced to a string.
+    Accepts any default value, but stored as a string: a string is kept as given, and any other value is written
+    as JSON, so ``False`` becomes ``"false"`` and ``["a", "b"]`` becomes ``'["a", "b"]'``.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
@@ -80,10 +81,13 @@ class ActionParameter(pydantic.BaseModel):
     @pydantic.field_validator("default", mode="before")
     @classmethod
     def validate_default(cls, v: typing.Optional[typing.Any]) -> typing.Optional[str]:
-        if v is None:
+        if v is None or isinstance(v, str):
             return v
 
-        return str(v)
+        try:
+            return json.dumps(v)
+        except TypeError:
+            return str(v)
 
 
 class ActionParameterChangeset(pydantic.BaseModel):

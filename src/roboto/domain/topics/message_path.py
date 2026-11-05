@@ -16,6 +16,7 @@ from ...http import RobotoClient
 from ...time import Time
 from .record import (
     CanonicalDataType,
+    FixedArrayDataType,
     MessagePathRecord,
     MessagePathStatistic,
 )
@@ -147,6 +148,20 @@ class MessagePath:
             return NotImplemented
 
         return self.__record == other.__record
+
+    @property
+    def array_length(self) -> typing.Optional[int]:
+        """Fixed length declared by the trailing ``[N]`` of :py:attr:`data_type`, or ``None``.
+
+        ``float64[7]``, ``float[4]`` and ``fixed_size_list<element: double>[3]`` read 7, 4 and 3. ``None`` for a
+        variable-length array (``float64[]``, ``list<element: double>``), a ROS 2 bounded one (``float64[<=10]``),
+        a multi-dimensional one (``float64[2][3]``, ``fixed_size_list<element: list<element: double>>[3]``) and a
+        scalar, so ``None`` means the length is unknown, not that the path is not an array. The element type does
+        not matter: ``string[8]`` reads 8 and ``Point[3]`` reads 3. Only ``data_type`` is read; an ``array_length``
+        key in :py:attr:`metadata` is not consulted.
+        """
+        fixed_array = FixedArrayDataType.parse(self.__record.data_type)
+        return fixed_array.length if fixed_array else None
 
     @property
     def canonical_data_type(self) -> CanonicalDataType:

@@ -34,16 +34,18 @@ from .invocation_record import (
     SourceProvenance,
 )
 
-_QUERYABLE_DATA_SOURCE_FIELDS = frozenset({"data_source_id", "data_source_type"})
-"""Condition fields naming an invocation's data source.
+_QUERYABLE_NON_RECORD_FIELDS = frozenset({"data_source_id", "data_source_type", "input.session_id"})
+"""Condition fields the invocations query API accepts that are not attributes of
+:py:class:`~roboto.domain.actions.InvocationRecord`, matched by their full name.
 
-:py:class:`~roboto.domain.actions.InvocationRecord` nests both under ``data_source``, but the
-invocations query API accepts them only in this flat form: it refuses a condition on
-``data_source`` or on ``data_source.data_source_id``.
+:py:class:`~roboto.domain.actions.InvocationRecord` nests the data source under ``data_source``, but
+the API accepts it only in the flat form: it refuses a condition on ``data_source`` or on
+``data_source.data_source_id``. ``data_source_id`` matches an invocation's recorded data source,
+which is set only when its invoker names one. ``data_source_type`` matches every invocation for as
+long as :py:class:`~roboto.domain.actions.InvocationDataSourceType` has a single member.
 
-``data_source_id`` matches an invocation's recorded data source, which is set only when its
-invoker names one. ``data_source_type`` matches every invocation for as long as
-:py:class:`~roboto.domain.actions.InvocationDataSourceType` has a single member.
+``input.session_id`` takes only ``EQUALS`` and matches the invocations whose input names that
+session by ID. It does not match an input that selected sessions by query or by name.
 """
 
 
@@ -128,7 +130,10 @@ class Invocation:
         Raises:
             ValueError: If the query specification contains unknown fields.
             RobotoIllegalArgumentException: If the query filters or sorts on a field the
-                invocations API does not accept.
+                invocations API does not accept, filters ``last_status`` on a value that is
+                neither a whole number nor a status name, or compares ``last_status`` with
+                ``Comparator.Like``, ``Comparator.NotLike``, ``Comparator.Contains``,
+                ``Comparator.NotContains`` or ``Comparator.BeginsWith``.
             RobotoUnauthorizedException: If the caller lacks permission to query invocations.
 
         Examples:
@@ -150,7 +155,21 @@ class Invocation:
             >>> for invocation in Invocation.query(spec):
             ...     print(invocation.id)
 
-            Query completed invocations:
+            Query invocations whose input names a session by ID:
+
+            >>> spec = QuerySpecification(
+            ...     condition=Condition(
+            ...         field="input.session_id",
+            ...         comparator=Comparator.Equals,
+            ...         value="se_abc123",
+            ...     )
+            ... )
+            >>> on_session = list(Invocation.query(spec))
+
+            Query completed invocations. ``last_status`` also accepts the status name in any
+            case, so ``value="completed"`` finds the same invocations. Greater-than and
+            less-than comparators compare status numbers, so Cancelled (997), Failed (998) and
+            Deadly (999) count as greater than Completed (5):
 
             >>> from roboto.domain.actions import InvocationStatus
             >>> spec = QuerySpecification(
@@ -173,9 +192,11 @@ class Invocation:
         roboto_client = RobotoClient.defaulted(roboto_client)
         spec = spec or QuerySpecification()
 
-        known = set(InvocationRecord.model_fields.keys()) | _QUERYABLE_DATA_SOURCE_FIELDS
+        known = set(InvocationRecord.model_fields.keys()) | _QUERYABLE_NON_RECORD_FIELDS
         actual = set()
         for field in spec.fields():
+            if field in _QUERYABLE_NON_RECORD_FIELDS:
+                continue
             # Support dot notation for nested fields
             # E.g., "metadata.SoftwareVersion"
             if "." in field:

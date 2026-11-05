@@ -7,6 +7,7 @@
 import collections.abc
 import typing
 import urllib.parse
+import warnings
 
 from ...association import Association
 from ...http import RobotoClient
@@ -15,6 +16,8 @@ from ..files import FileSystem
 from .org_invite import OrgInvite
 from .org_operations import (
     CreateOrgRequest,
+    CreateOrgResponse,
+    EmailDomainBindingOutcome,
     UpdateOrgRequest,
     UpdateOrgUserRequest,
 )
@@ -58,8 +61,11 @@ class Org:
 
         Args:
             name: Name for the organization.
-            bind_email_domain: Whether to automatically bind the email domain
-                from the creator's email address to this organization.
+            bind_email_domain: Whether to bind the creator's email domain to the new
+                organization, so that people who sign up with an address in the domain
+                join the organization. When the domain is one that no organization may
+                bind, such as a public email provider's domain, the organization is still
+                created, the domain stays unbound, and a ``UserWarning`` is issued.
             data_region: Geographic region where the organization's data will be stored.
             roboto_client: Optional Roboto client instance. If not provided,
                 uses the default client.
@@ -68,6 +74,8 @@ class Org:
             A new Org instance representing the created organization.
 
         Raises:
+            RobotoConflictException: ``bind_email_domain`` is ``True`` and the creator's email
+                domain is already bound to another organization. No organization is created.
             RobotoInvalidRequestException: The request contains invalid data.
             RobotoUnauthorizedException: The caller is not authorized to create organizations.
 
@@ -86,8 +94,17 @@ class Org:
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = CreateOrgRequest(name=name, bind_email_domain=bind_email_domain, data_region=data_region)
-        record = roboto_client.post("v1/orgs", data=request).to_record(OrgRecord)
-        return cls(record=record, roboto_client=roboto_client)
+        response = roboto_client.post("v1/orgs", data=request).to_record(CreateOrgResponse)
+        if response.email_domain_binding_outcome is EmailDomainBindingOutcome.DenyListed:
+            warnings.warn(
+                f"Created organization '{response.name}' ({response.org_id}) but did not bind your email domain to it. "
+                + "Your domain is on Roboto's list of domains that no organization may bind, such as public email "
+                + "providers' domains.",
+                stacklevel=2,
+            )
+        # The binding outcome describes this request, not the organization, so it stays out of the Org's record and
+        # out of to_dict().
+        return cls(record=OrgRecord.model_validate(response.model_dump()), roboto_client=roboto_client)
 
     @classmethod
     def from_id(cls, org_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> "Org":

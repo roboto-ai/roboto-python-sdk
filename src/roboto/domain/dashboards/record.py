@@ -10,8 +10,10 @@ import typing
 import pydantic
 
 from ...compat import StrEnum
+from ...warnings import experimental
 
 
+@experimental
 class DashboardAccessibility(StrEnum):
     """
     Controls who can view a dashboard.
@@ -30,6 +32,7 @@ class DashboardAccessibility(StrEnum):
     """Just the user who created the dashboard can view it."""
 
 
+@experimental
 class DashboardRecord(pydantic.BaseModel):
     """A wire-transmissible representation of a dashboard"""
 

@@ -356,9 +356,17 @@ class InvocationStatus(int, enum.Enum):
 
     @staticmethod
     def from_value(v: typing.Union[int, str]) -> "InvocationStatus":
-        for value in InvocationStatus:
-            if v in [value.value, value.name]:
-                return value
+        """Return the status whose number is ``v``, or whose name is ``v`` in any case.
+
+        Args:
+            v: A status number such as ``998``, or a status name such as ``"Failed"`` or ``"failed"``.
+
+        Raises:
+            ValueError: ``v`` is neither a status number nor a status name.
+        """
+        for status in InvocationStatus:
+            if v == status.value or (isinstance(v, str) and v.lower() == status.name.lower()):
+                return status
 
         raise ValueError(f"Illegal Invocation status {v}")
 

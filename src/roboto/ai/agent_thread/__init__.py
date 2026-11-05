@@ -30,6 +30,7 @@ from .feedback import (
 )
 from .record import (
     AGENT_CONTENT_MODEL_BY_TYPE,
+    AgentArtifactRecord,
     AgentClientContextEntry,
     AgentCompressionFillerContent,
     AgentContent,
@@ -52,6 +53,7 @@ from .record import (
     AgentThreadRecord,
     AgentThreadStatus,
     AgentThreadSubject,
+    AgentToolArtifactResponse,
     AgentToolDetailResponse,
     AgentToolResultContent,
     AgentToolUseContent,
@@ -73,6 +75,7 @@ from .record import (
 __all__ = [
     "AGENT_CONTENT_MODEL_BY_TYPE",
     "AdminUpdateFeedbackRequest",
+    "AgentArtifactRecord",
     "AgentClientContextEntry",
     "AgentCompressionFillerContent",
     "AgentContent",
@@ -102,6 +105,7 @@ __all__ = [
     "AgentTaskBoundary",
     "AgentTaskMinimal",
     "AgentTaskStatus",
+    "AgentToolArtifactResponse",
     "AgentToolDetailResponse",
     "AgentToolResultContent",
     "AgentToolResultEvent",

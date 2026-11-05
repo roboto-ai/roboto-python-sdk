@@ -44,6 +44,30 @@ class TimeWindow(pydantic.BaseModel):
         return self
 
 
+class ReadPlanNamedArray(pydantic.BaseModel):
+    """An array field of the plan's schema whose elements are named."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    field_id: str
+    """Identifier of the array's schema field."""
+
+    path: FieldPath
+    """The array field's path components within the schema."""
+
+    element_names: tuple[str, ...]
+    """Name of each element of the array, in element order; at least one, each distinct."""
+
+    @pydantic.field_validator("element_names")
+    @classmethod
+    def _names_non_empty_and_distinct(cls, element_names: tuple[str, ...]) -> tuple[str, ...]:
+        if not element_names:
+            raise ValueError("a named array must name at least one element")
+        if len(set(element_names)) != len(element_names):
+            raise ValueError(f"element_names {list(element_names)!r} repeat a name")
+        return element_names
+
+
 class ReadPlanSchemaRef(pydantic.BaseModel):
     """Identifies the single topic schema the plan uses."""
 
@@ -54,6 +78,19 @@ class ReadPlanSchemaRef(pydantic.BaseModel):
 
     checksum: str
     """Checksum of the schema's content. A consumer can cache the schema by this value."""
+
+    named_arrays: tuple[ReadPlanNamedArray, ...] = ()
+    """Every array field of the schema whose elements are named, whether or not the projection lists its fields.
+
+    A reader takes element names from here alone."""
+
+    @pydantic.model_serializer(mode="wrap")
+    def _serialize(self, handler: pydantic.SerializerFunctionWrapHandler) -> dict[str, typing.Any]:
+        # A schema without named arrays keeps the wire shape it had before they existed.
+        serialized = handler(self)
+        if not self.named_arrays:
+            serialized.pop("named_arrays", None)
+        return serialized
 
 
 class ReadPlanFieldRef(pydantic.BaseModel):
@@ -66,6 +103,19 @@ class ReadPlanFieldRef(pydantic.BaseModel):
 
     path: FieldPath
     """The field's path components within the schema, from the root to the field."""
+
+    elements: typing.Optional[tuple[str, ...]] = None
+    """For a projected named array, the names of the elements the read takes; ``None`` takes every element.
+
+    :py:class:`ReadPlan` validation requires one or more distinct names the plan's schema declares for the array."""
+
+    @pydantic.model_serializer(mode="wrap")
+    def _serialize(self, handler: pydantic.SerializerFunctionWrapHandler) -> dict[str, typing.Any]:
+        # A field ref without an element selection keeps the wire shape it had before selections existed.
+        serialized = handler(self)
+        if self.elements is None:
+            serialized.pop("elements", None)
+        return serialized
 
 
 class ReadPlanTimestamp(pydantic.BaseModel):
@@ -326,6 +376,24 @@ class ReadPlan(pydantic.BaseModel):
     def _partitions_have_a_window(self) -> ReadPlan:
         if self.window is None and self.partitions:
             raise ValueError("a plan with partitions must have a window")
+        return self
+
+    @pydantic.model_validator(mode="after")
+    def _element_selections_name_declared_elements(self) -> ReadPlan:
+        declared = (
+            {tuple(array.path): array.element_names for array in self.schema_.named_arrays} if self.schema_ else {}
+        )
+        for field in self.projection.fields or ():
+            if field.elements is None:
+                continue
+            names = declared.get(tuple(field.path))
+            if names is None:
+                raise ValueError(f"projected field {list(field.path)!r} selects elements of no named array")
+            if not field.elements or len(set(field.elements)) != len(field.elements):
+                raise ValueError(f"projected field {list(field.path)!r} must select one or more distinct elements")
+            undeclared = [name for name in field.elements if name not in names]
+            if undeclared:
+                raise ValueError(f"projected field {list(field.path)!r} selects undeclared elements {undeclared!r}")
         return self
 
     @pydantic.model_serializer(mode="wrap")

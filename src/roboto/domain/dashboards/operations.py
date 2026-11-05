@@ -13,7 +13,10 @@ from roboto.domain.dashboards.record import (
 )
 from roboto.sentinels import NotSet, NotSetType
 
+from ...warnings import experimental
 
+
+@experimental
 class CreateDashboardRequest(pydantic.BaseModel):
     """Request body for ``POST /v1/metrics/dashboards/create``."""
 
@@ -31,6 +34,7 @@ class CreateDashboardRequest(pydantic.BaseModel):
     """The name of the dashboard."""
 
 
+@experimental
 class UpdateDashboardRequest(pydantic.BaseModel):
     """Request body for ``PUT /v1/metrics/dashboards/id/<dashboard_id>``."""
 

@@ -26,6 +26,7 @@ import pydantic
 import pydantic_core
 
 from ...association import Association
+from ...experimental import events as experimental_events
 from ...experimental.sessions import (
     SessionRecord,
     SessionStatus,
@@ -62,6 +63,7 @@ from ..platform_events import (
     SAMPLE_FILE_VERSION,
     SAMPLE_INVOCATION_ID,
     SAMPLE_ORG_ID,
+    SAMPLE_SESSION_EVENT_ID,
     SAMPLE_SESSION_ID,
     SAMPLE_TIME,
     SAMPLE_TRANSACTION_ID,
@@ -77,6 +79,7 @@ from .namespace import (
     ENVELOPE_ROOT,
     TRIGGER_ROOT,
     EventNamespace,
+    session_event_root,
 )
 from .record import TriggerRecord
 from .sources import EventSubscription, Schedule
@@ -206,6 +209,31 @@ def _event() -> EventRecord:
     )
 
 
+def _session_event() -> experimental_events.EventRecord:
+    return experimental_events.EventRecord(
+        event_id=SAMPLE_SESSION_EVENT_ID,
+        org_id=SAMPLE_ORG_ID,
+        name="hard-brake",
+        description="Emergency stop halfway round the warehouse loop.",
+        session_id=SAMPLE_SESSION_ID,
+        topics=[
+            experimental_events.EventTopic(
+                topic_id="ti_6r2m8kq4xw7p",
+                topic_name="/imu",
+                fields=[experimental_events.EventTopicField(field_id="sf_3k8w2mq7xp4n", path_in_schema=("accel", "x"))],
+            )
+        ],
+        start_time=1_787_000_120_000_000_000,
+        end_time=1_787_000_123_500_000_000,
+        metadata={"severity": "high"},
+        tags=["safety"],
+        created=SAMPLE_TIME,
+        created_by=SAMPLE_USER,
+        modified=SAMPLE_TIME,
+        modified_by=SAMPLE_USER,
+    )
+
+
 def sample_trigger() -> TriggerRecord:
     """The trigger the sample is evaluated for; what ``{{trigger.*}}`` sees."""
     return TriggerRecord(
@@ -264,6 +292,10 @@ class SampleNamespaceSource:
         if root == "session":
             return _as_json_mapping(_session())
         if root == "event":
+            # As in a real firing, a session event's ``event`` root is its own record shape: a session and topics
+            # in place of a dataset event's associations.
+            if event.type is PlatformEventType.SessionEventCreated:
+                return session_event_root(_session_event())
             return _as_json_mapping(_event())
         if root == "upload":
             return {"transaction_id": SAMPLE_TRANSACTION_ID}
@@ -310,6 +342,17 @@ class PlatformEventSamplesResponse(pydantic.BaseModel):
     """Wire shape of ``GET /v1/triggers/events/samples``: one sample per platform event type."""
 
     samples: dict[PlatformEventType, PlatformEventSample]
+    """One sample per event type, keyed by type. A sample whose type this SDK's
+    :class:`PlatformEventType` does not name is omitted, so the response still parses
+    when the server offers an event type newer than this SDK."""
+
+    @pydantic.field_validator("samples", mode="before")
+    @classmethod
+    def _omit_unknown_event_types(cls, samples: typing.Any) -> typing.Any:
+        if not isinstance(samples, collections.abc.Mapping):
+            return samples
+        known = {member.value for member in PlatformEventType}
+        return {event_type: sample for event_type, sample in samples.items() if event_type in known}
 
 
 def platform_event_sample(

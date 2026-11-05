@@ -166,7 +166,8 @@ class TriggerDryRunRequest(pydantic.BaseModel):
     """Synthesize an event about this invocation."""
 
     event_id: typing.Optional[str] = None
-    """Synthesize a platform event about this event (the annotation on your data)."""
+    """Synthesize a platform event about this event (the annotation on your data): ``event.created`` for a dataset
+    event (``ev_*``), or ``session_event.created`` for an event on a session (``evt_*``)."""
 
     scheduled_for: typing.Optional[datetime.datetime] = None
     """For a schedule-fired trigger: synthesize the occurrence for this scheduled minute

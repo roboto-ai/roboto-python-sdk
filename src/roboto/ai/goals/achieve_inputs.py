@@ -40,11 +40,11 @@ def _strip_check(value: str, *, field_name: str) -> str:
     return value
 
 
-class DatasetSummaryAchieveInput(pydantic.BaseModel):
-    """Input the LLM submits to achieve a :class:`GoalType.DATASET_SUMMARY` goal."""
+class SummaryAchieveInput(pydantic.BaseModel):
+    """Input the LLM submits to achieve a summary goal, for a dataset or a session."""
 
     summary: str = pydantic.Field(min_length=1)
-    """The full natural-language summary to persist for the dataset.
+    """The full natural-language summary to store for the dataset or session the goal names.
 
     Must contain non-whitespace characters; the achieve-tool rejects pure
     whitespace as equivalent to empty.
@@ -56,8 +56,16 @@ class DatasetSummaryAchieveInput(pydantic.BaseModel):
         return _strip_check(value, field_name="summary")
 
 
+class DatasetSummaryAchieveInput(SummaryAchieveInput):
+    """Input the LLM submits to achieve a :class:`GoalType.DATASET_SUMMARY` goal."""
+
+
+class SessionSummaryAchieveInput(SummaryAchieveInput):
+    """Input the LLM submits to achieve a :class:`GoalType.SESSION_SUMMARY` goal."""
+
+
 class LabelDecision(pydantic.BaseModel):
-    """One per-label deliberation entry inside a :class:`DatasetTriageAchieveInput`.
+    """One per-label deliberation entry inside a :class:`TriageAchieveInput`.
 
     Every label in the goal's ``label_vocabulary`` must appear exactly once
     across the parent ``label_decisions`` list — that constraint is enforced
@@ -71,9 +79,9 @@ class LabelDecision(pydantic.BaseModel):
     declaring goal)."""
 
     applies: pydantic.StrictBool
-    """Whether the label applies to the dataset. ``True`` decisions become
-    tags on the dataset; ``False`` decisions are recorded in the tool-use
-    log but not persisted on the dataset itself.
+    """Whether the label applies to the dataset or session the goal triages.
+    ``True`` decisions become tags on it; ``False`` decisions are recorded in
+    the tool-use log but not stored as tags.
 
     Strictly typed to reject pydantic's default truthy-string coercion —
     the historical achieve-tool contract required a JSON boolean, not a
@@ -82,8 +90,8 @@ class LabelDecision(pydantic.BaseModel):
 
     justification: str = pydantic.Field(min_length=1)
     """Brief reasoning for the decision, citing concrete observations from
-    the dataset. Required even when ``applies`` is ``False`` so the
-    deliberation is captured."""
+    the triaged dataset or session. Required even when ``applies`` is
+    ``False`` so the deliberation is captured."""
 
     confidence: float = pydantic.Field(ge=0.0, le=1.0)
     """Subjective confidence in the decision, from 0.0 (no confidence) to
@@ -95,8 +103,8 @@ class LabelDecision(pydantic.BaseModel):
         return _strip_check(value, field_name="justification")
 
 
-class DatasetTriageAchieveInput(pydantic.BaseModel):
-    """Input the LLM submits to achieve a :class:`GoalType.DATASET_TRIAGE` goal."""
+class TriageAchieveInput(pydantic.BaseModel):
+    """Input the LLM submits to achieve a triage goal, for a dataset or a session."""
 
     label_decisions: list[LabelDecision] = pydantic.Field(min_length=1)
     """One :class:`LabelDecision` per entry in the goal's ``label_vocabulary``.
@@ -106,6 +114,14 @@ class DatasetTriageAchieveInput(pydantic.BaseModel):
     handler. This model only validates the structural shape of each
     decision.
     """
+
+
+class DatasetTriageAchieveInput(TriageAchieveInput):
+    """Input the LLM submits to achieve a :class:`GoalType.DATASET_TRIAGE` goal."""
+
+
+class SessionTriageAchieveInput(TriageAchieveInput):
+    """Input the LLM submits to achieve a :class:`GoalType.SESSION_TRIAGE` goal."""
 
 
 class EventSpec(pydantic.BaseModel):

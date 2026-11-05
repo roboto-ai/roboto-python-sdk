@@ -14,6 +14,7 @@ import pydantic_core
 
 from ..collection_utils import get_by_path
 from ..compat import StrEnum
+from ..warnings import experimental
 from .http import HttpError
 
 AUTHENTICATION_FAILURE_MESSAGE = (
@@ -340,6 +341,7 @@ class RobotoConflictException(RobotoDomainException):
         return 409
 
 
+@experimental
 class RobotoBoardRevisionConflictException(RobotoConflictException):
     """
     Thrown when a board update carries a ``base_revision`` that no longer matches the stored revision. Someone
@@ -394,6 +396,7 @@ class RobotoLayoutConflictException(RobotoConflictException):
         return result
 
 
+@experimental
 class RobotoDashboardRevisionConflictException(RobotoConflictException):
     """
     Thrown when a dashboard definition write carries a base revision that no longer matches
@@ -559,6 +562,9 @@ class ReadPlanExecutionErrorKind(StrEnum):
     DATA_RANGE_NOT_IN_FILE = "data-range-not-in-file"
     """A partition's ``data_range`` ends past its file's stored row count, so the file lacks rows the slice names."""
 
+    ELEMENT_COUNT_MISMATCH = "element-count-mismatch"
+    """A named array holds a different number of elements than it has names."""
+
 
 class RobotoReadPlanExecutionException(RobotoInternalException):
     """
@@ -590,12 +596,15 @@ class RobotoReadPlanExecutionException(RobotoInternalException):
     @property
     def field_path(self) -> Optional[tuple[str, ...]]:
         """For ``field-not-in-file``, the missing field's path components,
-        from its top-level field down to the first component the file lacks."""
+        from its top-level field down to the first component the file lacks;
+        for ``element-count-mismatch``, the named array's path components."""
         return self.__field_path
 
     @property
     def row_number(self) -> Optional[int]:
-        """For ``invalid-timestamp``, the row's 0-based position among its topic's rows in its file."""
+        """For ``invalid-timestamp``, and for ``element-count-mismatch`` on a variable-length list, the row's 0-based
+        position among its topic's rows in its file. ``None`` when a fixed-size list's width is refused before any row
+        is read."""
         return self.__row_number
 
     def to_dict(self) -> dict[str, Any]:

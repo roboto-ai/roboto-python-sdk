@@ -184,9 +184,10 @@ class File:
         """Import files from customer S3 bring-your-own buckets into Roboto datasets.
 
         This is the ingress point for importing data stored in customer-owned S3 buckets
-        that have been registered as read-only bring-your-own bucket (BYOB) integrations with
-        Roboto. Files remain in their original S3 locations while metadata is registered with
-        Roboto for discovery, processing, and analysis.
+        that have been registered as bring-your-own bucket (BYOB) integrations with Roboto.
+        Files remain in their original S3 locations while metadata is registered with
+        Roboto for discovery, processing, and analysis. The file stays in your bucket,
+        including after it is deleted from Roboto.
 
         This method only works with S3 URIs from buckets that have been properly registered
         as BYOB integrations for your organization. It performs batch operations to efficiently
@@ -207,7 +208,7 @@ class File:
                 datasets or if buckets don't belong to the caller's organization.
 
         Notes:
-            - Only works with S3 URIs from registered read-only BYOB integrations
+            - Only works with S3 URIs from registered BYOB integrations, read-only or read/write
             - Files are not copied; only metadata is imported into Roboto
             - Batch size is limited to 500 items per request
             - All S3 buckets must be registered to the caller's organization
@@ -267,7 +268,8 @@ class File:
         importing, providing additional validation and convenience for single-file operations.
 
         The file remains in its original location while metadata is registered with Roboto
-        for discovery, processing, and analysis. This method currently only works with S3 URIs from buckets
+        for discovery, processing, and analysis. The file stays in your bucket, including after
+        it is deleted from Roboto. This method currently only works with S3 URIs from buckets
         that have been properly registered as BYOB integrations for your organization.
 
         Args:
@@ -979,9 +981,10 @@ class File:
         Permanently removes the file and all its associated data, including topics
         and metadata. This operation cannot be undone.
 
-        For files that were imported from customer S3 buckets (read-only BYOB
-        integrations), this method does not delete the file content from S3. It
-        only removes the metadata and references within the Roboto platform.
+        A file uploaded through Roboto has its object deleted from S3, whether it is
+        stored in a Roboto-managed bucket or in a BYOB-integration bucket. A file imported from
+        the latter kind of bucket (see :py:meth:`import_batch`) keeps its object in S3; only its
+        metadata and references within the Roboto platform are removed.
 
         Raises:
             RobotoNotFoundException: File does not exist or has already been deleted.

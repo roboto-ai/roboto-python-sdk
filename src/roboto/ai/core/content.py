@@ -94,6 +94,30 @@ class AgentToolUseContent(pydantic.BaseModel):
     on a call to a server-side tool."""
 
 
+class AgentArtifactRecord(pydantic.BaseModel):
+    """One file a tool run produced, as reported in :attr:`AgentToolResultContent.artifacts`.
+
+    An inline summary with no URL; to download the file, request an
+    :class:`~roboto.ai.agent_thread.record.AgentToolArtifactResponse`.
+    """
+
+    name: str
+    """The artifact's filename, as reported in the tool result's ``outputs`` field."""
+
+    bytes: int
+    """Size of the file, in bytes."""
+
+    content_type: str
+    """MIME type the tool reported for the file."""
+
+    status: str
+    """Outcome of producing the file (e.g. ``"uploaded"``, ``"too_large"``).
+
+    Reported even when the file's bytes were not kept. The vocabulary is tool-specific and not
+    constrained by the SDK.
+    """
+
+
 class AgentToolResultContent(pydantic.BaseModel):
     """Tool execution result content within an agent message."""
 
@@ -106,6 +130,13 @@ class AgentToolResultContent(pydantic.BaseModel):
     """Wall-clock execution time of the tool in milliseconds."""
     status: str
     """Outcome of the tool execution (e.g. 'success', 'error')."""
+    artifacts: Optional[list[AgentArtifactRecord]] = None
+    """Files this tool run produced.
+
+    Unlike :attr:`raw_response`, kept on thread reads, so clients can offer downloads without fetching
+    each tool result. Populated from any tool payload's ``outputs`` field.
+    """
+
     payload: Optional[Union[str, dict[str, Any], list[Any]]] = None
     """What the tool returned: free-form text, or a JSON object or array of structured data.
 

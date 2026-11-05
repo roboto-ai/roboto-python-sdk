@@ -43,6 +43,10 @@ class TemplateVariableType(StrEnum):
     """A Roboto collection identifier. UI renders a collection picker; invoke-time
     validator asserts the collection exists in the caller's org."""
 
+    SESSION_ID = "session_id"
+    """A Roboto session identifier. Invoke-time validator asserts the session exists
+    in the caller's org."""
+
 
 class TemplateVariable(pydantic.BaseModel):
     """A named slot in an :class:`AgentRecord` that must be filled before the

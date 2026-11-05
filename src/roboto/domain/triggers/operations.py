@@ -13,8 +13,8 @@ from ...sentinels import NotSet, NotSetType
 from .sources import TriggerSource
 from .targets import TriggerTargetSpec
 
-TRIGGER_NAME_PATTERN = r"[\w\-]+"
-"""Legal trigger names: word characters and hyphens."""
+TRIGGER_NAME_PATTERN = r"^[\w\-]+$"
+"""Legal trigger names: word characters and hyphens only."""
 
 MAX_TRIGGER_NAME_LENGTH = 256
 """Maximum trigger name length."""

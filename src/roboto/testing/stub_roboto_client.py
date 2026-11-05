@@ -45,14 +45,27 @@ class _Expectation:
     query: typing.Optional[dict[str, typing.Any]] = None
     request_body_matcher: typing.Optional[RequestBodyMatcher] = None
     owner_org_id: typing.Optional[str] = None
+    caller_org_id: typing.Optional[str] = None
+
+    def describe(self) -> str:
+        parts = [self.method, self.path]
+        if self.caller_org_id is not None:
+            parts.append(f"caller_org_id={self.caller_org_id}")
+        if self.owner_org_id is not None:
+            parts.append(f"owner_org_id={self.owner_org_id}")
+        return " ".join(parts)
 
 
 class StubRobotoClient(RobotoClient):
     """
     A stub RobotoClient for unit testing that returns pre-configured responses for expected requests.
 
+    Pass ``caller_org_id`` to any ``expect_*`` method, or ``owner_org_id`` to ``expect_get``, to match only requests
+    that pass the same org ID for that argument. Left as ``None``, an expectation matches whatever org ID the request
+    passes, including none.
+
     Example:
-        >>> from roboto_test_utils import StubRobotoClient
+        >>> from roboto.testing import StubRobotoClient
         >>> from roboto.domain.datasets import Dataset, DatasetRecord
         >>> from roboto.time import utcnow
         >>>
@@ -83,7 +96,10 @@ class StubRobotoClient(RobotoClient):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self.verify_no_pending_expectations()
+        # When the block raised (for example, on an unexpected request), skip the check so the test reports that
+        # error instead of the pending expectations it left behind.
+        if exc_type is None:
+            self.verify_no_pending_expectations()
 
     def expect_get(
         self,
@@ -91,8 +107,11 @@ class StubRobotoClient(RobotoClient):
         response: StubResponse,
         query: typing.Optional[dict[str, typing.Any]] = None,
         owner_org_id: typing.Optional[str] = None,
+        caller_org_id: typing.Optional[str] = None,
     ) -> StubRobotoClient:
-        self.__expectations.append(_Expectation("GET", path, response, query, owner_org_id=owner_org_id))
+        self.__expectations.append(
+            _Expectation("GET", path, response, query, owner_org_id=owner_org_id, caller_org_id=caller_org_id)
+        )
         return self
 
     def expect_post(
@@ -101,8 +120,11 @@ class StubRobotoClient(RobotoClient):
         response: StubResponse,
         query: typing.Optional[dict[str, typing.Any]] = None,
         request_body_matcher: typing.Optional[RequestBodyMatcher] = None,
+        caller_org_id: typing.Optional[str] = None,
     ) -> StubRobotoClient:
-        self.__expectations.append(_Expectation("POST", path, response, query, request_body_matcher))
+        self.__expectations.append(
+            _Expectation("POST", path, response, query, request_body_matcher, caller_org_id=caller_org_id)
+        )
         return self
 
     def expect_put(
@@ -111,8 +133,11 @@ class StubRobotoClient(RobotoClient):
         response: StubResponse,
         query: typing.Optional[dict[str, typing.Any]] = None,
         request_body_matcher: typing.Optional[RequestBodyMatcher] = None,
+        caller_org_id: typing.Optional[str] = None,
     ) -> StubRobotoClient:
-        self.__expectations.append(_Expectation("PUT", path, response, query, request_body_matcher))
+        self.__expectations.append(
+            _Expectation("PUT", path, response, query, request_body_matcher, caller_org_id=caller_org_id)
+        )
         return self
 
     def expect_patch(
@@ -121,8 +146,11 @@ class StubRobotoClient(RobotoClient):
         response: StubResponse,
         query: typing.Optional[dict[str, typing.Any]] = None,
         request_body_matcher: typing.Optional[RequestBodyMatcher] = None,
+        caller_org_id: typing.Optional[str] = None,
     ) -> StubRobotoClient:
-        self.__expectations.append(_Expectation("PATCH", path, response, query, request_body_matcher))
+        self.__expectations.append(
+            _Expectation("PATCH", path, response, query, request_body_matcher, caller_org_id=caller_org_id)
+        )
         return self
 
     def expect_delete(
@@ -131,8 +159,11 @@ class StubRobotoClient(RobotoClient):
         response: StubResponse,
         query: typing.Optional[dict[str, typing.Any]] = None,
         request_body_matcher: typing.Optional[RequestBodyMatcher] = None,
+        caller_org_id: typing.Optional[str] = None,
     ) -> StubRobotoClient:
-        self.__expectations.append(_Expectation("DELETE", path, response, query, request_body_matcher))
+        self.__expectations.append(
+            _Expectation("DELETE", path, response, query, request_body_matcher, caller_org_id=caller_org_id)
+        )
         return self
 
     # Override HTTP methods to use expectations
@@ -147,7 +178,9 @@ class StubRobotoClient(RobotoClient):
         retry_wait_fn: typing.Optional[typing.Any] = None,
         timeout: typing.Any = None,
     ) -> HttpResponse:
-        return self.__consume_expectation("GET", path, query, None, owner_org_id=owner_org_id)
+        return self.__consume_expectation(
+            "GET", path, query, None, owner_org_id=owner_org_id, caller_org_id=caller_org_id
+        )
 
     def post(
         self,
@@ -161,7 +194,9 @@ class StubRobotoClient(RobotoClient):
         retry_wait_fn: typing.Optional[typing.Any] = None,
         timeout: typing.Any = None,
     ) -> HttpResponse:
-        return self.__consume_expectation("POST", path, query, data)
+        return self.__consume_expectation(
+            "POST", path, query, data, owner_org_id=owner_org_id, caller_org_id=caller_org_id
+        )
 
     def put(
         self,
@@ -175,7 +210,9 @@ class StubRobotoClient(RobotoClient):
         retry_wait_fn: typing.Optional[typing.Any] = None,
         timeout: typing.Any = None,
     ) -> HttpResponse:
-        return self.__consume_expectation("PUT", path, query, data)
+        return self.__consume_expectation(
+            "PUT", path, query, data, owner_org_id=owner_org_id, caller_org_id=caller_org_id
+        )
 
     def patch(
         self,
@@ -189,7 +226,9 @@ class StubRobotoClient(RobotoClient):
         retry_wait_fn: typing.Optional[typing.Any] = None,
         timeout: typing.Any = None,
     ) -> HttpResponse:
-        return self.__consume_expectation("PATCH", path, query, data)
+        return self.__consume_expectation(
+            "PATCH", path, query, data, owner_org_id=owner_org_id, caller_org_id=caller_org_id
+        )
 
     def delete(
         self,
@@ -203,7 +242,9 @@ class StubRobotoClient(RobotoClient):
         retry_wait_fn: typing.Optional[typing.Any] = None,
         timeout: typing.Any = None,
     ) -> HttpResponse:
-        return self.__consume_expectation("DELETE", path, query, data)
+        return self.__consume_expectation(
+            "DELETE", path, query, data, owner_org_id=owner_org_id, caller_org_id=caller_org_id
+        )
 
     def verify_no_pending_expectations(self) -> None:
         """
@@ -213,7 +254,7 @@ class StubRobotoClient(RobotoClient):
             AssertionError: If there are any pending expectations that were not consumed.
         """
         if self.__expectations:
-            pending = [(e.method, e.path) for e in self.__expectations]
+            pending = [e.describe() for e in self.__expectations]
             raise AssertionError(f"Pending expectations were not consumed: {pending}")
 
     def __consume_expectation(
@@ -223,6 +264,7 @@ class StubRobotoClient(RobotoClient):
         query: typing.Optional[dict[str, typing.Any]],
         body: typing.Any,
         owner_org_id: typing.Optional[str] = None,
+        caller_org_id: typing.Optional[str] = None,
     ) -> HttpResponse:
         """Find and consume a matching expectation, returning its response."""
         normalized_path = self.__normalize_path(path)
@@ -235,6 +277,8 @@ class StubRobotoClient(RobotoClient):
             if expectation.query is not None and expectation.query != query:
                 continue
             if expectation.owner_org_id is not None and expectation.owner_org_id != owner_org_id:
+                continue
+            if expectation.caller_org_id is not None and expectation.caller_org_id != caller_org_id:
                 continue
             if expectation.request_body_matcher and not expectation.request_body_matcher(body):
                 continue
@@ -250,9 +294,10 @@ class StubRobotoClient(RobotoClient):
 
         raise AssertionError(
             f"Unexpected request: {method} {normalized_path}\n"
+            f"Caller org: {caller_org_id}, owner org: {owner_org_id}\n"
             f"Query: {query}\n"
             f"Body: {body}\n"
-            f"Pending expectations: {[(e.method, e.path) for e in self.__expectations]}"
+            f"Pending expectations: {[e.describe() for e in self.__expectations]}"
         )
 
     def __normalize_path(self, path: typing.Union[str, collections.abc.Iterable[str]]) -> str:

@@ -7,7 +7,7 @@
 """Execute a read plan: decode each partition's files and yield the topic's rows as RecordBatches.
 
 :py:func:`execute_read_plan` lists the steps of a read. This module holds the projected paths, the leaf-most paths,
-assigning scan tasks and grouping them by file, and reading the partitions in plan order.
+assigning scan tasks and grouping them by file, reading the partitions in plan order, and naming array elements.
 Decoding each file lives in :py:mod:`~roboto.experimental.topics.decode`,
 combining a split partition in :py:mod:`~roboto.experimental.topics.split_partition`,
 and the output schema in that module and :py:mod:`~roboto.experimental.topics.batch_transforms`.
@@ -23,12 +23,18 @@ import dataclasses
 import itertools
 import typing
 
+from ...compat import import_optional_dependency
 from ...domain.topics.record import FieldPath
 from ...exceptions import (
     ReadPlanExecutionErrorKind,
     RobotoReadPlanExecutionException,
 )
-from .batch_transforms import topic_data_schema
+from .batch_transforms import (
+    row_number_column_index,
+    timestamp_column_index,
+    topic_data_schema,
+    with_element_names,
+)
 from .decode.common import (
     FileDecoderOpener,
     ScanTaskGroup,
@@ -208,6 +214,9 @@ def execute_read_plan(
     7. Output schema (:py:func:`~roboto.experimental.topics.batch_transforms.topic_data_schema`).
     8. Partitions: read in plan order, each one's schema checked against the first partition's when its files open,
        before any of its rows.
+    9. Name array elements, on each batch step 8 yields: each named array column carries its element names as field
+       metadata (:py:data:`~roboto.experimental.topics.batch_transforms.ELEMENT_NAMES_FIELD_METADATA_KEY`), narrowed
+       to the elements a projected field selects. A narrowed array renumbers its elements from 0, in element order.
 
     Each partition yields only the rows inside its own :py:attr:`~roboto.experimental.topics.ReadPlanPartition.window`,
     which can be narrower than the plan's: a read scoped to a Session that holds a file over part of its time span
@@ -230,7 +239,8 @@ def execute_read_plan(
         RecordBatches with the columns of :py:func:`~roboto.experimental.topics.batch_transforms.topic_data_schema`:
         the row number, the timestamp in absolute Unix-epoch nanoseconds, then one value column per projected
         top-level field, sorted by name comparing Unicode code points. A batch holds the rows of one partition only;
-        batch sizes and boundaries are otherwise arbitrary.
+        batch sizes and boundaries are otherwise arbitrary. A named array keeps its stored type, unless the projection
+        selects some of its elements; it is then a fixed-size list of those elements in element order.
 
     Raises:
         RobotoReadPlanExecutionException: With the kind of the step that refuses the plan:
@@ -239,17 +249,23 @@ def execute_read_plan(
             ``partition-schema-mismatch``, when a partition's files give the read a different schema than the first
             partition's, raised before any error in that partition's rows and even when it has no rows in the window
             (step 8);
+            ``element-count-mismatch``, when a named array holds a different number of elements than it has names:
+            for one stored as a fixed-size list, when the partition's files open, before any of its rows and even
+            when it has no rows in the window; for a variable-length list, at the first such row (step 9);
             and the kinds ``open_file_decoder`` and its decoders raise, such as ``unsupported-format``,
             ``unsupported-timestamp``, ``invalid-timestamp``, ``field-not-in-file`` and ``data-range-not-in-file``
             (step 5).
     """
     partitions = [partition for partition in plan.partitions if partition.scan_tasks]
     leaf_most = leaf_most_paths(projected)
+    named_arrays = _named_arrays(plan)
 
     if len(partitions) <= 1:
         for partition in partitions:
             with _open_partition(partition, leaf_most, open_file_decoder) as opened:
-                yield from opened.batches()
+                _refuse_fixed_size_named_arrays_of_another_width(opened.value_fields, named_arrays, partition)
+                for batch in opened.batches():
+                    yield _with_element_names(batch, named_arrays, partition)
         return
 
     def read(partition: ReadPlanPartition) -> _PartitionRows:
@@ -266,9 +282,138 @@ def execute_read_plan(
                 f"where the first partition's gave {first_schema}.",
                 kind=ReadPlanExecutionErrorKind.PARTITION_SCHEMA_MISMATCH,
             )
+        _refuse_fixed_size_named_arrays_of_another_width(rows.value_fields, named_arrays, partition)
         if rows.decode_error is not None:
             raise rows.decode_error
-        yield from rows.batches
+        for batch in rows.batches:
+            yield _with_element_names(batch, named_arrays, partition)
+
+
+@dataclasses.dataclass(frozen=True)
+class _NamedArrayColumn:
+    """How step 9 names one top-level array column."""
+
+    element_names: tuple[str, ...]
+    """Every element's name, in element order."""
+
+    selected: typing.Optional[tuple[str, ...]]
+    """The elements the projection selects, or ``None`` for every element."""
+
+
+def _named_arrays(plan: ReadPlan) -> dict[str, _NamedArrayColumn]:
+    """Return each named array of the plan's schema by its top-level column name."""
+    if plan.schema_ is None:
+        return {}
+    selected = {tuple(field.path): field.elements for field in plan.projection.fields or ()}
+    return {
+        array.path[0]: _NamedArrayColumn(element_names=array.element_names, selected=selected.get(tuple(array.path)))
+        for array in plan.schema_.named_arrays
+        if len(array.path) == 1
+    }
+
+
+def _refuse_fixed_size_named_arrays_of_another_width(
+    value_fields: collections.abc.Sequence["pyarrow.Field"],
+    named_arrays: collections.abc.Mapping[str, _NamedArrayColumn],
+    partition: ReadPlanPartition,
+) -> None:
+    """Raise ``element-count-mismatch`` for a named array a partition stores as a fixed-size list of another width.
+
+    A fixed-size list's width is part of its type, so the mismatch is known when the partition's files open.
+    """
+    pa = import_optional_dependency("pyarrow", "analytics")
+    for field in value_fields:
+        named = named_arrays.get(field.name)
+        if named is None or not pa.types.is_fixed_size_list(field.type):
+            continue
+        if field.type.list_size != len(named.element_names):
+            raise RobotoReadPlanExecutionException(
+                f'Topic partition {partition.topic_part_id} stores the named array "{field.name}" with '
+                f"{field.type.list_size} elements in every row, but it names {len(named.element_names)}.",
+                kind=ReadPlanExecutionErrorKind.ELEMENT_COUNT_MISMATCH,
+                field_path=(field.name,),
+            )
+
+
+def _with_element_names(
+    batch: "pyarrow.RecordBatch",
+    named_arrays: collections.abc.Mapping[str, _NamedArrayColumn],
+    partition: ReadPlanPartition,
+) -> "pyarrow.RecordBatch":
+    """Return ``batch`` with each named array column narrowed to its selected elements and carrying their names.
+
+    Raises:
+        RobotoReadPlanExecutionException: With kind ``element-count-mismatch``, when a row of a named array stored as
+            a variable-length list holds a different number of elements than the array has names.
+    """
+    if not any(name in named_arrays for name in batch.schema.names):
+        return batch
+    pa = import_optional_dependency("pyarrow", "analytics")
+
+    # The timestamp and row number columns are named to avoid only the projected fields, so one of them can take the
+    # name of a named array the read leaves out.
+    marked = {timestamp_column_index(batch.schema), row_number_column_index(batch.schema)}
+    fields = list(batch.schema)
+    columns = list(batch.columns)
+    for index, field in enumerate(fields):
+        named = named_arrays.get(field.name)
+        if named is None or index in marked:
+            continue
+        column = columns[index]
+        if not pa.types.is_fixed_size_list(column.type):
+            _refuse_rows_of_another_width(batch, column, field, len(named.element_names), partition)
+
+        names = named.element_names
+        if named.selected is not None:
+            positions = sorted(names.index(name) for name in named.selected)
+            names = tuple(names[position] for position in positions)
+            column = _list_elements(column, positions)
+        columns[index] = column
+        fields[index] = with_element_names(field.with_type(column.type), names)
+    return pa.RecordBatch.from_arrays(columns, schema=pa.schema(fields, metadata=batch.schema.metadata))
+
+
+def _refuse_rows_of_another_width(
+    batch: "pyarrow.RecordBatch",
+    column: "pyarrow.Array",
+    field: "pyarrow.Field",
+    width: int,
+    partition: ReadPlanPartition,
+) -> None:
+    """Raise ``element-count-mismatch`` at the first row of the list ``column`` that holds other than ``width``
+    elements; a null row holds none and passes."""
+    pc = import_optional_dependency("pyarrow.compute", "analytics")
+    lengths = pc.list_value_length(column)
+    first_mismatch = pc.index(pc.not_equal(lengths, width), True).as_py()
+    if first_mismatch < 0:
+        return
+    row_number = batch.column(row_number_column_index(batch.schema))[first_mismatch].as_py()
+    raise RobotoReadPlanExecutionException(
+        f"Row {row_number} of topic partition {partition.topic_part_id} holds "
+        f'{lengths[first_mismatch].as_py()} elements in the named array "{field.name}", '
+        f"which names {width}.",
+        kind=ReadPlanExecutionErrorKind.ELEMENT_COUNT_MISMATCH,
+        field_path=(field.name,),
+        row_number=row_number,
+    )
+
+
+def _list_elements(column: "pyarrow.Array", positions: collections.abc.Sequence[int]) -> "pyarrow.Array":
+    """Return a fixed-size list of the elements at ``positions`` of each list in ``column``, null where it is null."""
+    np = import_optional_dependency("numpy", "analytics")
+    pa = import_optional_dependency("pyarrow", "analytics")
+    pc = import_optional_dependency("pyarrow.compute", "analytics")
+
+    elements = [pc.list_element(column, position) for position in positions]
+    # Interleave the per-position columns, so the values of row r are elements[0][r], elements[1][r], ...
+    interleaved = pa.concat_arrays(elements).take(
+        np.arange(len(column) * len(positions)).reshape(len(positions), len(column)).T.ravel()
+    )
+    return pa.FixedSizeListArray.from_arrays(
+        interleaved,
+        type=pa.list_(column.type.value_field, len(positions)),
+        mask=column.is_null() if column.null_count else None,
+    )
 
 
 @dataclasses.dataclass(frozen=True)

@@ -13,6 +13,7 @@ from ..core import (
     AnalysisScope,
     ClientViewingContext,
 )
+from ..core.content import AgentArtifactRecord
 from ..core.record import (
     AGENT_CONTENT_MODEL_BY_TYPE,
     AgentClientContextEntry,
@@ -70,6 +71,28 @@ class AgentToolDetailResponse(pydantic.BaseModel):
 
     tool_use: AgentToolUseContent
     tool_result: AgentToolResultContent
+
+
+class AgentToolArtifactResponse(pydantic.BaseModel):
+    """Response body for ``GET /v1/ai/threads/<thread_id>/tool-use/<tool_use_id>/artifacts/<name>``.
+
+    Carries a short-lived link to a file an agent tool produced, minted only for callers who may read
+    the thread. Request it when needed rather than storing it. Adds the download URL to the inline
+    :class:`~roboto.ai.core.content.AgentArtifactRecord`.
+    """
+
+    name: str
+    """The artifact's filename, as reported in the tool result's ``outputs``."""
+
+    url: str
+    """Time-limited URL to fetch the file's bytes from. Expires within minutes."""
+
+    content_type: str
+    """What the URL will serve the file as. Only a few image types render in a browser; everything else
+    is served as an opaque download."""
+
+    bytes: int
+    """Size of the stored file."""
 
 
 class InvokeSkillSpec(pydantic.BaseModel):
@@ -415,6 +438,7 @@ class AgentThreadSubject(pydantic.BaseModel):
 
 __all__ = [
     "AGENT_CONTENT_MODEL_BY_TYPE",
+    "AgentArtifactRecord",
     "AgentClientContextEntry",
     "AgentCompressionFillerContent",
     "AgentContent",
@@ -437,6 +461,7 @@ __all__ = [
     "AgentTaskBoundary",
     "AgentTaskMinimal",
     "AgentTaskStatus",
+    "AgentToolArtifactResponse",
     "AgentToolDetailResponse",
     "AgentToolResultContent",
     "AgentToolUseContent",

@@ -41,6 +41,7 @@ from .dry_run import (
 from .namespace import (
     EventNamespace,
     NamespaceSource,
+    session_event_root,
 )
 from .operations import (
     MAX_TRIGGER_NAME_LENGTH,
@@ -104,6 +105,7 @@ __all__ = [
     "ManagedBy",
     "ManagedByKind",
     "NamespaceSource",
+    "session_event_root",
     "PlatformEventSample",
     "SampleNamespaceSource",
     "Schedule",

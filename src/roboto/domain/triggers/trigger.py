@@ -157,7 +157,12 @@ class Trigger:
         condition field or ``{{ }}`` placeholder may name. Use it to see what a
         template will resolve to before writing one.
 
+        Leaves out any event type this SDK release's :class:`PlatformEventType`
+        does not name, such as one the server added after the release; upgrade
+        the SDK to get its sample.
+
         Examples:
+            >>> from roboto.domain.platform_events import PlatformEventType
             >>> samples = Trigger.platform_event_samples()
             >>> samples[PlatformEventType.FileUploaded].paths[:3]
             ['envelope.id', 'envelope.type', 'envelope.time']

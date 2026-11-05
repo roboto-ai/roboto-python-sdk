@@ -8,8 +8,9 @@ import typing
 
 import pydantic
 
+from ...compat import StrEnum
 from ...regionalization import RobotoRegion
-from .org_records import OrgRoleName, OrgStatus
+from .org_records import OrgRecord, OrgRoleName, OrgStatus
 
 
 class CreateOrgRequest(pydantic.BaseModel):
@@ -23,6 +24,26 @@ class CreateOrgRequest(pydantic.BaseModel):
 
     data_region: RobotoRegion = RobotoRegion.US_WEST
     """AWS region where the organization's data will be stored."""
+
+
+class EmailDomainBindingOutcome(StrEnum):
+    """What creating an organization did with a request to bind the creator's email domain to it."""
+
+    Bound = "bound"
+    """The domain is bound to the new organization."""
+
+    DenyListed = "deny_listed"
+    """The domain is not bound, because it is on Roboto's list of domains that no organization may bind. The list
+    includes public email providers' domains, such as ``gmail.com``."""
+
+
+class CreateOrgResponse(OrgRecord):
+    """Response body for ``POST /v1/orgs``: the new organization's record, and what became of the request to bind the
+    creator's email domain."""
+
+    email_domain_binding_outcome: typing.Optional[EmailDomainBindingOutcome] = None
+    """What became of :py:attr:`CreateOrgRequest.bind_email_domain`. ``None`` when the request did not ask to bind
+    the creator's email domain."""
 
 
 class OrgRecordUpdates(pydantic.BaseModel):

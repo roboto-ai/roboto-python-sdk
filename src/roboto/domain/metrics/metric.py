@@ -391,13 +391,22 @@ class Metric:
         cls,
         session_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
+        name_prefix: typing.Optional[str] = None,
+        exclude_name_prefix: typing.Optional[str] = None,
     ) -> list["Metric"]:
-        """Return every metric published to ``session_id``.
+        """Return the metrics published to ``session_id``, at most
+        :py:data:`~roboto.domain.metrics.MAX_METRIC_LIST_RESULTS` (10,000) of them.
+
+        For a session with more metrics than that, the listing returns that many and gives no sign that it
+        left any out; which ones it leaves out is unspecified. Narrow the listing with ``name_prefix`` or
+        ``exclude_name_prefix`` to read such a session's metrics in parts.
 
         Args:
             session_id: Session whose metrics to fetch.
             roboto_client: Roboto client to use. Defaults to the client
                 configured in the environment.
+            name_prefix: Return only metrics whose name starts with this text.
+            exclude_name_prefix: Leave out metrics whose name starts with this text.
 
         Returns:
             One :py:class:`Metric` per matching ``(metric_definition, session)``
@@ -407,12 +416,66 @@ class Metric:
             >>> from roboto.domain.metrics import Metric
             >>> for m in Metric.get_by_session("ss_abc123"):
             ...     print(m.metric_id, m.value)
+            >>> topic_stats = Metric.get_by_session("ss_abc123", name_prefix="topic_stats.")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
+        query: dict[str, typing.Any] = {}
+        if name_prefix is not None:
+            query["name_prefix"] = name_prefix
+        if exclude_name_prefix is not None:
+            query["exclude_name_prefix"] = exclude_name_prefix
         records = roboto_client.get(
             f"v1/metrics/session/{session_id}/",
+            query=query or None,
         ).to_record_list(MetricRecord)
         return [cls(r, roboto_client) for r in records]
+
+    @classmethod
+    def prune_session(
+        cls,
+        session_id: str,
+        name_prefix: str,
+        published_before: datetime.datetime,
+        caller_org_id: typing.Optional[str] = None,
+        roboto_client: typing.Optional[RobotoClient] = None,
+    ) -> None:
+        """Delete a session's metrics under ``name_prefix`` that the calling action invocation did not write.
+
+        Only code running in an action invocation may call this. It deletes the values under ``name_prefix`` that
+        were published before ``published_before`` and were last written by another invocation or by none. An
+        action that republishes a session's metrics calls it after publishing, with the time its run started, so
+        that names the run no longer writes do not keep their old values, while a concurrent run's newer values
+        survive.
+
+        Args:
+            session_id: Session whose metrics to prune.
+            name_prefix: Delete only metrics whose name starts with this text. Must not be empty.
+            published_before: Delete only values published before this time. Must carry a UTC offset.
+            caller_org_id: Organization that owns the session. Defaults to the caller's only organization.
+            roboto_client: Roboto client to use. Defaults to the client
+                configured in the environment.
+
+        Raises:
+            :py:exc:`~roboto.exceptions.RobotoUnauthorizedException`: The caller is not running in an action
+                invocation, or may not manage the organization's sessions.
+            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: ``session_id`` does not exist in the
+                organization.
+            :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`: ``name_prefix`` is empty, or
+                ``published_before`` has no UTC offset.
+
+        Examples:
+            >>> import datetime
+            >>> from roboto.domain.metrics import Metric
+            >>> started = datetime.datetime.now(datetime.timezone.utc)
+            >>> Metric.publish(...)  # doctest: +SKIP
+            >>> Metric.prune_session("ss_abc123", name_prefix="my_stats.", published_before=started)
+        """
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        roboto_client.delete(
+            f"v1/metrics/session/{session_id}/",
+            caller_org_id=caller_org_id,
+            query={"name_prefix": name_prefix, "published_before": published_before.isoformat()},
+        )
 
     @classmethod
     def query(
@@ -439,10 +502,9 @@ class Metric:
         both for matching the window and for sorting by time.
         The data point yielded for it has ``None`` for ``min_timestamp_ns`` and ``max_timestamp_ns``.
 
-        This method auto-paginates: ``max_results`` is the **page size**
-        (capped at :py:data:`MAX_METRIC_LIST_RESULTS`), not a total result
-        cap. The generator continues fetching pages until the server reports
-        no more data.
+        The generator requests one page of data points at a time and keeps
+        requesting until the server reports no more data, so ``max_results``
+        limits each page, not the total number of data points yielded.
 
         Args:
             name: Name of the metric definition to query.
@@ -454,8 +516,9 @@ class Metric:
                 ``start_time``. Defaults to ``None`` (now).
             time_filter: Whether to match the window against the session's
                 start time or end time. Defaults to end time.
-            max_results: Page size — number of data points per HTTP request.
-                Total results are unbounded; pagination is automatic.
+            max_results: Most data points one page holds. Must be between 1 and
+                :py:data:`MAX_METRIC_LIST_RESULTS` (10,000). A page holds fewer
+                when that many would exceed the size limit of one API response.
             descending: Yield the largest ``sort_by`` values first instead of
                 the smallest, so with the default ``sort_by`` the most recent
                 sessions come first. Applies across the whole result set, not

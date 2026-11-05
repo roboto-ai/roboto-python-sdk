@@ -338,9 +338,10 @@ as the default page size, so total result-set size is unbounded. Callers can
 request smaller pages by setting
 :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.max_results`.
 
-:py:meth:`~roboto.domain.metrics.Metric.get_by_session` does **not** paginate
-and is still capped at this many rows; sessions with more data points should
-use the paginated :py:meth:`~roboto.domain.metrics.Metric.query` instead.
+:py:meth:`~roboto.domain.metrics.Metric.get_by_session` does not paginate and
+returns at most this many metrics; read a session with more in parts by
+narrowing the listing with its ``name_prefix`` and ``exclude_name_prefix``
+filters.
 """
 
 
@@ -395,7 +396,10 @@ class QueryMetricsRequest(pydantic.BaseModel):
     parameter the same way. Defaults to ``None`` (now)."""
 
     max_results: int = pydantic.Field(default=MAX_METRIC_LIST_RESULTS, le=MAX_METRIC_LIST_RESULTS, gt=0)
-    """Maximum number of data points to return. Must be between 1 and :py:data:`MAX_METRIC_LIST_RESULTS` (10,000)."""
+    """Maximum number of data points in one page. Must be between 1 and :py:data:`MAX_METRIC_LIST_RESULTS` (10,000).
+
+    A page can hold fewer, with a page token for the rest, when this many data points would exceed the size of a
+    single API response."""
 
     sort_by: typing.Optional[str] = None
     """Field to order data points by, with ``session_id`` as a deterministic tiebreaker and, when

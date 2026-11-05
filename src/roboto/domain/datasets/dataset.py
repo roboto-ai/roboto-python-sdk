@@ -727,9 +727,10 @@ class Dataset:
         Permanently removes the dataset and all its associated files, metadata, and topics. This operation cannot
         be undone.
 
-        If a dataset's files are hosted in Roboto managed S3 buckets or customer read/write bring-your-own-buckets,
-        the files in this dataset will be deleted from S3 as well. For files hosted in customer read-only buckets,
-        the files will not be deleted from S3, but the dataset record and all associated metadata will be deleted.
+        Files uploaded through Roboto are deleted from S3 as well, whether they are stored in a Roboto-managed bucket
+        or in a bring-your-own bucket. Files imported from such a bucket (see
+        :py:meth:`roboto.domain.files.File.import_batch`) are not deleted from S3; only their records and metadata
+        are deleted from Roboto.
 
         Raises:
             RobotoDatasetNotFoundException: Dataset does not exist or has already been deleted.

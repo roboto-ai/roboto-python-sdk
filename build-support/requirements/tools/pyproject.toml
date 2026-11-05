@@ -53,6 +53,14 @@ module = [
 ]
 ignore_missing_imports = true
 
+# All pants mypy runs in a worktree share one cache, but a run over part of the repo (ops_observer alone in
+# build-ops.sh, or a targeted `pants check <files>`) installs only that part's requirements. A full run records
+# qdrant_client's generated modules as indirect dependencies of nearly every module, so the partial run then
+# failed on "Cannot find implementation or library stub" for them, and each later full run recorded them again.
+[[tool.mypy.overrides]]
+module = ["qdrant_client", "qdrant_client.*"]
+ignore_missing_imports = true
+
 # mcap (>=1.4.0) ships a py.typed marker, so mypy follows into its sources and
 # trips over "Source file found twice under different module names" -- a namespace
 # package collision in its package layout that aborts the whole run. We don't
@@ -225,4 +233,6 @@ known-first-party = [
     "roboto_service",
     "roboto_service_tests",
     "roboto_integ",
+    "session_metrics",
+    "session_metrics_tests",
 ]

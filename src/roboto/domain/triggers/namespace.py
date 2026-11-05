@@ -6,6 +6,7 @@
 
 import typing
 
+from ...experimental import events as experimental_events
 from ...updates import MetadataChangeset
 from ..platform_events import (
     ENVELOPE_ROOT,
@@ -29,6 +30,21 @@ TAG_ROOT = "tag"
 SCHEDULE_ROOT = "schedule"
 """Occurrence root for schedule firings: the scheduled minute, plus the bound trigger's
 cron expression. Served from the occurrence itself and never touches the source."""
+
+
+def session_event_root(record: experimental_events.EventRecord) -> dict[str, typing.Any]:
+    """The ``event`` root of a session event's firing: its record, plus the names and IDs of the topics it is about
+    as ``topic_names`` and ``topic_ids``.
+
+    A condition walks mappings only, so it cannot reach into the record's ``topics`` list of objects; these flat
+    lists let ``event.topic_names CONTAINS "/imu"`` match an event about ``/imu``. Both are empty for an event about
+    all of its session's data.
+    """
+    return {
+        **record.model_dump(mode="json"),
+        "topic_names": [topic.topic_name for topic in record.topics],
+        "topic_ids": [topic.topic_id for topic in record.topics],
+    }
 
 
 @typing.runtime_checkable
@@ -250,4 +266,5 @@ __all__ = [
     "TRIGGER_ROOT",
     "EventNamespace",
     "NamespaceSource",
+    "session_event_root",
 ]

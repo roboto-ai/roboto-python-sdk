@@ -28,6 +28,7 @@ from .events import (
     PlatformEvent,
     PlatformEventType,
     ScheduleFiredPayload,
+    SessionEventCreatedPayload,
     SessionIngestedPayload,
     UploadCompletedPayload,
 )
@@ -406,6 +407,17 @@ DEFAULT_PLATFORM_EVENT_CATALOG = PlatformEventCatalog(
             event_type=PlatformEventType.EventCreated,
             payload_model=EventCreatedPayload,
             exposed_roots=frozenset({"event"}),
+            default_root="event",
+            once_per_projections={
+                OncePer.Occurrence: _event_id,
+                OncePer.Event: _annotation_event_id,
+            },
+            subject_type=RobotoUriType.Event,
+        ),
+        PlatformEventDescriptor(
+            event_type=PlatformEventType.SessionEventCreated,
+            payload_model=SessionEventCreatedPayload,
+            exposed_roots=frozenset({"event", "session"}),
             default_root="event",
             once_per_projections={
                 OncePer.Occurrence: _event_id,

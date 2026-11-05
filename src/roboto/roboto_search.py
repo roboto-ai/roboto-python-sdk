@@ -22,6 +22,7 @@ from .domain import (
     topics,
 )
 from .env import RobotoEnv
+from .experimental import events as experimental_events
 from .experimental import sessions
 from .http import RobotoClient
 from .query import Query, QueryClient, QueryContentMode, QueryTarget
@@ -179,12 +180,43 @@ class RobotoSearch:
 
     def find_events(
         self, query: typing.Optional[Query] = None, timeout_seconds: float = math.inf
-    ) -> collections.abc.Generator[events.Event]:
+    ) -> collections.abc.Generator[typing.Union[events.Event, experimental_events.Event]]:
+        """Yield the events matching ``query``, one at a time.
+
+        Args:
+            query: A RoboQL query string or a :py:class:`~roboto.query.QuerySpecification`. ``None`` matches every
+                event.
+            timeout_seconds: How long to wait for the query's results. Waits indefinitely by default.
+
+        Raises:
+            roboto.waiters.TimeoutError: The query's results were not ready within ``timeout_seconds``.
+
+        Yields:
+            Dataset events as :py:class:`roboto.domain.events.Event` and, in organizations that have session events
+            enabled and to a caller who may view the organization's sessions, session events as
+            :py:class:`roboto.experimental.events.Event`. Only a session event has a ``session_id``, so a condition
+            on ``session_id`` selects one kind or the other.
+
+        Examples:
+            >>> from roboto import RobotoSearch
+            >>> for event in RobotoSearch().find_events("name = 'Hard landing'"):
+            ...     print(event.event_id, event.name)
+
+            Only the events created on one session:
+
+            >>> for event in RobotoSearch().find_events("session_id = 'se_0123456789ab'"):
+            ...     print(event.event_id, event.start_time)
+        """
         for result in self.__query_client.submit_query(query, QueryTarget.Events, timeout_seconds):
-            yield events.Event(
-                events.EventRecord.model_validate(result),
-                self.__query_client.roboto_client,
-            )
+            if result.get("session_id") is not None:
+                yield experimental_events.Event(
+                    experimental_events.EventRecord.model_validate(result), self.__query_client.roboto_client
+                )
+            else:
+                yield events.Event(
+                    events.EventRecord.model_validate(result),
+                    self.__query_client.roboto_client,
+                )
 
     @experimental
     def find_sessions(

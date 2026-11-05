@@ -16,8 +16,8 @@ row's ``uint64`` position among its file's rows of the topic, marked by :py:data
 When a partition's fields are stored across several files, merging those files compares this column to confirm
 every file holds the same rows. Batches returned to a caller leave it out (:py:func:`drop_row_number_column`).
 
-:py:func:`flatten_table` expands a table's struct columns into dot-delimited leaf columns, which
-``Topic.get_data_as_df(flatten=True)`` returns as the value columns of its DataFrame.
+:py:func:`flatten_table` expands a table's struct columns into dot-delimited leaf columns, and adds a column per
+element of each named array, which ``Topic.get_data_as_df(flatten=True)`` returns as the value columns of its DataFrame.
 
 It also exposes the helpers that construct and locate the timestamp and row number columns
 (:py:func:`topic_data_schema`, :py:func:`timestamp_field`, :py:func:`timestamp_column_index`,
@@ -28,6 +28,7 @@ name.
 from __future__ import annotations
 
 import collections.abc
+import json
 import typing
 
 from ...compat import import_optional_dependency
@@ -58,6 +59,12 @@ origin. It matches the ``_index`` index that :py:meth:`Topic.get_data_as_df` lab
 real identity is its metadata marker (:py:data:`TIMESTAMP_FIELD_METADATA_KEY`), never this name, which is
 uniquified by suffixing when a projected field already claims it."""
 
+
+ELEMENT_NAMES_FIELD_METADATA_KEY = b"roboto.topic_data.element_names"
+"""Arrow field-metadata key on a named array column, whose value is the JSON list of its elements' names.
+
+The names are in element order and cover exactly the elements the column holds, so a read that selects some elements
+of a named array lists only those. :py:func:`with_element_names` writes it and :py:func:`element_names` reads it."""
 
 ROW_NUMBER_FIELD_METADATA_KEY = b"roboto.topic_data.row_number"
 """Arrow field-metadata key marking the row number column of a decoded topic-data batch.
@@ -134,12 +141,36 @@ def timestamp_column_index(schema: "pyarrow.Schema") -> int:
     return _marked_column_index(schema, TIMESTAMP_FIELD_METADATA_KEY, "timestamp")
 
 
+def with_element_names(field: "pyarrow.Field", names: collections.abc.Sequence[str]) -> "pyarrow.Field":
+    """Return ``field`` carrying ``names`` in :py:data:`ELEMENT_NAMES_FIELD_METADATA_KEY`, keeping its other metadata.
+
+    Args:
+        field: A named array column.
+        names: The names of the elements the column holds, in element order.
+    """
+    metadata: dict[typing.Union[bytes, str], typing.Union[bytes, str]] = {
+        key: value for key, value in (field.metadata or {}).items()
+    }
+    metadata[ELEMENT_NAMES_FIELD_METADATA_KEY] = json.dumps(list(names)).encode()
+    return field.with_metadata(metadata)
+
+
+def element_names(field: "pyarrow.Field") -> typing.Optional[list[str]]:
+    """Return the element names a named array column carries in :py:data:`ELEMENT_NAMES_FIELD_METADATA_KEY`, or
+    ``None`` for any other column."""
+    encoded = (field.metadata or {}).get(ELEMENT_NAMES_FIELD_METADATA_KEY)
+    return json.loads(encoded) if encoded is not None else None
+
+
 def flatten_table(table: "pyarrow.Table") -> "pyarrow.Table":
-    """Expand struct columns into dot-delimited leaf columns, recursively.
+    """Expand struct columns into dot-delimited leaf columns, recursively, and add a column per named array element.
 
     A null at any struct level propagates to nulls in every leaf column
     beneath it. List-typed columns stay whole. This is the DataFrame packing
     shape: dotted leaf columns over the projected tree.
+
+    A named array column (one carrying :py:data:`ELEMENT_NAMES_FIELD_METADATA_KEY`) stays, followed by one
+    ``<array name>.<element name>`` column per element, null where the array is null.
 
     Raises:
         RobotoInvalidRequestException: Two columns resolve to the same dotted
@@ -151,16 +182,28 @@ def flatten_table(table: "pyarrow.Table") -> "pyarrow.Table":
     pa = import_optional_dependency("pyarrow", "analytics")
     pc = import_optional_dependency("pyarrow.compute", "analytics")
 
+    if any(element_names(field) is not None for field in table.schema):
+        # Named arrays are expanded first and apart from structs, because only this pass keeps field metadata.
+        fields: dict[str, "pyarrow.Field"] = {}
+        arrays: list[typing.Any] = []
+
+        def keep(field: "pyarrow.Field", array: typing.Any) -> None:
+            _refuse_collision(fields, field.name)
+            fields[field.name] = field
+            arrays.append(array)
+
+        for field in table.schema:
+            keep(field, table[field.name])
+            for index, name in enumerate(element_names(field) or ()):
+                element = pc.list_element(table[field.name], index)
+                keep(pa.field(f"{field.name}.{name}", element.type), element)
+        table = pa.table(arrays, schema=pa.schema(list(fields.values())))
+
     while any(pa.types.is_struct(field.type) for field in table.schema):
         columns: dict[str, typing.Any] = {}
 
         def add_column(name: str, column: typing.Any) -> None:
-            if name in columns:
-                raise RobotoInvalidRequestException(
-                    f"Flattening produced two columns named {name!r}; the dotted packing shape "
-                    "cannot represent both. Rename the colliding field or call get_data_as_df "
-                    "with flatten=False."
-                )
+            _refuse_collision(columns, name)
             columns[name] = column
 
         for field in table.schema:
@@ -172,6 +215,15 @@ def flatten_table(table: "pyarrow.Table") -> "pyarrow.Table":
                 add_column(field.name, column)
         table = pa.table(columns)
     return table
+
+
+def _refuse_collision(names: collections.abc.Container[str], name: str) -> None:
+    if name in names:
+        raise RobotoInvalidRequestException(
+            f"Flattening produced two columns named {name!r}; the dotted packing shape "
+            "cannot represent both. Rename the colliding field or call get_data_as_df "
+            "with flatten=False."
+        )
 
 
 def _marked_column_index(schema: "pyarrow.Schema", key: bytes, column: str) -> int:

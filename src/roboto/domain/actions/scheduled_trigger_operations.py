@@ -35,7 +35,7 @@ class CreateScheduledTriggerRequest(pydantic.BaseModel):
     enabled: bool
     invocation_input: Optional[InvocationInput] = None
     invocation_upload_destination: Optional[InvocationUploadDestination] = None
-    name: str = pydantic.Field(pattern=r"[\w\-]+", max_length=256)
+    name: str = pydantic.Field(pattern=r"^[\w\-]+$", max_length=256)
     parameter_values: Optional[dict[str, Any]] = None
     schedule: str
     timeout: Optional[Annotated[int, pydantic.Field(ge=0)]] = None

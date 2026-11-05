@@ -90,7 +90,11 @@ class PlatformEventType(StrEnum):
     time the session's ingestable files change and are all ingested again."""
 
     EventCreated = "event.created"
-    """An event, the annotation marking a span of time on your data, was created."""
+    """An event (:py:class:`roboto.domain.events.Event`), the annotation marking a span of time on a dataset or its
+    files or topics, was created. Creating an event on a session publishes :attr:`SessionEventCreated` instead."""
+
+    SessionEventCreated = "session_event.created"
+    """An event (:py:class:`roboto.experimental.events.Event`) was created on a session."""
 
     ScheduleFired = "schedule.fired"
     """A trigger's own schedule reached one of its minutes. Not subscribable: a trigger
@@ -251,6 +255,18 @@ class EventCreatedPayload(pydantic.BaseModel):
     """The created event, an :class:`~roboto.domain.events.EventRecord`."""
 
 
+class SessionEventCreatedPayload(pydantic.BaseModel):
+    """Payload for :attr:`PlatformEventType.SessionEventCreated`."""
+
+    model_config = _FROZEN
+
+    event_id: str
+    """The created event, an :class:`~roboto.experimental.events.EventRecord`."""
+
+    session_id: str
+    """The session the event belongs to."""
+
+
 class SessionIngestedPayload(pydantic.BaseModel):
     """Payload for :attr:`PlatformEventType.SessionIngested`."""
 
@@ -287,6 +303,7 @@ PlatformEventPayload = typing.Union[
     InvocationFailedPayload,
     SessionIngestedPayload,
     EventCreatedPayload,
+    SessionEventCreatedPayload,
     ScheduleFiredPayload,
 ]
 """Union of every per-type payload model. Which member is legal for a given
@@ -451,6 +468,7 @@ __all__ = [
     "PlatformEventPayload",
     "PlatformEventType",
     "ScheduleFiredPayload",
+    "SessionEventCreatedPayload",
     "SessionIngestedPayload",
     "UploadCompletedPayload",
     "platform_event_source",

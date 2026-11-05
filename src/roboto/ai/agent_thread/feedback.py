@@ -127,6 +127,9 @@ class AdminUpdateFeedbackRequest(pydantic.BaseModel):
 
     Setting ``resolved`` to ``True`` additionally stamps ``resolved_at`` and
     ``resolved_by`` server-side; setting it back to ``False`` clears them.
+
+    ``admin_label`` is stored trimmed, and a blank label clears the column.
+    Case is kept: labels are case-sensitive.
     """
 
     admin_label: Union[Optional[str], NotSetType] = NotSet
@@ -142,6 +145,15 @@ class AdminUpdateFeedbackRequest(pydantic.BaseModel):
         extra="forbid",
         json_schema_extra=NotSetType.openapi_schema_modifier,
     )
+
+    @pydantic.field_validator("admin_label")
+    @classmethod
+    def _normalize_admin_label(cls, value: Union[Optional[str], NotSetType]) -> Union[Optional[str], NotSetType]:
+        # Labels are filtered and counted by exact value, so "dup" and "dup "
+        # would otherwise be two labels.
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
 
 
 class AgentFeedbackRecord(pydantic.BaseModel):

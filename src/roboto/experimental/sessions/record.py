@@ -11,6 +11,8 @@ import pydantic
 
 from ...compat import StrEnum
 from ...domain.files import IngestionStatus
+from ...domain.topics import TopicIdentityRecord
+from ...domain.topics.record import FieldPath
 from ...pydantic.serializers import field_serializer_custom_field_values
 from ..ingestion_runs import IngestionRun
 
@@ -401,3 +403,118 @@ class SessionFileView(pydantic.BaseModel):
     ``min_wall_clock_timestamp_ns`` and ``max_wall_clock_timestamp_ns``, and what to subtract to read any
     other instant back in the file's own timestamps. ``None`` when that data includes nothing registered,
     and when it sits at more than one instant, which leaves no single offset to report."""
+
+
+class SessionTopicSchema(pydantic.BaseModel):
+    """A schema a topic's data in a Session is recorded with."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    checksum: str
+    """Content checksum of the schema's fields, unique within an organization."""
+
+    name: typing.Optional[str] = None
+    """Name of the schema, such as ``"sensor_msgs/msg/Imu"``, or ``None`` when the schema was recorded without one."""
+
+    schema_id: str
+    """Stable identifier of the schema."""
+
+
+class SessionTopicRecord(TopicIdentityRecord):
+    """A topic whose data a Session holds, with that data's schemas, time span, file count and message count."""
+
+    end_time_ns: typing.Optional[int] = None
+    """Latest instant of the topic's data in the Session, in Unix-epoch nanoseconds, or ``None`` when its data
+    carries no timestamps."""
+
+    file_count: int = 0
+    """How many of the Session's files carry data of the topic."""
+
+    message_count: typing.Optional[int] = None
+    """How many messages of the topic the Session holds, from the Session's ``topic_stats`` metrics; ``None``
+    until those metrics are computed, when topic statistics are not available in the Session's organization, and
+    for a topic whose count could not be determined."""
+
+    schemas: list[SessionTopicSchema] = pydantic.Field(default_factory=list)
+    """The schemas the topic's data in the Session is recorded with, ordered by when Roboto first ingested the
+    topic's data under each from the Session's files. Most topics have one."""
+
+    start_time_ns: typing.Optional[int] = None
+    """Earliest instant of the topic's data in the Session, in Unix-epoch nanoseconds, or ``None`` when its data
+    carries no timestamps."""
+
+
+class SessionTopicFieldStats(pydantic.BaseModel):
+    """The statistics of one field of a topic over a Session's data."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    path: FieldPath
+    """Path of the field in its schema, from the schema root to the leaf. For one element of an array field declared
+    with element names, the array's path followed by the element's name, such as ``("action", "main_gripper")``."""
+
+    stats: dict[str, float] = pydantic.Field(default_factory=dict)
+    """Each statistic computed for the field, by name: ``count``, ``min``, ``max``, ``mean``, ``median``, ``sum``,
+    ``stddev``, ``p25``, ``p75``, ``p95`` and ``p99`` for a numeric field; ``count``, ``true_count`` and
+    ``false_count`` for a boolean one. A statistic that was not computed is absent."""
+
+
+class SessionTopicStats(pydantic.BaseModel):
+    """The statistics of one topic over a Session's data, grouped by field."""
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    fields: list[SessionTopicFieldStats] = pydantic.Field(default_factory=list)
+    """One entry per field of the topic that has statistics, ordered by path, except that the elements of a named array
+    follow the array's path in the order its names were declared."""
+
+    message_count: typing.Optional[int] = None
+    """How many messages of the topic the Session holds, or ``None`` when that count was not computed."""
+
+    topic_id: str
+    """Stable identifier of the topic."""
+
+
+class SessionTopicStatsRunStatus(StrEnum):
+    """Where the latest run Roboto triggered to compute a Session's topic statistics stands."""
+
+    NotRun = "not_run"
+    """No run was triggered for the Session, such as one that was never ingested, or was ingested before Roboto
+    computed topic statistics in its org."""
+
+    Scheduled = "scheduled"
+    """The Session was announced ingested in the last five minutes, the organization's session-metrics trigger is
+    enabled, and Roboto has yet to start the run for that announcement."""
+
+    Running = "running"
+    """Roboto is starting the ``session_metrics`` action, or the action is queued or running."""
+
+    Failed = "failed"
+    """The action failed or was cancelled, or Roboto could not start it."""
+
+    Finished = "finished"
+    """The action finished. It can leave some topics without statistics: when the Session's topics would have more
+    than 10,000 statistics in all, the topics with the most fields are left out until the rest fit."""
+
+
+class SessionTopicStatsRun(pydantic.BaseModel):
+    """The latest run of the ``session_metrics`` action that Roboto triggered on a Session.
+
+    Roboto triggers one each time the Session is announced ingested, but only while the organization's
+    session-metrics trigger (named ``roboto-session-metrics``) is installed and enabled. Runs of the action
+    started by hand are not included.
+    """
+
+    model_config = pydantic.ConfigDict(frozen=True)
+
+    status: SessionTopicStatsRunStatus
+    """Where the run stands. When Roboto triggered no run on the Session's latest announcement and none is
+    ``scheduled``, this describes the run on the newest earlier announcement that has one, which computed
+    statistics from the Session's files as they were then."""
+
+    started: typing.Optional[datetime.datetime] = None
+    """When Roboto last tried to start the run; ``None`` when it is scheduled or was not run."""
+
+    invocation_id: typing.Optional[str] = None
+    """The action invocation the run started; ``None`` while Roboto is still starting it, when it was not run, and
+    when Roboto could not start one."""
