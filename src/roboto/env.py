@@ -54,6 +54,23 @@ def resolve_env_variables(value: str):
 class RobotoEnvKey(StrEnum):
     """Environment variable keys available within an action invocation runtime"""
 
+    ActionInputs = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_INPUTS"
+    """The input manifest itself, as JSON, rather than a path to it.
+
+    Substrates that invocation pushed code have no sidecar to stage a file with and no shared filesystem
+    to stage it onto, so the manifest travels by value. Where a sidecar runs beside the code,
+    ``ActionInputsManifest`` names a file instead — that path stays the preferred form, because a
+    large manifest does not belong in an environment block."""
+
+    ActionInputsUrl = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_INPUTS_URL"
+    """A presigned GET for the same manifest ``ActionInputs`` carries by value.
+
+    The by-reference half of one channel, because a manifest is not bounded: a selection of a few
+    thousand files serialises to megabytes, which fits in no substrate's environment block, while
+    a five-file one costs an object write and a round trip it does not need. The platform picks the
+    form by size; :py:meth:`~roboto.action_runtime.InvocationContext.get_input` reads either, so
+    nothing downstream knows which was used."""
+
     ActionInputsManifest = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_INPUTS_MANIFEST"
     ActionParametersFile = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_PARAMETERS_FILE"
     ActionRuntimeConfigDir = f"{ROBOTO_ENV_VAR_PREFIX}ACTION_RUNTIME_CONFIG_DIR"
@@ -78,6 +95,15 @@ class RobotoEnvKey(StrEnum):
     """Deprecated, use RobotoServiceEndpoint instead. Left here until 0.3.3 is released so we can migrate
     existing actions to use the new env var."""
     RobotoServiceEndpoint = f"{ROBOTO_ENV_VAR_PREFIX}SERVICE_ENDPOINT"
+
+    StageInputs = f"{ROBOTO_ENV_VAR_PREFIX}STAGE_INPUTS"
+    """Whether the sidecar downloads the invocation's selected files into ``$ROBOTO_INPUT_DIR``.
+
+    Separate from the manifest because naming an invocation's inputs and staging their bytes are separate
+    channels: every invocation learns what it was invoked on, and only some want the bytes on disk. Reading
+    "has inputs" as "download them" is what left an action declaring
+    ``requires_downloaded_inputs=False`` with a choice between staging a selection it never asked
+    for and seeing no inputs at all."""
 
     @staticmethod
     def for_parameter(param_name: str) -> str:

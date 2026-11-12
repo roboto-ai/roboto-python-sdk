@@ -5,12 +5,13 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import os
-from typing import Optional
+from typing import Optional, Union
 
 import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import (
+    Credentials,
     ReadOnlyCredentials,
 )
 
@@ -46,14 +47,26 @@ class BearerTokenDecorator:
 
 
 class SigV4AuthDecorator:
-    __credentials: Optional[ReadOnlyCredentials]
+    """Signs each request with AWS Signature Version 4.
+
+    Args:
+        service: The AWS service name to sign for.
+        credentials: Credentials to sign with. ``ReadOnlyCredentials`` are used as given for every request. A
+            botocore ``Credentials`` object, such as ``RefreshableCredentials`` for an assumed role, is read again
+            for each request, so it can refresh itself before it expires. ``None`` resolves this process's own
+            credentials for each request.
+        region: The AWS region to sign for. Defaults to the session's region, then ``AWS_REGION`` or
+            ``AWS_DEFAULT_REGION``.
+    """
+
+    __credentials: Optional[Union[ReadOnlyCredentials, Credentials]]
     """Explicitly supplied credentials, or ``None`` to resolve them per request.
 
-    ``None`` is the important case for a long-lived process. Role credentials -- a Fargate
-    task's, an EC2 instance's -- are temporary and rotate; a snapshot taken once at
-    construction goes stale after a few hours, and every request signed with it is then
-    rejected as expired until the process restarts. Resolving per request lets botocore hand
-    over whatever is current.
+    ``None`` and a botocore ``Credentials`` object are the important cases for a long-lived
+    process. Role credentials -- a Fargate task's, an EC2 instance's, an assumed role's -- are
+    temporary and rotate; a snapshot taken once at construction goes stale within hours, and
+    every request signed with it is then rejected as expired until the process restarts.
+    Resolving per request lets botocore hand over whatever is current.
     """
 
     __session: Optional[boto3.Session]
@@ -83,7 +96,7 @@ class SigV4AuthDecorator:
     def __init__(
         self,
         service: str = "execute-api",
-        credentials: Optional[ReadOnlyCredentials] = None,
+        credentials: Optional[Union[ReadOnlyCredentials, Credentials]] = None,
         region: Optional[str] = None,
     ):
         self.__credentials = credentials
@@ -112,9 +125,13 @@ class SigV4AuthDecorator:
     def __current_credentials(self) -> ReadOnlyCredentials:
         """The credentials to sign this request with.
 
-        Explicit ones are returned as given -- a caller that supplied credentials owns their
-        lifetime. Otherwise the session is asked afresh, which is what picks up a rotation.
+        Explicit frozen ones are returned as given -- a caller that supplied them owns their
+        lifetime. An explicit ``Credentials`` object, or the session, is asked afresh, which is what
+        picks up a rotation.
         """
+        if isinstance(self.__credentials, Credentials):
+            return self.__credentials.get_frozen_credentials()
+
         if self.__credentials is not None:
             return self.__credentials
 

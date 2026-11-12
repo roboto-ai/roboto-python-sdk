@@ -168,14 +168,29 @@ class BoardValueControlBody(_DefinitionPart):
         return self
 
 
+class BoardTopicFieldPath(_DefinitionPart):
+    """A topic field named by its path. A field control on a topic may name its options and its default this way.
+    Unlike a dotted name, a path names a field whose path component holds a dot without ambiguity."""
+
+    path: list[typing.Annotated[str, pydantic.Field(min_length=1)]] = pydantic.Field(min_length=1)
+    """The field's path components from the message root, for example ``["linear_acceleration", "z"]``. A component
+    may hold a dot, so ``["gps.fix"]`` and ``["gps", "fix"]`` are two fields."""
+
+
+_FieldValue = typing.Union[typing.Annotated[str, pydantic.Field(min_length=1)], BoardTopicFieldPath]
+
+
 class BoardFieldControlOption(_DefinitionPart):
     """One field a field control lists, and the label the control shows for it."""
 
     label: str
     """The text the control shows for the field."""
 
-    value: str = pydantic.Field(min_length=1)
-    """The field, for example ``name``, ``custom.<field_name>`` or a dotted topic field path."""
+    value: _FieldValue
+    """The field. On a control with a :py:attr:`~BoardFieldControlBody.target`, its name: ``name``, or
+    ``custom.<field_name>`` for a custom field. On a control with a :py:attr:`~BoardFieldControlBody.topic`, its
+    path (:py:class:`BoardTopicFieldPath`) or its dotted name, such as ``linear_acceleration.z``, which the board splits
+    at every dot."""
 
 
 class BoardFieldControlBody(_DefinitionPart):
@@ -188,9 +203,12 @@ class BoardFieldControlBody(_DefinitionPart):
     kind: typing.Literal["field-control"]
     """Marks the stage as a field control."""
 
-    default: typing.Optional[str] = pydantic.Field(default=None, min_length=1)
-    """The field the control holds when the board opens and the board's URL has no ``control.<name>`` key for the
-    control, and after the control is reset to its default from the control bar."""
+    default: typing.Optional[_FieldValue] = None
+    """The field the control holds when the board opens and the board's URL carries no value for the control, and
+    after the control is reset to its default from the control bar. It takes the same forms as an option's
+    :py:attr:`~BoardFieldControlOption.value`. When a topic control does not offer the path that a dotted default
+    names, the control holds the one field it offers whose path, joined by dots, equals the default, if exactly one
+    does."""
 
     label: typing.Optional[str] = None
     """The control's caption."""
@@ -209,6 +227,19 @@ class BoardFieldControlBody(_DefinitionPart):
         """Reject a field control that declares both or neither of a target and a topic."""
         if (self.target is None) == (self.topic is None):
             raise ValueError("A field control declares exactly one of target and topic")
+        return self
+
+    @pydantic.model_validator(mode="after")
+    def validate_target_fields_are_named_as_text(self) -> "BoardFieldControlBody":
+        """Reject a field path as the default or an option of a control on a target, whose fields are named as text."""
+        if self.target is None:
+            return self
+        values = [self.default, *(option.value for option in self.options or [])]
+        if any(isinstance(value, BoardTopicFieldPath) for value in values):
+            raise ValueError(
+                'A field control on a "target" names its fields as text, such as "name" or "custom.<field_name>"; a'
+                ' field path ({"path": [...]}) names only a topic field'
+            )
         return self
 
 

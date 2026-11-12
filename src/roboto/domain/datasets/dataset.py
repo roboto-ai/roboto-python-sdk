@@ -1177,23 +1177,22 @@ class Dataset:
         self,
         tags: StrSequence,
     ) -> None:
-        """Add or update tags for this dataset.
+        """Add tags to this dataset.
 
-        Adds each tag in the provided sequence to the dataset. If a tag already
-        exists, it will not be duplicated. This operation replaces the current
-        tag list with the provided tags.
+        Keeps the dataset's existing tags. A tag the dataset already has is not added again.
 
         Args:
-            tags: Sequence of tag strings to set on the dataset.
+            tags: Tags to add to the dataset.
 
         Raises:
             RobotoUnauthorizedException: Caller lacks permission to update the dataset.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
-            >>> dataset.put_tags(["highway", "autonomous", "test", "sunny"])
-            >>> print(dataset.tags)
-            ['highway', 'autonomous', 'test', 'sunny']
+            >>> dataset.put_tags(["highway", "sunny"])
+            >>> dataset.put_tags(["test"])
+            >>> {"highway", "sunny", "test"} <= set(dataset.tags)
+            True
         """
         self.update(
             metadata_changeset=MetadataChangeset(put_tags=tags),

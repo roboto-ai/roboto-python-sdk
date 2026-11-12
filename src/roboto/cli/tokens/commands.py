@@ -100,7 +100,7 @@ create_command = RobotoCommand(
 list_command = RobotoCommand(
     name="list",
     logic=list,
-    command_kwargs={"help": "Creates a temporary access token."},
+    command_kwargs={"help": "Lists your access tokens."},
 )
 
 show_command = RobotoCommand(

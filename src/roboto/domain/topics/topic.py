@@ -920,23 +920,23 @@ class Topic:
             Timestamp and dictionary records that match this topic's schema, filtered according to the parameters.
 
         Notes:
-            For each example below, assume the following is a sample datum record that can be found in this topic:
+            The path-filtering example below assumes this topic's records look like this sample:
 
             ::
 
-            {
-                "angular_velocity": {
-                    "x": <uint32>,
-                    "y": <uint32>,
-                    "z": <uint32>
-                },
-                "orientation": {
-                    "x": <uint32>,
-                    "y": <uint32>,
-                    "z": <uint32>,
-                    "w": <uint32>
+                {
+                    "angular_velocity": {
+                        "x": <uint32>,
+                        "y": <uint32>,
+                        "z": <uint32>
+                    },
+                    "orientation": {
+                        "x": <uint32>,
+                        "y": <uint32>,
+                        "z": <uint32>,
+                        "w": <uint32>
+                    }
                 }
-            }
 
         Examples:
             Print all data to stdout:

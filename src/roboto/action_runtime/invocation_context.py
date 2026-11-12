@@ -6,8 +6,10 @@
 
 import json
 import logging
+import os
 import pathlib
 import typing
+import urllib.request
 
 from ..domain import (
     actions,
@@ -28,6 +30,17 @@ from .file_changeset import (
 )
 
 log = default_logger()
+
+_MANIFEST_FETCH_TIMEOUT_S = 30
+"""Long enough for a multi-megabyte manifest over the object-storage endpoint a deny-all run
+reaches, short enough that an invocation does not spend its whole budget hanging on one GET."""
+
+
+def _fetch(url: str) -> str:
+    """Read a platform-presigned URL. Not through ``RobotoClient``: this is object storage, and the
+    URL already carries its own authorization."""
+    with urllib.request.urlopen(url, timeout=_MANIFEST_FETCH_TIMEOUT_S) as response:  # noqa: S310
+        return typing.cast(bytes, response.read()).decode("utf-8")
 
 
 def _raise_for_missing_env_var(var_name: str, env_var_name: str) -> typing.NoReturn:
@@ -352,6 +365,23 @@ class InvocationContext:
         """
         Instance of :class:`~roboto.action_runtime.ActionInput` containing resolved references to input data.
         """
+        inline = os.environ.get(RobotoEnvKey.ActionInputs.value)
+        if inline:
+            # Substrates that invocation pushed code have no sidecar to write a manifest file and no
+            # shared filesystem to write it onto, so they pass the manifest by value. Checked
+            # before the file path because a runtime that has this has no file to fall back to.
+            return ActionInput.from_record(ActionInputRecord.model_validate_json(inline), self.__roboto_client)
+
+        manifest_url = os.environ.get(RobotoEnvKey.ActionInputsUrl.value)
+        if manifest_url:
+            # The same manifest, fetched rather than read out of the environment, because a
+            # selection of more than a handful of files does not fit in an environment block. Which
+            # form an invocation got is the platform's decision and not visible from here: both resolve to
+            # the same ActionInput.
+            return ActionInput.from_record(
+                ActionInputRecord.model_validate_json(_fetch(manifest_url)), self.__roboto_client
+            )
+
         if self.__input_data_manifest_file is None:
             raise ActionRuntimeException("Couldn't find action input manifest file")
 

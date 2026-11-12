@@ -1284,6 +1284,7 @@
           "**/*.mcap"
         ],
         "rich_input_data": null,
+        "resolved_input_data": null,
         "upload_destination": null,
         "invocation_id": "iv_2x9pd7wk5rhf",
         "idempotency_id": null,
@@ -1376,6 +1377,7 @@
       "invocation.data_source.data_source_id",
       "invocation.input_data",
       "invocation.rich_input_data",
+      "invocation.resolved_input_data",
       "invocation.upload_destination",
       "invocation.invocation_id",
       "invocation.idempotency_id",
@@ -1476,6 +1478,7 @@
           "**/*.mcap"
         ],
         "rich_input_data": null,
+        "resolved_input_data": null,
         "upload_destination": null,
         "invocation_id": "iv_2x9pd7wk5rhf",
         "idempotency_id": null,
@@ -1568,6 +1571,7 @@
       "invocation.data_source.data_source_id",
       "invocation.input_data",
       "invocation.rich_input_data",
+      "invocation.resolved_input_data",
       "invocation.upload_destination",
       "invocation.invocation_id",
       "invocation.idempotency_id",

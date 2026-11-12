@@ -714,26 +714,27 @@ class Event:
         A single event can also span signals that share a timeline,
         so it may annotate multiple topics in a file, or even multiple files in a dataset.
 
-        For now, getting the underlying signal data associated with an event only works
-        for events that can be sourced to a single topic (extracted from one file, uploaded to one dataset).
-        This means that the event must have been made on either a single file, a single topic,
-        or one or many message paths within that topic.
+        Each call loads data from one topic (extracted from one file, uploaded to one dataset).
+        The event must have been made on a single file, on one or more topics,
+        or on one or more message paths in one or more topics.
 
         If the event was made on a file, `topic_name` must be provided,
         and either or both of `message_paths_include` or `message_paths_exclude` may be provided,
         but are optional.
 
-        If the event was made on a topic, either or both of `message_paths_include` or `message_paths_exclude`
+        If the event was made on topics, either or both of `message_paths_include` or `message_paths_exclude`
         may be provided, but are optional.
-        `topic_name`, if provided in this instance, is ignored.
+        If it was made on more than one topic, `topic_name` must name exactly one of them, and data is loaded
+        from that topic alone. If it was made on a single topic, `topic_name` is ignored.
 
-        If the event was made on one or many message paths,
-        each of those message paths must be found in the same topic.
-        `topic_name`, `message_paths_include`, and `message_paths_exclude`, if provided in this instance,
-        are ignored.
+        If the event was made on message paths, data is loaded for those message paths.
+        If they belong to more than one topic, `topic_name` must name exactly one of those topics,
+        and data is loaded only for the message paths in that topic.
+        If they belong to a single topic, `topic_name` is ignored.
+        `message_paths_include` and `message_paths_exclude`, if provided, are ignored.
 
         If the event is associated with data at multiple resolutions (e.g., two message paths, one topic, one file),
-        this method will consider the lowest resolution associations first (message path), then topic, then file.
+        this method uses the most specific associations: message paths first, then topics, then the file.
 
         If ``message_paths_include`` or ``message_paths_exclude`` are defined,
         they should be dot notation paths that match attributes of individual data records.
@@ -758,6 +759,10 @@ class Event:
         is expected to give the same output as:
 
             >>> event.get_data(message_paths_include=["velocity"], message_paths_exclude=["velocity.z"])
+
+        Raises:
+            RobotoInvalidRequestException: The event isn't associated with topic data, or its associations and
+                ``topic_name`` don't identify exactly one topic.
 
         Tip:
             For many events, parallelize with a thread pool:
@@ -803,7 +808,8 @@ class Event:
         Args:
             message_paths_include: Dot notation paths to include in the data.
             message_paths_exclude: Dot notation paths to exclude from the data.
-            topic_name: Required when event is associated with a file.
+            topic_name: Required when the event is associated with a file, with message paths in more than one topic,
+                or (when it has no message paths) with more than one topic; see :py:meth:`get_data`.
             topic_data_service: Service for accessing topic data.
             cache_dir: Directory for caching downloaded data.
 
@@ -900,21 +906,24 @@ class Event:
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
 
     def put_tags(self, tags: list[str]) -> "Event":
-        """Replace all tags for this event.
+        """Add tags to this event.
+
+        Keeps the event's existing tags. A tag the event already has is not added again.
 
         Args:
-            tags: List of tags to set for this event.
+            tags: Tags to add to the event.
 
         Returns:
             Updated Event instance.
 
         Examples:
-            Set tags for an event:
+            Add tags to an event:
 
             >>> event = Event.from_id("ev_abc123")
-            >>> updated_event = event.put_tags(["anomaly", "critical", "engine"])
-            >>> print(updated_event.tags)
-            ['anomaly', 'critical', 'engine']
+            >>> event = event.put_tags(["anomaly", "critical"])
+            >>> event = event.put_tags(["engine"])
+            >>> {"anomaly", "critical", "engine"} <= set(event.tags)
+            True
         """
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
@@ -1241,20 +1250,15 @@ class Event:
                 )
                 for message_path_id in message_path_ids
             ]
-            unique_topics = set([message_path.topic_id for message_path in message_paths])
-            if len(unique_topics) > 1:
-                raise RobotoInvalidRequestException(
-                    "Unable to load event data for events associated with more than one topic"
-                )
-
-            # Request data using the message paths' containing topic,
-            # which will better dedupe and make concurrent fetches for underlying data
-            # across many message paths.
-            topic_id = message_paths[0].topic_id
-            topic = Topic.from_id(topic_id=topic_id, roboto_client=self.__roboto_client)
+            # Read all the message paths in one read of their topic, so data they share is fetched once.
+            topic = self.__select_topic([message_path.topic_id for message_path in message_paths], topic_name)
             return GetDataArgs(
                 topic=topic,
-                message_paths_include=[message_path.record.source_path for message_path in message_paths],
+                message_paths_include=[
+                    message_path.record.source_path
+                    for message_path in message_paths
+                    if message_path.topic_id == topic.topic_id
+                ],
                 start_time=self.start_time,
                 end_time=self.end_time,
                 cache_dir=cache_dir,
@@ -1263,14 +1267,7 @@ class Event:
         # Event associated with topic
         topic_ids = self.topic_ids(strict_associations=strict_associations)
         if len(topic_ids) > 0:
-            unique_topics = set(topic_ids)
-            if len(unique_topics) > 1:
-                raise RobotoInvalidRequestException(
-                    "Unable to load event data for events associated with more than one topic"
-                )
-
-            topic_id = unique_topics.pop()
-            topic = Topic.from_id(topic_id=topic_id, roboto_client=self.__roboto_client)
+            topic = self.__select_topic(topic_ids, topic_name)
             return GetDataArgs(
                 topic=topic,
                 message_paths_include=message_paths_include,
@@ -1305,7 +1302,28 @@ class Event:
             )
 
         raise RobotoInvalidRequestException(
-            "Can only load event data for events ultimately sourced from a single topic. "
-            "That means it must be associated with either a single file, "
-            "a single topic extracted from a file, or one or many specific message paths within a single topic."
+            "Can only load event data for events associated with topic data: "
+            "a single file, one or more topics extracted from files, or specific message paths within those topics."
         )
+
+    def __select_topic(self, topic_ids: collections.abc.Iterable[str], topic_name: typing.Optional[str]) -> Topic:
+        """Return the topic to load data from: the only one in ``topic_ids``, or else the one named ``topic_name``."""
+        unique_topic_ids = set(topic_ids)
+        if len(unique_topic_ids) == 1:
+            return Topic.from_id(topic_id=unique_topic_ids.pop(), roboto_client=self.__roboto_client)
+
+        if topic_name is None:
+            raise RobotoInvalidRequestException(
+                "This event's data is in more than one topic. Pass 'topic_name' to choose the topic to load."
+            )
+
+        topics = [Topic.from_id(topic_id=topic_id, roboto_client=self.__roboto_client) for topic_id in unique_topic_ids]
+        named_topics = [topic for topic in topics if topic.name == topic_name]
+        if len(named_topics) != 1:
+            topic_names = ", ".join(sorted(f"'{topic.name}'" for topic in topics))
+            raise RobotoInvalidRequestException(
+                f"This event's data is in the topics {topic_names}. "
+                f"'topic_name' must name exactly one of them, but '{topic_name}' matches {len(named_topics)}."
+            )
+
+        return named_topics[0]

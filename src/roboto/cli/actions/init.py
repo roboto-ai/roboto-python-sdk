@@ -6,23 +6,47 @@
 
 import argparse
 import pathlib
+import shutil
+import subprocess
 import tempfile
 
+from cookiecutter.exceptions import CookiecutterException
 from cookiecutter.main import cookiecutter
 
 from ..command import RobotoCommand
 from ..context import CLIContext
+from ..setup.prerequisites import DOCKER_INSTALL_URL
+from ..terminal import print_error_and_exit, print_warning
 
 COOKIECUTTER_REPO = "https://github.com/roboto-ai/cookiecutter-roboto-actions.git"
+GIT_INSTALL_URL = "https://git-scm.com/downloads"
 
 
 def init(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     path: pathlib.Path = args.path
     path = path.resolve()
-    print(f"Creating Roboto action package under: {path}")
 
     if not path.is_dir():
         parser.error(f"{path} does not exist, or is not a directory.")
+
+    # Git is needed now: cookiecutter clones the template with it, and the template's hook can run git init and git
+    # commit. Docker is needed only later, to build and run the package.
+    if shutil.which("git") is None:
+        print_error_and_exit(
+            [
+                "Couldn't find the `git` command. Creating an action package needs Git.",
+                f"To install Git, see {GIT_INSTALL_URL}.",
+            ]
+        )
+    if shutil.which("docker") is None:
+        print_warning(
+            [
+                "Couldn't find the `docker` command. Building and running the action package needs Docker.",
+                f"To install Docker, see {DOCKER_INSTALL_URL}.",
+            ]
+        )
+
+    print(f"Creating Roboto action package under: {path}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # GM (2025-11-05)
@@ -45,6 +69,10 @@ def init(args: argparse.Namespace, context: CLIContext, parser: argparse.Argumen
             )
         except KeyboardInterrupt:
             pass
+        except (CookiecutterException, subprocess.CalledProcessError) as exc:
+            # cookiecutter raises CalledProcessError for a failed git clone and FailedHookException for a failed git
+            # command in the template's hook. Either way, Git's own output is already on the terminal.
+            print_error_and_exit(f"Couldn't create the action package: {exc}")
 
 
 def init_parser(parser: argparse.ArgumentParser):
@@ -62,4 +90,5 @@ init_command = RobotoCommand(
     logic=init,
     setup_parser=init_parser,
     command_kwargs={"help": "Initialize a new action package."},
+    requires_config=False,
 )

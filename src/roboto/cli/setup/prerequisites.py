@@ -13,6 +13,7 @@ from .files import download_file
 from .prompts import Prompts, confirm
 
 DOCKER_CHECK_TIMEOUT_SECONDS = 20
+DOCKER_INSTALL_URL = "https://docs.docker.com/get-started/get-docker/"
 
 UV_INSTALL_SCRIPT_URL = "https://astral.sh/uv/install.sh"
 UV_INSTALL_COMMAND = f"curl -LsSf {UV_INSTALL_SCRIPT_URL} | sh"
@@ -84,7 +85,7 @@ def check_docker(environment: SetupEnvironment) -> StepOutcome:
             step="Docker",
             status=StepStatus.Optional,
             summary=f"Couldn't find the `docker` command. {what_for}",
-            next_steps=("To install it, see https://docs.docker.com/get-started/get-docker/.",),
+            next_steps=(f"To install it, see {DOCKER_INSTALL_URL}.",),
         )
 
     if not _docker_info_succeeds(docker, environment):

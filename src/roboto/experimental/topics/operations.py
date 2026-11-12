@@ -10,7 +10,7 @@ import typing
 
 import pydantic
 
-from ...domain.topics.record import _INT64_MAX
+from ...int64 import INT64_MAX, INT64_MIN
 from ...time import _EpochNanosecondsFromTime
 from .record import RepresentationSelector
 
@@ -53,20 +53,33 @@ class RepresentationOverride(pydantic.BaseModel):
 
 
 class RepresentationPreference(pydantic.BaseModel):
-    """Selects which stored variant of each field to read, per subtree.
+    """Selects stored representations per field subtree.
 
-    A ``default`` selector applies to every field unless a more specific
-    ``override`` covers it. Where several overrides cover a field, the one whose
-    addressed subtree is the longest prefix of the field's path wins; this rule
-    is :py:meth:`selector_for`.
+    The most specific override covering a field supplies the field's only selector.
+    Elsewhere, selectors are tried in order: ``default``, then ``fallbacks``.
+    :py:meth:`selectors_for` resolves this ordered choice for a field.
 
-    The governing selector and its matching rule are contract: a selector
-    never substitutes a non-matching variant, and a read fails when a
-    selector that sets any criterion is satisfied by no stored representation
-    for a requested field — the plan never silently omits a field an explicit
-    requirement covers. Which of the representations that satisfy the
-    selector the service ultimately schedules is service policy and may
-    change between releases.
+    Each partition takes the first selector whose matching representations
+    cover the requested fields. With overrides, each subtree governed by
+    ``default`` chooses separately. A choice uses one selector's matching
+    representations, never partial coverage combined from different selectors.
+
+    If no selector covers the requested fields, the last selector decides.
+    A last selector with a criterion fails the read. A last selector with no
+    criteria schedules a representation for each subtree that has one, and
+    leaves the remaining fields without coverage. See
+    :py:attr:`~roboto.experimental.topics.ReadPlanPartition.scan_tasks`.
+
+    No selector admits a variant that fails its criteria. The service's choice
+    among matching representations is policy and may change between releases.
+
+    Example:
+        Read each partition's stored JPEG, or its stored PNG, or whatever it holds:
+
+        >>> preference = RepresentationPreference(
+        ...     default=RepresentationSelector(content_format="jpeg"),
+        ...     fallbacks=(RepresentationSelector(content_format="png"), RepresentationSelector()),
+        ... )
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -74,22 +87,42 @@ class RepresentationPreference(pydantic.BaseModel):
     default: RepresentationSelector = RepresentationSelector()
     """The selector applied to any field no override covers; matches anything when unset."""
 
+    fallbacks: tuple[RepresentationSelector, ...] = ()
+    """Selectors tried in order after ``default``, partition by partition. Overrides have none."""
+
     overrides: tuple[RepresentationOverride, ...] = ()
     """Per-subtree selector overrides, resolved longest-matching-prefix wins."""
 
     def selector_for(self, field_path: tuple[str, ...]) -> RepresentationSelector:
-        """Resolve the selector that governs the field at ``field_path``, longest-matching-prefix wins.
-
-        An override applies when its addressed subtree path is a prefix of
-        ``field_path``; among applicable overrides the deepest subtree wins,
-        and a field no override covers gets ``default``.
+        """Resolve the selector tried first for the field at ``field_path``; see :py:meth:`selectors_for`.
 
         Args:
             field_path: The ``path_in_schema`` components of the field whose
                 selector is being resolved.
 
         Returns:
-            The governing selector.
+            The selector tried first.
+
+        Raises:
+            ValueError: An override addresses its subtree by ``field_id``.
+        """
+        return self.selectors_for(field_path)[0]
+
+    def selectors_for(self, field_path: tuple[str, ...]) -> tuple[RepresentationSelector, ...]:
+        """Resolve the selectors to try for the field at ``field_path``, in order.
+
+        An override applies when its addressed subtree path is a prefix of
+        ``field_path``; among applicable overrides the deepest subtree wins,
+        and its selector is the only one tried. A field no override covers gets
+        ``default`` and then ``fallbacks``. An override's address decides this,
+        so an override whose selector equals ``default`` still has no fallbacks.
+
+        Args:
+            field_path: The ``path_in_schema`` components of the field whose
+                selectors are being resolved.
+
+        Returns:
+            The selectors to try, most preferred first.
 
         Raises:
             ValueError: An override addresses its subtree by ``field_id``.
@@ -97,19 +130,19 @@ class RepresentationPreference(pydantic.BaseModel):
                 value object does not hold; resolve every override address to
                 its ``path`` form first.
         """
-        chosen = self.default
+        chosen: typing.Optional[RepresentationSelector] = None
         chosen_depth = -1
         for override in self.overrides:
             subtree_path = override.field.path
             if subtree_path is None:
                 raise ValueError(
-                    "selector_for requires every override to address its subtree by path; "
+                    "selectors_for requires every override to address its subtree by path; "
                     f"resolve field_id {override.field.field_id!r} to its path form first"
                 )
             if field_path[: len(subtree_path)] == subtree_path and len(subtree_path) > chosen_depth:
                 chosen = override.selector
                 chosen_depth = len(subtree_path)
-        return chosen
+        return (self.default, *self.fallbacks) if chosen is None else (chosen,)
 
 
 class ReadPlanRequest(pydantic.BaseModel):
@@ -122,18 +155,20 @@ class ReadPlanRequest(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    start_time: typing.Optional[int] = None
+    start_time: typing.Optional[int] = pydantic.Field(default=None, ge=INT64_MIN, le=INT64_MAX)
     """Inclusive window lower bound, absolute Unix-epoch nanoseconds.
 
-    May be ``None`` only when the request names a ``file_id``, ``dataset_id`` or ``device_id``; the bound then
-    defaults to the earliest time of the topic's data within the request's restrictions, across every timeline
-    source. An explicit bound narrows the read and never widens it."""
+    Must fall between :py:data:`~roboto.int64.INT64_MIN` and :py:data:`~roboto.int64.INT64_MAX` (1677-09-21 to
+    2262-04-11 UTC), the range of the signed 64-bit integers that hold Roboto's nanosecond timestamps.
 
-    end_time: typing.Optional[int] = None
+    May be ``None`` only when the request names a ``session_id``, ``file_id``, ``dataset_id`` or ``device_id``; the read
+    then has no lower limit. An explicit bound narrows the read and never widens it."""
+
+    end_time: typing.Optional[int] = pydantic.Field(default=None, ge=INT64_MIN, le=INT64_MAX)
     """Inclusive window upper bound, absolute Unix-epoch nanoseconds.
 
-    May be ``None`` on the same terms as ``start_time``; the bound then defaults to the latest time of the topic's
-    data within the request's restrictions."""
+    Must fall in the same range as ``start_time``. May be ``None`` on the same terms as ``start_time``; the read then
+    has no upper limit."""
 
     fields_include: typing.Optional[tuple[FieldAddress, ...]] = None
     """Field subtrees to project; ``None`` projects every field."""
@@ -184,13 +219,17 @@ class ReadPlanRequest(pydantic.BaseModel):
         return self
 
     @pydantic.model_validator(mode="after")
-    def _bounds_given_or_defaultable(self) -> ReadPlanRequest:
-        names_file_dataset_or_device = (
-            self.file_id is not None or self.dataset_id is not None or self.device_id is not None
+    def _both_bounds_unless_a_scope_is_named(self) -> ReadPlanRequest:
+        names_a_scope = (
+            self.session_id is not None
+            or self.file_id is not None
+            or self.dataset_id is not None
+            or self.device_id is not None
         )
-        if (self.start_time is None or self.end_time is None) and not names_file_dataset_or_device:
+        if (self.start_time is None or self.end_time is None) and not names_a_scope:
             raise ValueError(
-                "start_time and end_time are required unless the request names a file_id, dataset_id or device_id"
+                "start_time and end_time are required unless the request names a session_id, file_id, dataset_id or "
+                "device_id"
             )
         return self
 
@@ -242,6 +281,6 @@ class SetTopicUnixOffsetRequest(pydantic.BaseModel):
                 "an offset of 0, clear its anchor instead with Topic.clear_unix_offset() "
                 "(DELETE /v2/topics/id/<topic_id>/unix-offset?session_id=<session_id>)"
             )
-        if not 0 < value <= _INT64_MAX:
+        if not 0 < value <= INT64_MAX:
             raise ValueError("unix_epoch_offset_ns must be a time after the Unix epoch and below 2**63 ns")
         return value

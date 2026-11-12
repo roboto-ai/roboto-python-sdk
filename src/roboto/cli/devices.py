@@ -8,12 +8,17 @@ import argparse
 import pathlib
 import sys
 
+import pydantic
+
 from ..config import (
     RobotoConfig,
     RobotoConfigFileV1,
 )
 from ..domain import devices
-from ..exceptions import RobotoConflictException
+from ..exceptions import (
+    RobotoConflictException,
+    RobotoNotFoundException,
+)
 from ..logging import default_logger
 from ..sentinels import maybe_null, null
 from .command import (
@@ -25,6 +30,7 @@ from .common_args import (
     get_defaulted_org_id,
 )
 from .context import CLIContext
+from .validation import pydantic_validation_handler
 
 logger = default_logger()
 
@@ -196,12 +202,20 @@ def register_device(args: argparse.Namespace, context: CLIContext, parser: argpa
             roboto_client=context.roboto_client,
             device_type_id=args.device_type_id,
         )
-    except RobotoConflictException:
-        device = devices.Device.from_id(
-            device_id=args.device_id,
-            org_id=org_id,
-            roboto_client=context.roboto_client,
-        )
+    except (RobotoConflictException, pydantic.ValidationError) as failure:
+        # A device registered before device IDs were checked keeps an ID that create refuses, so a refused ID is
+        # looked up the same way as one that is already taken.
+        try:
+            device = devices.Device.from_id(
+                device_id=args.device_id,
+                org_id=org_id,
+                roboto_client=context.roboto_client,
+            )
+        except RobotoNotFoundException:
+            if isinstance(failure, RobotoConflictException):
+                raise
+            with pydantic_validation_handler("device ID"):
+                raise failure from None
 
         print(
             f"Device {device.device_id} already exists, generating new credentials for it.\n",

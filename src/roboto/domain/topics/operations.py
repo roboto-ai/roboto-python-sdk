@@ -13,18 +13,18 @@ import pydantic
 from pydantic import model_validator
 
 from ...association import Association
+from ...int64 import INT64_MAX
 from ...sentinels import (
     NotSet,
     NotSetType,
     is_set,
 )
-from ...time import _EpochNanosecondsFromTime
+from ...time import _EpochNanosecondsFromTime, _NanosecondsFromInteger
 from ...updates import (
     MetadataChangeset,
     TaglessMetadataChangeset,
 )
 from .record import (
-    _INT64_MAX,
     CanonicalDataType,
     RepresentationStorageFormat,
 )
@@ -254,12 +254,12 @@ class CreateTopicRequest(pydantic.BaseModel):
     topic_name: str
 
     # Optional
-    end_time: typing.Optional[int] = None
+    end_time: typing.Optional[_NanosecondsFromInteger] = None
     message_count: typing.Optional[int] = None
     metadata: typing.Optional[collections.abc.Mapping[str, typing.Any]] = None
     schema_checksum: typing.Optional[str] = None
     schema_name: typing.Optional[str] = None
-    start_time: typing.Optional[int] = None
+    start_time: typing.Optional[_NanosecondsFromInteger] = None
     message_paths: typing.Optional[collections.abc.Sequence[AddMessagePathRequest]] = None
 
     # 'ignore' used to avoid backwards incompatible change to remove `org_id`
@@ -274,11 +274,11 @@ class UpdateTopicRequest(pydantic.BaseModel):
     message count, schema information, metadata, and message paths.
     """
 
-    end_time: typing.Union[typing.Optional[int], NotSetType] = NotSet
+    end_time: typing.Union[typing.Optional[_NanosecondsFromInteger], NotSetType] = NotSet
     message_count: typing.Union[int, NotSetType] = NotSet
     schema_checksum: typing.Union[typing.Optional[str], NotSetType] = NotSet
     schema_name: typing.Union[typing.Optional[str], NotSetType] = NotSet
-    start_time: typing.Union[typing.Optional[int], NotSetType] = NotSet
+    start_time: typing.Union[typing.Optional[_NanosecondsFromInteger], NotSetType] = NotSet
     metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
     message_path_changeset: typing.Union[MessagePathChangeset, NotSetType] = NotSet
 
@@ -304,7 +304,7 @@ class TimelineOffsetEntry(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(frozen=True)
 
-    unix_epoch_offset_ns: _EpochNanosecondsFromTime = pydantic.Field(ge=0, le=_INT64_MAX)
+    unix_epoch_offset_ns: _EpochNanosecondsFromTime = pydantic.Field(ge=0, le=INT64_MAX)
     """Nanoseconds added to the file's stored timestamps so they read as Unix-epoch time
     (``session_time_ns = stored_time_ns + unix_epoch_offset_ns``). Must not be negative, and must fit in the signed
     64-bit integer the platform stores it in. Also accepts any :py:data:`roboto.time.Time` at runtime, read as

@@ -1233,25 +1233,25 @@ class File:
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
 
     def put_tags(self, tags: list[str]) -> File:
-        """Add or update tags for this file.
+        """Add tags to this file.
 
-        Replaces the file's current tags with the provided list. To add tags
-        while preserving existing ones, retrieve current tags first and combine them.
+        Keeps the file's existing tags. A tag the file already has is not added again.
 
         Args:
-            tags: List of tag strings to set on the file.
+            tags: Tags to add to the file.
 
         Returns:
-            Updated File instance with the new tags.
+            Updated File instance whose tags include both its existing tags and the given ones.
 
         Raises:
             RobotoUnauthorizedException: Caller lacks permission to update the file.
 
         Examples:
             >>> file = File.from_id("file_abc123")
-            >>> updated_file = file.put_tags(["sensor-data", "highway", "sunny"])
-            >>> print(updated_file.tags)
-            ['sensor-data', 'highway', 'sunny']
+            >>> file = file.put_tags(["sensor-data", "highway"])
+            >>> file = file.put_tags(["sunny"])
+            >>> {"sensor-data", "highway", "sunny"} <= set(file.tags)
+            True
         """
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 

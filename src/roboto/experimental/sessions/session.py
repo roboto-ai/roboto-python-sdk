@@ -107,6 +107,17 @@ class Session:
         >>> session.add_file("fl_0123456789abcdef")
         >>> for topic in session.list_topics():
         ...     print(topic.name)
+
+        Read one topic's data in a Session as a DataFrame, then print the maximum of each field of every topic
+        the Session holds data of. Both read only the Session's files, and only the part of each file that the Session
+        holds:
+
+        >>> session = Session.from_id("se_abc123")
+        >>> df = session.get_topic("/imu").get_data_as_df(fields_include=[("accel", "x")])
+        >>> for topic in session.list_topics():
+        ...     stats = session.get_topic_stats(topic.topic_id)
+        ...     for field in stats.fields:
+        ...         print(topic.name, ".".join(field.path), field.stats.get("max"))
     """
 
     __roboto_client: RobotoClient
@@ -935,9 +946,8 @@ class Session:
     def get_topic(self, topic_name: str) -> Topic:
         """Return the named Topic, scoped to this Session.
 
-        The returned Topic is scoped to this Session's associated files and defaults its
-        read window to this Session's aggregate bounds, so ``get_data*`` reads just this
-        Session's data without an explicit window.
+        Its ``get_data*`` methods read only the data this Session holds, and need neither ``start_time`` nor
+        ``end_time``.
 
         Args:
             topic_name: Exact name of the topic to retrieve (e.g. ``"/camera/image"``).
@@ -963,11 +973,7 @@ class Session:
         return Topic.from_record(
             record,
             roboto_client=self.__roboto_client,
-            context=SessionContext(
-                session_id=self.session_id,
-                start_time=self.min_timestamp_ns,
-                end_time=self.max_timestamp_ns,
-            ),
+            context=SessionContext(session_id=self.session_id),
         )
 
     def ingestion_status(self) -> SessionIngestionStatus:
@@ -1137,9 +1143,9 @@ class Session:
         the Session holds of that file and overlapping the time window it holds. Each topic is yielded once however
         many files and partitions carry it, ordered by ``name`` with ``topic_id`` as a deterministic tiebreaker.
 
-        A yielded Topic is scoped to this Session's files and defaults its read window to this
-        Session's aggregate bounds, so :py:meth:`~roboto.experimental.topics.Topic.get_data`
-        (and the other ``get_data*`` methods) read just this Session's data without an explicit window.
+        A yielded Topic is scoped to this Session, so :py:meth:`~roboto.experimental.topics.Topic.get_data`
+        (and the other ``get_data*`` methods) read only the data this Session holds, and need neither ``start_time``
+        nor ``end_time``.
         Its :py:attr:`~roboto.experimental.topics.Topic.record` is a :py:class:`SessionTopicRecord`, which also
         carries the topic's schemas, time span, file count and message count in this Session. The property is
         annotated as :py:class:`~roboto.domain.topics.TopicIdentityRecord`, so narrow it with ``isinstance`` before
@@ -1168,11 +1174,7 @@ class Session:
                 yield Topic.from_record(
                     item,
                     roboto_client=self.__roboto_client,
-                    context=SessionContext(
-                        session_id=self.session_id,
-                        start_time=self.min_timestamp_ns,
-                        end_time=self.max_timestamp_ns,
-                    ),
+                    context=SessionContext(session_id=self.session_id),
                 )
 
             next_token = page.next_token

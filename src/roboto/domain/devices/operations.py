@@ -5,11 +5,52 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import typing
+import unicodedata
 
 import pydantic
+import pydantic_core
 
 from ...sentinels import NotSet, NotSetType
 from ...updates import CustomFieldChangeset, MetadataChangeset
+
+INVALID_DEVICE_ID_MESSAGE = (
+    "A device ID must not be empty, `.` or `..`, and must not contain control characters or any of "
+    + "`:` `@` `/` `?` `#` `%`."
+)
+"""The error message for a device ID that :py:func:`validate_device_id` refuses."""
+
+
+def validate_device_id(device_id: str) -> str:
+    """Check that ``device_id`` is an ID a new device may have.
+
+    A device ID must not be empty, ``.`` or ``..``, and must not contain a control character (such as a tab or a
+    newline) or any of ``:``, ``@``, ``/``, ``?``, ``#`` and ``%``. Any other ID is allowed, including one with
+    spaces, other punctuation or non-ASCII letters.
+
+    Args:
+        device_id: The device ID to check.
+
+    Returns:
+        ``device_id``, unchanged.
+
+    Raises:
+        pydantic_core.PydanticCustomError: ``device_id`` is not allowed. Its message is
+            :py:data:`INVALID_DEVICE_ID_MESSAGE`.
+    """
+    # What each refused ID or character breaks:
+    # - ":" is refused by RobotoPrincipal. A request made with the device's token builds the principal
+    #   "<device_id>@<org_id>" whenever it records who made a change, so every such request fails.
+    # - "@" makes the web app, which splits a device principal on "@", link "created by" to the wrong device.
+    # - "/", "?" and "#" give a roboto://device/<id> link a second path segment, a query or a fragment.
+    # - "%": the web app percent-decodes the ID in a roboto:// link, and AI chat replies write the ID into such
+    #   links without encoding it, so a "%" makes the decoding throw or yield a different ID.
+    # - Postgres cannot store "\0" in a text column, and URL parsers drop tabs and newlines from links.
+    # - "." and ".." are dot segments, so the browser resolves the device page's URL to another page.
+    if device_id in ("", ".", "..") or any(
+        character in ":@/?#%" or unicodedata.category(character) == "Cc" for character in device_id
+    ):
+        raise pydantic_core.PydanticCustomError("device_id_not_allowed", INVALID_DEVICE_ID_MESSAGE)
+    return device_id
 
 
 class CreateDeviceRequest(pydantic.BaseModel):
@@ -21,7 +62,8 @@ class CreateDeviceRequest(pydantic.BaseModel):
     """
 
     device_id: str
-    """A user-provided identifier for a device, which is unique within that device's org."""
+    """A user-provided identifier for a device, which is unique within that device's org.
+    :py:func:`validate_device_id` lists the IDs it refuses."""
 
     org_id: typing.Optional[str] = None
     """The org to which this device belongs. If None, the device will be registered
@@ -56,6 +98,11 @@ class CreateDeviceRequest(pydantic.BaseModel):
     device_type_id: typing.Optional[str] = None
     """ID (``dt_...``) of a device type in the device's org to assign to the device. ``None`` leaves the device
     without a type."""
+
+    @pydantic.field_validator("device_id")
+    @classmethod
+    def _validate_device_id(cls, value: str) -> str:
+        return validate_device_id(value)
 
 
 class UpdateDeviceRequest(pydantic.BaseModel):

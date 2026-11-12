@@ -124,8 +124,8 @@ class SessionTriageAchieveInput(TriageAchieveInput):
     """Input the LLM submits to achieve a :class:`GoalType.SESSION_TRIAGE` goal."""
 
 
-class EventSpec(pydantic.BaseModel):
-    """One event the LLM proposes inside a :class:`CreateEventsAchieveInput`.
+class EventSpecBase(pydantic.BaseModel):
+    """Fields and time validation shared by :class:`EventSpec` and :class:`SessionEventSpec`.
 
     The ``name`` must come from the parent goal's ``event_vocabulary`` and
     every ``tags`` entry from the goal's ``tag_vocabulary``; both checks
@@ -158,21 +158,8 @@ class EventSpec(pydantic.BaseModel):
     declared tag vocabulary keys (enforced by the handler). Empty by
     default."""
 
-    target_id: Optional[str] = None
-    """Identifier of the Roboto entity this event is attached to. The
-    server-side handler infers the entity type from the id prefix
-    (``ds_`` / ``fl_`` / ``tp_`` / ``mp_``) and enforces that the target
-    descends from the goal's dataset.
-
-    Optional rather than required so the SDK can re-hydrate
-    ``CreateEventsGoalResult`` from persisted tool-use records written
-    before per-event target scoping was added — those carry no
-    ``target_id`` on each spec. Current-day records always carry a
-    non-empty value; the handler rejects ``None`` on new invocations
-    via a corrective tool-failure response."""
-
     @pydantic.model_validator(mode="after")
-    def _end_after_start(self) -> "EventSpec":
+    def _end_after_start(self) -> "EventSpecBase":
         # ``mode="after"`` is deliberate: per-field ``StrictInt`` validation
         # must fire first so a non-int (or a bool) doesn't silently slip past
         # this check and produce a confusing comparison error. Do not switch
@@ -186,9 +173,46 @@ class EventSpec(pydantic.BaseModel):
         return self
 
 
+class EventSpec(EventSpecBase):
+    """One event the LLM proposes inside a :class:`CreateEventsAchieveInput`."""
+
+    target_id: Optional[str] = None
+    """Identifier of the Roboto entity this event is attached to. The
+    server-side handler infers the entity type from the id prefix
+    (``ds_`` / ``fl_`` / ``tp_`` / ``mp_``) and enforces that the target
+    descends from the goal's dataset.
+
+    Optional rather than required so the SDK can re-hydrate
+    ``CreateEventsGoalResult`` from persisted tool-use records written
+    before per-event target scoping was added — those carry no
+    ``target_id`` on each spec. Current-day records always carry a
+    non-empty value; the handler rejects ``None`` on new invocations
+    via a corrective tool-failure response."""
+
+
 class CreateEventsAchieveInput(pydantic.BaseModel):
     """Input the LLM submits to achieve a :class:`GoalType.CREATE_EVENTS` goal."""
 
     events: list[EventSpec]
+    """The events to create. May be empty if the agent found no intervals
+    matching the declared event types."""
+
+
+class SessionEventSpec(EventSpecBase):
+    """One event the LLM proposes inside a :class:`SessionCreateEventsAchieveInput`.
+
+    The event belongs to the goal's session; the spec has no field that names a session.
+    """
+
+    topic_ids: list[str] = pydantic.Field(default_factory=list)
+    """IDs of the topics of the goal's session that the event concerns, each named once. Empty (the
+    default) means the event concerns the session as a whole. The server-side handler refuses a topic
+    whose data the session does not hold."""
+
+
+class SessionCreateEventsAchieveInput(pydantic.BaseModel):
+    """Input the LLM submits to achieve a :class:`GoalType.SESSION_CREATE_EVENTS` goal."""
+
+    events: list[SessionEventSpec]
     """The events to create. May be empty if the agent found no intervals
     matching the declared event types."""

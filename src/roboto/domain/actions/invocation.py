@@ -288,17 +288,45 @@ class Invocation:
 
     @property
     def input_data(self) -> typing.Optional[InvocationInput]:
-        """The inputs this invocation selects, or None if it selects none, with or without a `data_source` dataset."""
-        if self.__record.rich_input_data:
-            return self.__record.rich_input_data
+        """The inputs this invocation selects, or None if it selects none, with or without a `data_source` dataset.
 
-        if self.__record.input_data and not self.__record.data_source.is_unspecified():
+        A file selector that has `paths` and no `dataset_id` is relative to the invocation's data source. When
+        that is a dataset, this returns a copy with its `dataset_id` filled in so the selector resolves on its
+        own; the stored record is not changed. With an unspecified data source, the selector is returned as stored.
+        """
+        rich = self.__record.rich_input_data
+        if rich:
+            data_source = self.__record.data_source
+            if data_source.is_unspecified() or not rich.files:
+                return rich
+            selectors = rich.files if isinstance(rich.files, list) else [rich.files]
+            anchored = [
+                selector.model_copy(update={"dataset_id": data_source.data_source_id})
+                if selector.paths and not selector.dataset_id
+                else selector
+                for selector in selectors
+            ]
+            return rich.model_copy(update={"files": anchored if isinstance(rich.files, list) else anchored[0]})
+
+        # Both halves are required, not just the data source: a file selector carrying neither
+        # paths nor a query is rejected at construction, so a dataset with nothing selected out of
+        # it has no selector to express it and the honest answer is that there are no inputs.
+        if not self.__record.data_source.is_unspecified() and self.__record.input_data:
             return InvocationInput.from_dataset_file_paths(
                 dataset_id=self.__record.data_source.data_source_id,
                 file_paths=self.__record.input_data,
             )
 
         return None
+
+    @property
+    def resolved_input_data(self) -> typing.Optional[InvocationInput]:
+        """The inputs this invocation resolved to, as explicit IDs, or None if its record carries none.
+
+        Unlike `input_data`, which can hold paths relative to a dataset or a query, this names every file,
+        session and topic by ID, whatever number of datasets they span.
+        """
+        return self.__record.resolved_input_data
 
     @property
     def org_id(self) -> str:

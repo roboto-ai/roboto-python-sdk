@@ -9,11 +9,14 @@ import datetime
 import typing
 import urllib.parse
 
+import pydantic
+
 from ...association import Association
 from ...auth.scope import ApiScope
 from ...exceptions import (
     RobotoConflictException,
     RobotoDomainException,
+    RobotoNotFoundException,
     RobotoNotReadyException,
 )
 from ...experimental.sessions import (
@@ -118,9 +121,10 @@ class Device:
                 in the specified organization.
             RobotoUnauthorizedException: If the caller lacks permission to create devices
                 in the specified organization.
-            RobotoInvalidRequestException: If the device_id is invalid, the organization
-                ID is malformed, or ``device_type_id`` is given and the organization has no such
-                device type or does not have device types enabled.
+            RobotoInvalidRequestException: If the organization ID is malformed, or ``device_type_id`` is
+                given and the organization has no such device type or does not have device types enabled.
+            pydantic.ValidationError: If :py:func:`~roboto.domain.devices.validate_device_id` refuses
+                ``device_id``. Raised before anything is sent to the platform.
 
         Examples:
             Register a robot device:
@@ -290,8 +294,9 @@ class Device:
         Raises:
             RobotoUnauthorizedException: If the caller lacks permission to create devices in,
                 or read devices from, the specified organization.
-            RobotoInvalidRequestException: If the device_id is invalid or the organization
-                ID is malformed.
+            RobotoInvalidRequestException: If the organization ID is malformed.
+            pydantic.ValidationError: If :py:func:`~roboto.domain.devices.validate_device_id` refuses
+                ``device_id`` and no device with that ID is registered.
             RobotoNotFoundException: If the device is deleted between the registration attempt
                 and the lookup that follows it. Those are two calls rather than one atomic
                 operation, so the race is possible, though unlikely.
@@ -312,6 +317,13 @@ class Device:
             )
         except RobotoConflictException:
             return cls.from_id(device_id, roboto_client=roboto_client, org_id=caller_org_id)
+        except pydantic.ValidationError as refusal:
+            # A device registered before device IDs were checked keeps an ID that create refuses, so look it up
+            # before reporting the refusal.
+            try:
+                return cls.from_id(device_id, roboto_client=roboto_client, org_id=caller_org_id)
+            except RobotoNotFoundException:
+                raise refusal from None
 
     def __init__(self, record: DeviceRecord, roboto_client: typing.Optional[RobotoClient] = None):
         self.__roboto_client = RobotoClient.defaulted(roboto_client)

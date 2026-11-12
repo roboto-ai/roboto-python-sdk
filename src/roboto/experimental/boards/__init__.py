@@ -28,6 +28,7 @@ from .definition import (
     BoardStage,
     BoardStageBody,
     BoardStaticControlDomain,
+    BoardTopicFieldPath,
     BoardValueControlBody,
     BoardValueControlDomain,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "BoardStage",
     "BoardStageBody",
     "BoardStaticControlDomain",
+    "BoardTopicFieldPath",
     "BoardValueControlBody",
     "BoardValueControlDomain",
     "CreateBoardRequest",

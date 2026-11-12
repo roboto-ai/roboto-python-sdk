@@ -18,6 +18,7 @@ placeholders raise rather than reach the service.
 from .agent import Agent
 from .record import (
     AgentRecord,
+    AgentSubject,
     CreateAgentRequest,
     LaunchAgentRequest,
     TemplateVariable,
@@ -31,6 +32,7 @@ from .resolver import (
     UnresolvedAgentVariablesError,
     resolve_agent,
 )
+from .subject import infer_agent_subject
 
 # Note: ``ThreadVisibility`` is intentionally not re-exported here. The
 # canonical SDK path is :py:class:`roboto.ai.agent_thread.ThreadVisibility`,
@@ -42,6 +44,7 @@ __all__ = [
     "Agent",
     "AgentRecord",
     "AgentResolutionError",
+    "AgentSubject",
     "CreateAgentRequest",
     "LaunchAgentRequest",
     "TemplateVariable",
@@ -50,5 +53,6 @@ __all__ = [
     "UnresolvedAgentVariablesError",
     "UpdateAgentRequest",
     "extract_placeholders",
+    "infer_agent_subject",
     "resolve_agent",
 ]

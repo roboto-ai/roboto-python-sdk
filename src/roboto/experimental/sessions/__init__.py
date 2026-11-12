@@ -13,10 +13,13 @@ data they carry, in one call. The types describing a file's contents live in
 
 from .operations import (
     MAX_INGESTION_SUMMARIES,
+    MAX_SESSION_DEVICES_REQUEST,
     MAX_SESSIONS_PER_REQUEST,
     CreateSessionIfNotExistsRequest,
     FileDeclaration,
     SessionDeclaration,
+    SessionDevicesRequest,
+    SessionDevicesResponse,
     SessionFile,
     SessionIngestionSummariesRequest,
     SessionIngestionSummariesResponse,
@@ -25,6 +28,7 @@ from .operations import (
 from .record import (
     CompletionPolicy,
     PendingIngestionFile,
+    SessionDevice,
     SessionFileRecord,
     SessionFileView,
     SessionIngestionState,
@@ -45,6 +49,7 @@ from .session import Session
 
 __all__ = (
     "MAX_INGESTION_SUMMARIES",
+    "MAX_SESSION_DEVICES_REQUEST",
     "MAX_SESSIONS_PER_REQUEST",
     "CompletionPolicy",
     "CreateSessionIfNotExistsRequest",
@@ -52,6 +57,9 @@ __all__ = (
     "PendingIngestionFile",
     "Session",
     "SessionDeclaration",
+    "SessionDevice",
+    "SessionDevicesRequest",
+    "SessionDevicesResponse",
     "SessionFile",
     "SessionFileRecord",
     "SessionFileView",

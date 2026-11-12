@@ -450,7 +450,13 @@ class InvocationRecord(pydantic.BaseModel):
     created: datetime.datetime  # Persisted as ISO 8601 string in UTC
     data_source: InvocationDataSource
     input_data: list[str]
+    """Deprecated: use `rich_input_data`. Dataset-relative paths, set only when the request selected nothing but
+    paths within `data_source`."""
     rich_input_data: typing.Optional[InvocationInput] = None
+    """The inputs as the caller requested them. A path selector with no dataset ID is relative to `data_source`."""
+    resolved_input_data: typing.Optional[InvocationInput] = None
+    """The inputs the request resolved to, always as explicit file, session and topic IDs, whatever number of
+    datasets they span. None when the invocation records no resolved inputs."""
     upload_destination: typing.Optional[InvocationUploadDestination] = None
     invocation_id: str  # Sort key
     idempotency_id: typing.Optional[str] = None
@@ -472,6 +478,9 @@ class InvocationRecord(pydantic.BaseModel):
                 "data_source": self.data_source.model_dump(mode="json"),
                 "input_data": self.input_data,
                 "rich_input_data": (self.rich_input_data.model_dump(mode="json") if self.rich_input_data else None),
+                "resolved_input_data": (
+                    self.resolved_input_data.model_dump(mode="json") if self.resolved_input_data else None
+                ),
                 "upload_destination": (
                     self.upload_destination.model_dump(mode="json") if self.upload_destination else None
                 ),

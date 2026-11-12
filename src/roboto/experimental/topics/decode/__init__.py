@@ -14,14 +14,14 @@ from .common import (
     SuppliedField,
 )
 from .file_decoder import make_file_decoder_opener
-from .parquet import CACHED_PARQUET_NAME_PATTERN
+from .parquet import cached_parquet_name
 
 __all__ = [
-    "CACHED_PARQUET_NAME_PATTERN",
     "FileDecodeParams",
     "FileDecoder",
     "FileDecoderOpener",
     "ScanTaskGroup",
     "SuppliedField",
+    "cached_parquet_name",
     "make_file_decoder_opener",
 ]

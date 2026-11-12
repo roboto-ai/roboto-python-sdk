@@ -27,8 +27,13 @@ from ..read_plan import (
 if typing.TYPE_CHECKING:
     import pyarrow  # pants: no-infer-dep
 
-SignedUrlResolver = typing.Callable[[str], str]
-"""Resolves a file id (``fs_node_id``) to a signed download URL."""
+ObjectSignedUrlResolver = typing.Callable[[ReadPlanObjectRef], str]
+"""Returns a signed download URL for the version of a file that a read plan's object reference names.
+
+The resolver receives the whole :py:class:`~roboto.experimental.topics.ReadPlanObjectRef`, not only a file id, so the
+URL it returns is for the version that the plan names, or for the file's current version when the reference names
+none. By contrast, :py:class:`~roboto.domain.topics.mcap_topic_reader.SignedUrlResolver`, which ``McapTopicReader``
+uses, takes a file id and signs the file's current version."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -78,8 +83,8 @@ class FileDecodeParams:
     cache_policy: CachePolicy
     """Whether fetched Parquet files are cached to local disk."""
 
-    signed_url_resolver: SignedUrlResolver
-    """Mints a signed download URL for a file."""
+    signed_url_resolver: ObjectSignedUrlResolver
+    """Mints a signed download URL for the version of a file that a plan names."""
 
 
 class FileDecoder(abc.ABC):

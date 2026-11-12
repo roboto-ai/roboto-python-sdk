@@ -24,9 +24,12 @@ misreading a newer plan.
 
 
 class TimeWindow(pydantic.BaseModel):
-    """A closed time window in absolute nanoseconds since the Unix epoch; both bounds inclusive.
+    """An interval of time in absolute nanoseconds since the Unix epoch, inclusive at both ends.
 
-    The same shape serves the window a plan resolves over and the window each partition's rows are selected in.
+    A read plan uses this type for three intervals: the window that the plan was resolved over
+    (:py:attr:`ReadPlan.window`), the window that selects each partition's rows (:py:attr:`ReadPlanPartition.window`),
+    and each partition's :py:attr:`ReadPlanPartition.timeline_extent`. Because all three share this shape, a consumer
+    can intersect any two of them directly.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -144,6 +147,13 @@ class ReadPlanTimestamp(pydantic.BaseModel):
     Envelope-derived timestamps (message log/publish time) are always assumed nanoseconds.
     """
 
+    source_name: typing.Optional[str] = None
+    """Name of the timeline source these timestamps belong to.
+
+    Partitions under different schemas can have timeline sources of the same name. A shared name doesn't show that
+    the sources describe the same events. ``None`` in a plan from a Roboto deployment that predates this field.
+    """
+
     @pydantic.field_validator("unit")
     @classmethod
     def _unit_is_well_known(cls, unit: typing.Optional[str]) -> typing.Optional[str]:
@@ -221,10 +231,15 @@ class ReadPlanObjectRef(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(frozen=True)
 
     fs_node_id: str
-    """Identifier of the backing file. This id is stable, so a consumer can cache on it."""
+    """Identifier of the backing file. Every version of the file shares this id, so a consumer that caches a file's
+    bytes keys them by :py:attr:`version` too."""
 
     size_bytes: typing.Optional[int] = None
-    """The source object's size in bytes."""
+    """Size in bytes of the file at :py:attr:`version`; ``None`` when unknown."""
+
+    version: typing.Optional[int] = None
+    """Version of the file to read: the version that was current when the service built the plan. ``None`` when the
+    file had no current version, or when the service that built the plan doesn't report versions."""
 
 
 class ReadPlanScanTask(pydantic.BaseModel):
@@ -285,6 +300,27 @@ class ReadPlanPartition(pydantic.BaseModel):
     :py:attr:`ReadPlanPartition.data_range` separates the partitions packed into one file.
     """
 
+    timeline_extent: TimeWindow
+    """A hint of where this partition's data lies in time: the first and last timestamps stored for it, inclusive.
+
+    The extent is measured under the timeline source that this plan reads the partition's timestamps from, which
+    :py:attr:`timestamp` describes. Both bounds already have :py:attr:`time_offset_ns` added, so they are in absolute
+    Unix-epoch nanoseconds, like :py:attr:`window`. A :py:class:`~roboto.domain.topics.TimelineExtentRecord` holds the
+    same bounds before the offset is added.
+
+    The extent reflects the partition as stored. Neither the requested window nor a Session that holds only part of
+    the file narrows the extent, so every plan that reads the partition under that timeline source carries the same
+    extent while the stored bounds and offset stay unchanged. The data can have gaps between the two bounds.
+
+    The extent is a hint, not a bound, so a row can lie outside it. Use it to order work or report progress, but never
+    to choose rows. A read takes the rows in the partition's :py:attr:`data_range`, then keeps those that lie in the
+    partition's :py:attr:`window`.
+
+    The service lists a partition in a plan only when the partition's extent overlaps its :py:attr:`window`. A read
+    therefore returns no rows from a partition whose extent does not overlap the requested window, even a row inside
+    that window.
+    """
+
     timestamp: ReadPlanTimestamp
     """Where this partition's row timestamps come from."""
 
@@ -309,10 +345,20 @@ class ReadPlanPartition(pydantic.BaseModel):
     """
 
     scan_tasks: tuple[ReadPlanScanTask, ...] = ()
-    """The files to read for this partition; empty when the partition has no readable data.
+    """The files the plan schedules for this partition.
 
-    A partition may have several scan tasks, each covering a subtree of the schema or the whole schema;
-    the read takes each field from the highest-precedence scan task whose subtree contains it.
+    Each scan task covers the whole schema or a subtree. Where tasks overlap,
+    the read takes each field from the highest-precedence task covering it.
+
+    Projected data outside the subtrees covered by these tasks is unavailable
+    from this partition's planned files. The plan does not establish that its
+    values are null. A reader must report missing coverage, and a reader that
+    returns the supplied data must distinguish unavailable fields from stored
+    nulls.
+
+    With no scan tasks, the plan names no file from which to read this
+    partition's rows. For the SDK reader's behavior, see
+    :py:meth:`~roboto.experimental.topics.Topic.get_data_as_record_batches`.
     """
 
     fs_node_id: typing.Optional[str] = None
@@ -323,6 +369,23 @@ class ReadPlanPartition(pydantic.BaseModel):
     ``object`` does not always name the recording a partition's rows came from; this id does.
     ``None`` when the plan does not name the file.
     """
+
+
+class UnreadableTopicPartitionsWarning(UserWarning):
+    """Warns that a read skips partitions of a topic because the plan gives them no scan tasks.
+
+    ``execute_read_plan`` issues it once, before any row. A caller who needs every partition can make such a read fail
+    with ``warnings.simplefilter("error", UnreadableTopicPartitionsWarning)``.
+    """
+
+    def __init__(self, topic_id: str, partitions: tuple[ReadPlanPartition, ...]) -> None:
+        identifiers = ", ".join(partition.topic_part_id for partition in partitions)
+        super().__init__(
+            f"Skipping {len(partitions)} partition(s) of topic {topic_id} with no representation this read can use: "
+            f"{identifiers}."
+        )
+        self.partitions = partitions
+        """The skipped partitions, which name each one's file and window."""
 
 
 class ReadPlan(pydantic.BaseModel):
@@ -337,14 +400,14 @@ class ReadPlan(pydantic.BaseModel):
     """The topic this plan reads."""
 
     window: typing.Optional[TimeWindow]
-    """The time window the caller asked to read, which the plan was resolved over.
+    """The time window the plan was resolved over: the bounds the request gave, with the signed 64-bit minimum or
+    maximum in place of a bound it omitted.
 
-    A consumer selects rows by each partition's :py:attr:`ReadPlanPartition.window` alone, which can be
-    narrower than this one.
+    A consumer filters rows by each partition's :py:attr:`ReadPlanPartition.window`, not by this window, because a
+    partition's window can be narrower.
 
-    ``None`` only when the request omitted a bound and either its restrictions select no timestamped data for the
-    topic, or the bound it gave lies past the far end of that data (a start after the data ends, or an end before it
-    begins); the plan then has no partitions.
+    ``None`` only when the request omitted a bound and no partition of the topic lies in the window within the
+    request's restrictions; the plan then has no partitions.
     """
 
     schema_: typing.Optional[ReadPlanSchemaRef] = pydantic.Field(default=None, alias="schema")

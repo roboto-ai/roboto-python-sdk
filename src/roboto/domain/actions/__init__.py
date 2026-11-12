@@ -84,6 +84,13 @@ from .invocation_record import (
     SourceProvenance,
     UploadDestinationType,
 )
+from .launch_requirements import (
+    EgressPosture,
+    InputKind,
+    InputRequirement,
+    LaunchRequirements,
+    OutputChannel,
+)
 from .scheduled_trigger import (
     ScheduledTrigger,
     TriggerSchedule,
@@ -140,10 +147,15 @@ __all__ = (
     "CreateScheduledTriggerRequest",
     "CreateTriggerRequest",
     "DataSelector",
+    "EgressPosture",
     "EvaluateTriggersRequest",
     "ExecutableProvenance",
     "ExecutorContainer",
     "FileSelector",
+    "InputKind",
+    "InputRequirement",
+    "LaunchRequirements",
+    "OutputChannel",
     "Invocation",
     "InvocationDataSource",
     "InvocationDataSourceType",

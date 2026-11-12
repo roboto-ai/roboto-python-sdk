@@ -273,12 +273,15 @@ class TopicDataService:
             if message_path_repr_map.message_paths
         ]
 
-        # WARN if no message paths are left after filtering
-        if not any(
-            len(message_path_repr_map.message_paths) > 0 for message_path_repr_map in message_path_repr_mappings
+        # Warn when the filters leave only timestamp paths, which __filter_message_paths always keeps.
+        if (message_paths_include or message_paths_exclude) and not any(
+            message_path.canonical_data_type != CanonicalDataType.Timestamp
+            for message_path_repr_map in message_path_repr_mappings
+            for message_path in message_path_repr_map.message_paths
         ):
             logger.warning(
-                "The request for topic data will not yield any results. "
+                "The request for topic data selects no message paths other than timestamps, "
+                "so its results will hold no other data. "
                 "Please check that the 'message_paths_include' and 'message_paths_exclude' parameters "
                 "are not filtering out all available message paths for this topic."
             )

@@ -87,7 +87,7 @@ class McapFileDecoder(FileDecoder):
         self.__group = group
         self.__partition = partition
         timestamp = _timestamp_source(partition)
-        self.__http_reader = HttpRangeReader(params.signed_url_resolver(group.object.fs_node_id))
+        self.__http_reader = HttpRangeReader(params.signed_url_resolver(group.object))
 
         def read_bytes(offset: int, length: int) -> bytes:
             self.__http_reader.seek(offset)

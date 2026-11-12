@@ -23,14 +23,18 @@ automated data ingestion and platform interaction.
 
 from .device import Device
 from .operations import (
+    INVALID_DEVICE_ID_MESSAGE,
     CreateDeviceRequest,
     UpdateDeviceRequest,
+    validate_device_id,
 )
 from .record import DeviceRecord
 
 __all__ = [
+    "INVALID_DEVICE_ID_MESSAGE",
     "CreateDeviceRequest",
     "Device",
     "DeviceRecord",
     "UpdateDeviceRequest",
+    "validate_device_id",
 ]

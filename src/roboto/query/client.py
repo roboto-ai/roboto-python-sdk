@@ -61,9 +61,28 @@ class QueryClient:
         return response.to_record(QueryRecord)
 
     def get_query_results(
-        self, query_id: str, owner_org_id: typing.Optional[str] = None
+        self,
+        query_id: str,
+        owner_org_id: typing.Optional[str] = None,
+        page_size: typing.Optional[int] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
-        query_params: dict[str, str] = {}
+        """Yield every result of a query, fetching one page at a time as iteration reaches it.
+
+        Args:
+            query_id: ID of a query whose results are available.
+            owner_org_id: Organization that owns the query. Defaults to this client's organization.
+            page_size: Number of results to fetch per page, from 1 to
+                :py:data:`~roboto.query.specification.MAX_PAGE_SIZE`. Defaults to
+                :py:data:`~roboto.query.specification.DEFAULT_PAGE_SIZE`.
+
+        Yields:
+            Each result record, in the query's sort order.
+
+        Raises:
+            RobotoIllegalArgumentException: ``page_size`` is outside 1 to ``MAX_PAGE_SIZE``. Raised when iteration
+                requests the first page, not when this method is called.
+        """
+        query_params: dict[str, str] = {} if page_size is None else {"page_size": str(page_size)}
         while True:
             response = self.__roboto_client.get(
                 f"v1/query/id/{query_id}/results",
@@ -87,6 +106,27 @@ class QueryClient:
         content_mode: QueryContentMode = QueryContentMode.RecordWithMeta,
         owner_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        """Submit a RoboQL or structured query, wait for it to finish, and yield its results.
+
+        To cap the total number of results, set ``max_results`` on a
+        :py:class:`~roboto.query.specification.QuerySpecification`, or add ``LIMIT N`` to a RoboQL query.
+
+        Args:
+            query: A RoboQL string or a :py:class:`~roboto.query.specification.QuerySpecification`. ``None`` matches
+                everything in ``target``.
+            target: The kind of entity to query.
+            timeout_seconds: How long to wait for the query to finish.
+            content_mode: Whether results include custom metadata. See
+                :py:class:`~roboto.query.api.QueryContentMode`.
+            owner_org_id: Organization to run the query in. Defaults to this client's organization.
+
+        Yields:
+            Each result record, in the query's sort order.
+
+        Raises:
+            TimeoutError: Results were not available within ``timeout_seconds``. A query that fails keeps the wait
+                going until the timeout.
+        """
         if query is None:
             query = QuerySpecification()
 
@@ -121,6 +161,22 @@ class QueryClient:
         timeout_seconds: float,
         owner_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        """Submit a RoboQL query, wait for it to finish, and yield its results.
+
+        To cap the total number of results, add ``LIMIT N`` to the query.
+
+        Args:
+            request: The query to submit.
+            timeout_seconds: How long to wait for the query to finish.
+            owner_org_id: Organization to run the query in. Defaults to this client's organization.
+
+        Yields:
+            Each result record, in the query's sort order.
+
+        Raises:
+            TimeoutError: Results were not available within ``timeout_seconds``. A query that fails keeps the wait
+                going until the timeout.
+        """
         query = self.submit_roboql(request, owner_org_id)
 
         wait_for(
@@ -150,6 +206,22 @@ class QueryClient:
         timeout_seconds: float,
         owner_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        """Submit a structured query, wait for it to finish, and yield its results.
+
+        To cap the total number of results, set ``max_results`` on the query specification.
+
+        Args:
+            request: The query to submit.
+            timeout_seconds: How long to wait for the query to finish.
+            owner_org_id: Organization to run the query in. Defaults to this client's organization.
+
+        Yields:
+            Each result record, in the query's sort order.
+
+        Raises:
+            TimeoutError: Results were not available within ``timeout_seconds``. A query that fails keeps the wait
+                going until the timeout.
+        """
         query = self.submit_structured(request, owner_org_id)
 
         wait_for(
@@ -176,6 +248,20 @@ class QueryClient:
         timeout_seconds: float = math.inf,
         owner_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
+        """Submit a term query, wait for it to finish, and yield its results.
+
+        Args:
+            request: The query to submit.
+            timeout_seconds: How long to wait for the query to finish. Defaults to waiting indefinitely.
+            owner_org_id: Organization to run the query in. Defaults to this client's organization.
+
+        Yields:
+            Each result record, in the query's sort order.
+
+        Raises:
+            TimeoutError: Results were not available within ``timeout_seconds``. A query that fails keeps the wait
+                going until the timeout, so with the default ``timeout_seconds`` it never returns.
+        """
         query = self.submit_term(request, owner_org_id)
 
         wait_for(

@@ -125,7 +125,14 @@ class LoopbackCallbackServer:
         self.__result: typing.Optional[CallbackResult] = None
         self.__received = threading.Event()
         self.__server = http.server.HTTPServer((_LOOPBACK_HOST, port), self.__handler_class())
-        self.__thread = threading.Thread(target=self.__server.serve_forever, name="roboto-login-callback", daemon=True)
+        # serve_forever notices a shutdown once per poll interval, so the default of half a second would hold up the
+        # end of every login by up to that long.
+        self.__thread = threading.Thread(
+            target=self.__server.serve_forever,
+            kwargs={"poll_interval": 0.05},
+            name="roboto-login-callback",
+            daemon=True,
+        )
 
     @property
     def redirect_uri(self) -> str:

@@ -49,6 +49,7 @@ from .achieve_inputs import (
     CreateEventsAchieveInput,
     DatasetSummaryAchieveInput,
     DatasetTriageAchieveInput,
+    SessionCreateEventsAchieveInput,
     SessionSummaryAchieveInput,
     SessionTriageAchieveInput,
     TriageAchieveInput,
@@ -156,6 +157,18 @@ class SessionTriageGoalResult(TriageGoalResultBase, SessionTriageAchieveInput):
     """Discriminator. Always :attr:`GoalType.SESSION_TRIAGE`."""
 
 
+class SessionCreateEventsGoalResult(GoalResultBase, SessionCreateEventsAchieveInput):
+    """Result of a :class:`GoalType.SESSION_CREATE_EVENTS` achieve-tool invocation.
+
+    Exposes the list of ``SessionEventSpec`` objects the LLM submitted. The created event IDs
+    are not included; list the session's events with
+    :meth:`roboto.experimental.sessions.Session.list_events` to find them.
+    """
+
+    goal_type: Literal[GoalType.SESSION_CREATE_EVENTS] = GoalType.SESSION_CREATE_EVENTS
+    """Discriminator. Always :attr:`GoalType.SESSION_CREATE_EVENTS`."""
+
+
 GoalResult = Annotated[
     Union[
         DatasetSummaryGoalResult,
@@ -163,6 +176,7 @@ GoalResult = Annotated[
         CreateEventsGoalResult,
         SessionSummaryGoalResult,
         SessionTriageGoalResult,
+        SessionCreateEventsGoalResult,
     ],
     pydantic.Field(discriminator="goal_type"),
 ]

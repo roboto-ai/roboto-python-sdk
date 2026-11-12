@@ -26,11 +26,12 @@ from ...domain.topics.record import FieldPath
 from ...env import RobotoEnv
 from ...http import RobotoClient
 from ...storage import CachePolicy
+from ...storage.cache import cached_file_is_current
 from ...time import Time, to_epoch_nanoseconds
 from . import batch_transforms, plan_execution
 from .decode import (
-    CACHED_PARQUET_NAME_PATTERN,
     FileDecodeParams,
+    cached_parquet_name,
     make_file_decoder_opener,
 )
 from .named_array import named_array_type
@@ -40,7 +41,7 @@ from .operations import (
     RepresentationPreference,
     SetTopicUnixOffsetRequest,
 )
-from .read_plan import ReadPlan
+from .read_plan import ReadPlan, ReadPlanObjectRef
 
 if typing.TYPE_CHECKING:
     import pandas  # pants: no-infer-dep
@@ -68,25 +69,27 @@ I/O-oriented executor default of 32 rather than scaling with core count."""
 
 
 class SessionContext(pydantic.BaseModel):
-    """The Session a Topic is scoped to: limits topic operations to the Session's associated files
-    and supplies the Session's aggregate time window as the default window for those operations."""
+    """The Session a Topic is scoped to: limits topic operations to the data the Session holds of its associated files.
+
+    A read that omits ``start_time`` or ``end_time`` takes this context's bound on that side, or has no limit there
+    when the context sets none. A Topic from :py:meth:`~roboto.experimental.sessions.Session.get_topic` or
+    :py:meth:`~roboto.experimental.sessions.Session.list_topics` sets neither bound."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     session_id: str
 
     start_time: typing.Optional[int] = None
-    """Earliest time covered by the Session (Unix-epoch ns);
-    the default start_time for get_data*. None when the Session includes no files."""
+    """The ``start_time`` a ``get_data*`` call reads from when it omits one, in Unix-epoch ns. ``None`` sets no
+    default."""
 
     end_time: typing.Optional[int] = None
-    """Latest time covered by the Session (Unix-epoch ns);
-    the default end_time for get_data*. None when the Session includes no files."""
+    """The ``end_time`` a ``get_data*`` call reads to when it omits one, in Unix-epoch ns. ``None`` sets no default."""
 
 
 class EventContext(pydantic.BaseModel):
-    """The session event a Topic is scoped to: limits topic operations to the files of the event's Session and
-    supplies the event's time span as the default window for those operations.
+    """The session event a Topic is scoped to: limits topic operations to the data the event's Session holds of its
+    files and supplies the event's time span as the default window for those operations.
 
     A Topic that :py:meth:`~roboto.experimental.events.Event.get_topic` or
     :py:meth:`~roboto.experimental.events.Event.get_topics` returns carries one."""
@@ -109,8 +112,7 @@ class EventContext(pydantic.BaseModel):
 class FileContext(pydantic.BaseModel):
     """The file a Topic is scoped to: limits topic operations to the topic's data in that file.
 
-    An omitted ``start_time`` or ``end_time`` defaults to the start or end of the topic's data in the file, resolved by
-    the service when the data is read."""
+    A read that omits ``start_time`` or ``end_time`` has no limit on that side."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -120,8 +122,7 @@ class FileContext(pydantic.BaseModel):
 class DatasetContext(pydantic.BaseModel):
     """The dataset a Topic is scoped to: limits topic operations to the topic's data in the dataset's files.
 
-    An omitted ``start_time`` or ``end_time`` defaults to the start or end of the topic's data in those files,
-    resolved by the service when the data is read."""
+    A read that omits ``start_time`` or ``end_time`` has no limit on that side."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -131,9 +132,8 @@ class DatasetContext(pydantic.BaseModel):
 class DeviceContext(pydantic.BaseModel):
     """The device a Topic is scoped to: limits topic operations to the topic's data in the device's files.
 
-    A file belongs to the device it names, or, when it names none, to the device its dataset names. An omitted
-    ``start_time`` or ``end_time`` defaults to the start or end of the topic's data in those files, resolved by the
-    service when the data is read."""
+    A file belongs to the device it names, or, when it names none, to the device its dataset names. A read that omits
+    ``start_time`` or ``end_time`` has no limit on that side."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -157,14 +157,17 @@ class Topic:
     * A :py:class:`SessionContext`, as on a Topic yielded by
       :py:meth:`~roboto.experimental.sessions.Session.list_topics` or
       :py:meth:`~roboto.experimental.sessions.Session.get_topic`,
-      scopes to that Session's files and defaults the window to the span of time the Session covers.
+      scopes to the data that Session holds of its files.
     * An :py:class:`EventContext`, as on a Topic returned by
       :py:meth:`~roboto.experimental.events.Event.get_topic` or
       :py:meth:`~roboto.experimental.events.Event.get_topics`,
-      scopes to the files of the event's Session and defaults the window to the event's span.
+      scopes to the data the event's Session holds of its files.
     * A :py:class:`FileContext`, :py:class:`DatasetContext` or :py:class:`DeviceContext` scopes to that file, to that
-      dataset's files, or to that device's files, and defaults the window to the start and end of the topic's data
-      there.
+      dataset's files, or to that device's files.
+
+    A read in any of these contexts needs no time window. A bound the read omits puts no limit on that side, unless the
+    context sets a bound there: a :py:class:`SessionContext` may set either bound, and an :py:class:`EventContext` sets
+    both, to the event's span.
 
     A Topic's context is fixed when it is built.
     """
@@ -186,7 +189,7 @@ class Topic:
             topic_id: Identifier of the topic (``ti_*``).
             roboto_client: Roboto client instance. Uses the default if omitted.
             context: Optional. When provided, limits topic operations to the topic's data in one Session, session
-                event, file, dataset or device, and supplies the default read window, as described on
+                event, file, dataset or device, and makes the read window optional, as described on
                 :py:class:`Topic`.
                 ``None`` reads org-wide.
 
@@ -551,18 +554,17 @@ class Topic:
         Args:
             start_time: Inclusive window lower bound, as nanoseconds since the
                 Unix epoch or anything convertible via :py:func:`~roboto.time.to_epoch_nanoseconds`.
-                ``None`` defaults to the start of the topic's data in this topic's file, dataset or device context,
-                or to the earliest time the Session covers in a :py:class:`SessionContext` (such as on a topic
-                obtained from :py:meth:`~roboto.experimental.sessions.Session.list_topics` or
-                :py:meth:`~roboto.experimental.sessions.Session.get_topic`), or to the event's start in an
-                :py:class:`EventContext`;
-                otherwise required (a ``ValueError`` is raised when it cannot be resolved).
+                With no context, ``start_time`` is required, and omitting it raises ``ValueError``.
+                When this topic carries a context (such as a topic obtained from
+                :py:meth:`~roboto.experimental.sessions.Session.list_topics` or
+                :py:meth:`~roboto.experimental.sessions.Session.get_topic`), ``None`` takes the event's start in an
+                :py:class:`EventContext` or the ``start_time`` of a :py:class:`SessionContext` that sets one, and
+                otherwise puts no lower limit on the read.
                 An explicit bound narrows the read within the context and never widens it. In an
                 :py:class:`EventContext`, the context is the event's Session rather than the event's span, so an
                 explicit bound may reach past the event, to read around it, but not past the Session's data.
             end_time: Inclusive window upper bound, same forms as ``start_time``;
-                defaults to the end of the topic's data, to the latest time the Session covers, or to the event's end,
-                on the same terms.
+                ``None`` takes the context's end on the same terms, and otherwise puts no upper limit on the read.
             fields_include: Field subtrees to project. ``None`` projects every field. An address may also name one
                 element of a named array, as the array's path plus the element's name; the array then holds only
                 the elements named, in element order and numbered from 0, unless the array itself is also included.
@@ -590,6 +592,10 @@ class Topic:
             :py:class:`pyarrow.RecordBatch` instances holding the in-window
             rows, filtered and projected per the arguments.
 
+        Warns:
+            UnreadableTopicPartitionsWarning: Partitions with no scan tasks are
+                skipped. One warning names them before any rows are yielded.
+
         Raises:
             RobotoNotFoundException: This topic's file or dataset context names a file or dataset that does not
                 exist.
@@ -614,8 +620,9 @@ class Topic:
                   in the window.
                 * ``field-split-inside-non-struct``: files that store different fields of the same rows split a field
                   that one of them stores as other than a struct, such as a list or a map.
-                * ``projected-field-in-no-scan-task``: no scan task of a topic partition reads the whole schema or a
-                  subtree containing a projected field.
+                * ``projected-field-in-no-scan-task``: a partition has scan tasks, but none reads the whole schema or a
+                  subtree containing one of the projected leaf-most paths. These are the nonempty projected paths with
+                  no other projected path beneath them.
                 * ``inconsistent-scan-tasks-on-file``: the plan reads one file two ways, with a different format,
                   transformations or topic name.
                 * ``partition-schema-mismatch``: a topic partition's files give the read a different schema than the
@@ -680,9 +687,9 @@ class Topic:
         url_executor, url_futures = self.__prefetch_signed_urls(plan, cache_policy, resolved_cache_dir)
         try:
 
-            def signed_url_resolver(fs_node_id: str) -> str:
-                future = url_futures.get(fs_node_id)
-                return future.result() if future is not None else self.__signed_url_for_file(fs_node_id)
+            def signed_url_resolver(file: ReadPlanObjectRef) -> str:
+                future = url_futures.get(file)
+                return future.result() if future is not None else self.__signed_url_for_file(file)
 
             open_file_decoder = make_file_decoder_opener(
                 FileDecodeParams(
@@ -782,36 +789,38 @@ class Topic:
         plan: ReadPlan,
         cache_policy: CachePolicy,
         cache_dir: pathlib.Path,
-    ) -> tuple[typing.Optional[concurrent.futures.ThreadPoolExecutor], dict[str, concurrent.futures.Future[str]]]:
+    ) -> tuple[
+        typing.Optional[concurrent.futures.ThreadPoolExecutor],
+        dict[ReadPlanObjectRef, concurrent.futures.Future[str]],
+    ]:
         """Start minting, concurrently, the signed URLs every scan task will need.
 
-        Returns the minting executor (``None`` when nothing needs a URL) and one
-        future per file id; the caller blocks on individual futures as decode
-        reaches each file, and owns shutting the executor down.
+        Returns the minting executor (``None`` when nothing needs a URL) and one future per file version that needs a
+        URL; the caller blocks on individual futures as decode reaches each file, and owns shutting the executor down.
 
-        A Parquet scan task whose file is already in the local cache is read
-        from disk and never mints a URL, so it is skipped here to avoid a wasted
-        round trip; MCAP always streams and always needs one. The decode-time
-        resolver falls back to a direct mint for any id missing from this map, so
-        a skipped file that nonetheless ends up streaming stays correct.
+        Decode reads a Parquet file from disk, without a URL, when the local cache holds a copy under the file's
+        ``cached_parquet_name`` at the plan's size, or at any size when the plan reports none. Such a file is skipped
+        here to avoid a wasted round trip. A cached copy of another size is stale and is fetched again, so that file's
+        URL is minted with the rest. Under ``CachePolicy.NEVER`` decode never reads the cache, so every Parquet file
+        gets a URL. MCAP always streams, so every MCAP file needs a URL. The decode-time resolver mints a URL directly
+        for any file missing from this map, so a skipped file that ends up streaming after all still gets one.
         """
-        fs_node_ids: set[str] = set()
+        files: set[ReadPlanObjectRef] = set()
         for partition in plan.partitions:
             for scan_task in partition.scan_tasks:
-                fs_node_id = scan_task.object.fs_node_id
                 if scan_task.format == RepresentationStorageFormat.PARQUET:
-                    cached_outfile = cache_dir / CACHED_PARQUET_NAME_PATTERN.format(fs_node_id=fs_node_id)
-                    if cache_policy is not CachePolicy.NEVER and cached_outfile.exists():
+                    cached_outfile = cache_dir / cached_parquet_name(scan_task.object)
+                    if cache_policy is not CachePolicy.NEVER and cached_file_is_current(
+                        cached_outfile, scan_task.object.size_bytes
+                    ):
                         continue
-                fs_node_ids.add(fs_node_id)
+                files.add(scan_task.object)
 
-        if not fs_node_ids:
+        if not files:
             return None, {}
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=min(_MAX_SIGNED_URL_WORKERS, len(fs_node_ids)))
-        return executor, {
-            fs_node_id: executor.submit(self.__signed_url_for_file, fs_node_id) for fs_node_id in fs_node_ids
-        }
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=min(_MAX_SIGNED_URL_WORKERS, len(files)))
+        return executor, {file: executor.submit(self.__signed_url_for_file, file) for file in files}
 
     def __require_session_id(self, operation: str) -> str:
         """Return the id of the Session this Topic is scoped to.
@@ -856,15 +865,13 @@ class Topic:
             start_ns = start_ns if start_ns is not None else context.start_time
             end_ns = end_ns if end_ns is not None else context.end_time
 
-        # A file, dataset or device context leaves an omitted bound for the service to default. Checking here, ahead of
-        # ReadPlanRequest's own check, gives an error in terms of the Topic's contexts rather than the request's fields.
-        if (start_ns is None or end_ns is None) and not isinstance(
-            context, (FileContext, DatasetContext, DeviceContext)
-        ):
+        # A read in a context may omit a bound, and the service then puts no limit on that side of the read.
+        # Checking here, ahead of ReadPlanRequest's own check, gives an error in terms of the Topic's contexts rather
+        # than the request's fields.
+        if (start_ns is None or end_ns is None) and context is None:
             raise ValueError(
-                "start_time and end_time are required; they default to the span of the topic's data in a file, "
-                "dataset or device context, and to the session's time window for a topic obtained from "
-                "Session.list_topics() or Session.get_topic() (only when that session has bounds)."
+                "start_time and end_time are required unless the topic is read in a session, session event, file, "
+                "dataset or device context"
             )
         request = ReadPlanRequest(
             start_time=start_ns,
@@ -892,8 +899,11 @@ class Topic:
         records = self.__roboto_client.get(f"v2/topics/schema/id/{schema_id}/fields").to_record_list(SchemaFieldRecord)
         return [record.path_in_schema for record in records]
 
-    def __signed_url_for_file(self, fs_node_id: str) -> str:
-        response = self.__roboto_client.get(f"v1/files/{fs_node_id}/signed-url")
+    def __signed_url_for_file(self, file: ReadPlanObjectRef) -> str:
+        response = self.__roboto_client.get(
+            f"v1/files/{file.fs_node_id}/signed-url",
+            query={"version_id": file.version} if file.version is not None else None,
+        )
         return response.to_dict(json_path=["data", "url"])
 
 

@@ -14,11 +14,8 @@ import typing
 
 import pydantic
 
-from ...domain.topics.record import (
-    _INT64_MAX,
-    _INT64_MIN,
-    DataRange,
-)
+from ...domain.topics.record import DataRange
+from ...int64 import INT64_MAX
 from ...sentinels import NotSet, NotSetType
 from ...time import _EpochNanosecondsFromTime
 from ...updates import CustomFieldChangeset, MetadataChangeset
@@ -27,8 +24,11 @@ from ..ingest import (
     FileTopicDeclaration,
     TopicDeclaration,
 )
-from ..ingest.operations import _reject_files_named_in_different_storage_formats
-from .record import CompletionPolicy, SessionIngestionSummary
+from ..ingest.operations import (
+    _FileWindowBoundNs,
+    _reject_files_named_in_different_storage_formats,
+)
+from .record import CompletionPolicy, SessionDevice, SessionIngestionSummary
 
 MAX_SESSIONS_PER_REQUEST = 100
 """Cap on the number of sessions one request may declare on a device; split a larger batch across several
@@ -191,7 +191,7 @@ class FileDeclaration(pydantic.BaseModel):
     data_range: typing.Optional[DataRange] = None
     """The slice of the file this declaration describes, or ``None`` for the whole file."""
 
-    anchor_ns: typing.Optional[_EpochNanosecondsFromTime] = pydantic.Field(default=None, gt=0, le=_INT64_MAX)
+    anchor_ns: typing.Optional[_EpochNanosecondsFromTime] = pydantic.Field(default=None, gt=0, le=INT64_MAX)
     """Optional wall-clock anchor for the data this declaration names: the real-world time, in nanoseconds
     since the Unix epoch, at which that data's time 0 occurred. It covers exactly what the declaration names,
     the slice named by :py:attr:`data_range` or the whole file when none is named, so a file holding several
@@ -297,10 +297,10 @@ class SessionFile(FileDeclaration):
       rather than accepted to admit nothing of that partition.
     """
 
-    min_file_timestamp_ns: typing.Optional[int] = pydantic.Field(default=None, ge=_INT64_MIN, le=_INT64_MAX)
+    min_file_timestamp_ns: typing.Optional[_FileWindowBoundNs] = None
     """Lower bound of the time window this entry states, in the file's own timestamps."""
 
-    max_file_timestamp_ns: typing.Optional[int] = pydantic.Field(default=None, ge=_INT64_MIN, le=_INT64_MAX)
+    max_file_timestamp_ns: typing.Optional[_FileWindowBoundNs] = None
     """Upper bound of the time window this entry states, in the file's own timestamps."""
 
     @pydantic.model_validator(mode="after")
@@ -463,7 +463,7 @@ class SetUnixOffsetRequest(pydantic.BaseModel):
                 "unix_epoch_offset_ns must be positive; to return a session to an offset of 0, "
                 "clear its anchor instead (DELETE /v1/sessions/id/<session_id>/unix-offset)"
             )
-        if not 0 < value <= _INT64_MAX:
+        if not 0 < value <= INT64_MAX:
             raise ValueError("unix_epoch_offset_ns must be a time after the Unix epoch and below 2**63 ns")
         return value
 
@@ -482,7 +482,7 @@ class SessionDeclaration(SessionAttributes):
     """Name of the session (max 120 characters), unique within the device: retrying a batch converges on the
     existing session with this name instead of creating a duplicate."""
 
-    anchor_ns: typing.Optional[_EpochNanosecondsFromTime] = pydantic.Field(default=None, gt=0, le=_INT64_MAX)
+    anchor_ns: typing.Optional[_EpochNanosecondsFromTime] = pydantic.Field(default=None, gt=0, le=INT64_MAX)
     """Optional wall-clock anchor applied to every entry in this session that does not carry its own
     :py:attr:`FileDeclaration.anchor_ns`; each such entry then anchors the data it declares, which is its
     slice of the file when it names one. Takes the same values as :py:attr:`FileDeclaration.anchor_ns`, which
@@ -562,3 +562,22 @@ class SessionIngestionSummariesResponse(pydantic.BaseModel):
 
     summaries: list[SessionIngestionSummary]
     """One per requested session in the caller's org, in request order. Others are left out."""
+
+
+MAX_SESSION_DEVICES_REQUEST = 100
+"""Most sessions one ``POST /v1/sessions/devices`` takes."""
+
+
+class SessionDevicesRequest(pydantic.BaseModel):
+    """Request body for ``POST /v1/sessions/devices``."""
+
+    session_ids: list[str] = pydantic.Field(min_length=1, max_length=MAX_SESSION_DEVICES_REQUEST)
+    """Sessions whose devices to list, at most :py:data:`MAX_SESSION_DEVICES_REQUEST`."""
+
+
+class SessionDevicesResponse(pydantic.BaseModel):
+    """Response of ``POST /v1/sessions/devices``."""
+
+    devices: dict[str, list[SessionDevice]]
+    """Each requested session's attached devices, sorted by device ID, keyed by session ID. A session with no
+    devices, or not in the caller's org, has no key."""

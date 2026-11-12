@@ -38,6 +38,9 @@ class GoalType(StrEnum):
     """Deliberate over a caller-supplied label vocabulary and apply the labels that fit (zero or more) as tags
     on the session, with a per-label justification recorded in the agent session log."""
 
+    SESSION_CREATE_EVENTS = "session_create_events"
+    """Investigate a session and create session events on it, drawn from a caller-supplied event vocabulary."""
+
 
 class AgentGoalStatus(StrEnum):
     """Lifecycle of a per-turn declared goal.
@@ -206,7 +209,7 @@ _MAX_VOCABULARY_DESCRIPTION_CHARS = 500
 
 
 def _validate_vocabulary(value: dict[str, str], *, field_name: str) -> dict[str, str]:
-    """Shared entry validator for :class:`CreateEventsGoal`'s two vocabularies.
+    """Shared entry validator for the vocabularies of :class:`CreateEventsGoal` and :class:`SessionCreateEventsGoal`.
 
     Both ``event_vocabulary`` and ``tag_vocabulary`` map a short key (an event-type
     name / a tag) to a description rendered into the prompt. Keys must be non-empty
@@ -339,8 +342,63 @@ class SessionTriageGoal(AgentGoalBase):
         return _validate_triage_vocabulary(value)
 
 
+class SessionCreateEventsGoal(AgentGoalBase):
+    """Goal: investigate a session and create tagged session events on it from fixed vocabularies.
+
+    The session counterpart of :class:`CreateEventsGoal`. The achieve-tool creates session events
+    (``evt_`` IDs, listed by :meth:`roboto.experimental.sessions.Session.list_events`) on the session
+    identified by :attr:`session_id` and no other. Each event may name the session's topics that it
+    concerns. As with :class:`CreateEventsGoal`, every event's ``name`` must be an :attr:`event_vocabulary`
+    key and every tag a :attr:`tag_vocabulary` key. Session events cannot be filed into collections, so
+    the goal has no ``collection_id``.
+
+    Which of the two goals an org can declare depends on its :class:`~roboto.domain.orgs.EventModel`. This
+    goal needs an org that has session events (``dual``, ``migrating`` or ``session``);
+    :class:`CreateEventsGoal` needs one that still takes dataset events (``legacy`` or ``dual``).
+    """
+
+    goal_type: Literal[GoalType.SESSION_CREATE_EVENTS] = GoalType.SESSION_CREATE_EVENTS
+    """Discriminator. Always :attr:`GoalType.SESSION_CREATE_EVENTS`."""
+
+    session_id: str
+    """Identifier of the session to investigate. Every created event belongs to this session. The
+    achieve-tool enforces this as an invariant."""
+
+    event_vocabulary: dict[str, str] = pydantic.Field(min_length=1, max_length=_MAX_EVENT_VOCABULARY)
+    """Fixed set of event types the agent may create, mapped to descriptions, with the same constraints
+    as :attr:`CreateEventsGoal.event_vocabulary`."""
+
+    tag_vocabulary: dict[str, str] = pydantic.Field(default_factory=dict, max_length=_MAX_TAG_VOCABULARY)
+    """Fixed set of tags the agent may attach to created events, mapped to descriptions of when each tag
+    applies, with the same constraints as :attr:`CreateEventsGoal.tag_vocabulary`. Empty (the default)
+    means created events carry no tags."""
+
+    event_focus_prompt: Optional[str] = pydantic.Field(
+        default=None, min_length=1, max_length=_MAX_EVENT_FOCUS_PROMPT_CHARS
+    )
+    """Caller-provided natural-language guidance layered on top of the vocabularies, with the same
+    constraints as :attr:`CreateEventsGoal.event_focus_prompt`."""
+
+    @pydantic.field_validator("event_vocabulary")
+    @classmethod
+    def _validate_event_vocabulary(cls, value: dict[str, str]) -> dict[str, str]:
+        return _validate_vocabulary(value, field_name="event_vocabulary")
+
+    @pydantic.field_validator("tag_vocabulary")
+    @classmethod
+    def _validate_tag_vocabulary(cls, value: dict[str, str]) -> dict[str, str]:
+        return _validate_vocabulary(value, field_name="tag_vocabulary")
+
+
 AgentGoal = Annotated[
-    Union[DatasetSummaryAgentGoal, DatasetTriageGoal, CreateEventsGoal, SessionSummaryAgentGoal, SessionTriageGoal],
+    Union[
+        DatasetSummaryAgentGoal,
+        DatasetTriageGoal,
+        CreateEventsGoal,
+        SessionSummaryAgentGoal,
+        SessionTriageGoal,
+        SessionCreateEventsGoal,
+    ],
     pydantic.Field(discriminator="goal_type"),
 ]
 """Closed, Roboto-controlled discriminated union of all declarable agent goals.

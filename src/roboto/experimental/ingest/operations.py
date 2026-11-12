@@ -10,15 +10,14 @@ import typing
 import pydantic
 
 from ...domain.topics.record import (
-    _INT64_MAX,
-    _INT64_MIN,
     CanonicalDataType,
     DataRange,
     RepresentationStorageFormat,
     TimelineSourceKind,
 )
+from ...int64 import INT64_MAX, INT64_MIN
 from ...sentinels import NotSet, NotSetType, is_set
-from ...time import _EpochNanosecondsFromTime
+from ...time import _EpochNanosecondsFromTime, _integral_to_python_int
 from .schema import Schema
 
 MAX_FILES_AND_TOPICS_PER_REQUEST = 500
@@ -52,6 +51,14 @@ The request models in this module check each declaration against the kind and na
 platform stores the declaration under exactly those.
 """
 
+_FileWindowBoundNs = typing.Annotated[
+    int, pydantic.Field(ge=INT64_MIN, le=INT64_MAX), pydantic.BeforeValidator(_integral_to_python_int)
+]
+"""An end of a file's time window, in the file's own timestamps, that takes any integer type without loss.
+
+The range sits before the validator because, on an optional field, pydantic writes a range that follows a
+``BeforeValidator`` into the JSON schema as ``ge`` and ``le`` instead of ``minimum`` and ``maximum``."""
+
 _COLUMN_TIME_SOURCE_KIND = "field"
 """``kind`` of the one declared timeline source whose timestamps sit in the topic's own data columns.
 
@@ -76,7 +83,7 @@ class _DeclaredSourceBase(pydantic.BaseModel):
         json_schema_extra=NotSetType.openapi_schema_modifier,
     )
 
-    min_file_timestamp_ns: int = pydantic.Field(ge=_INT64_MIN, le=_INT64_MAX)
+    min_file_timestamp_ns: _FileWindowBoundNs
     """Time of the first message this file contributes on this timeline source, in nanoseconds, as the data
     itself carries it, stored in a signed 64-bit integer. A slice of a shared file states the bounds its own
     data carries: a LeRobot episode whose timestamp column restarts at 0 declares bounds from 0, while a
@@ -92,7 +99,7 @@ class _DeclaredSourceBase(pydantic.BaseModel):
     place it outside that span, and a later change of anchor that would move it there. A negative value
     therefore needs an anchor of at least its magnitude."""
 
-    max_file_timestamp_ns: int = pydantic.Field(ge=_INT64_MIN, le=_INT64_MAX)
+    max_file_timestamp_ns: _FileWindowBoundNs
     """Time of the last message this file contributes on this timeline source, in nanoseconds, measured and
     stored the same way as ``min_file_timestamp_ns``."""
 
@@ -612,7 +619,7 @@ class FileTopicDeclaration(TopicDeclaration):
     declared inside a session takes from the entry enclosing it.
     """
 
-    anchor_ns: typing.Optional[_EpochNanosecondsFromTime] = pydantic.Field(default=None, gt=0, le=_INT64_MAX)
+    anchor_ns: typing.Optional[_EpochNanosecondsFromTime] = pydantic.Field(default=None, gt=0, le=INT64_MAX)
     """Optional wall-clock anchor for the data this declaration names: the real-world time, in nanoseconds
     since the Unix epoch, at which that data's time 0 occurred. Must fall after the Unix epoch, and be small
     enough to fit in the signed 64-bit integer the platform stores it in. Also accepts any

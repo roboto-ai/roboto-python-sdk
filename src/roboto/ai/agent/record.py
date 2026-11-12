@@ -48,6 +48,22 @@ class TemplateVariableType(StrEnum):
     in the caller's org."""
 
 
+class AgentSubject(StrEnum):
+    """The kind of entity an agent is launched on.
+
+    An agent acts on a dataset or on a session, never both: its goals all act on the same kind of
+    entity, and the Roboto web app offers the matching picker when the agent is launched. Roboto
+    works the subject out from the agent's goals and variables rather than storing it; see
+    :func:`~roboto.ai.agent.infer_agent_subject`.
+    """
+
+    DATASET = "dataset"
+    """The agent is launched on a dataset."""
+
+    SESSION = "session"
+    """The agent is launched on a session."""
+
+
 class TemplateVariable(pydantic.BaseModel):
     """A named slot in an :class:`AgentRecord` that must be filled before the
     agent can be invoked.
@@ -174,6 +190,12 @@ class AgentRecord(pydantic.BaseModel):
     """User id who applied the most recent update; equals :attr:`created_by`
     on records that have not been edited since creation."""
 
+    subject: Optional[AgentSubject] = None
+    """The kind of entity the agent is launched on, or ``None`` for an agent with no subject, such as a chat
+    agent that takes no dataset or session ID. Roboto computes it from :attr:`request_template` and
+    :attr:`variables` each time it returns the record (see :func:`~roboto.ai.agent.infer_agent_subject`); it
+    is not stored, and create and update requests do not take it."""
+
     @pydantic.model_validator(mode="after")
     def _validate_variables_match_placeholders(self) -> "AgentRecord":
         """Raise ``ValueError`` if declared variables don't match the body's
@@ -284,6 +306,7 @@ class LaunchAgentRequest(pydantic.BaseModel):
 
 __all__ = [
     "AgentRecord",
+    "AgentSubject",
     "CreateAgentRequest",
     "LaunchAgentRequest",
     "TemplateVariable",

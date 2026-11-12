@@ -22,6 +22,7 @@ import contextlib
 import dataclasses
 import itertools
 import typing
+import warnings
 
 from ...compat import import_optional_dependency
 from ...domain.topics.record import FieldPath
@@ -44,6 +45,7 @@ from .read_plan import (
     ReadPlan,
     ReadPlanPartition,
     ReadPlanScanTask,
+    UnreadableTopicPartitionsWarning,
 )
 from .split_partition import SplitPartition
 
@@ -222,9 +224,10 @@ def execute_read_plan(
     which can be narrower than the plan's: a read scoped to a Session that holds a file over part of its time span
     returns that part of the file and nothing else.
 
-    Partitions without scan tasks are skipped. Partitions are yielded in plan order and their rows are never
-    interleaved; within a partition, rows keep their stored order. Nothing is sorted by time or deduplicated, so a
-    consumer that needs rows in time order sorts them.
+    Partitions without scan tasks are skipped, and one
+    :py:class:`~roboto.experimental.topics.UnreadableTopicPartitionsWarning` names them before any row. Partitions are
+    yielded in plan order and their rows are never interleaved; within a partition, rows keep their stored order.
+    Nothing is sorted by time or deduplicated, so a consumer that needs rows in time order sorts them.
 
     A plan with one partition to read yields its rows as they are decoded. A plan with several decodes up to 32
     partitions at once and holds each partition's rows until it is yielded. A split partition's files are decoded in
@@ -257,6 +260,13 @@ def execute_read_plan(
             (step 5).
     """
     partitions = [partition for partition in plan.partitions if partition.scan_tasks]
+    if len(partitions) < len(plan.partitions):
+        warnings.warn(
+            UnreadableTopicPartitionsWarning(
+                plan.topic_id, tuple(partition for partition in plan.partitions if not partition.scan_tasks)
+            ),
+            stacklevel=2,
+        )
     leaf_most = leaf_most_paths(projected)
     named_arrays = _named_arrays(plan)
 

@@ -43,6 +43,14 @@ class UpdateLayoutRequest(pydantic.BaseModel):
         description="Controls layout accessibility between organization-wide or user-only.",
         default=NotSet,
     )
+    base_revision: Union[int, NotSetType] = pydantic.Field(default=NotSet, ge=0)
+    """The layout's :py:attr:`~roboto.domain.layouts.record.LayoutRecord.revision` when you loaded it.
+
+    When set, the update is refused with ``RobotoConflictException`` (HTTP 409), and changes nothing, if the layout's
+    revision has changed since: someone else updated it after you loaded it. When omitted, the update is applied
+    whatever the layout's revision.
+    """
+
     folder: Union[str, None, NotSetType] = pydantic.Field(
         description="Folder to move this layout into; null moves it to the root, omit to leave unchanged.",
         default=NotSet,
@@ -53,7 +61,10 @@ class UpdateLayoutRequest(pydantic.BaseModel):
     )
     name: Union[str, NotSetType] = pydantic.Field(description="The name of the layout.", default=NotSet, max_length=120)
     schema_version: Union[int, NotSetType] = pydantic.Field(
-        description="The schema version associated with the layout definition.",
+        description=(
+            "The schema version associated with the layout definition. It must equal the layout's: an update cannot "
+            "change a layout's schema version."
+        ),
         default=NotSet,
     )
 

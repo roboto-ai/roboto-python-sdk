@@ -18,6 +18,7 @@ import pydantic
 from ...association import Association
 from ...compat import StrEnum
 from ...formats import FieldSelection
+from ...int64 import INT64_MAX
 from ...warnings import experimental
 
 
@@ -641,18 +642,6 @@ FieldPath = tuple[str, ...]
 """A schema field's path components, in order from the schema root to the leaf."""
 
 
-_INT64_MIN = -(2**63)
-"""Smallest value the platform can store for a declared timestamp or time bound."""
-
-_INT64_MAX = 2**63 - 1
-"""Largest value the platform can store for a declared timestamp, time bound, or data-range position.
-
-The platform holds each of these scalars in a signed 64-bit integer column, so request and record
-models bound them here: an oversized value comes back to the caller as a validation error instead of
-failing once it reaches storage.
-"""
-
-
 def validate_data_range(data_range: tuple[int, int]) -> tuple[int, int]:
     """Check that ``data_range`` is a pair of non-negative positions with ``start < end``.
 
@@ -674,7 +663,7 @@ def validate_data_range(data_range: tuple[int, int]) -> tuple[int, int]:
             "data_range must be a pair of non-negative positions with start < end "
             f"(start is included, end is excluded), got {data_range!r}"
         )
-    if end > _INT64_MAX:
+    if end > INT64_MAX:
         raise ValueError(
             "data_range positions must fit in a signed 64-bit integer, which is how the platform "
             f"stores them, got {data_range!r}"

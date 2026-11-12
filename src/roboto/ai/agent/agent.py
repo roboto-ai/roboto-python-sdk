@@ -28,6 +28,7 @@ from ..agent_thread import (
 from ..core import AnalysisScope
 from .record import (
     AgentRecord,
+    AgentSubject,
     CreateAgentRequest,
     LaunchAgentRequest,
     TemplateVariable,
@@ -329,6 +330,15 @@ class Agent:
         """:class:`TemplateVariable` declarations. The set of names here
         equals the set of placeholders referenced in :attr:`request_template`."""
         return self.__record.variables
+
+    @property
+    def subject(self) -> typing.Optional[AgentSubject]:
+        """Whether the agent is launched on a dataset or on a session; ``None`` when it has no subject.
+
+        Roboto infers it from :attr:`request_template` and :attr:`variables`; see
+        :func:`~roboto.ai.agent.infer_agent_subject`.
+        """
+        return self.__record.subject
 
     @property
     def created(self) -> datetime.datetime:

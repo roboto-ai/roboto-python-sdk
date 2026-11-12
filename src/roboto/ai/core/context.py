@@ -8,6 +8,8 @@ from typing import Any, Optional
 
 import pydantic
 
+from ...time import _NanosecondsFromInteger
+
 
 class ClientViewingContext(pydantic.BaseModel):
     """What the Roboto client (e.g. the Web UI) is currently viewing when the
@@ -106,10 +108,10 @@ class AnalysisScope(pydantic.BaseModel):
     equivalent to no scope at all.
     """
 
-    start_time: Optional[int] = None
+    start_time: Optional[_NanosecondsFromInteger] = None
     """Lower bound (inclusive) of the analysis window, expressed as nanoseconds since the Unix epoch."""
 
-    end_time: Optional[int] = None
+    end_time: Optional[_NanosecondsFromInteger] = None
     """Upper bound (inclusive) of the analysis window, expressed as nanoseconds since the Unix epoch."""
 
     @pydantic.model_validator(mode="after")

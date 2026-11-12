@@ -31,6 +31,7 @@ from .read_plan import (
     ReadPlanSchemaRef,
     ReadPlanTimestamp,
     TimeWindow,
+    UnreadableTopicPartitionsWarning,
 )
 from .record import RepresentationRecord, RepresentationSelector
 from .topic import (
@@ -74,5 +75,6 @@ __all__ = [
     "TimeWindow",
     "Topic",
     "TopicContext",
+    "UnreadableTopicPartitionsWarning",
     "timestamp_column_index",
 ]

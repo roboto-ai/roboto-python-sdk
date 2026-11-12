@@ -94,8 +94,7 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
     if isinstance(value, bool):
         raise ValueError(f"Expected a time, not a boolean; got {value}")
 
-    if isinstance(value, numbers.Integral) and not isinstance(value, int):
-        value = int(value)
+    value = _integral_to_python_int(value)
 
     if isinstance(value, int):
         nano_multiplier = unit.nano_multiplier() if unit is not None else TimeUnit.Nanoseconds.nano_multiplier()
@@ -138,6 +137,12 @@ def to_epoch_nanoseconds(value: Time, unit: typing.Optional[TimeUnit] = None):
         )
 
 
+def _integral_to_python_int(value: typing.Any) -> typing.Any:
+    if isinstance(value, numbers.Integral) and not isinstance(value, int):
+        return int(value)
+    return value
+
+
 def _refuse_negative_number(nanoseconds: int, value: Time) -> int:
     if nanoseconds < 0:
         raise ValueError(f"Cannot convert a negative number to epoch nanoseconds, got {value}")
@@ -162,6 +167,16 @@ A value is converted as :py:func:`to_epoch_nanoseconds` converts it, so an ``int
 ``Decimal``, or numeric string is seconds, and a ``datetime`` or ISO 8601 string is that instant. A value that
 :py:func:`to_epoch_nanoseconds` refuses fails validation with ``pydantic.ValidationError``. The type sets no range;
 a field declaring it states any bounds it needs, such as ``gt=0``.
+"""
+
+_NanosecondsFromInteger = typing.Annotated[int, pydantic.BeforeValidator(_integral_to_python_int)]
+"""An integer of nanoseconds that takes any integer type without loss, such as a ``numpy.uint64`` read out of a NumPy
+or pandas column.
+
+Pydantic's ``int`` validation takes a NumPy integer through a 64-bit float, which rounds a present-day time since the
+Unix epoch to a multiple of 256 nanoseconds. This type gives pydantic a Python ``int`` instead, and every other value
+is validated as for ``int``: unlike :py:data:`_EpochNanosecondsFromTime`, it reads no value as seconds and sets no
+floor at 0.
 """
 
 

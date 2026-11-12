@@ -6,7 +6,7 @@
 
 """Combine the files of a split partition into the partition's rows.
 
-Each combined row holds every projected top-level field, and each file gives the fields it supplies.
+Each combined row holds every projected top-level field that a file decoded, and each file gives the fields it supplies.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ class SplitPartition:
       in those files, in the order the first of them stores them, then any name that file lacks, in the next such
       file's order. A name none of those files decoded is dropped, and each other field is made by these same rules
       from the files that decoded it. The combined struct is valid in a row where any of those files has it valid.
-    * A top-level name no file decoded is an empty struct, null in every row.
+    * A top-level name no file decoded has no column.
     """
 
     def __init__(
@@ -62,7 +62,8 @@ class SplitPartition:
         Args:
             topic_part_id: The partition's id, for error messages.
             file_decoders: One opened decoder per scan task group's file, in the groups' order.
-            top_level_names: The value columns to give the read, in order: the first component of each leaf-most path.
+            top_level_names: The names of the value columns to give the read, in order: the first component of each
+                leaf-most path. A name that no file decoded gets no column.
 
         Raises:
             RobotoReadPlanExecutionException: With kind ``field-split-inside-non-struct``, when a field is in several
@@ -70,24 +71,24 @@ class SplitPartition:
         """
         self.__topic_part_id = topic_part_id
         self.__file_schemas = [topic_data_schema(decoder.value_fields) for decoder in file_decoders]
-        self.__sources = [
-            _field_source(
-                topic_part_id,
-                file_decoders,
-                (name,),
-                {
-                    file: (position, field)
-                    for file, decoder in enumerate(file_decoders)
-                    for position, field in enumerate(decoder.value_fields)
-                    if field.name == name
-                },
-            )
+        decoded_by_name = {
+            name: {
+                file: (position, field)
+                for file, decoder in enumerate(file_decoders)
+                for position, field in enumerate(decoder.value_fields)
+                if field.name == name
+            }
             for name in top_level_names
+        }
+        self.__sources = [
+            _field_source(topic_part_id, file_decoders, (name,), decoded)
+            for name, decoded in decoded_by_name.items()
+            if decoded
         ]
 
     @property
     def value_fields(self) -> list["pyarrow.Field"]:
-        """The combined partition's value columns, one per top-level name, in the order given."""
+        """The combined partition's value columns, one per top-level name some file decoded, in the order given."""
         return [source.field for source in self.__sources]
 
     def combine(
@@ -174,8 +175,8 @@ class _FieldSource:
     among the file's value columns for a top-level field, else among its parent's fields in that file."""
 
     children: typing.Optional[tuple[_FieldSource, ...]] = None
-    """For a struct combined from several files, or from none, how each of its fields is made; ``None`` for a field
-    taken whole from its one file."""
+    """For a struct combined from several files, how each of its fields is made; ``None`` for a field taken whole from
+    its one file."""
 
 
 def _field_source(

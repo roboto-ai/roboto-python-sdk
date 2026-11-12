@@ -258,6 +258,18 @@ class SessionIngestionSummary(pydantic.BaseModel):
     first 100 pending files, as :attr:`SessionIngestionStatus.pending_files` lists them."""
 
 
+class SessionDevice(pydantic.BaseModel):
+    """One device attached to a session, with its type.
+
+    Response item of ``POST /v1/sessions/devices``.
+    """
+
+    device_id: str
+    """ID of the device."""
+    device_type_id: typing.Optional[str]
+    """ID of the device's type, or ``None`` for a device with no type."""
+
+
 class SkipWaitingResponse(pydantic.BaseModel):
     """Response of ``POST /v1/sessions/id/<session_id>/ingestion/skip``."""
 

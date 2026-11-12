@@ -151,6 +151,13 @@ class SignedUrlResponse(pydantic.BaseModel):
     url: str
     """Signed URL that provides temporary direct access to the file."""
 
+    etag: typing.Optional[str] = None
+    """ETag of the stored object that the URL reads, as storage reported it when Roboto signed the URL.
+
+    Compare it with the ``ETag`` header of each range that you download through the URL: a different value means
+    that the file was replaced after the URL was signed. ``None`` when the service that signed the URL reports no
+    ETag."""
+
 
 class UpdateFileRecordRequest(pydantic.BaseModel):
     """Request payload for updating file record properties.

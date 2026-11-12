@@ -206,6 +206,16 @@ convention = "google"
     "S608", # TODO(ENG-2086): avoid sql injection
 ]
 
+"packages/roboto_service/src/roboto_service/ai/tools/topic_data/per_file_loading.py" = [
+    "S108", # TODO(ENG-2085): tmp files could leave data behind on disk to be accessed by future callers to the same instance.
+    "S608", # TODO(ENG-2086): avoid sql injection
+]
+
+"packages/roboto_service/src/roboto_service/ai/tools/topic_data/duckdb_relations.py" = [
+    "S108", # TODO(ENG-2085): tmp files could leave data behind on disk to be accessed by future callers to the same instance.
+    "S608", # TODO(ENG-2086): avoid sql injection
+]
+
 "packages/roboto_service/src/roboto_service/ai/tools/topic_data/result_facts.py" = [
     "S608", # Fact queries wrap the caller's own analyze_topic SQL in an in-process DuckDB; identifiers are quoted and values bound.
 ]

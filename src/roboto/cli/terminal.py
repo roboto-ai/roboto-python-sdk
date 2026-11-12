@@ -15,6 +15,7 @@ from ..compat import StrEnum
 class AnsiColor(StrEnum):
     RED = "\033[0;31m"
     GREEN = "\033[0;32m"
+    YELLOW = "\033[0;33m"
     BLUE = "\033[0;34m"
     END = "\033[0m"
 
@@ -58,10 +59,21 @@ def print_list_item(prefix: str, text: str) -> None:
     print(prefix + text.replace("\n", "\n" + indent))
 
 
+def _print_tagged(color: AnsiColor, tag: str, msg: typing.Union[str, list[str]]) -> None:
+    lines = msg if isinstance(msg, list) else [msg]
+    for line in lines:
+        print(f"{color}[{tag}]{AnsiColor.END} {line}", file=sys.stderr)
+
+
+def print_warning(msg: typing.Union[str, list[str]]) -> None:
+    """Print ``msg`` to stderr after a yellow ``[warning]`` tag. A list prints each item on its own tagged line."""
+    _print_tagged(AnsiColor.YELLOW, "warning", msg)
+
+
 def print_error_and_exit(msg: typing.Union[str, list[str]]) -> typing.NoReturn:
-    if isinstance(msg, list):
-        for line in msg:
-            print(f"{AnsiColor.RED}[error]{AnsiColor.END} {line}", file=sys.stderr)
-    else:
-        print(f"{AnsiColor.RED}[error]{AnsiColor.END} {msg}", file=sys.stderr)
+    """Print ``msg`` to stderr after a red ``[error]`` tag, then exit with status 1.
+
+    A list prints each item on its own tagged line.
+    """
+    _print_tagged(AnsiColor.RED, "error", msg)
     sys.exit(1)

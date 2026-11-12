@@ -40,6 +40,14 @@ class LayoutRecord(pydantic.BaseModel):
     name: str
     org_id: str
 
+    revision: int = 0
+    """How many times the layout has been updated, starting at 0 when it is created.
+
+    Every successful update advances it by one, a rename included. Send the revision you loaded as
+    :py:attr:`~roboto.domain.layouts.operations.UpdateLayoutRequest.base_revision` to have an update refused if
+    someone changed the layout since.
+    """
+
     # Layout definition schema version
     schema_version: int
     tags: list[str] = pydantic.Field(default_factory=list)

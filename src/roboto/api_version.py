@@ -123,6 +123,17 @@ class RobotoApiVersion(StrEnum):
     versions receive dataset events only. They also never receive the ``session_event.created`` sample, triggers
     subscribed to that event, or the dispatches it produced, which their ``PlatformEventType`` cannot parse."""
 
+    v2026_11_02 = "2026-11-02"
+    """``POST /v2/topics/id/<topic_id>/read-plan`` includes in its plan a partition whose stored representations fail
+    the coverage checks. A partition fails them when one of its representations names a field outside its schema, or
+    when it owns a slice of a shared file and a projected field that one of its representations holds is held by none
+    readable at the slice's row positions. The plan gives such a partition scan tasks over the representations that can
+    serve the read, or no scan tasks when none can. An SDK release that sends this version issues one
+    ``UnreadableTopicPartitionsWarning`` naming every partition with no scan tasks, and raises
+    ``RobotoReadPlanExecutionException`` when a partition's scan tasks leave out a projected field. Requests at older
+    API versions keep the coverage checks: a read in which any partition fails them is refused with HTTP 400 and a
+    message that names up to 20 failing partitions and why each fails, and asks the caller to upgrade."""
+
     @staticmethod
     def latest() -> RobotoApiVersion:
         """Get the newest API version this build of the SDK knows about.
@@ -132,7 +143,7 @@ class RobotoApiVersion(StrEnum):
         Returns:
             The most recent member of this enum.
         """
-        return RobotoApiVersion.v2026_10_22
+        return RobotoApiVersion.v2026_11_02
 
     def is_latest(self) -> bool:
         """Check if this API version is the latest available version.

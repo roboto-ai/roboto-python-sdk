@@ -30,9 +30,10 @@ from ....formats.parquet import (
     should_narrow_list_nested_fields,
     timestamp_statistics,
 )
+from ....int64 import INT64_MAX, INT64_MIN
 from ....time import TimeUnit
 from ..batch_transforms import topic_data_schema
-from ..read_plan import ReadPlanPartition, TimeWindow
+from ..read_plan import ReadPlanObjectRef, ReadPlanPartition, TimeWindow
 from .common import (
     FileDecodeParams,
     FileDecoder,
@@ -45,12 +46,6 @@ if typing.TYPE_CHECKING:
     import pyarrow  # pants: no-infer-dep
     import pyarrow.parquet  # pants: no-infer-dep
 
-CACHED_PARQUET_NAME_PATTERN = "{fs_node_id}.parquet"
-"""Filename template for locally cached Parquet files; keyed on the stable file id."""
-
-_INT64_MIN = -(2**63)
-_INT64_MAX = 2**63 - 1
-
 _DECIMAL_DIGITS = 100
 """Significant digits for exact arithmetic on a stored DECIMAL timestamp: more than the 85 a 76-digit DECIMAL holds once
 scaled by 10^9."""
@@ -58,6 +53,20 @@ scaled by 10^9."""
 _PathTree = dict[str, "_PathTree"]
 """Field paths merged by shared prefix: each key is a path component, mapped to the tree of the components after it.
 A path that ends at a component maps it to an empty tree."""
+
+
+def cached_parquet_name(file: ReadPlanObjectRef) -> str:
+    """The local cache's filename for the version of a Parquet file that a plan names.
+
+    The name includes the version, so a read of a new version fetches that version instead of reusing an older
+    version's cached bytes, even when both versions are the same size. Renaming or moving a file, or editing its tags,
+    metadata, description or device, makes a new version with unchanged bytes, so a read fetches the file again. The
+    copy cached under an earlier version's name stays on disk, where a read whose plan names that version finds it.
+    When the plan names no version, the name is the file's id alone.
+    """
+    if file.version is None:
+        return f"{file.fs_node_id}.parquet"
+    return f"{file.fs_node_id}.v{file.version}.parquet"
 
 
 class ParquetFileDecoder(FileDecoder):
@@ -110,13 +119,12 @@ class ParquetFileDecoder(FileDecoder):
         timestamp_path = _timestamp_field_path(partition)
         unit = plan_timestamp_unit(partition) or TimeUnit.Nanoseconds
 
-        fs_node_id = group.object.fs_node_id
         supplied_paths = list(dict.fromkeys(supplied.path for supplied in group.supplies))
         # The read also fetches the timestamp field, which adds a column unless it is one of the supplied paths.
         estimated_column_count = len(supplied_paths) + (0 if timestamp_path in supplied_paths else 1)
         self.__file = open_parquet_file(
-            url_provider=lambda: params.signed_url_resolver(fs_node_id),
-            cache_outfile=params.cache_dir / CACHED_PARQUET_NAME_PATTERN.format(fs_node_id=fs_node_id),
+            url_provider=lambda: params.signed_url_resolver(group.object),
+            cache_outfile=params.cache_dir / cached_parquet_name(group.object),
             policy=params.cache_policy,
             estimated_column_count=estimated_column_count,
             size_bytes=group.object.size_bytes,
@@ -259,7 +267,7 @@ class ParquetFileDecoder(FileDecoder):
             scaled_float = float(stored) * multiplier
             nanoseconds = math.trunc(scaled_float) if math.isfinite(scaled_float) else None
 
-        if nanoseconds is None or not _INT64_MIN <= nanoseconds + offset <= _INT64_MAX:
+        if nanoseconds is None or not INT64_MIN <= nanoseconds + offset <= INT64_MAX:
             raise self.__invalid_timestamp(
                 row_number,
                 f'{stored} {unit} of "{field_name}", shifted by {offset} ns, is not a signed 64-bit nanosecond value',
@@ -403,7 +411,7 @@ def _shifted_bounds(
             with decimal.localcontext() as context:
                 context.prec = _DECIMAL_DIGITS
                 nanoseconds = int(stored * multiplier)
-        if nanoseconds is None or not _INT64_MIN <= nanoseconds + offset <= _INT64_MAX:
+        if nanoseconds is None or not INT64_MIN <= nanoseconds + offset <= INT64_MAX:
             return None
         return nanoseconds + offset
 

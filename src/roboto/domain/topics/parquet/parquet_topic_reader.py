@@ -329,7 +329,8 @@ class ParquetTopicReader(TopicReader):
         which prefers an existing local cache file, falls back to downloading
         when the projection is column-heavy enough to justify it, and otherwise
         streams via HTTP), resolves the timestamp field, and builds the column
-        projection list.
+        projection list. A message path the file has no column for is left out
+        of the projection, with a warning.
 
         Returns ``None`` when *message_paths_to_representations* is empty
         (i.e. there is nothing to read).
@@ -352,7 +353,21 @@ class ParquetTopicReader(TopicReader):
         estimated_column_count = len(list(mapping.message_paths))
         parquet_file = self.__open_parquet_file(mapping.representation, estimated_column_count)
 
-        fields = [record.to_field_selection() for record in mapping.message_paths]
+        column_names = frozenset(parquet_file.schema_arrow.names)
+        fields: list[FieldSelection] = []
+        missing: list[str] = []
+        for record in mapping.message_paths:
+            field = record.to_field_selection()
+            if field.path_in_schema and field.path_in_schema[0] not in column_names:
+                missing.append(record.message_path)
+            else:
+                fields.append(field)
+        if missing:
+            logger.warning(
+                "Topic data file has no column for message paths %s, so they are left out of the result. "
+                "This is likely an issue with data ingestion. Please reach out to Roboto support.",
+                missing,
+            )
         timestamp_selection = timestamp_message_path.to_field_selection()
 
         # The timestamp field is read even when it is not among the requested fields, to filter rows by time;

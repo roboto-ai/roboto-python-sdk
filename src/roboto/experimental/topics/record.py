@@ -47,6 +47,13 @@ class RepresentationRecord(pydantic.BaseModel):
     ``None`` when the representation covers every field in the partition.
     """
 
+    file_version: typing.Optional[int] = None
+    """
+    The version of this representation's file that was current when the service read the representation. A read plan
+    built from this representation names this version as the one to read. ``None`` when the file has no current
+    version or the version is unknown. A write ignores this field.
+    """
+
     fs_node_id: str
     """Identifier of the file backing this representation."""
 
@@ -59,10 +66,9 @@ class RepresentationRecord(pydantic.BaseModel):
     """Unique identifier of this representation."""
 
     size_bytes: typing.Optional[int] = None
-    """Size in bytes of the file backing this representation, when known; ``None`` when the size is unavailable.
+    """Size in bytes of the file backing this representation, at :py:attr:`file_version`; ``None`` when unknown.
 
-    Populated on read-plan resolution so the plan can carry the backing file's size onto its object refs.
-    Write paths that upsert a representation leave it ``None``.
+    A read plan built from this representation reports this size for the file. A write ignores this field.
     """
 
     storage_format: RepresentationStorageFormat
@@ -82,20 +88,18 @@ class RepresentationRecord(pydantic.BaseModel):
 
 
 class RepresentationSelector(pydantic.BaseModel):
-    """Selects which stored variant of a field to read when several are available.
+    """Describes the stored variants a representation choice accepts.
 
-    A selector has three optional criteria — ``storage_format``, ``content_format``, and
-    ``transformations`` — one for each attribute on which stored variants of the same field
-    can differ (see :py:class:`RepresentationRecord`). A criterion that is set is a
-    requirement a variant must meet to be selected; a criterion left ``None`` places no
-    requirement, and any value is acceptable.
+    The optional criteria ``storage_format``, ``content_format``, and
+    ``transformations`` constrain the corresponding attributes of
+    :py:class:`RepresentationRecord`. A variant must meet every criterion
+    that is set; ``None`` places no requirement on that attribute.
 
-    A selector never falls back to a variant other than the one it describes. If any
-    criterion is set and no stored variant of a requested field meets every requirement —
-    whether the variants that exist all fall short, or the field has no stored variant at
-    all — the read fails with an error rather than quietly leave out the field. Only under
-    a selector with no criteria set is a field with no stored variant simply absent from
-    the result; such a selector requires nothing, so nothing requested is missing.
+    :py:class:`~roboto.experimental.topics.RepresentationPreference`
+    determines which selectors are tried and whether missing coverage is
+    refused. Missing coverage under a last selector with no criteria has the
+    meaning documented by
+    :py:attr:`~roboto.experimental.topics.ReadPlanPartition.scan_tasks`.
 
     Successor to :py:class:`roboto.domain.topics.RepresentationSelector`,
     used by :py:meth:`~roboto.domain.topics.Topic.get_data`.
