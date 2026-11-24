@@ -8,9 +8,10 @@ from .compat import StrEnum
 
 
 class RobotoRegion(StrEnum):
-    """
-    The geographic region of a Roboto resource. Used when configuring org-level default behavior for data storage, in
-    order to ensure that data is close to your users.
+    """Region where Roboto stores an organization's data.
+
+    You choose it when you create the organization, as ``data_region`` in :py:meth:`~roboto.domain.orgs.Org.create`.
+    Pick the region nearest the people who upload and read the data.
     """
 
     US_WEST = "us-west"

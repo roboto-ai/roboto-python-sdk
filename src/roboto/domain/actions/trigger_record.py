@@ -26,123 +26,134 @@ from .invocation_record import (
 
 
 class TriggerForEachPrimitive(StrEnum):
-    """Defines the granularity at which a trigger executes.
-
-    Determines whether the trigger creates one invocation per dataset or
-    one invocation per file within datasets that match the trigger conditions.
-    """
+    """How often a trigger invokes its action: once per dataset, or once per file."""
 
     Dataset = "dataset"
-    """Execute one action invocation per dataset that matches the trigger conditions."""
+    """One invocation of the action for each dataset whose files match every one of the trigger's required inputs."""
 
     DatasetFile = "dataset_file"
-    """Execute one action invocation per file in datasets that match the trigger conditions."""
+    """One invocation of the action for each file that matches any of the trigger's required inputs."""
 
 
 class TriggerEvaluationCause(enum.Enum):
-    """The cause of a TriggerEvaluationRecord is the reason why the trigger was selected for evaluation.
-
-    Represents the specific event that caused a trigger to be evaluated for
-    potential execution. Different causes may result in different trigger
-    behavior or input data selection.
-    """
+    """Platform event that causes Roboto to evaluate a trigger, deciding whether to invoke its action."""
 
     DatasetMetadataUpdate = "dataset_metadata_update"
-    """Trigger evaluation caused by changes to dataset metadata."""
+    """Change to a dataset's metadata."""
 
     FileUpload = "file_upload"
-    """Trigger evaluation caused by new files being uploaded to a dataset."""
+    """Upload of files to a dataset."""
 
     FileIngest = "file_ingest"
-    """Trigger evaluation caused by files being ingested into a dataset."""
+    """Ingestion of a file in a dataset."""
 
     FileMetadataUpdate = "file_metadata_update"
-    """Trigger evaluation caused by file metadata or tag updates."""
+    """Change to a file's metadata or tags."""
 
     RecurringSchedule = "recurring_schedule"
-    """Trigger evaluation caused by a recurring schedule.
+    """Due time on a scheduled trigger's schedule.
 
-    This cause is used internally by the Roboto system, to track the evaluation
-    history of scheduled triggers. It should not be used when creating or updating
-    triggers, and doing so will result in an error.
-
-    To create a trigger that invokes an action on a recurring schedule, use
-    :py:class:`~roboto.domain.actions.ScheduledTrigger`.
+    Roboto sets this cause on the evaluations of scheduled triggers, and rejects a trigger created or updated with it.
+    To invoke an action on a recurring schedule, use :py:class:`~roboto.domain.actions.ScheduledTrigger`.
     """
 
 
 class TriggerRecord(pydantic.BaseModel):
-    """A wire-transmissible representation of a trigger.
+    """Deprecated. Data record of a trigger in the legacy trigger model, as the Roboto API returns it.
 
-    Contains all the configuration and metadata for a trigger, including
-    the target action, input requirements, conditions, and execution settings.
+    :py:class:`~roboto.domain.triggers.Trigger` replaces this model, and reads and edits every trigger, including those
+    this model cannot express. A trigger is a rule that invokes an action when files are uploaded or ingested, or when
+    file or dataset metadata changes, and the data meets the trigger's condition.
+    :py:class:`~roboto.domain.actions.Trigger`, also deprecated, wraps this record with methods that act on the trigger.
 
-    This is the underlying data structure used by the Trigger domain class
-    to store and transmit trigger information.
+    Building one raises ``pydantic.ValidationError`` unless at least one ``required_inputs`` pattern is neither empty
+    nor only whitespace, and when ``additional_inputs`` is a non-empty list whose every pattern is empty or only
+    whitespace.
     """
 
     trigger_id: str
-    """Unique identifier for the trigger."""
+    """Unique ID of the trigger."""
 
     name: str
-    """Human-readable name for the trigger."""
+    """Human-readable name of the trigger, unique within its organization."""
 
     org_id: str
-    """Organization ID that owns the trigger."""
+    """ID of the organization that owns the trigger."""
 
     created: datetime.datetime
-    """Timestamp when the trigger was created."""
+    """Time the trigger was created."""
 
     created_by: str
-    """User ID who created the trigger."""
+    """ID of the user who created the trigger."""
 
     modified: datetime.datetime
-    """Timestamp when the trigger was last modified."""
+    """Time the trigger was last modified."""
 
     modified_by: str
-    """User ID who last modified the trigger."""
+    """ID of the user who last modified the trigger."""
 
     action: ActionReference
-    """Reference to the action that should be invoked."""
+    """Action the trigger invokes. A reference without a digest invokes the action's latest version."""
 
     required_inputs: list[str]
-    """File patterns that must be present for trigger to fire."""
+    """Gitignore-style patterns for the files the trigger requires, and passes to the action as its input data.
+
+    With ``for_each`` set to ``TriggerForEachPrimitive.Dataset``, the trigger invokes its action when each pattern
+    matches at least one file in the dataset. With ``TriggerForEachPrimitive.DatasetFile``, it invokes the action once
+    for each file that matches any pattern. At least one pattern must be neither empty nor only whitespace.
+    """
 
     service_user_id: str
-    """Service user ID for authentication."""
+    """ID of the service user the trigger invokes its action as."""
+
     for_each: TriggerForEachPrimitive = TriggerForEachPrimitive.Dataset
-    """Granularity of trigger execution (Dataset or DatasetFile)."""
+    """Whether the trigger invokes its action once per dataset or once per file."""
 
     enabled: bool = True
-    """Whether the trigger is currently active."""
+    """Whether the trigger is enabled. A disabled trigger never invokes its action."""
 
     parameter_values: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Parameter values to pass to the action."""
+    """Values for the action's parameters, keyed by parameter name, that each invocation receives."""
 
     additional_inputs: typing.Optional[list[str]] = None
-    """Optional additional file patterns to include."""
+    """Gitignore-style patterns for more files to pass to the action as input data.
+
+    Unlike ``required_inputs``, no file has to match them for the trigger to invoke its action. ``None`` or an empty
+    list adds no files.
+    """
 
     causes: typing.Optional[list[TriggerEvaluationCause]] = None
-    """List of events that can cause this trigger to be evaluated."""
+    """Platform events that cause Roboto to evaluate the trigger.
+
+    A trigger created without any is evaluated on file uploads.
+    """
 
     compute_requirement_overrides: typing.Optional[ComputeRequirements] = None
-    """Optional compute requirement overrides."""
+    """Compute requirements that replace the action's own in each invocation, or ``None`` to use the action's."""
 
     container_parameter_overrides: typing.Optional[ContainerParameters] = None
-    """Optional container parameter overrides."""
+    """Container parameters that replace the action's own in each invocation, or ``None`` to use the action's."""
 
     condition: typing.Optional[ConditionType] = None
-    """Optional condition that must be met for trigger to fire."""
+    """Condition the data must meet for the trigger to invoke its action, or ``None`` if the trigger has none."""
 
     timeout: typing.Optional[int] = None
-    """Optional timeout override for action execution."""
+    """Maximum run time of each invocation, in minutes, or ``None`` to use the action's timeout."""
 
     @pydantic.field_validator("required_inputs")
     def validate_required_inputs(cls, value: list[str]) -> list[str]:
+        """Reject ``required_inputs`` unless at least one pattern is neither empty nor only whitespace.
+
+        Pydantic calls this while it builds the record.
+        """
         return validate_nonzero_gitpath_specs(value)
 
     @pydantic.field_validator("additional_inputs")
     def validate_additional_inputs(cls, value: typing.Optional[list[str]]) -> typing.Optional[list[str]]:
+        """Replace ``None`` with an empty list, and reject a list whose every pattern is empty or only whitespace.
+
+        Pydantic calls this while it builds the record.
+        """
         if value is None or len(value) == 0:
             return []
 
@@ -150,12 +161,12 @@ class TriggerRecord(pydantic.BaseModel):
 
 
 class TriggerEvaluationStatus(enum.Enum):
-    """
-    When a trigger is selected for evaluation,
-    a trigger evaluation record is created with a status of Pending.
-    The evaluation can either run to completion (regardless of its outcome),
-    in which case the status is Evaluated, or hit an unexpected exception,
-    in which case the status is Failed.
+    """Progress of a trigger evaluation.
+
+    An evaluation starts as ``Pending``. It becomes ``Evaluated`` when the trigger invokes its action, and ``Failed``
+    when an error stops it. Roboto records an evaluation only when a trigger goes to invoke its action, so new
+    evaluations are never ``Evaluated`` without invoking it. Older evaluations can also be ``Evaluated`` with the
+    outcome ``TriggerEvaluationOutcome.Skipped``.
     """
 
     Pending = "pending"
@@ -164,10 +175,9 @@ class TriggerEvaluationStatus(enum.Enum):
 
 
 class TriggerEvaluationOutcome(enum.Enum):
-    """
-    The outcome of a TriggerEvaluationRecord is the result of the evaluation.
-    A trigger can either invoke its associated action (one or many times) or be skipped.
-    If skipped, a skip reason is provided.
+    """Result of a trigger evaluation: the trigger invoked its action, once or more, or skipped it.
+
+    New evaluations are only ever ``InvokedAction``; ``Skipped`` appears only on older evaluations.
     """
 
     InvokedAction = "invoked_action"
@@ -175,65 +185,83 @@ class TriggerEvaluationOutcome(enum.Enum):
 
 
 class TriggerEvaluationOutcomeReason(enum.Enum):
-    """Context for why a trigger evaluation has its TriggerEvaluationOutcome"""
+    """Reason a trigger evaluation was skipped.
+
+    Only older evaluations carry one, because new evaluations are never ``TriggerEvaluationOutcome.Skipped``.
+    """
 
     AlreadyRun = "already_run"
-    """
-    This trigger has already run its associated action for this dataset and/or file.
-    """
+    """The trigger already invoked its action for this dataset or file."""
 
     ConditionNotMet = "condition_not_met"
-    """
-    The trigger's condition is not met.
-    """
+    """The data does not meet the trigger's condition."""
 
     NoMatchingFiles = "no_matching_files"
-    """
-    In the case of a dataset trigger,
-    there is no subset of files that, combined, match ALL of the trigger's required inputs.
+    """No files match the trigger's required inputs.
 
-    In the case of a file trigger,
-    there are no files that match ANY of the trigger's required inputs.
+    For a trigger that runs once per dataset, no set of the dataset's files matches every required input. For a
+    trigger that runs once per file, no file matches any required input.
     """
 
     TriggerDisabled = "trigger_disabled"
-    """
-    The trigger is disabled.
-    """
+    """The trigger is disabled."""
 
 
 class TriggerEvaluationDataConstraint(pydantic.BaseModel):
-    """
-    An optional filtering constraint applied to the data considered by a trigger evaluation.
+    """Limit on which of a data source's files a trigger evaluation considers.
 
-    Each trigger evaluation considers data of a particular data source ID and data source type.
-    Typically (and to start, exclusively), this is a dataset ID (and type Dataset).
-
-    In the naive case before the introduction of this class, trigger evaluation for a dataset with 20k files would
-    have to scan each file. This constraint allows us to filter the data to a subset during evaluation, e.g. only
-    evaluate files from dataset ds_12345 with upload ID tx_123abc
+    Carried in ``TriggerEvaluationRecord.data_constraint``.
     """
 
     transaction_id: typing.Optional[str] = None
-    """If set, only consider files from this upload."""
+    """ID of the upload whose files the evaluation considers, or ``None`` to consider files from any upload."""
 
     file_id: typing.Optional[str] = None
-    """If set, only consider this file as part of trigger evaluation."""
+    """ID of the one file the evaluation considers, or ``None`` to consider every file."""
 
 
 class TriggerEvaluationRecord(pydantic.BaseModel):
-    """
-    Record of a point-in-time evaluation of whether to invoke an action associated with a trigger for a data source.
+    """Deprecated. Data record of one evaluation of a trigger, as the Roboto API returns it.
+
+    The record belongs to the legacy trigger model; :py:class:`~roboto.domain.triggers.Trigger` reads and edits every
+    trigger. An evaluation decides, at one point in time, whether a trigger invokes its action for a data source.
+    Returned by :py:meth:`~roboto.domain.actions.Trigger.get_evaluations`, and also by
+    :py:meth:`~roboto.domain.actions.Trigger.latest_evaluation` and
+    :py:meth:`~roboto.domain.actions.Trigger.get_evaluations_for_dataset`.
     """
 
-    trigger_evaluation_id: int  # Auto-generated by the database
+    trigger_evaluation_id: int
+    """Unique ID of the evaluation."""
+
     trigger_id: str
+    """ID of the trigger evaluated."""
+
     data_source: InvocationDataSource
+    """Data source the evaluation considered, usually a dataset."""
+
     data_constraint: typing.Optional[TriggerEvaluationDataConstraint] = None
+    """Limit on which of the data source's files the evaluation considered, or ``None`` if it considered them all."""
+
     evaluation_start: datetime.datetime
+    """Time the evaluation started."""
+
     evaluation_end: typing.Optional[datetime.datetime] = None
+    """Time the evaluation finished, or ``None`` if it has not."""
+
     status: TriggerEvaluationStatus
-    status_detail: typing.Optional[str] = None  # E.g., exception that caused the evaluation to fail
+    """Progress of the evaluation."""
+
+    status_detail: typing.Optional[str] = None
+    """Detail on the status, such as the error that made the evaluation fail, or ``None`` if there is none."""
+
     outcome: typing.Optional[TriggerEvaluationOutcome] = None
+    """Result of the evaluation, or ``None`` while it is pending or when it failed."""
+
     outcome_reason: typing.Optional[TriggerEvaluationOutcomeReason] = None
+    """Reason the evaluation was skipped, or ``None`` if it was not.
+
+    New evaluations are never skipped, so only older evaluations have one.
+    """
+
     cause: typing.Optional[TriggerEvaluationCause] = None
+    """Platform event that caused the evaluation, or ``None`` when that platform event has no matching cause."""

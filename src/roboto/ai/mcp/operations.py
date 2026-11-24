@@ -11,197 +11,276 @@ import pydantic
 
 
 class RegistrationMode(str, enum.Enum):
+    """Registration mode of an MCP server: how Roboto gets the OAuth 2.0 client it connects users to the server with."""
+
     DCR = "dcr"
+    """Roboto registers its own client with the server's authorization server, by Dynamic Client Registration.
+
+    It reads the OAuth endpoints from the metadata that authorization server publishes. Dynamic Client Registration is
+    defined by RFC 7591: https://datatracker.ietf.org/doc/html/rfc7591
+    """
+
     MANUAL = "manual"
+    """The caller supplies the OAuth endpoints, client ID and client secret."""
 
 
-# Display name is concatenated with each tool name as `{display_name}__{tool_name}`
-# and passed to the Bedrock/Claude API, which requires tool names to match
-# `^[a-zA-Z0-9_-]{1,64}$`. Keep display_name well short of 64 so there's room
-# for the tool name half after the `__` separator.
+# Roboto's AI names each of a server's tools <display_name>__<tool_name>, and the AI model accepts tool names of at
+# most 64 letters, digits, hyphens and underscores. Capping display_name at 32 leaves room for the tool name.
 _DISPLAY_NAME_PATTERN = r"^[a-zA-Z0-9_-]+$"
 _DISPLAY_NAME_MAX_LENGTH = 32
 
 
 class RegisterMcpServerRequest(pydantic.BaseModel):
-    """Request to register an MCP server. Used by org admins.
+    """Request body for ``POST /v1/mcp/servers``.
 
-    In DCR mode, OAuth metadata is auto-discovered and client credentials are
-    obtained via Dynamic Client Registration.
+    Registers an external Model Context Protocol (MCP) server, whose tools Roboto's AI can call, for the caller's
+    organization only. Only organization administrators may send it. No SDK method sends it. When a server at
+    ``server_url`` is already registered for the organization, Roboto returns that server and changes nothing.
 
-    In Manual mode, the caller provides all OAuth credentials upfront.
+    How Roboto gets the server's OAuth client depends on ``registration_mode``:
+
+    - ``RegistrationMode.DCR`` reads the endpoints from the metadata ``oauth_issuer_url`` publishes and registers a
+      client there, ignoring ``authorization_endpoint``, ``token_endpoint``, ``revocation_endpoint``, ``client_id``
+      and ``client_secret``. An authorization server that publishes no such metadata, or does not offer Dynamic Client
+      Registration, raises ``RobotoInvalidRequestException``; register the server with ``RegistrationMode.MANUAL``
+      instead.
+    - ``RegistrationMode.MANUAL`` takes the client from the request. Leaving out ``oauth_issuer_url``,
+      ``authorization_endpoint``, ``token_endpoint``, ``client_id`` or ``client_secret`` raises
+      ``RobotoInvalidRequestException``.
+
+    A URL that does not use ``https`` or resolve to a public address raises ``RobotoInvalidRequestException``.
+    Building it raises ``pydantic.ValidationError`` when:
+
+    - ``display_name`` is empty.
+    - ``display_name`` is longer than 32 characters.
+    - ``display_name`` holds a character other than a letter, digit, hyphen or underscore.
     """
 
     registration_mode: RegistrationMode = RegistrationMode.DCR
+    """How Roboto gets the server's OAuth client. Defaults to ``RegistrationMode.DCR``."""
 
     server_url: str
-    """MCP server Streamable HTTP endpoint URL."""
+    """URL of the server's MCP endpoint, which must use the Streamable HTTP transport."""
 
     display_name: str = pydantic.Field(pattern=_DISPLAY_NAME_PATTERN, max_length=_DISPLAY_NAME_MAX_LENGTH)
-    """User-friendly display name (e.g., 'GitHub'). Alphanumerics, hyphens, and underscores only."""
+    """Human-readable name of the server, such as ``GitHub``: 1 to 32 letters, digits, hyphens and underscores."""
 
     oauth_issuer_url: typing.Optional[str] = None
-    """OAuth2 authorization server URL. Required for DCR if different from server_url.
-    Required for Manual mode."""
+    """URL of the OAuth 2.0 authorization server. With ``RegistrationMode.DCR``, ``None`` uses ``server_url``."""
 
-    # Manual-mode fields (required when registration_mode=manual)
     authorization_endpoint: typing.Optional[str] = None
-    """OAuth2 authorization endpoint URL."""
+    """URL of the OAuth 2.0 authorization endpoint. Used only with ``RegistrationMode.MANUAL``."""
 
     token_endpoint: typing.Optional[str] = None
-    """OAuth2 token endpoint URL."""
+    """URL of the OAuth 2.0 token endpoint. Used only with ``RegistrationMode.MANUAL``."""
 
     client_id: typing.Optional[str] = None
-    """OAuth2 client ID from the provider's developer settings."""
+    """OAuth 2.0 client ID from the provider's developer settings. Used only with ``RegistrationMode.MANUAL``."""
 
     client_secret: typing.Optional[str] = None
-    """OAuth2 client secret from the provider's developer settings."""
+    """OAuth 2.0 client secret from the provider's developer settings. Used only with ``RegistrationMode.MANUAL``."""
 
     revocation_endpoint: typing.Optional[str] = None
-    """OAuth2 token revocation endpoint URL, if supported."""
+    """URL of the OAuth 2.0 token revocation endpoint, or ``None`` if the provider has none.
+
+    Used only with ``RegistrationMode.MANUAL``.
+    """
 
     scopes: list[str] = pydantic.Field(default_factory=list)
-    """OAuth2 scopes to request during authorization."""
+    """OAuth 2.0 scopes to request when a user connects the server. Defaults to none."""
 
     extra_auth_params: dict[str, str] = pydantic.Field(default_factory=dict)
-    """Extra query parameters appended to the OAuth authorization URL.
-    For example, Atlassian requires {"audience": "api.atlassian.com", "prompt": "consent"}."""
+    """Further query parameters for the provider's authorization URL, such as ``{"audience": "api.atlassian.com"}``.
+
+    Standard OAuth 2.0, PKCE and OpenID Connect parameter names, such as ``state``, ``scope`` and ``prompt``, raise
+    ``RobotoInvalidRequestException``.
+    """
 
     allowed_tools: typing.Optional[dict[str, bool]] = None
-    """Tool allowlist: map of tool name to enabled flag. None = configure later (auto-populates on first discovery)."""
+    """Ignored: the server starts with no tool allowlist, which Roboto fills in when the AI first lists its tools.
+
+    ``AdminRegisterMcpServerRequest.allowed_tools`` describes how Roboto fills it in.
+    """
 
 
 class StartOAuthFlowResponse(pydantic.BaseModel):
-    """Response from starting an OAuth flow."""
+    """Response body of ``POST /v1/mcp/servers/{server_id}/oauth/start``.
+
+    Roboto returns it when it starts connecting the caller's own account to an MCP server, in the caller's
+    organization. Send the user to ``authorization_url``, then pass the ``code`` and ``state`` the provider returns
+    in ``OAuthCallbackRequest`` within 10 minutes.
+    """
 
     authorization_url: str
-    """URL to redirect the user to for authorization."""
+    """URL of the provider's authorization page to send the user to."""
 
     state: str
-    """CSRF state token. Must be passed back in the callback."""
+    """Single-use token that ties the provider's response to this flow. Pass it back in ``OAuthCallbackRequest``."""
 
 
 class OAuthCallbackRequest(pydantic.BaseModel):
-    """Request to complete an OAuth flow after the user has authorized."""
+    """Request body for ``POST /v1/mcp/oauth/callback``.
+
+    Completes the flow ``StartOAuthFlowResponse`` began: Roboto exchanges ``code`` for the user's tokens and stores
+    them. The user who started the flow must send it, in the same organization. A ``state`` that is unknown, more than
+    10 minutes old, or already used raises ``RobotoNotFoundException``; one another user or organization started
+    raises ``RobotoUnauthorizedException``. A provider that rejects the code raises ``RobotoInvalidRequestException``.
+    """
 
     code: str
-    """Authorization code from the OAuth provider."""
+    """Authorization code the provider returned after the user authorized Roboto."""
 
     state: str
-    """CSRF state token from the original flow start."""
+    """``StartOAuthFlowResponse.state`` of the flow this request completes."""
 
 
 class AdminRegisterMcpServerRequest(pydantic.BaseModel):
-    """Admin request to register an MCP server. Supports both DCR and manual modes.
+    """Request body for ``POST /v1/mcp/admin/servers``.
 
-    Admins can scope the server to specific orgs via org_ids, or leave it empty
-    for global visibility.
+    Registers an external MCP server for the organizations in ``org_ids``, or for every organization. Only Roboto
+    administrators may send it. No SDK method sends it. Unlike ``RegisterMcpServerRequest``, it always creates a new
+    server, even when one is already registered at ``server_url``, and it stores ``allowed_tools``. The two requests
+    share their other behavior: ``RegisterMcpServerRequest`` describes how ``registration_mode`` decides which fields
+    Roboto uses, and which values Roboto and ``pydantic.ValidationError`` reject.
     """
 
     registration_mode: RegistrationMode = RegistrationMode.MANUAL
+    """How Roboto gets the server's OAuth client. Defaults to ``RegistrationMode.MANUAL``."""
 
     server_url: str
-    """MCP server Streamable HTTP endpoint URL."""
+    """URL of the server's MCP endpoint, which must use the Streamable HTTP transport."""
 
     display_name: str = pydantic.Field(pattern=_DISPLAY_NAME_PATTERN, max_length=_DISPLAY_NAME_MAX_LENGTH)
-    """User-friendly display name (e.g., 'GitHub'). Alphanumerics, hyphens, and underscores only."""
+    """Human-readable name of the server, such as ``GitHub``: 1 to 32 letters, digits, hyphens and underscores."""
 
     oauth_issuer_url: typing.Optional[str] = None
-    """OAuth2 authorization server base URL (e.g., 'https://github.com')."""
+    """URL of the OAuth 2.0 authorization server, such as ``https://github.com``.
+
+    With ``RegistrationMode.DCR``, ``None`` uses ``server_url``.
+    """
 
     authorization_endpoint: typing.Optional[str] = None
-    """OAuth2 authorization endpoint URL."""
+    """URL of the OAuth 2.0 authorization endpoint. Used only with ``RegistrationMode.MANUAL``."""
 
     token_endpoint: typing.Optional[str] = None
-    """OAuth2 token endpoint URL."""
+    """URL of the OAuth 2.0 token endpoint. Used only with ``RegistrationMode.MANUAL``."""
 
     client_id: typing.Optional[str] = None
-    """OAuth2 client ID from the provider's developer settings."""
+    """OAuth 2.0 client ID from the provider's developer settings. Used only with ``RegistrationMode.MANUAL``."""
 
     client_secret: typing.Optional[str] = None
-    """OAuth2 client secret from the provider's developer settings."""
+    """OAuth 2.0 client secret from the provider's developer settings. Used only with ``RegistrationMode.MANUAL``."""
 
     scopes: list[str] = pydantic.Field(default_factory=list)
-    """OAuth2 scopes to request during authorization."""
+    """OAuth 2.0 scopes to request when a user connects the server. Defaults to none."""
 
     revocation_endpoint: typing.Optional[str] = None
-    """OAuth2 token revocation endpoint URL, if supported."""
+    """URL of the OAuth 2.0 token revocation endpoint, or ``None`` if the provider has none.
+
+    Used only with ``RegistrationMode.MANUAL``.
+    """
 
     org_ids: list[str] = pydantic.Field(default_factory=list)
-    """Org IDs this server is scoped to. Empty = global (visible to all orgs)."""
+    """IDs of the organizations that can use the server. An empty list makes it visible to every organization."""
 
     extra_auth_params: dict[str, str] = pydantic.Field(default_factory=dict)
-    """Extra query parameters appended to the OAuth authorization URL.
-    For example, Atlassian requires {"audience": "api.atlassian.com", "prompt": "consent"}."""
+    """Further query parameters for the provider's authorization URL, such as ``{"audience": "api.atlassian.com"}``.
+
+    Standard OAuth 2.0, PKCE and OpenID Connect parameter names, such as ``state``, ``scope`` and ``prompt``, raise
+    ``RobotoInvalidRequestException``.
+    """
 
     allowed_tools: typing.Optional[dict[str, bool]] = None
-    """Tool allowlist: map of tool name to enabled flag. None = configure later (auto-populates on first discovery)."""
+    """Tools Roboto's AI may call on the server, as a map of tool name to whether it is enabled.
+
+    The AI cannot call a tool missing from the map. ``None`` leaves the allowlist unset until the AI first lists the
+    server's tools, when Roboto fills it in with every tool the server offers: if any tool carries the MCP
+    ``readOnlyHint`` annotation, only tools marked read-only are enabled, and otherwise every tool is.
+    """
 
 
 class UpdateMcpServerRequest(pydantic.BaseModel):
-    """Request to update an MCP server registration."""
+    """No SDK method or Roboto route uses this model.
+
+    A ``display_name`` that is empty, longer than 32 characters, or holds a character other than a letter, digit,
+    hyphen or underscore raises ``pydantic.ValidationError``.
+    """
 
     display_name: typing.Optional[str] = pydantic.Field(
         default=None, pattern=_DISPLAY_NAME_PATTERN, max_length=_DISPLAY_NAME_MAX_LENGTH
     )
-    """Updated display name. Alphanumerics, hyphens, and underscores only."""
+    """Human-readable name of the server: 1 to 32 letters, digits, hyphens and underscores."""
 
     scopes: typing.Optional[list[str]] = None
-    """Updated scopes."""
+    """OAuth 2.0 scopes to request when a user connects the server."""
 
 
 class UpdateMcpServerOrgsRequest(pydantic.BaseModel):
-    """Admin request to update the org scoping for an MCP server.
+    """Request body for ``PUT /v1/mcp/admin/servers/{server_id}/orgs``.
 
-    The provided org_ids fully replace the current set. An empty list makes
-    the server global (visible to all orgs). Tokens for removed orgs are
-    cascade-deleted.
+    Only Roboto administrators may send it. No SDK method sends it. ``org_ids`` replaces the organizations that can see
+    the server. A non-empty list deletes the server's OAuth connections and organization-wide tokens in every
+    organization outside it, including when it scopes a server every organization could see. An empty list makes the
+    server visible to every organization and deletes nothing.
     """
 
     org_ids: list[str] = pydantic.Field(default_factory=list)
-    """New set of org IDs. Empty = global (visible to all orgs)."""
+    """IDs of the organizations that can use the server. An empty list makes it visible to every organization."""
 
 
 class UpdateMcpServerAllowedToolsRequest(pydantic.BaseModel):
-    """Admin request to set the tool allowlist for an MCP server.
+    """Request body for ``PUT /v1/mcp/admin/servers/{server_id}/allowed-tools``.
 
-    Keys are tool names, values indicate whether the tool is enabled (True) or blocked (False).
-    Set to None to clear the allowlist (reverts to auto-populate on first discovery).
+    Only Roboto administrators may send it. No SDK method sends it.
     """
 
     allowed_tools: typing.Optional[dict[str, bool]] = None
+    """Tools Roboto's AI may call on the server, as a map of tool name to whether it is enabled.
+
+    ``None`` clears the allowlist, and Roboto fills it in again the next time the AI lists the server's tools, as
+    ``AdminRegisterMcpServerRequest.allowed_tools`` describes.
+    """
 
 
 class CopyMcpServerAllowedToolsRequest(pydantic.BaseModel):
-    """Admin request to copy the tool allowlist from another server."""
+    """Request body for ``POST /v1/mcp/admin/servers/{server_id}/copy-allowed-tools``.
+
+    Replaces the server's tool allowlist with another server's. Only Roboto administrators may send it. No SDK method
+    sends it.
+    """
 
     source_server_id: str
-    """Server ID to copy the allowed_tools dict from."""
+    """ID of the server whose tool allowlist to copy."""
 
 
 _ORG_CONTEXT_MAX_LENGTH = 4000
 
 
 class SetMcpServerOrgContextRequest(pydantic.BaseModel):
-    """Request to set per-org context for an MCP server.
+    """Request body for ``PUT /v1/mcp/servers/{server_id}/context``.
 
-    The context is plaintext that gets injected into the AI system prompt
-    so the AI knows how the org uses this server. Bounded to keep prompt
-    size predictable and to limit the blast radius of injection from
-    org-controlled text.
-    Set to empty string to clear.
+    Sets text that tells Roboto's AI how the caller's organization uses an MCP server, such as which repositories or
+    projects to work in, replacing any already set. Only organization administrators may send it. No SDK method sends
+    it. The AI receives the text with its instructions in every conversation in the organization, including those of
+    members who have not connected the server. The 4000-character limit bounds how much organization-written text the AI
+    receives as instructions. A longer ``context`` raises ``pydantic.ValidationError``.
     """
 
     context: str = pydantic.Field(default="", max_length=_ORG_CONTEXT_MAX_LENGTH)
-    """Plaintext context (max 4000 chars). Empty string clears it."""
+    """Text to give the AI, at most 4000 characters. An empty string clears it."""
 
 
 class SetMcpServerOrgCredentialRequest(pydantic.BaseModel):
     """Request body for ``PUT /v1/mcp/servers/{server_id}/org-credential``.
 
-    Sets the org-wide token the caller's org uses for the server, replacing any already set. Org admins only.
+    Sets the organization-wide token the caller's organization uses for the server, replacing any already set. Only
+    organization administrators may send it. No SDK method sends it. An empty ``secret_name`` raises
+    ``pydantic.ValidationError``.
     """
 
     secret_name: str = pydantic.Field(min_length=1)
-    """Name of an existing :py:class:`~roboto.domain.secrets.Secret` in the caller's org. Its value is the
-    token the server accepts as a bearer token."""
+    """Name of a :py:class:`~roboto.domain.secrets.Secret` in the caller's organization, whose value is the token.
+
+    Roboto sends the token to the server as a bearer token. A name that matches no secret raises
+    ``RobotoInvalidRequestException``.
+    """

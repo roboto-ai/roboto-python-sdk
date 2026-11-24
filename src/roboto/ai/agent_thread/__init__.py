@@ -4,6 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""Threads: persistent, multi-turn conversations with Roboto's AI.
+
+Use :py:class:`~roboto.ai.agent_thread.AgentThread` to start a thread, send it messages, and follow the AI's replies,
+and :py:func:`~roboto.ai.agent_thread.client_tool` or :py:class:`~roboto.ai.agent_thread.ClientTool` to give the AI
+tools that run in your Python process. Pass those tools to :py:meth:`~roboto.ai.agent_thread.AgentThread.start` or
+:py:meth:`~roboto.ai.agent_thread.AgentThread.send` to offer them to the AI in a thread.
+"""
+
 from ..core import AnalysisScope
 from .agent_thread import AgentThread, RobotoAgentGoalsFailedException
 from .agent_thread_goal_view import AgentThreadGoalView
@@ -21,7 +29,7 @@ from .feedback import (
     NEGATIVE_CATEGORIES,
     POSITIVE_CATEGORIES,
     AdminUpdateFeedbackRequest,
-    AgentFeedbackRecord,  # noqa: F401  Re-exported for internal callers; intentionally absent from ``__all__`` (admin shape).
+    AgentFeedbackRecord,  # noqa: F401  Left out of __all__: only Roboto administrators read this record.
     FeedbackCategory,
     FeedbackSentiment,
     SubmitFeedbackRequest,

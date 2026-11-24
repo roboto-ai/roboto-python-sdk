@@ -17,204 +17,203 @@ from ...sentinels import (
 )
 from ...updates import CustomFieldChangeset, MetadataChangeset
 
+MAX_EVENT_NAME_BYTES = 2600
+"""Maximum length of an event name, in bytes of its UTF-8 encoding.
+
+Roboto enforces the same limit when it stores an event.
+"""
+
+
+def _check_name_size(name: str) -> None:
+    if len(name.encode("utf-8")) > MAX_EVENT_NAME_BYTES:
+        raise ValueError(f"An event name may be at most {MAX_EVENT_NAME_BYTES} bytes of UTF-8")
+
 
 class EventDisplayOptions(pydantic.BaseModel):
-    """Display options for an event."""
+    """Options for how Roboto displays an event, such as its color.
+
+    Carried in :py:attr:`~roboto.domain.events.EventRecord.display_options` and ``CreateEventRequest.display_options``.
+    """
 
     color: typing.Optional[str] = None
-    """
-    Display color for the event.
+    """Display color of the event, as any CSS color value, such as ``"red"``, ``"#ff0000"`` or ``"rgb(255 0 0)"``.
 
-    Used to visually distinguish events on a timeline, and optionally to signal semantic
-    information about the event (e.g. "red" for events representing critical issues).
-
-    Any value that is permissible in CSS to define a valid color can be used here, encoded
-    as a string. For instance, the following are all valid: "red", "#ff0000", "rgb(255 0 0)".
+    The color distinguishes the event on a timeline, and can signal what the event means, such as red for a critical
+    issue. ``None`` lets Roboto choose a color.
     """
 
     def has_options(self) -> bool:
-        """Checks whether any display options have been specified."""
+        """Return whether any display option is set."""
 
         return any([self.color])
 
 
 class EventDisplayOptionsChangeset(pydantic.BaseModel):
-    """A set of changes to the display options of an event."""
+    """Changes to an event's display options.
+
+    A field left unset (``NotSet``) is unchanged. Carried in ``UpdateEventRequest.display_options_changeset``.
+    """
 
     color: typing.Union[str, None, NotSetType] = NotSet
-    """
-    An update to an event's color.
-
-    Use ``None`` to clear any previously set color value. On the Roboto website, the event
-    will be displayed using an automatically selected color.
-    """
+    """Display color to set on the event, as any CSS color value. ``None`` clears it, so Roboto chooses one."""
 
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
 
     def apply_to(self, display_options: EventDisplayOptions) -> EventDisplayOptions:
-        """Applies this changeset to some existing display options."""
+        """Return the display options that result from applying this changeset to ``display_options``.
+
+        Args:
+            display_options: Display options to apply the changes to. They are not modified.
+        """
 
         color: typing.Optional[str] = value_or_default_if_unset(self.color, display_options.color)
 
         return EventDisplayOptions(color=color)
 
     def has_changes(self) -> bool:
-        """Checks whether this changeset contains any changes."""
+        """Return whether this changeset changes any display option."""
 
         return any(map(is_set, [self.color]))
 
 
 class CreateEventRequest(pydantic.BaseModel):
-    """
-    Request payload for the Create Event operation.
+    """Request body for :py:meth:`~roboto.domain.events.Event.create`.
+
+    Building it raises ``pydantic.ValidationError`` when ``name`` is longer than ``MAX_EVENT_NAME_BYTES`` in UTF-8.
     """
 
     associations: list[Association] = pydantic.Field(default_factory=list)
-    """
-    Datasets, files, topics and message paths which this event relates to. At least one must be provided. All referenced
-    datasets, files, topics and message paths must be owned by the same organization.
+    """Datasets, files, topics and message paths the event is associated with.
+
+    Must contain at least one, and each must belong to the organization the event is created in. Otherwise the request
+    raises ``RobotoInvalidRequestException``.
     """
 
     description: typing.Optional[str] = None
-    """
-    An optional human-readable description of the event.
-    """
+    """Human-readable description of the event."""
 
     end_time: int
-    """
-    The end time of the event, in nanoseconds since epoch (assumed Unix epoch). This can be equal to start_time if
-    the event is discrete, but can never be less than start_time.
+    """End of the event, in nanoseconds since the Unix epoch.
+
+    Equal to ``start_time`` for an event at a single instant, and never earlier than ``start_time``.
     """
 
     metadata: dict[str, typing.Any] = pydantic.Field(
         default_factory=dict,
     )
-    """
-    Initial key-value pairs to associate with this event for discovery and search.
-    """
+    """Key-value metadata to set on the event."""
 
     name: str
-    """
-    A brief human-readable name for the event. Many events can have the same name. "Takeoff", "Crash", "CPU Spike",
-    "Bad Image Quality", and "Unexpected Left" are a few potential examples.
+    """Human-readable name of the event, such as ``"Takeoff"`` or ``"CPU Spike"``.
+
+    Must not be blank, and at most 2,600 bytes long in UTF-8 (``MAX_EVENT_NAME_BYTES``). Event names are not unique.
     """
 
     start_time: int
-    """
-    The start time of the event, in nanoseconds since epoch (assumed Unix epoch).
-    """
+    """Start of the event, in nanoseconds since the Unix epoch."""
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """
-    Initial tags to associate with this event for discovery and search.
-    """
+    """Tags to set on the event. Defaults to none."""
 
     display_options: typing.Optional[EventDisplayOptions] = None
-    """
-    Display options for this event, such as color.
-    """
+    """How Roboto displays the event, such as its color. ``None`` lets Roboto choose."""
 
     custom_fields: typing.Optional[dict[str, typing.Any]] = None
-    """Initial values for Ready custom fields on this event.
+    """Initial values for the event's custom fields, keyed by field name. ``None`` sets none.
 
-    Each key must be the name of a :py:class:`~roboto.domain.custom_fields.CustomField`
-    that is :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` for the
-    caller's org and the :py:class:`~roboto.domain.custom_fields.TargetEntityType.Event`
-    entity type; each value must satisfy the field's declared type. Names that are
-    undefined or not ``Ready``, and values that don't match the field's type, are
-    rejected with a structured error.
+    Each name must be a :py:class:`~roboto.domain.custom_fields.CustomField` defined for
+    :py:attr:`~roboto.domain.custom_fields.TargetEntityType.Event` in the organization the event is created in, with
+    status :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that field's
+    declared type. Otherwise the request raises ``RobotoIllegalArgumentException``.
     """
+
+    @pydantic.field_validator("name")
+    @classmethod
+    def _validate_name_size(cls, name: str) -> str:
+        _check_name_size(name)
+        return name
 
 
 MAX_EVENTS_PER_DELETE_BATCH = 1000
-"""Maximum number of event IDs the bulk Delete Events API accepts in a single request.
+"""Maximum number of event IDs in one ``DeleteEventsRequest``.
 
-The cap keeps a single delete bounded to one reasonably sized DELETE statement and
-transaction, so an oversized request can't make the service or database go nuts. A
-request that exceeds it is rejected server-side with a 400.
-:py:meth:`roboto.domain.events.Event.delete_many` splits larger inputs into chunks of
-this size automatically, so SDK callers don't need to batch by hand.
+A request with more fails with :py:class:`~roboto.exceptions.RobotoInvalidRequestException`.
+:py:meth:`~roboto.domain.events.Event.delete_many` accepts any number of IDs and sends them in requests of at most this
+many.
 """
 
 
 class DeleteEventsRequest(pydantic.BaseModel):
-    """
-    Request payload for the Delete Events (bulk) operation.
+    """Request body for :py:meth:`~roboto.domain.events.Event.delete_many`.
 
-    Used to delete multiple events in a single request. Event IDs that don't
-    exist are silently ignored so the operation is idempotent; an ID the caller
-    isn't allowed to delete causes the whole request to be rejected.
-
-    A single request may contain at most :py:const:`MAX_EVENTS_PER_DELETE_BATCH`
-    event IDs; larger requests are rejected. Use
-    :py:meth:`roboto.domain.events.Event.delete_many`, which chunks input into
-    batches of this size for you.
+    IDs that match no event are skipped, so a request can be retried safely. If the caller cannot delete one of the
+    events, the request fails and deletes nothing.
     """
 
     event_ids: list[str]
-    """IDs of the events to delete. At most :py:const:`MAX_EVENTS_PER_DELETE_BATCH` per request."""
+    """IDs of the events to delete, at most 1,000 (``MAX_EVENTS_PER_DELETE_BATCH``)."""
 
 
 class QueryEventsForAssociationsRequest(pydantic.BaseModel):
-    """
-    Request payload for the Query Events for Associations operation.
-    """
+    """Request body for :py:meth:`~roboto.domain.events.Event.get_by_associations`."""
 
     associations: list[Association]
-    """Associations to query events for."""
+    """Datasets, files, topics and message paths to find events for.
+
+    An event matches when it is associated with any of them. Must contain at least one.
+    """
 
     page_token: typing.Optional[str] = None
-    """Token to use to fetch the next page of results, use None for the first page."""
+    """Token from a previous page's response that resumes the listing after it. ``None`` starts at the first page."""
 
 
 class UpdateEventRequest(pydantic.BaseModel):
-    """
-    Request payload for the Update Event operation. Allows any of the mutable fields of an event to be changed.
+    """Request body for :py:meth:`~roboto.domain.events.Event.update`.
+
+    A field left at its default (``NotSet`` or ``None``) is unchanged. Building it raises ``pydantic.ValidationError``
+    when ``name`` is longer than ``MAX_EVENT_NAME_BYTES`` in UTF-8.
     """
 
     description: typing.Union[str, None, NotSetType] = NotSet
-    """
-    An optional human-readable description of the event.
-    """
+    """Human-readable description of the event. ``None`` clears it."""
 
     metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
-    """
-    Metadata and tag changes to make for this event
-    """
+    """Changes to the event's tags and metadata."""
 
     name: typing.Union[str, NotSetType] = NotSet
-    """
-    A brief human-readable name for the event. Many events can have the same name. "Takeoff", "Crash", "CPU Spike",
-    "Bad Image Quality", and "Unexpected Left" are a few potential examples.
+    """Human-readable name of the event, at most 2,600 bytes long in UTF-8 (``MAX_EVENT_NAME_BYTES``).
+
+    Event names are not unique.
     """
 
     start_time: typing.Union[int, NotSetType] = NotSet
-    """
-    The start time of the event, in nanoseconds since epoch (assumed Unix epoch).
-    """
+    """Start of the event, in nanoseconds since the Unix epoch."""
 
     end_time: typing.Union[int, NotSetType] = NotSet
-    """
-    The end time of the event, in nanoseconds since epoch (assumed Unix epoch). This can be equal to start_time if
-    the event is discrete, but can never be less than start_time.
+    """End of the event, in nanoseconds since the Unix epoch.
+
+    An update that would leave the event ending before it starts raises ``RobotoIllegalArgumentException``.
     """
 
     display_options_changeset: typing.Union[EventDisplayOptionsChangeset, NotSetType] = NotSet
-    """
-    Display options changes to apply to this event.
-    """
+    """Changes to the event's display options."""
 
     custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None
-    """Changes to apply to Ready custom-field values on this event.
+    """Changes to the event's custom-field values. ``None`` leaves them unchanged.
 
-    Each referenced field name must be a
-    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom field
-    for this event's org and the
-    :py:class:`~roboto.domain.custom_fields.TargetEntityType.Event` entity type;
-    each ``set_fields`` value must satisfy the field's declared type. Names that
-    are undefined or not ``Ready`` are rejected with a structured error. Field
-    names not mentioned by the changeset are left unchanged.
+    Each field name the changeset references must be a custom field defined for
+    :py:attr:`~roboto.domain.custom_fields.TargetEntityType.Event` in the event's organization, with status
+    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each ``set_fields`` value must match that
+    field's declared type. Otherwise the request raises ``RobotoIllegalArgumentException``. See
+    :py:class:`~roboto.updates.CustomFieldChangeset`.
     """
 
-    # This is required to get NotSet/NotSetType to serialize appropriately.
+    # The schema modifier shows NotSet fields as nullable in the JSON schema, not as a NotSetType object.
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
+
+    @pydantic.field_validator("name")
+    @classmethod
+    def _validate_name_size(cls, name: typing.Union[str, NotSetType]) -> typing.Union[str, NotSetType]:
+        if is_set(name):
+            _check_name_size(name)
+        return name

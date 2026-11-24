@@ -25,136 +25,166 @@ from .invocation_record import (
 
 
 class CancelActiveInvocationsRequest(pydantic.BaseModel):
-    """Request payload to bulk cancel all active invocations within an organization.
+    """Request body for ``POST /v1/actions/invocations/cancel/all``.
 
-    This operation cancels multiple invocations in a single request, but only
-    affects invocations that are in non-terminal states (Queued, Running, etc.).
-    The operation is limited in the number of invocations it will attempt to
-    cancel in a single call for performance reasons.
-
-    For large numbers of active invocations, continue calling this operation
-    until the has_more returned in the response is False.
+    The ``roboto invocations cancel-all`` CLI command sends it. Each request cancels active invocations, those that
+    have not completed, failed, or been cancelled: every queued one in the organization and a limited number of those
+    already scheduled or running. Repeat it until the response's
+    ``CancelActiveInvocationsResponse.has_more`` is ``False``, as the CLI command does.
     """
 
     created_before: Optional[datetime.datetime] = None
-    """Only cancel invocations created before this timestamp.
+    """Latest creation time of the scheduled and running invocations to cancel, inclusive.
 
-    If not provided, cancels all active invocations regardless of age.
+    It does not limit queued invocations: each request cancels those whatever their age. ``None`` sets no age limit.
     """
 
     condition: Optional[ConditionType] = None
-    """Only cancel the invocations this condition matches.
+    """Condition an invocation must match to be cancelled. ``None`` cancels every active invocation in the organization.
 
-    Takes the fields and comparators of ``POST /v1/actions/invocations/query``; for example,
-    ``input.session_id`` equal to a session ID cancels the invocations whose input names that session.
-    If not provided, cancels all of the organization's active invocations.
+    Takes the fields and comparators of ``POST /v1/actions/invocations/query``; for example, ``input.session_id`` equal
+    to a session ID cancels the invocations whose input names that session.
     """
 
 
 class CancelActiveInvocationsResponse(pydantic.BaseModel):
-    """Response payload from bulk cancellation of active invocations.
+    """Response body of ``POST /v1/actions/invocations/cancel/all``.
 
-    Contains the results of a bulk cancellation operation,
-    including counts of successful and failed cancellations,
-    and whether there are more active invocations to cancel.
+    That route takes ``CancelActiveInvocationsRequest``.
+    ``POST /v1/datasets/{dataset_id}/invocations/cancel``, which cancels the invocations whose data source is that
+    dataset, also returns it.
     """
 
     success_count: int
-    """Number of invocations successfully cancelled."""
+    """Number of invocations this request cancelled."""
 
     failure_count: int
-    """Number of invocations that failed to cancel."""
+    """Number of invocations this request tried and failed to cancel."""
 
     has_more: bool
-    """Whether there are more active invocations to cancel."""
+    """Whether active invocations may remain after this request.
+
+    They remain either beyond the number one request cancels or because a cancellation failed. Repeat the request until
+    it is ``False``.
+    """
 
 
 class CreateInvocationRequest(pydantic.BaseModel):
-    """Request payload to create a new action invocation.
-
-    Contains all the configuration needed to invoke an action, including
-    input data specifications, parameter values, and execution overrides.
-    """
+    """Request body for :py:meth:`~roboto.domain.actions.Action.invoke`, which starts one run of an action."""
 
     compute_requirement_overrides: Optional[ComputeRequirements] = None
-    """Optional overrides for CPU, memory, and other compute specifications."""
+    """Compute requirements, such as vCPU and memory, that replace the action's own.
+
+    Fields left unset keep the action's values. ``None`` uses the action's own.
+    """
 
     container_parameter_overrides: Optional[ContainerParameters] = None
-    """Optional overrides for container image, entrypoint, and environment variables."""
+    """Container parameters, such as the entry point and environment variables, that replace the action's own.
+
+    Fields left unset keep the action's values. ``None`` uses the action's own.
+    """
 
     data_source_id: str
-    """ID of the data source providing input data."""
+    """ID of the dataset the invocation reads from.
+
+    An invocation that reads from no dataset takes the ``data_source_id`` of
+    :py:meth:`~roboto.domain.actions.InvocationDataSource.unspecified` instead.
+    """
 
     data_source_type: InvocationDataSourceType
-    """Type of the data source (e.g., Dataset)."""
+    """Type of the data source that ``data_source_id`` names.
+
+    :py:attr:`~roboto.domain.actions.InvocationDataSourceType.Dataset` is the only type.
+    """
 
     idempotency_id: Optional[str] = None
-    """Optional unique ID to ensure the invocation runs exactly once."""
+    """ID that no other invocation may share.
+
+    A request that repeats one is rejected with ``RobotoConflictException``, so retrying it never runs the action
+    twice. ``None`` sets no such ID.
+    """
 
     input_data: list[str]
-    """List of file patterns for input data selection."""
+    """Deprecated. Gitignore-style patterns for the files in the data source to read.
+
+    Use ``rich_input_data`` instead. Ignored when ``rich_input_data`` is set.
+    """
 
     rich_input_data: typing.Optional[InvocationInput] = None
-    """Optional rich input data specification that supersedes the simple input_data patterns."""
+    """Inputs the invocation reads, such as files, topics, or sessions. ``None`` falls back to ``input_data``."""
 
     invocation_source: InvocationSource
-    """Source of the invocation (Manual, Trigger, etc.)."""
+    """Whether a user or a trigger started the invocation.
+
+    Only Roboto can create invocations with source :py:attr:`~roboto.domain.actions.InvocationSource.Trigger`.
+    """
 
     invocation_source_id: Optional[str] = None
-    """Optional ID of the entity that initiated the invocation."""
+    """ID of the user or trigger that started the invocation.
+
+    On a :py:attr:`~roboto.domain.actions.InvocationSource.Manual` invocation, Roboto replaces it with the caller's
+    user ID.
+    """
+
+    owner_org_id: Optional[str] = None
+    """ID of the organization that owns the action, such as ``roboto-public`` for an action in the Action Hub.
+
+    The invocation is created in the caller's organization, not the action's. ``None`` looks the action up in the
+    organization the request's headers name.
+    """
 
     parameter_values: Optional[dict[str, Any]] = None
-    """Optional parameter values to pass to the action."""
+    """Values for the action's parameters, keyed by parameter name.
+
+    Roboto converts each value to a string, and fills in the default of each parameter left out. ``None`` gives no
+    values, which Roboto rejects with ``RobotoInvalidRequestException`` when the action has a required parameter.
+    """
 
     timeout: Optional[int] = None
-    """Optional timeout override in minutes."""
+    """Maximum time the invocation may run, in minutes.
+
+    ``None`` uses the action's timeout, or Roboto's default when the action has none.
+    """
 
     upload_destination: Optional[InvocationUploadDestination] = None
-    """Optional destination for output files."""
+    """Dataset to upload the files the invocation writes to its output directory to.
+
+    ``None`` uploads them to the dataset the invocation's input files and topics come from when they all come from one,
+    and otherwise not at all.
+    """
 
 
 class SetContainerInfoRequest(pydantic.BaseModel):
-    """Request to set container information for an invocation.
+    """Request body for :py:meth:`~roboto.domain.actions.Invocation.set_container_image_digest`.
 
-    Used internally by the Roboto platform to record container details
-    after the action image has been pulled and inspected.
-
-    Note:
-        This is typically called from the monitor process and is not
-        intended for direct use by SDK users.
+    Only the invocation itself, while it runs, or Roboto administrators may send it.
     """
 
     image_digest: str
-    """The digest of the container image that was pulled."""
+    """Digest of the container image the invocation pulled to run."""
 
 
 class SetLogsLocationRequest(pydantic.BaseModel):
-    """Request to set the location where invocation logs are stored.
+    """Request body for :py:meth:`~roboto.domain.actions.Invocation.set_logs_location`.
 
-    Used internally by the Roboto platform to record where log files
-    are saved for later retrieval.
-
-    Note:
-        This is typically called from the invocation-scheduling-service
-        and is not intended for direct use by SDK users.
+    Only Roboto administrators may send it.
     """
 
     bucket: str
-    """S3 bucket name where logs are stored."""
+    """Name of the S3 bucket that holds the invocation's logs."""
 
     prefix: str
-    """S3 key prefix for the log files."""
+    """S3 key prefix under which the invocation's log files are stored."""
 
 
 class UpdateInvocationStatus(pydantic.BaseModel):
-    """Request payload to update an invocation's status.
+    """Request body for :py:meth:`~roboto.domain.actions.Invocation.update_status`.
 
-    Used to record status changes during invocation execution, such as
-    transitioning from Queued to Running to Completed.
+    Only the invocation itself, while it runs, or Roboto administrators may send it.
     """
 
     status: InvocationStatus
-    """The new status for the invocation."""
+    """Status the invocation moves to."""
 
     detail: str
-    """Additional detail about the status change."""
+    """Human-readable detail recorded with the status, such as why the invocation failed."""

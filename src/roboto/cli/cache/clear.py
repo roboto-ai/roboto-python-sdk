@@ -13,6 +13,10 @@ from ..context import CLIContext
 
 
 def clear(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Delete the local Roboto cache directory and everything in it, and print its path.
+
+    Every message goes to standard error. A cache directory that does not exist is reported, not treated as an error.
+    """
     cache_dir = context.roboto_config.get_cache_dir()
 
     if not cache_dir.exists():

@@ -41,9 +41,9 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def run(args: argparse.Namespace) -> None:
-    """Upgrade the CLI, then the agent skills, and report each as it finishes, with anything the user still has to do.
+    """Upgrade the CLI, then the agent skills, and print each as it finishes, with anything the user still has to do.
 
-    Exits with status 1 when either failed, and with status 130 when the user presses Ctrl-C.
+    Exits with status 1 when either step fails, and with status 130 (128 plus SIGINT) when interrupted.
     """
     color = sys.stdout.isatty()
     try:

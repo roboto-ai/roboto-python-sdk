@@ -13,20 +13,31 @@ from ..compat import StrEnum
 from .conditions import Condition, ConditionGroup
 
 MAX_PAGE_SIZE: int = 1000
-"""Maximum allowable page size for search."""
+"""Maximum number of results in one page of query results."""
 
 DEFAULT_PAGE_SIZE: int = 50
-"""Default page size for search."""
+"""Number of results in one page of query results when the caller sets no page size."""
 
 
 class SortDirection(StrEnum):
-    """The direction to sort the results of a query."""
+    """Direction to sort query results in."""
 
     Ascending = "ASC"
+    """Smallest or earliest value first."""
+
     Descending = "DESC"
+    """Largest or latest value first."""
 
     @staticmethod
     def from_string(value: str) -> "SortDirection":
+        """Return the sort direction that ``"asc"`` or ``"desc"`` names, in any case.
+
+        Args:
+            value: ``"asc"`` or ``"desc"``, in any combination of upper and lower case.
+
+        Raises:
+            ValueError: ``value`` is neither ``"asc"`` nor ``"desc"``.
+        """
         lowered = value.lower()
 
         if lowered == "asc":
@@ -41,87 +52,46 @@ class SortDirection(StrEnum):
 
 
 class QuerySpecification(pydantic.BaseModel):
-    """
-    Model for specifying a query to the Roboto Platform.
+    """A structured query: a condition on the fields of one kind of resource, and how to sort and page its results.
 
-    Examples:
-        Specify a query with a single condition:
-            >>> from roboto import query
-            >>> query_spec = query.QuerySpecification(
-            ...     condition=query.Condition(field="name", comparator=query.Comparator.Equals, value="Roboto")
-            ... )
-
-        Specify a query with multiple conditions:
-            >>> from roboto import query
-            >>> query_spec = query.QuerySpecification(
-            ...     condition=query.ConditionGroup(
-            ...         operator=query.ConditionOperator.And,
-            ...         conditions=[
-            ...             query.Condition(field="name", comparator=query.Comparator.Equals, value="Roboto"),
-            ...             query.Condition(field="age", comparator=query.Comparator.GreaterThan, value=18),
-            ...         ],
-            ...     )
-            ... )
-
-        Arbitrarily nest condition groups:
-            >>> from roboto import query
-            >>> query_spec = query.QuerySpecification(
-            ...     condition=query.ConditionGroup(
-            ...         operator=query.ConditionOperator.And,
-            ...         conditions=[
-            ...             query.Condition(field="name", comparator=query.Comparator.Equals, value="Roboto"),
-            ...             query.ConditionGroup(
-            ...                 operator=query.ConditionOperator.Or,
-            ...                 conditions=[
-            ...                     query.Condition(field="age", comparator=query.Comparator.GreaterThan, value=18),
-            ...                     query.Condition(field="age", comparator=query.Comparator.LessThan, value=30),
-            ...                 ],
-            ...             ),
-            ...         ],
-            ...     )
-            ... )
+    Run it with :py:class:`~roboto.query.QueryClient` or :py:class:`~roboto.roboto_search.RobotoSearch`, or pass it
+    to a method that takes one, such as :py:meth:`~roboto.domain.datasets.Dataset.query`. To combine conditions, set
+    ``condition`` to a :py:class:`~roboto.query.ConditionGroup`, whose conditions may themselves be groups. Keys the
+    model does not declare are ignored. Building a specification raises ``pydantic.ValidationError`` when
+    ``max_results`` is less than 1.
     """
 
     condition: typing.Optional[typing.Union[Condition, ConditionGroup]] = None
-    """
-    Query condition(s) to evaluate when looking up Roboto entities.
-    """
+    """Condition the results must match: one comparison, or a group of them. ``None`` matches every resource."""
 
     limit: int = MAX_PAGE_SIZE
-    """
-    Page size for returned results. Optional, default is ``MAX_PAGE_SIZE``.
+    """Maximum number of results per page.
+
+    Queries run through :py:class:`~roboto.query.QueryClient` or :py:class:`~roboto.roboto_search.RobotoSearch`
+    ignore it: their page size is the ``page_size`` given to :py:meth:`~roboto.query.QueryClient.get_query_results`.
     """
 
     max_results: typing.Optional[int] = pydantic.Field(default=None, ge=1)
-    """
-    Maximum number of results to return across all pages. Must be ``>= 1`` when set.
-    ``None`` (default) means no cap — pagination yields the full result set. Distinct from
-    ``limit``, which is the per-page size.
+    """Maximum number of results across all pages, at least 1. ``None`` returns every result.
 
-    Only honored for queries executed via Roboto search (the ``QueryTarget`` resource types:
-    collections, datasets, devices, files, sessions, topics, topic message paths, events). Other code
-    paths that accept a ``QuerySpecification`` ignore this field.
+    Only queries run through :py:class:`~roboto.query.QueryClient` or :py:class:`~roboto.roboto_search.RobotoSearch`
+    honor it. Other methods that take a ``QuerySpecification``, such as
+    :py:meth:`~roboto.domain.datasets.Dataset.query`, ignore it and return every result.
     """
 
     after: typing.Optional[str] = None
-    """
-    Encoded next page token. Optional.
-    """
+    """Token from a previous page's response that resumes the listing after it. ``None`` starts at the first page."""
 
     sort_by: typing.Optional[str] = None
-    """
-    Field to sort results by. Optional, defaults to created date (``created``).
-    """
+    """Field to sort results by. ``None`` sorts by a default field that depends on the kind of resource queried."""
 
     sort_direction: typing.Optional[SortDirection] = None
-    """
-    Sort direction for query results. Optional, defaults to "descending".
-    """
+    """Direction to sort results in. ``None`` uses a default that depends on the kind of resource queried."""
 
     model_config = ConfigDict(extra="ignore")
 
     def fields(self) -> set[str]:
-        """Return a set of all fields referenced in the query."""
+        """Return every field the query's conditions compare, including those in nested condition groups."""
         fields = set()
 
         def _iterconditions(

@@ -16,64 +16,66 @@ from .record import RepresentationSelector
 
 
 class FieldAddress(pydantic.BaseModel):
-    """Addresses a schema field, and the subtree nested under it, by exactly one of two forms.
+    """Address of a topic schema field and every field nested under it, by the field's path or its ID.
 
-    A ``path`` names the field by its ``path_in_schema`` components directly (no
-    string delimiter, so a component may itself contain a ``.``); a ``field_id``
-    names it opaquely and resolves server-side to the same path. Either form
-    designates the field and every field nested under it.
+    Set exactly one of ``path`` and ``field_id``. Building it with both or neither raises ``pydantic.ValidationError``.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     path: typing.Optional[tuple[str, ...]] = None
-    """The field's ``path_in_schema`` components; ``()`` addresses the schema root."""
+    """Components of the field's path in the schema, in order from the schema root; ``()`` addresses the root.
+
+    Each component is a separate string, so a component may itself contain a ``.``."""
 
     field_id: typing.Optional[str] = None
-    """The field's opaque id (``sf_*``)."""
+    """ID of the field, beginning with ``sf_``, which Roboto resolves to the field's path."""
 
     @pydantic.model_validator(mode="after")
     def _exactly_one(self) -> FieldAddress:
-        # `is None` is load-bearing: path=() is a valid (root) address, not "unset".
+        # Compare with None: path=() addresses the schema root, so an empty path counts as set.
         if (self.path is None) == (self.field_id is None):
             raise ValueError("FieldAddress must set exactly one of 'path' or 'field_id'")
         return self
 
 
 class RepresentationOverride(pydantic.BaseModel):
-    """Applies a representation selector to one field subtree, overriding the request default."""
+    """Selector of stored representations for one field subtree, in place of the preference's default and fallbacks.
+
+    Carried in ``RepresentationPreference.overrides``.
+    """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     field: FieldAddress
-    """The subtree this override covers."""
+    """Address of the subtree this override covers."""
 
     selector: RepresentationSelector
-    """The selector to apply within that subtree."""
+    """Selector for every field in that subtree, and the only one tried for them."""
 
 
 class RepresentationPreference(pydantic.BaseModel):
-    """Selects stored representations per field subtree.
+    """Choice of which stored representations of a topic's data to read, per field subtree.
 
-    The most specific override covering a field supplies the field's only selector.
-    Elsewhere, selectors are tried in order: ``default``, then ``fallbacks``.
-    :py:meth:`selectors_for` resolves this ordered choice for a field.
+    A representation is one stored form of a partition's data, such as the original recording or a JPEG-encoded copy,
+    and a partition is the part of a topic's data stored in one file, or in one slice of a file several sessions share.
+    For each field, ``selectors_for`` returns the selectors to try, in order: the selector of the deepest override
+    covering the field, alone, or else ``default`` followed by ``fallbacks``.
 
-    Each partition takes the first selector whose matching representations
-    cover the requested fields. With overrides, each subtree governed by
-    ``default`` chooses separately. A choice uses one selector's matching
-    representations, never partial coverage combined from different selectors.
+    Each partition takes the first selector whose matching representations hold every requested field. With
+    overrides, each subtree that ``default`` governs chooses separately. A choice reads one selector's matching
+    representations; it never combines partial coverage from different selectors.
 
-    If no selector covers the requested fields, the last selector decides.
-    A last selector with a criterion fails the read. A last selector with no
-    criteria schedules a representation for each subtree that has one, and
-    leaves the remaining fields without coverage. See
-    :py:attr:`~roboto.experimental.topics.ReadPlanPartition.scan_tasks`.
+    When no selector's representations hold every requested field, the last selector tried decides:
 
-    No selector admits a variant that fails its criteria. The service's choice
-    among matching representations is policy and may change between releases.
+    - A last selector that sets a criterion fails the read with ``RobotoInvalidRequestException``.
+    - A last selector that sets no criteria reads each subtree that some representation holds from that
+      representation, and leaves the remaining fields without coverage, as ``ReadPlanPartition.scan_tasks`` describes.
 
-    Example:
+    No selector admits a representation that fails its criteria. Which of several matching representations Roboto
+    reads may change between versions of Roboto.
+
+    Examples:
         Read each partition's stored JPEG, or its stored PNG, or whatever it holds:
 
         >>> preference = RepresentationPreference(
@@ -85,50 +87,44 @@ class RepresentationPreference(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(frozen=True)
 
     default: RepresentationSelector = RepresentationSelector()
-    """The selector applied to any field no override covers; matches anything when unset."""
+    """Selector tried first for any field no override covers.
+
+    Left unset, it sets no criteria and admits every representation."""
 
     fallbacks: tuple[RepresentationSelector, ...] = ()
-    """Selectors tried in order after ``default``, partition by partition. Overrides have none."""
+    """Selectors tried in order after ``default``, partition by partition, for fields no override covers.
+
+    Defaults to none."""
 
     overrides: tuple[RepresentationOverride, ...] = ()
-    """Per-subtree selector overrides, resolved longest-matching-prefix wins."""
+    """Selectors for particular field subtrees.
+
+    For each field, the override with the deepest subtree covering it applies. Defaults to none."""
 
     def selector_for(self, field_path: tuple[str, ...]) -> RepresentationSelector:
-        """Resolve the selector tried first for the field at ``field_path``; see :py:meth:`selectors_for`.
+        """Return the selector tried first for the field at ``field_path``.
+
+        It is the first selector ``selectors_for`` returns, and the call raises what that method raises.
 
         Args:
-            field_path: The ``path_in_schema`` components of the field whose
-                selector is being resolved.
-
-        Returns:
-            The selector tried first.
-
-        Raises:
-            ValueError: An override addresses its subtree by ``field_id``.
+            field_path: Components of the field's path in the schema, in order from the schema root.
         """
         return self.selectors_for(field_path)[0]
 
     def selectors_for(self, field_path: tuple[str, ...]) -> tuple[RepresentationSelector, ...]:
-        """Resolve the selectors to try for the field at ``field_path``, in order.
+        """Return the selectors to try for the field at ``field_path``, most preferred first.
 
-        An override applies when its addressed subtree path is a prefix of
-        ``field_path``; among applicable overrides the deepest subtree wins,
-        and its selector is the only one tried. A field no override covers gets
-        ``default`` and then ``fallbacks``. An override's address decides this,
-        so an override whose selector equals ``default`` still has no fallbacks.
+        An override applies when its subtree's path is a prefix of ``field_path``. Among the overrides that apply, the
+        one with the longest path wins, and the first listed wins a tie; its selector is the only one returned. A field
+        no override covers gets ``default`` and then ``fallbacks``. The override's address alone decides this, so an
+        override whose selector equals ``default`` still gets no fallbacks.
 
         Args:
-            field_path: The ``path_in_schema`` components of the field whose
-                selectors are being resolved.
-
-        Returns:
-            The selectors to try, most preferred first.
+            field_path: Components of the field's path in the schema, in order from the schema root.
 
         Raises:
-            ValueError: An override addresses its subtree by ``field_id``.
-                Resolving a ``field_id`` to a path takes the schema, which this
-                value object does not hold; resolve every override address to
-                its ``path`` form first.
+            ValueError: An override addresses its subtree by ``field_id``. Resolving a field ID to a path takes the
+                topic schema, which this model does not hold, so give every override's address as a ``path``.
         """
         chosen: typing.Optional[RepresentationSelector] = None
         chosen_depth = -1
@@ -146,71 +142,96 @@ class RepresentationPreference(pydantic.BaseModel):
 
 
 class ReadPlanRequest(pydantic.BaseModel):
-    """The body of a read-plan request: the logical read question to resolve into a physical plan.
+    """Request body for ``Topic.get_data_as_record_batches``: the read of a topic's data for Roboto to plan.
+
+    Roboto answers with a ``ReadPlan`` naming the stored files to fetch and how to read them. ``Topic.get_data`` and
+    ``Topic.get_data_as_df`` read through ``Topic.get_data_as_record_batches``.
 
     ``session_id``, ``file_id``, ``dataset_id`` and ``device_id`` are restrictions: each limits the read to the topic's
     data in one session, file, dataset or device. Every restriction the request names narrows the read, and
     restrictions named together intersect.
+
+    Building it raises ``pydantic.ValidationError`` when:
+
+    - ``start_time`` or ``end_time`` is outside the range ``start_time`` states.
+    - ``end_time`` is before ``start_time``.
+    - ``start_time`` or ``end_time`` is ``None`` and the request names no restriction.
+    - Both ``schema_id`` and ``schema_checksum`` are set, or both ``timeline_source_id`` and ``timeline_source_name``.
+    - ``fields_include`` or ``fields_exclude`` is an empty tuple. An empty tuple asks for no subtrees, so it is
+      rejected rather than read as every field; pass ``None`` instead.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     start_time: typing.Optional[int] = pydantic.Field(default=None, ge=INT64_MIN, le=INT64_MAX)
-    """Inclusive window lower bound, absolute Unix-epoch nanoseconds.
+    """Inclusive start of the time range, in nanoseconds since the Unix epoch.
 
-    Must fall between :py:data:`~roboto.int64.INT64_MIN` and :py:data:`~roboto.int64.INT64_MAX` (1677-09-21 to
-    2262-04-11 UTC), the range of the signed 64-bit integers that hold Roboto's nanosecond timestamps.
+    Must be from :py:const:`~roboto.int64.INT64_MIN` to :py:const:`~roboto.int64.INT64_MAX` (1677-09-21 to
+    2262-04-11 UTC), the range of timestamps Roboto stores.
 
-    May be ``None`` only when the request names a ``session_id``, ``file_id``, ``dataset_id`` or ``device_id``; the read
-    then has no lower limit. An explicit bound narrows the read and never widens it."""
+    May be ``None`` only when the request names a restriction; the read then has no lower limit. A bound given with a
+    restriction narrows the read further and never extends it past what the restriction holds."""
 
     end_time: typing.Optional[int] = pydantic.Field(default=None, ge=INT64_MIN, le=INT64_MAX)
-    """Inclusive window upper bound, absolute Unix-epoch nanoseconds.
+    """Inclusive end of the time range, in the same form and range as ``start_time``.
 
-    Must fall in the same range as ``start_time``. May be ``None`` on the same terms as ``start_time``; the read then
-    has no upper limit."""
+    May be ``None`` on the same terms as ``start_time``; the read then has no upper limit."""
 
     fields_include: typing.Optional[tuple[FieldAddress, ...]] = None
-    """Field subtrees to project; ``None`` projects every field."""
+    """Field subtrees to read; ``None`` reads every field."""
 
     fields_exclude: typing.Optional[tuple[FieldAddress, ...]] = None
-    """Field subtrees to drop from the projection; ``None`` drops none."""
+    """Field subtrees to leave out of the read; ``None`` leaves out none."""
 
     prefer: typing.Optional[RepresentationPreference] = None
-    """Per-subtree representation preference; ``None`` applies default selection everywhere."""
+    """Which stored representations to read, per field subtree.
+
+    ``None`` is the same as ``RepresentationPreference()``, which admits every representation."""
 
     schema_id: typing.Optional[str] = None
-    """Schema to use, by id, or ``None`` to default to the sole in-window schema."""
+    """ID of the topic schema to read under, beginning with ``ts_``.
+
+    ``None``, with no ``schema_checksum``, uses the one schema of the topic's data in the time range. When that data
+    has more than one schema, Roboto raises ``RobotoInvalidRequestException``, and the request must name one."""
 
     schema_checksum: typing.Optional[str] = None
-    """Schema to use, by checksum, or ``None``."""
+    """Checksum of the topic schema to read under, in place of ``schema_id``; ``None`` names no schema by checksum."""
 
     timeline_source_id: typing.Optional[str] = None
-    """Timeline source to resolve partition extents with, by id, or ``None``."""
+    """ID of the timeline source that places each partition's data in time.
+
+    ``None``, with no ``timeline_source_name``, uses the timeline source the schema marks as its default."""
 
     timeline_source_name: typing.Optional[str] = None
-    """Timeline source to resolve partition extents with, by name, or ``None``."""
+    """Name of the timeline source that places each partition's data in time, in place of ``timeline_source_id``.
+
+    ``None`` names no source by name."""
 
     session_id: typing.Optional[str] = None
-    """Limits the read to the topic's data in this Session's files, each over the part of its time span the Session
-    holds; ``None`` adds no session restriction."""
+    """ID of the session to restrict the read to, beginning with ``se_``.
+
+    The read takes the topic's data in the session's files, each over the part of its time span the session holds.
+    ``None`` adds no session restriction."""
 
     file_id: typing.Optional[str] = None
-    """Limits the read to the topic's data in this file; ``None`` adds no file restriction."""
+    """ID of the file whose data on the topic the read is restricted to; ``None`` adds no file restriction."""
 
     dataset_id: typing.Optional[str] = None
-    """Limits the read to the topic's data in this dataset's files; ``None`` adds no dataset restriction."""
+    """ID of the dataset whose files' data on the topic the read is restricted to.
+
+    ``None`` adds no dataset restriction."""
 
     device_id: typing.Optional[str] = None
-    """Limits the read to the topic's data in this device's files; ``None`` adds no device restriction.
+    """ID of the device whose files' data on the topic the read is restricted to; ``None`` adds no device restriction.
 
     A file belongs to the device it names, or, when it names none, to the device its dataset names."""
 
     accepts_element_selection: bool = False
-    """Whether the reader can execute a plan that selects elements of a named array.
+    """Whether the client sending the request can read a plan that selects single elements of a named array.
 
     When true, ``fields_include`` and ``fields_exclude`` may address one element of a named array as the array's
-    path plus the element's name. When false, such an address is refused like any path absent from the schema."""
+    path plus the element's name. When false, Roboto refuses such an address as it refuses any path absent from the
+    schema, with ``RobotoInvalidRequestException``."""
 
     @pydantic.model_validator(mode="after")
     def _window_ordered(self) -> ReadPlanRequest:
@@ -243,8 +264,6 @@ class ReadPlanRequest(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def _filters_non_empty(self) -> ReadPlanRequest:
-        # an empty tuple is a contradiction ("include no subtrees"),
-        # not a request to project everything, so it is rejected rather than silently widened to the whole schema.
         if self.fields_include is not None and not self.fields_include:
             raise ValueError("'fields_include' must name at least one subtree; pass None to project every field")
         if self.fields_exclude is not None and not self.fields_exclude:
@@ -253,24 +272,29 @@ class ReadPlanRequest(pydantic.BaseModel):
 
 
 class SetTopicUnixOffsetRequest(pydantic.BaseModel):
-    """Request body for ``POST /v2/topics/id/<topic_id>/unix-offset``.
+    """Request body for ``Topic.set_unix_offset``: the wall-clock anchor for one session's data on one topic.
 
-    Anchors one Session's data on one topic to wall-clock time. See
-    :py:meth:`~roboto.experimental.topics.Topic.set_unix_offset` for the write's reach.
+    ``Topic.set_unix_offset`` describes which data the write reaches. Building it raises ``pydantic.ValidationError``
+    when ``unix_epoch_offset_ns`` is not a :py:const:`~roboto.time.Time`, is zero or before the Unix epoch, or is
+    greater than :py:const:`~roboto.int64.INT64_MAX`. To return the data to an offset of 0, use
+    ``Topic.clear_unix_offset``.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     session_id: str
-    """Session whose data is anchored. Its files decide which of the topic's stored data the write reaches;
-    the topic's data in files outside the Session keeps the anchor it already has."""
+    """ID of the session whose data on the topic is anchored, beginning with ``se_``.
+
+    The session's files decide which of the topic's stored data the write reaches; the topic's data in files outside
+    the session keeps the anchor it has."""
 
     unix_epoch_offset_ns: _EpochNanosecondsFromTime
-    """Wall-clock instant of stored time 0 for the Session's data on this topic, in nanoseconds since the Unix epoch;
-    each stored timestamp then reads as ``stored_time_ns + unix_epoch_offset_ns``. Must fall after the Unix epoch,
-    and must fit in the signed 64-bit integer the platform stores it in.
-    Also accepts any :py:data:`roboto.time.Time` at runtime, read as :py:func:`roboto.time.to_epoch_nanoseconds`
-    reads it; convert with that function first to satisfy a type checker."""
+    """Wall-clock instant of stored time 0 for the session's data on the topic, in nanoseconds since the Unix epoch.
+
+    Each stored timestamp then reads as ``stored_time_ns + unix_epoch_offset_ns``. Must be after the Unix epoch and at
+    most ``INT64_MAX``. Building the model also accepts any ``Time``, converted as
+    :py:func:`~roboto.time.to_epoch_nanoseconds` converts it; convert with that function first to satisfy a type
+    checker."""
 
     @pydantic.field_validator("unix_epoch_offset_ns")
     @classmethod

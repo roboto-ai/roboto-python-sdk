@@ -32,13 +32,17 @@ from .file_changeset import (
 log = default_logger()
 
 _MANIFEST_FETCH_TIMEOUT_S = 30
-"""Long enough for a multi-megabyte manifest over the object-storage endpoint a deny-all run
-reaches, short enough that an invocation does not spend its whole budget hanging on one GET."""
+"""Number of seconds to wait for the input manifest at ``ROBOTO_ACTION_INPUTS_URL``.
+
+Long enough to download a manifest of several megabytes, short enough that a stalled request does not use up the
+invocation's timeout."""
 
 
 def _fetch(url: str) -> str:
-    """Read a platform-presigned URL. Not through ``RobotoClient``: this is object storage, and the
-    URL already carries its own authorization."""
+    """Fetch the body of a signed URL as text.
+
+    Uses ``urllib`` rather than ``RobotoClient`` because the URL carries its own authorization.
+    """
     with urllib.request.urlopen(url, timeout=_MANIFEST_FETCH_TIMEOUT_S) as response:  # noqa: S310
         return typing.cast(bytes, response.read()).decode("utf-8")
 
@@ -60,28 +64,34 @@ def _raise_for_missing_file(contents: str) -> typing.NoReturn:
 
 
 class InvocationContext:
-    """A utility for performing common lookups and other operations during a Roboto Action's runtime.
+    """Context of a running invocation, which an action's code uses to read its inputs, parameters, and secrets.
 
-    The easiest and most common way to initialize this is:
+    It also fetches the invocation, its dataset, and its organization from Roboto, and sets tags and metadata on the
+    files the action writes to its output directory.
 
-    >>> from roboto import InvocationContext
-    >>> context = InvocationContext.from_env()
+    Inside Roboto, build one with ``from_env``, which reads the environment variables Roboto sets for an action's
+    code. To run the action's code elsewhere, such as in a unit test, build one directly instead, for example
+    ``InvocationContext(dataset_id="ds_12345", input_dir=pathlib.Path("input"), invocation_id="iv_12345",
+    org_id="og_12345", output_dir=pathlib.Path("output"))``.
 
-    ...which will inspect environment variables to initialize the InvocationContext.
-
-    If you want to test a script using InvocationContext in a setting such as a developer machine or unit test,
-    and you don't want to set environment variables to mirror Roboto's remote execution environment,
-    initialize InvocationContext directly:
-
-    >>> import pathlib
-    >>> from roboto import InvocationContext
-    >>> context = InvocationContext(
-    ...     dataset_id="ds_XXXXXXXXXXXX",
-    ...     input_dir=pathlib.Path("/path/to/tmp/input/dir"),
-    ...     invocation_id="iv_XXXXXXXXXXXX",
-    ...     org_id="og_XXXXXXXXXXXX",
-    ...     output_dir=pathlib.Path("/path/to/tmp/output/dir"),
-    ... )
+    Args:
+        dataset_id: ID of the dataset the invocation was invoked on.
+        input_dir: Directory Roboto downloads the invocation's selected files into, when it downloads them.
+        invocation_id: ID of the invocation.
+        org_id: ID of the organization the invocation belongs to.
+        output_dir: Directory for the action's output files.
+        input_data_manifest_file: Path to a JSON file holding the invocation's input manifest, which ``get_input``
+            reads when neither ``ROBOTO_ACTION_INPUTS`` nor ``ROBOTO_ACTION_INPUTS_URL`` is set. ``None`` makes
+            ``get_input`` raise in that case.
+        parameters_file: Path to a JSON file of the invocation's parameter values. ``None`` treats every parameter
+            as unset.
+        secrets_file: Path to a JSON file of the values of the parameters that name secrets. ``None`` makes
+            ``get_secret_parameter`` raise.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
+        dry_run: Whether the invocation is a dry run, in which the action should skip side effects.
+        log_level: Name of the log level requested for the invocation: ``ERROR``, ``WARNING``, ``INFO`` or
+            ``DEBUG``. ``None`` requests ``INFO``.
     """
 
     __dataset_id: str
@@ -100,19 +110,25 @@ class InvocationContext:
     __parameters_file: typing.Optional[pathlib.Path]
     __secrets_file: typing.Optional[pathlib.Path]
 
-    # Memoized file contents
+    # Parsed contents of the parameters and secrets files, read on first use.
     __parameters_cache: typing.Optional[dict[str, typing.Any]] = None
     __secrets_cache: typing.Optional[dict[str, str]] = None
 
     @classmethod
     def from_env(cls) -> "InvocationContext":
-        """Initialize an InvocationContext from values in environment variables.
-        Will throw an exception if any required environment variables are not available.
+        """Build an InvocationContext from the environment variables Roboto sets for an action's code.
 
-        All required environment variables will be available at runtime
-        when an action is running in Roboto's remote execution environment.
+        It requires ``ROBOTO_DATASET_ID``, ``ROBOTO_INVOCATION_ID``, ``ROBOTO_ORG_ID``, ``ROBOTO_INPUT_DIR`` and
+        ``ROBOTO_OUTPUT_DIR``, and also reads ``ROBOTO_ACTION_INPUTS_MANIFEST``, ``ROBOTO_ACTION_PARAMETERS_FILE``,
+        ``ROBOTO_ACTION_RUNTIME_CONFIG_DIR`` (whose ``secrets.json`` is the secrets file), ``ROBOTO_DRY_RUN`` and
+        ``ROBOTO_LOG_LEVEL``. Roboto sets all the required ones when it runs the action. The client comes from
+        :py:meth:`~roboto.http.RobotoClient.from_env`.
 
-        Example:
+        Raises:
+            ActionRuntimeException: A required environment variable is unset, or the input or output directory does
+                not exist.
+
+        Examples:
             >>> from roboto import InvocationContext
             >>> context = InvocationContext.from_env()
         """
@@ -144,7 +160,6 @@ class InvocationContext:
         if not output_dir.is_dir():
             raise ActionRuntimeException(f"Output directory '{output_dir}' does not exist.")
 
-        # Resolve file paths from environment
         parameters_file = pathlib.Path(env.action_parameters_file) if env.action_parameters_file else None
 
         secrets_file = None
@@ -194,38 +209,27 @@ class InvocationContext:
         self.__input_data_manifest_file = input_data_manifest_file
         self.__parameters_file = parameters_file
         self.__secrets_file = secrets_file
-        # Caches will be loaded on first access
         self.__parameters_cache = None
         self.__secrets_cache = None
 
     @property
     def dataset_id(self) -> str:
-        """
-        The ID of the dataset whose data this action is operating on.
+        """ID of the dataset the invocation was invoked on.
+
+        When the invocation names no dataset, it is a placeholder that matches no dataset, and ``dataset`` raises.
         """
         return self.__dataset_id
 
     @property
     def dataset(self) -> datasets.Dataset:
-        """
-        A :class:`~roboto.domain.datasets.Dataset` instance for the dataset whose data this action is operating on,
-        if any.
+        """Dataset the invocation was invoked on, fetched from Roboto on first access and cached.
 
-        This resource will be lazily initialized the first time it is accessed.
-        After the first call, the dataset will be cached.
+        Use it to set tags or metadata on the dataset while the action runs, as in
+        ``context.dataset.put_tags(["tagged_by_action"])``.
 
-        This is particularly useful for adding tags or metadata to a dataset at runtime.
-
-        Raises:
-            RobotoNotFoundException: If the dataset does not exist.
-            ActionRuntimeException: If the dataset is not specified (e.g., when running locally,
-                using scheduled triggers, or invoking via CLI with query-based input data).
-
-        Examples:
-            Add tags/metadata to the dataset:
-
-            >>> context.dataset.put_tags(["tagged_by_action"])
-            >>> context.dataset.put_metadata({"voltage_spikes_seen": 693})
+        Accessing it raises :py:class:`~roboto.action_runtime.ActionRuntimeException` when the invocation names no
+        dataset, as when the action runs locally, runs from a scheduled trigger, or is invoked from the CLI with
+        query-based input data. It raises ``RobotoNotFoundException`` when no dataset has ``dataset_id``.
         """
         if self.__dataset is None:
             UNSPECIFIED_DATASET_ID = actions.InvocationDataSource.unspecified().data_source_id
@@ -241,30 +245,15 @@ class InvocationContext:
 
     @property
     def file_changeset_manager(self) -> FilesChangesetFileManager:
-        """
-        A :class:`~roboto.action_runtime.file_changeset.FilesChangesetFileManager` which can be used to associate
-        tags and metadata with the yet-to-be-uploaded files in this invocation's output directory.
-        In practice, you might use this like:
+        """Manager of the tags and metadata to set on the files the action writes to its output directory.
 
-        >>> from roboto import InvocationContext
-        >>> context = InvocationContext.from_env()
-        >>> my_output_file = context.output_dir / "my_output_file.txt"
-        >>> my_output_file.write_text("Hello World")
-        >>> context.file_changeset_manager.put_tags(my_output_file.name, ["tagged_by_action"])
-        >>> context.file_changeset_manager.put_fields(
-        ...     my_output_file.name, {"roboto_proficiency": "extreme - I can annotate output files!"}
-        ... )
+        Roboto applies them after it uploads the output directory. Name each file by its path relative to
+        ``output_dir``, as in ``context.file_changeset_manager.put_tags("result.txt", ["tagged_by_action"])``. To
+        tag a file already in Roboto, use the file's own methods instead, as in
+        ``context.dataset.get_file_by_path("result.txt").put_tags(["tagged_by_action"])``.
 
-        This only works for files that have not yet been uploaded to Roboto.
-        To tag existing files, you should instead use:
-
-        >>> from roboto import InvocationContext
-        >>> context = InvocationContext.from_env()
-        >>> existing_file = context.dataset.get_file_by_path("some_file_that_already_exists.txt")
-        >>> existing_file.put_tags(["tagged_by_action"])
-        >>> existing_file.put_metadata({"roboto_proficiency": "also extreme - I can annotate input files!"})
-
-        For more info, see the top-level docs on the FilesChangesetFileManager class.
+        Built on first access. Accessing it raises ``ValueError`` when ``ROBOTO_FILE_METADATA_CHANGESET_FILE`` is
+        unset, as it usually is outside Roboto.
         """
         if self.__file_changeset_manager is None:
             self.__file_changeset_manager = FilesChangesetFileManager()
@@ -272,26 +261,19 @@ class InvocationContext:
 
     @property
     def input_dir(self) -> pathlib.Path:
-        """
-        The directory where the action's input files are located.
-        """
+        """Directory Roboto downloads the invocation's selected files into, when it downloads them."""
         return self.__input_dir
 
     @property
     def invocation_id(self) -> str:
-        """
-        The ID of the currently running action invocation.
-        """
+        """ID of the invocation."""
         return self.__invocation_id
 
     @property
     def invocation(self) -> actions.Invocation:
-        """
-        An :class:`~roboto.domain.actions.Invocation` object for the currently running action invocation.
+        """Invocation, fetched from Roboto on first access and cached.
 
-        This object will be lazy-initialized the first time it is accessed, which might result in a
-        :class:`~roboto.exceptions.domain.RobotoNotFoundException` if the invocation does not exist.
-        After the first call, the invocation will be cached.
+        Accessing it raises ``RobotoNotFoundException`` when no invocation has ``invocation_id``.
         """
         if self.__invocation is None:
             self.__invocation = actions.Invocation.from_id(self.__invocation_id, roboto_client=self.__roboto_client)
@@ -299,20 +281,18 @@ class InvocationContext:
 
     @property
     def is_dry_run(self) -> bool:
+        """Whether the invocation is a dry run, in which the action should skip side effects."""
         return self.__dry_run
 
     @property
     def log_level(self) -> int:
-        """
-        The log level for the action invocation.
+        """Log level requested for the invocation, as a ``logging`` constant such as ``logging.DEBUG``.
 
-        Returns:
-            The log level constant (e.g., logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR) if set,
-            or logging.INFO if no log level was specified.
+        ``logging.INFO`` when no level was requested, or when the requested name is not one of ``ERROR``,
+        ``WARNING``, ``INFO`` and ``DEBUG``, in capitals.
 
         Note:
-            This value must be explicitly applied using ``logging.getLogger().setLevel()``
-            or similar logging configuration to take effect.
+            Roboto does not apply the level. Pass it to ``logging.getLogger().setLevel()`` for it to take effect.
         """
         if self.__log_level is None:
             return logging.INFO
@@ -327,19 +307,14 @@ class InvocationContext:
 
     @property
     def org_id(self) -> str:
-        """
-        The ID of the org which invoked the currently running action.
-        """
+        """ID of the organization the invocation belongs to."""
         return self.__org_id
 
     @property
     def org(self) -> orgs.Org:
-        """
-        An :class:`~roboto.domain.orgs.Org` object for the org which invoked the currently running action.
+        """Organization the invocation belongs to, fetched from Roboto on first access and cached.
 
-        This object will be lazy-initialized the first time it is accessed, which might result in a
-        :class:`~roboto.exceptions.domain.RobotoNotFoundException` if the org does not exist.
-        After the first call, the org will be cached.
+        Accessing it raises ``RobotoNotFoundException`` when no organization has ``org_id``.
         """
         if self.__org is None:
             self.__org = orgs.Org.from_id(self.__org_id, roboto_client=self.__roboto_client)
@@ -347,37 +322,46 @@ class InvocationContext:
 
     @property
     def output_dir(self) -> pathlib.Path:
-        """
-        The directory where the action's output files are expected. After the user portion of the action runtime
-        concludes (i.e. when their container exits with a 0 exit code), every file in this directory will be uploaded
-        to the dataset associated with this action invocation.
+        """Directory for the action's output files.
+
+        After the action's code exits with code 0, Roboto uploads every file in it to the invocation's upload
+        destination (:py:attr:`~roboto.domain.actions.InvocationRecord.upload_destination`).
         """
         return self.__output_dir
 
     @property
     def roboto_client(self) -> RobotoClient:
-        """
-        The :class:`~roboto.http.RobotoClient` instance used by this action runtime.
-        """
+        """Client this context makes requests to Roboto with."""
         return self.__roboto_client
 
     def get_input(self) -> ActionInput:
-        """
-        Instance of :class:`~roboto.action_runtime.ActionInput` containing resolved references to input data.
+        """Return the files, sessions, and topics the invocation was invoked on.
+
+        Reads the invocation's input manifest from the first of these that is set:
+
+        1. ``ROBOTO_ACTION_INPUTS``, which holds the manifest itself.
+        2. ``ROBOTO_ACTION_INPUTS_URL``, from which it downloads the manifest.
+        3. ``input_data_manifest_file``, given when the context was built.
+
+        It reads the two environment variables even on a context built directly. When the manifest file is missing or
+        empty, it returns an empty :py:class:`~roboto.action_runtime.ActionInput`, and logs a warning for a missing
+        one.
+
+        Raises:
+            ActionRuntimeException: Neither environment variable is set, and the context has no
+                ``input_data_manifest_file``.
+            pydantic.ValidationError: The manifest is not a valid input manifest.
         """
         inline = os.environ.get(RobotoEnvKey.ActionInputs.value)
         if inline:
-            # Substrates that invocation pushed code have no sidecar to write a manifest file and no
-            # shared filesystem to write it onto, so they pass the manifest by value. Checked
-            # before the file path because a runtime that has this has no file to fall back to.
+            # Set where no setup step writes a manifest file the action's code can read, so there is no file to
+            # fall back to; checked first for that reason.
             return ActionInput.from_record(ActionInputRecord.model_validate_json(inline), self.__roboto_client)
 
         manifest_url = os.environ.get(RobotoEnvKey.ActionInputsUrl.value)
         if manifest_url:
-            # The same manifest, fetched rather than read out of the environment, because a
-            # selection of more than a handful of files does not fit in an environment block. Which
-            # form an invocation got is the platform's decision and not visible from here: both resolve to
-            # the same ActionInput.
+            # The same manifest, set in place of ROBOTO_ACTION_INPUTS when it is too large for an environment
+            # variable.
             return ActionInput.from_record(
                 ActionInputRecord.model_validate_json(_fetch(manifest_url)), self.__roboto_client
             )
@@ -385,11 +369,9 @@ class InvocationContext:
         if self.__input_data_manifest_file is None:
             raise ActionRuntimeException("Couldn't find action input manifest file")
 
-        # Setup is expected to always write the manifest (see prepare_invocation_input_data), even for
-        # a no-input invocation, where it writes an empty manifest. Tolerate a missing file so the
-        # action never crashes deep in the runtime, but log a warning: now that setup always writes the
-        # manifest, an absent file signals a setup regression that would otherwise silently run the
-        # action with empty input.
+        # prepare_invocation_input_data writes the manifest before the action's code starts, an empty one when the
+        # invocation has no inputs, so a missing file means that step failed to write it. Return empty input rather
+        # than fail, and log a warning so the action does not run on empty input unnoticed.
         if not self.__input_data_manifest_file.is_file():
             log.warning(
                 "Action input manifest %s not found; defaulting to empty input. "
@@ -407,25 +389,27 @@ class InvocationContext:
         return ActionInput.from_record(input_record, self.__roboto_client)
 
     def get_optional_parameter(self, name: str, default_value: typing.Optional[str] = None) -> typing.Optional[str]:
-        """
-        Retrieve the value of the action parameter with the given name,
-        defaulting to `default_value` if the parameter is not set.
+        """Return the value of an action parameter, or ``default_value`` when the invocation did not set it.
+
+        A value that is not a string is converted with ``str()``. A value that names a secret returns the secret's
+        value from the secrets file instead, as ``get_secret_parameter`` does. A context with no parameters file
+        returns ``default_value`` for every parameter.
 
         Args:
-            name: The name of the parameter to retrieve.
-            default_value: The value to return if the parameter is not set. Defaults to None.
+            name: Name of the parameter.
+            default_value: Value to return when the invocation did not set the parameter.
 
-        Returns:
-            The parameter value, or default_value if not set.
-            If the value is a secret URI, returns the resolved secret value.
+        Raises:
+            ActionRuntimeException: The parameters file cannot be read or does not hold a JSON object, or the value
+                names a secret that ``get_secret_parameter`` cannot read.
 
         Examples:
+            Read ``model_version``, or ``"latest"`` when the invocation did not set it:
+
             >>> import roboto
             >>> context = roboto.InvocationContext.from_env()
-            >>> context.get_optional_parameter("model_version", "latest")
-            "latest"
+            >>> model_version = context.get_optional_parameter("model_version", "latest")
         """
-        # If no parameters file exists, return the default value
         if self.__parameters_file is None:
             return default_value
 
@@ -434,7 +418,6 @@ class InvocationContext:
         if parameter_value is None:
             return default_value
 
-        # Convert to string if needed
         if not isinstance(parameter_value, str):
             parameter_value = str(parameter_value)
 
@@ -444,9 +427,15 @@ class InvocationContext:
             return self.get_secret_parameter(name)
 
     def get_parameter(self, name: str) -> str:
-        """
-        Gets the value of the action parameter with the given name,
-        raising an `ActionRuntimeException` if the parameter is not set.
+        """Return the value of an action parameter, which the invocation must set.
+
+        Reads the value as ``get_optional_parameter`` does, and its failures also apply.
+
+        Args:
+            name: Name of the parameter.
+
+        Raises:
+            ActionRuntimeException: The invocation did not set the parameter, or the context has no parameters file.
         """
         value = self.get_optional_parameter(name)
         if value is None:
@@ -458,8 +447,14 @@ class InvocationContext:
         return value
 
     def get_secret_parameter(self, name: str) -> str:
-        """
-        Gets the value of the secret action parameter with the given name.
+        """Return the value of the secret an action parameter names, read from the secrets file.
+
+        Args:
+            name: Name of the parameter.
+
+        Raises:
+            ActionRuntimeException: The secrets file holds no value, or an empty one, for the parameter; the context
+                has no secrets file; or the file cannot be read or does not hold a JSON object.
         """
         value = self.__secrets.get(name)
 
@@ -471,7 +466,7 @@ class InvocationContext:
 
     @property
     def __parameters(self) -> dict[str, typing.Any]:
-        """Load and cache parameters from the action parameters file."""
+        """Parameter values in the parameters file, read on first access and cached."""
         if self.__parameters_cache is None:
             if self.__parameters_file is None:
                 _raise_for_missing_file("parameters")
@@ -481,7 +476,7 @@ class InvocationContext:
 
     @property
     def __secrets(self) -> dict[str, str]:
-        """Load and cache secrets from the secrets file."""
+        """Secret values in the secrets file, read on first access and cached."""
         if self.__secrets_cache is None:
             if self.__secrets_file is None:
                 _raise_for_missing_file("secrets")
@@ -490,8 +485,10 @@ class InvocationContext:
         return self.__secrets_cache
 
     def __load_runtime_data_from_file(self, file_path: pathlib.Path) -> dict[str, typing.Any]:
-        """Load runtime data (supplied parameter values, secrets, etc)
-        from a file. Assumes the file is JSON with an object at its root."""
+        """Read the JSON object in a parameters or secrets file.
+
+        Raises ``ActionRuntimeException`` when the file cannot be read or parsed, or its root is not an object.
+        """
         result: dict[str, typing.Any] = {}
 
         try:
@@ -510,7 +507,11 @@ class InvocationContext:
 
 
 class ActionRuntime(InvocationContext):
-    """Deprecated. Use InvocationContext instead."""
+    """Deprecated. Context of a running invocation, under its former name.
+
+    Use :py:class:`~roboto.action_runtime.InvocationContext` instead, which takes the same arguments. Building one
+    logs a deprecation warning.
+    """
 
     def __init__(self, *args, **kwargs):
         log.warning(

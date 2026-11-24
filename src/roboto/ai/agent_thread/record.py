@@ -46,149 +46,153 @@ from ..core.record import (
 from ..goals import AgentGoal
 
 MAX_GOALS_PER_TURN = 5
-"""Hard ceiling on the number of goals a single turn may declare.
+"""Maximum number of goals one turn may declare.
 
-Every declared goal expands into a prompt block injected via the in-memory
-``<goals>`` section *and* an active achieve-tool registered with Bedrock for
-the turn. A runaway list crowds out the model's context budget and inflates
-the per-invocation tool count without making the goals easier for the LLM
-to reason about. In practice, specialized agents declare one or two goals at a
-time; a turn declaring more than five is rejected."""
+Each goal adds instructions and a tool to the AI's turn, so a long list crowds the conversation out of what the AI can
+take in at once.
+"""
 
 MAX_AVAILABLE_SKILLS = 100
-"""Hard ceiling on the size of a thread's explicit ``available_skills`` set.
-
-Every entry becomes a line in the ``load_skill`` tool's registry description and
-a value in its ``name`` enum. An unbounded set bloats the tool schema and the
-per-turn prompt without making skill selection easier for the model. 100 is a
-generous cap for v1 — well above any realistic curated set — and can be lifted
-intentionally (with tests covering large registries) rather than removed on
-demand."""
+"""Maximum number of skills a thread's ``available_skills`` may list."""
 
 
 class AgentToolDetailResponse(pydantic.BaseModel):
-    """Unsanitized tool request and response details for an agent tool invocation."""
+    """Response body of ``GET /v1/ai/threads/{thread_id}/tool-use/{tool_use_id}``.
+
+    Holds one tool use in a thread and its result. Unlike a read of the whole thread, it keeps the tool use's
+    ``raw_request`` and the result's ``raw_response``.
+    """
 
     tool_use: AgentToolUseContent
+    """Request the AI made to run the tool."""
+
     tool_result: AgentToolResultContent
+    """Result of the tool use."""
 
 
 class AgentToolArtifactResponse(pydantic.BaseModel):
-    """Response body for ``GET /v1/ai/threads/<thread_id>/tool-use/<tool_use_id>/artifacts/<name>``.
+    """Response body of ``GET /v1/ai/threads/{thread_id}/tool-use/{tool_use_id}/artifacts/{name}``.
 
-    Carries a short-lived link to a file an agent tool produced, minted only for callers who may read
-    the thread. Request it when needed rather than storing it. Adds the download URL to the inline
-    :class:`~roboto.ai.core.content.AgentArtifactRecord`.
+    Holds a download URL for one file a tool produced in a thread, which
+    :py:class:`~roboto.ai.agent_thread.AgentArtifactRecord` describes without a URL. Roboto returns it only to a caller
+    who can read the thread. The URL expires after 5 minutes, so request it when you need the file rather than storing
+    it.
     """
 
     name: str
-    """The artifact's filename, as reported in the tool result's ``outputs``."""
+    """Name of the file, as :py:attr:`~roboto.ai.agent_thread.AgentArtifactRecord.name` gives it."""
 
     url: str
-    """Time-limited URL to fetch the file's bytes from. Expires within minutes."""
+    """URL to download the file from, valid for 5 minutes."""
 
     content_type: str
-    """What the URL will serve the file as. Only a few image types render in a browser; everything else
-    is served as an opaque download."""
+    """Media type the URL serves the file as.
+
+    An image a browser displays keeps its own type (``image/png``, ``image/jpeg``, ``image/gif`` or ``image/webp``);
+    any other file is served as ``application/octet-stream``, which a browser downloads.
+    """
 
     bytes: int
-    """Size of the stored file."""
+    """Size of the file, in bytes."""
 
 
 class InvokeSkillSpec(pydantic.BaseModel):
-    """Spec for invoking a skill as part of a turn trigger.
+    """Skill the caller chooses to apply in a turn, rather than leaving the choice to the AI.
 
-    Embedded in :class:`SendMessageRequest` and :class:`StartAgentThreadRequest`.
-    The route layer resolves access (org visibility, private gating) and version
-    selection; this struct only carries the caller's choice.
-
-    Defined locally to avoid the ``roboto.ai`` ↔ ``roboto.domain.skills``
-    import cycle.
+    Carried in ``SendMessageRequest.invoke_skills`` and ``StartAgentThreadRequest.invoke_skills``.
     """
 
     skill_id: str
-    """Target skill's ID. Must be visible to the caller (own private skill or
-    an org-shared skill); the route layer rejects unauthorized invocations
-    before the spec reaches the service."""
+    """ID of the skill to apply.
+
+    The caller must be the skill's author or subscribed to it; otherwise Roboto rejects the request with
+    ``RobotoUnauthorizedException``.
+    """
 
     version: Optional[int] = None
-    """Optional. If omitted, resolves to the skill's latest (MAX(version)) row.
+    """Number of the skill version to apply.
 
-    Note this is the structural latest, not the caller's pinned ``ai_version``:
-    a manually-invoked chip runs MAX(version) regardless of what the caller's
-    AI auto-invoke is pinned to. Use ``Skill.set_ai_version()`` to control the
-    pin separately.
+    ``None`` applies the skill's latest version, even when the caller pinned another with
+    :py:meth:`~roboto.domain.skills.Skill.set_ai_version`.
     """
 
 
 class AvailableSkillSpec(pydantic.BaseModel):
-    """One entry in a thread's explicit AI-invokable skill set.
+    """Skill the AI may apply on its own during one thread, at a fixed version.
 
-    Embedded in :attr:`StartAgentThreadRequest.available_skills`. Unlike
-    :class:`InvokeSkillSpec` — which seeds a skill into the opening transcript
-    as a turn trigger — this struct only declares that a skill *version* is
-    available for the AI to auto-invoke via its ``load_skill`` tool during the
-    thread. The route layer resolves access (org visibility, private gating)
-    and version selection; this struct only carries the caller's choice.
-
-    Defined locally to avoid the ``roboto.ai`` <-> ``roboto.domain.skills``
-    import cycle.
+    Carried in ``StartAgentThreadRequest.available_skills``. Unlike ``InvokeSkillSpec``, it does not apply the skill;
+    the AI decides whether to.
     """
 
     skill_id: str
-    """Target skill's ID. Must be visible to the caller — an org-shared skill,
-    or the caller's own private skill. A subscription is *not* required; the
-    per-thread set bypasses subscription state entirely."""
+    """ID of the skill.
+
+    Any skill the caller can see is allowed, whether or not the caller subscribes to it. Roboto rejects a skill the
+    caller cannot see with ``RobotoNotFoundException``.
+    """
 
     version: Optional[int] = None
-    """Optional. If omitted, resolves to the skill's latest (MAX(version)) row.
+    """Number of the skill version the AI may apply in the thread.
 
-    Pins the exact version exposed to the AI for this thread. Subscriptions and
-    their per-user ``ai_version`` pins are ignored when a thread carries an
-    explicit ``available_skills`` set."""
+    ``None`` uses the skill's latest version when the thread starts. The caller's pinned version, if any, does not
+    apply.
+    """
 
 
 class SendMessageRequest(pydantic.BaseModel):
-    """Request payload for sending a message to an agent thread.
+    """Request body for :py:meth:`~roboto.ai.agent_thread.AgentThread.send`.
 
-    Contains the message content and optional context for the AI assistant.
+    The request needs at least one of ``message``, ``goals`` and ``invoke_skills``. Building it raises
+    ``pydantic.ValidationError`` when:
+
+    - ``message``, ``goals`` and ``invoke_skills`` are all empty.
+    - ``message`` is not a user message made only of text.
+    - ``goals`` holds more than ``MAX_GOALS_PER_TURN`` goals.
     """
 
     client_context: Optional[ClientViewingContext] = pydantic.Field(
         default=None,
         validation_alias=pydantic.AliasChoices("client_context", "context"),
     )
-    """Optional :class:`ClientViewingContext` describing what the client was
-    viewing when this message was composed. Wire field is ``client_context``;
-    the legacy ``context`` alias is accepted during the migration window and
-    will be dropped in a future release."""
+    """What the caller had open in their client when they wrote the message, such as datasets or files.
+
+    Lets the AI resolve references like "this dataset". ``None`` sends none. Also accepted under the key
+    ``context``.
+    """
 
     message: Optional[AgentMessage] = None
-    """Message content to send. May be omitted when at least one goal is declared
-    in :attr:`goals`; in that case the server synthesizes a minimal user message
-    so the LLM has a turn-initiating prompt."""
+    """User message that starts the turn, containing only text.
+
+    ``None`` is allowed when ``goals`` or ``invoke_skills`` is set. With goals, Roboto writes a short user message
+    that asks the AI to meet them; with only skills, the skills start the turn.
+    """
 
     client_tools: Optional[list[ClientToolSpec]] = None
-    """Optional client-side tools available for this invocation."""
+    """Client-side tools the AI may call from this turn on: tools your code runs when the AI calls them.
+
+    A non-empty list replaces the thread's client-side tools; ``None`` or an empty list leaves them unchanged.
+    """
 
     analysis_scope: Optional[AnalysisScope] = None
-    """Optional replacement analysis scope. When provided, overwrites the thread's current analysis scope; the new
-    scope takes effect for this turn's tool invocations and every turn thereafter. When ``None``, the thread's
-    existing analysis scope is left untouched (there is currently no wire-format way to clear a scope via ``send``)."""
+    """Analysis scope that replaces the thread's own, from this turn on.
+
+    Roboto passes the scope to each tool the AI calls, and each tool decides whether to apply it. ``None`` leaves the
+    thread's scope unchanged; no value of this field clears it.
+    """
 
     goals: Optional[list[AgentGoal]] = pydantic.Field(default=None, max_length=MAX_GOALS_PER_TURN)
-    """Goals declared for this turn. The agent runner enforces achievement: it gates a per-turn achieve-tool against
-    each goal and re-prompts until every goal is satisfied or a per-turn retry budget is exhausted. May be omitted;
-    when present, :attr:`message` becomes optional. Capped at :data:`MAX_GOALS_PER_TURN` entries (see the constant
-    for rationale)."""
+    """Goals the AI must meet in this turn, at most ``MAX_GOALS_PER_TURN``.
+
+    Roboto prompts the AI again until it meets every goal or runs out of retries, which leaves the thread in
+    :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.GOALS_FAILED`. ``None`` declares none.
+    """
 
     invoke_skills: list["InvokeSkillSpec"] = pydantic.Field(default_factory=list)
-    """Skills to invoke as part of this turn, in order. The server fabricates one
-    ``LoadSkillTool`` ``tool_use`` + ``tool_result`` pair per entry and appends them to the
-    transcript after :attr:`message` (if any). When :attr:`message` is empty and no goals
-    are declared, the fabricated pairs become the turn trigger themselves — useful for
-    chip-only invocations that don't carry a typed prompt. Pass a single-element
-    list for the common "invoke one skill" case."""
+    """Skills to apply in this turn, in order.
+
+    Roboto adds each skill's procedure to the transcript after ``message``, as a call to the AI's skill-loading tool
+    and its result. Defaults to none.
+    """
 
     @pydantic.model_validator(mode="after")
     def _at_least_one_trigger(self) -> "SendMessageRequest":
@@ -198,11 +202,9 @@ class SendMessageRequest(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def _message_must_be_user_text_only(self) -> "SendMessageRequest":
-        # /send carries user-originated turn triggers. Anything else has its own
-        # endpoint: client tool results go to submit_client_tool_results, and
-        # tool_use blocks are never user-originated. Without this guard,
-        # write_message silently drops the offending content and the caller
-        # sees a 200 with the wrong outcome.
+        # Client tool results go through AgentThread.submit_client_tool_results, and only the AI writes tool uses.
+        # Roboto stores only the text of a message sent here, so reject other content rather than let the request
+        # succeed while Roboto drops it.
         if self.message is None:
             return self
         if self.message.role != AgentRole.USER:
@@ -220,94 +222,98 @@ class SendMessageRequest(pydantic.BaseModel):
 
 
 class StartAgentThreadRequest(pydantic.BaseModel):
-    """Request payload for starting a new agent thread.
+    """Request body for :py:meth:`~roboto.ai.agent_thread.AgentThread.start`.
 
-    Contains the initial messages and configuration for creating a new
-    conversation.
+    An agent also starts each of its threads from one, its :py:attr:`~roboto.ai.agent.Agent.request_template`. The
+    request needs at least one of ``messages``, ``goals`` and ``invoke_skills``. Building it raises
+    ``pydantic.ValidationError`` when:
+
+    - ``messages``, ``goals`` and ``invoke_skills`` are all empty.
+    - ``goals`` and ``messages`` are set, ``invoke_skills`` is empty, and no message contains text.
+    - ``goals`` holds more than ``MAX_GOALS_PER_TURN`` goals.
+    - ``available_skills`` holds more than ``MAX_AVAILABLE_SKILLS`` entries, or lists one skill twice.
     """
 
-    # ``model_profile`` overlaps Pydantic's reserved ``model_`` namespace, which
-    # emits a ``UserWarning`` at import time on Pydantic < 2.10 (permitted by the
-    # SDK's ``pydantic>=2.5`` floor). Opting out keeps the CLI warning-free
-    # across all supported Pydantic versions.
+    # Pydantic versions before 2.10, which the SDK supports, warn at import that model_profile starts with the
+    # protected model_ prefix. An empty protected_namespaces turns the warning off.
     model_config = pydantic.ConfigDict(protected_namespaces=())
 
     client_context: Optional[ClientViewingContext] = pydantic.Field(
         default=None,
         validation_alias=pydantic.AliasChoices("client_context", "context"),
     )
-    """Optional :class:`ClientViewingContext` describing what the client was
-    viewing when this thread was started. Wire field is ``client_context``;
-    the legacy ``context`` alias is accepted during the migration window and
-    will be dropped in a future release."""
+    """What the caller had open in their client when they started the thread, such as datasets or files.
+
+    Lets the AI resolve references like "this dataset". ``None`` sends none. Also accepted under the key
+    ``context``.
+    """
 
     messages: list[AgentMessage] = pydantic.Field(default_factory=list)
-    """Initial messages to start the conversation with. May be empty when at least one goal is declared in
-    :attr:`goals`; in that case the server synthesizes a minimal user message so the LLM has a turn-initiating
-    prompt."""
+    """Messages to start the thread with.
+
+    May be empty when ``goals`` or ``invoke_skills`` is set. When no user message contains text, Roboto puts a short
+    user message first that asks the AI to meet the goals or apply the skills.
+    """
 
     system_prompt: Optional[str] = None
-    """Optional system prompt to customize AI assistant behavior."""
+    """Instructions Roboto adds to the AI's system prompt for the thread. ``None`` adds none."""
 
     client_tools: Optional[list[ClientToolSpec]] = None
-    """Optional client-side tools available for this invocation."""
+    """Client-side tools the AI may call in the thread: tools your code runs when the AI calls them.
+
+    ``None`` offers none.
+    """
 
     model_profile: Optional[str] = None
-    """Optional model profile ID for the thread (e.g. 'standard', 'advanced')."""
+    """ID of the model profile to run the thread with, such as ``"standard"`` or ``"advanced"``.
+
+    ``None`` uses Roboto's default profile.
+    """
 
     analysis_scope: Optional[AnalysisScope] = None
-    """Optional analysis scope for the thread. Delivered to every tool invocation on the server side; individual
-    tools opt in to honoring it. ``None`` means no scope."""
+    """Analysis scope for the thread.
+
+    Roboto passes the scope to each tool the AI calls, and each tool decides whether to apply it. ``None`` sets no
+    scope.
+    """
 
     goals: Optional[list[AgentGoal]] = pydantic.Field(default=None, max_length=MAX_GOALS_PER_TURN)
-    """Goals declared for the first turn. The agent runner enforces achievement: it gates a per-turn achieve-tool
-    against each goal and re-prompts until every goal is satisfied or a per-turn retry budget is exhausted. May be
-    omitted; when present, :attr:`messages` may be empty. Capped at :data:`MAX_GOALS_PER_TURN` entries (see the
-    constant for rationale)."""
+    """Goals the AI must meet in the first turn, at most ``MAX_GOALS_PER_TURN``.
+
+    Roboto prompts the AI again until it meets every goal or runs out of retries, which leaves the thread in
+    :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.GOALS_FAILED`. ``None`` declares none.
+    """
 
     invoke_skills: list["InvokeSkillSpec"] = pydantic.Field(default_factory=list)
-    """Skills to invoke at thread start, in order. The server fabricates one
-    ``LoadSkillTool`` ``tool_use`` + ``tool_result`` pair per entry and appends them to the
-    transcript after any seeded :attr:`messages`. When ``messages`` is empty and no goals
-    are declared, the fabricated pairs become the thread seed. Pass a
-    single-element list for the common "invoke one skill" case."""
+    """Skills to apply in the first turn, in order.
+
+    Roboto adds each skill's procedure to the transcript after ``messages``, as a call to the AI's skill-loading tool
+    and its result. Defaults to none.
+    """
 
     available_skills: Optional[list["AvailableSkillSpec"]] = pydantic.Field(
         default=None, max_length=MAX_AVAILABLE_SKILLS
     )
-    """Explicit set of skills the AI may auto-invoke during this thread,
-    replacing the subscription-derived ``load_skill`` registry.
+    """Skills the AI may apply on its own during the thread, in place of the ones the caller subscribes to.
 
-    Tri-state:
+    - ``None``, the default, lets the AI apply the skills the caller subscribes to, at the versions the caller pinned
+      with :py:meth:`~roboto.domain.skills.Skill.set_ai_version`.
+    - An empty list lets the AI apply no skill on its own.
+    - A non-empty list lets the AI apply exactly these skills, at these versions, whatever the caller subscribes to.
 
-    - ``None`` (the default) — the AI's ``load_skill`` registry is derived per
-      turn from the caller's skill subscriptions, as usual.
-    - ``[]`` — the AI has *no* auto-invokable skills for this thread.
-    - a non-empty list — exactly these skill versions are auto-invokable; the
-      caller's subscriptions and per-user ``ai_version`` pins are ignored.
-
-    Each entry may reference any org-shared skill or the caller's own private
-    skill (visibility only — no subscription required), at any version. One
-    version per skill: duplicate ``skill_id`` entries are rejected. Resolved
-    once at thread start and frozen onto the thread; later subscription
-    changes and skill-body edits do not propagate into it. Capped at
-    :data:`MAX_AVAILABLE_SKILLS` entries.
-
-    Distinct from :attr:`invoke_skills`: ``available_skills`` configures *what
-    the AI can reach for*, while ``invoke_skills`` *seeds* skill bodies into the
-    opening transcript as a turn trigger. It is configuration, not a trigger — a
-    request carrying only ``available_skills`` and no ``messages`` / ``goals`` /
-    ``invoke_skills`` is still rejected."""
+    Roboto resolves the list once, when the thread starts, so later changes to subscriptions or skills do not change
+    it. It holds at most ``MAX_AVAILABLE_SKILLS`` entries, one per skill. Unlike ``invoke_skills``, it applies no
+    skill and starts no turn, so a request that sets it still needs ``messages``, ``goals`` or ``invoke_skills``.
+    """
 
     visibility: ThreadVisibility = ThreadVisibility.PRIVATE
-    """Who may read the resulting thread after it is created. ``PRIVATE``
-    (the default) restricts reads to the creator and Roboto admins; ``ORG``
-    lets any member of the thread's org read it and makes the thread
-    visible to org members on ``POST /v1/ai/threads/search``. The default
-    is ``PRIVATE`` so that a thread started via ``POST /v1/ai/threads``
-    does not leak to the rest of the org until the caller opts in;
-    threads created through the agent launch flow default to ``ORG``
-    instead, since agents exist to share workflows across teammates."""
+    """Who can read the thread once it is created.
+
+    The default, :py:attr:`~roboto.ai.agent_thread.ThreadVisibility.PRIVATE`, limits reads to the thread's creator and
+    Roboto administrators. ``ORG`` lets every member of the thread's organization read the thread and find it with
+    ``POST /v1/ai/threads/search``. :py:meth:`~roboto.ai.agent.Agent.launch` sets this field itself, to ``ORG``
+    unless its caller passes another value.
+    """
 
     @pydantic.model_validator(mode="after")
     def _at_least_one_trigger(self) -> "StartAgentThreadRequest":
@@ -319,12 +325,8 @@ class StartAgentThreadRequest(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def _at_least_one_seeded_message_must_carry_text_when_goals_present(self) -> "StartAgentThreadRequest":
-        # When goals are declared alongside seeded history (and no skill_invocation), at
-        # least one message in the history must carry text content. The runner needs a
-        # text-bearing message to drive the turn against; a tool-use- or tool-result-only
-        # seeded list has nothing for write_message to persist as the wake-up trigger,
-        # leaving goals orphaned. Mirrors SendMessageRequest._message_with_goals_must_carry_text.
-        # When invoke_skills is non-empty, the fabricated pairs provide the trigger.
+        # A goal-bearing turn starts from a message with text, and seeded history made only of tool uses and tool
+        # results has none. When invoke_skills is set, the skills start the turn instead.
         if self.goals and self.messages and not self.invoke_skills:
             has_text = any(isinstance(c, AgentTextContent) for m in self.messages for c in m.content)
             if not has_text:
@@ -338,10 +340,8 @@ class StartAgentThreadRequest(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def _available_skills_have_unique_skill_ids(self) -> "StartAgentThreadRequest":
-        # The per-thread AI registry holds at most one version per skill —
-        # LoadSkillTool keys its enum by skill name, so two versions of the
-        # same skill would collide. Reject duplicates here so the caller gets
-        # a clear client-side error instead of a silently-deduplicated set.
+        # The AI loads a skill by its name, so a thread can offer only one version of each skill. Reject duplicates
+        # here rather than let one of them be dropped without an error.
         if self.available_skills:
             seen: set[str] = set()
             for spec in self.available_skills:
@@ -355,85 +355,93 @@ class StartAgentThreadRequest(pydantic.BaseModel):
 
 
 class ClientToolResultStatus(StrEnum):
-    """Outcome of executing a client-side tool."""
+    """Outcome of a client-side tool call: whether the tool ran, failed, or was not run."""
 
     SUCCESS = "success"
+    """The tool ran and returned its output."""
+
     ERROR = "error"
+    """The tool failed, or the client had no tool by that name to run."""
+
     DECLINED = "declined"
+    """The client did not run the tool."""
 
 
 class ClientToolResult(pydantic.BaseModel):
-    """Result of executing a client-side tool."""
+    """Result of one client-side tool call: a tool your code ran when the AI called it.
+
+    Carried in ``SubmitToolResultsRequest.tool_results``. :py:meth:`~roboto.ai.agent_thread.AgentThread.run` builds
+    and submits one for each call to a tool registered with a callback.
+    """
 
     tool_use_id: str
-    """Identifier of the tool invocation this result corresponds to."""
+    """ID of the tool use this result answers.
+
+    It is the :py:attr:`~roboto.ai.agent_thread.AgentToolUseContent.tool_use_id` of the AI's call.
+    """
 
     tool_name: str
-    """Name of the tool that was executed."""
+    """Name of the tool that was called."""
 
     runtime_ms: int
-    """Wall-clock execution time of the tool in milliseconds."""
+    """Time the tool took to run, in milliseconds."""
 
     status: ClientToolResultStatus
-    """Outcome of the tool execution."""
+    """Outcome of the call."""
 
     output: Optional[dict[str, Any]] = None
-    """Structured output returned by the tool."""
+    """Output of the tool as a JSON-compatible dictionary, or ``None`` if it has none."""
 
 
 class SubmitToolResultsRequest(pydantic.BaseModel):
-    """Request payload for submitting client-side tool execution results."""
+    """Request body for :py:meth:`~roboto.ai.agent_thread.AgentThread.submit_client_tool_results`."""
 
     tool_results: list[ClientToolResult]
-    """Tool results from client-side execution."""
+    """Results of the client-side tool calls the AI is waiting on."""
 
     client_tools: Optional[list[ClientToolSpec]] = None
-    """Optional updated client-side tools for the next invocation."""
+    """Client-side tools the AI may call from the next turn on, replacing the thread's current ones.
+
+    ``None`` leaves them unchanged, and an empty list removes them.
+    """
 
 
 class ForkAgentThreadRequest(pydantic.BaseModel):
-    """Request payload for forking an agent thread at a specific message."""
+    """Request body for :py:meth:`~roboto.ai.agent_thread.AgentThread.fork`."""
 
     message_sequence_num: int
-    """Highest message sequence number (inclusive) to copy into the new thread."""
+    """Sequence number of the last message to copy into the new thread; every earlier message is copied too."""
 
 
 class UpdateThreadVisibilityRequest(pydantic.BaseModel):
-    """Request payload for re-scoping who may read an agent thread.
-
-    Sent to ``POST /v1/ai/threads/<thread_id>/visibility`` by
-    :meth:`roboto.ai.agent_thread.AgentThread.set_visibility`.
-    """
+    """Request body for :py:meth:`~roboto.ai.agent_thread.AgentThread.set_visibility`."""
 
     visibility: ThreadVisibility
-    """Read-scope the thread has once the call returns."""
+    """Who can read the thread after the change."""
 
 
 class PinThreadRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/ai/threads/<thread_id>/pin``, which pins or unpins a thread for the caller."""
+    """Request body for :py:meth:`~roboto.ai.agent_thread.AgentThread.set_pinned`."""
 
     pinned: bool
-    """Pin state the thread should have for the calling user after the call."""
+    """Whether the thread is pinned for the caller after the change."""
 
 
 class AgentThreadSubject(pydantic.BaseModel):
-    """Canonical record of an entity an :class:`AgentThread` applies to.
+    """Resource an agent thread is about, such as a dataset, file or session, recorded so the thread can be found.
 
-    Used to answer "which agent threads are about this dataset / file?"
-    — the dataset detail page's Agent Threads tab is one consumer; future
-    surfaces that want to discover threads by entity will use the same
-    record.
+    Roboto records one for each resource a turn's goal targets, and for each one the caller has open in
+    ``client_context`` when starting the thread or sending a message. ``POST /v1/ai/threads/search`` finds the
+    threads about a resource by its ``subject_id``. No SDK method or Roboto route sends or returns this model.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     association_id: str
-    """Identifier of the entity the thread applies to — e.g. a dataset id
-    or file id."""
+    """ID of the resource the thread is about, such as a dataset ID."""
 
     note: str
-    """Short, free-form explanation of how the subject came to be
-    attached (e.g. why this thread applies to that entity)."""
+    """Short, free-form note on why the thread is about the resource."""
 
 
 __all__ = [

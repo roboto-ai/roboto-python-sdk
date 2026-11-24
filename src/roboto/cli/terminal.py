@@ -13,6 +13,8 @@ from ..compat import StrEnum
 
 
 class AnsiColor(StrEnum):
+    """Color of the text a terminal prints after the member's escape code; ``END`` restores the default color."""
+
     RED = "\033[0;31m"
     GREEN = "\033[0;32m"
     YELLOW = "\033[0;33m"
@@ -28,7 +30,9 @@ _WINDOWS_SHELL_SPECIAL_CHARACTERS = frozenset("&|<>^();,'\"`{}$@#")
 
 
 def quote_for_shell(argument: str) -> str:
-    """Quote ``argument`` so that it pastes into a command in the platform's usual shell as one argument, unchanged.
+    """Quote ``argument`` so that it pastes into a command in the operating system's usual shell as one argument.
+
+    The argument reaches the command unchanged.
 
     On Windows, an argument with no whitespace and none of the characters that cmd.exe or PowerShell treat specially is
     left as it is; any other goes in double quotes. Both shells read double-quoted text literally, with these
@@ -53,7 +57,7 @@ def quote_for_shell(argument: str) -> str:
 def print_list_item(prefix: str, text: str) -> None:
     """Print ``text`` after ``prefix``, with each further line of ``text`` indented to line up under its first.
 
-    Color codes in ``prefix`` take up no columns on screen, so they don't count toward the indent.
+    Color codes in ``prefix`` take up no columns on screen, so they do not count toward the indent.
     """
     indent = " " * len(_ANSI_COLOR_CODE.sub("", prefix))
     print(prefix + text.replace("\n", "\n" + indent))
@@ -66,7 +70,10 @@ def _print_tagged(color: AnsiColor, tag: str, msg: typing.Union[str, list[str]])
 
 
 def print_warning(msg: typing.Union[str, list[str]]) -> None:
-    """Print ``msg`` to stderr after a yellow ``[warning]`` tag. A list prints each item on its own tagged line."""
+    """Print ``msg`` to stderr after a yellow ``[warning]`` tag.
+
+    A list prints each item on its own tagged line.
+    """
     _print_tagged(AnsiColor.YELLOW, "warning", msg)
 
 

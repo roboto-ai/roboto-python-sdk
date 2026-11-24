@@ -4,13 +4,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Generic ``{{name}}`` placeholder substitution shared across the SDK.
+"""Substitution of ``{{name}}`` placeholders, such as those in an agent's request template or a trigger's target.
 
-The same lightweight templating primitive powers reusable agent definitions
-(client-side substitution of caller-supplied values before a thread starts) and
-event triggers (server-side substitution of event-derived variables into a
-target's request). A :class:`VariableResolver` binds placeholders to a source of
-values, so the substitution engine stays agnostic to where those values come from.
+To expand the placeholders in a value, use :py:func:`~roboto.templating.substitute` with a
+:py:class:`~roboto.templating.VariableResolver`, such as :py:class:`~roboto.templating.MappingResolver`; to find
+them, use :py:func:`~roboto.templating.collect_placeholders`.
 """
 
 from .substitution import (

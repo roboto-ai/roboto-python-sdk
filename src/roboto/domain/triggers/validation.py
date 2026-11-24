@@ -42,35 +42,47 @@ from .targets import (
 
 
 class TriggerValidator:
-    """Save-time validation for triggers.
+    """Checker for the rules that span a trigger's source, condition and targets.
 
-    Enforces the cross-field rules that need the event catalog: a condition may only
-    reference namespace roots exposed by *every* event the source fires for,
-    ``once_per`` must be legal for every subscribed event, an action target's file
-    patterns need a dataset to match against and are themselves required when the firing
-    event's own file is the action's input, and every target template placeholder must
-    resolve to a shared exposed root (or a reserved ``envelope.``/``trigger.`` context).
-    A schedule fires for exactly one occurrence type, so the same rules apply to it with
-    that occurrence's roots.
+    Roboto runs these checks whenever a trigger is created or updated, and rejects a trigger that fails one with
+    ``RobotoInvalidRequestException`` carrying the check's message, so a trigger that could never fire or never fill in
+    its templates is refused when it is saved. Call ``validate`` to run the same checks before saving a trigger.
 
-    Run before persistence so a trigger that could never fire — or could never
-    resolve its templates — fails loudly with an actionable message instead of
-    silently misbehaving at evaluation time.
+    A trigger passes when:
+
+    - Its event subscription names at least one platform event, and each is a type the catalog knows, that triggers
+      may subscribe to, and that supports the subscription's ``once_per``. All are about the same kind of entity.
+    - Each condition field names a root that every subscribed event exposes, or ``envelope`` or ``trigger``, which
+      every firing has. No field names ``topic.`` or ``msgpath.``, and a field that names no root is allowed only when
+      every subscribed event has the same default root.
+    - It has at least one target, and each ``target_id`` is unique within it.
+    - An action target sets ``required_inputs`` or ``additional_inputs`` only when every subscribed event exposes
+      ``dataset``, because those patterns match files of the event's dataset.
+    - An action target on events about a file sets ``required_inputs`` unless ``once_per`` is
+      :py:attr:`~roboto.domain.platform_events.OncePer.Dataset` or an ingestion rule manages the trigger, because the
+      event's file is the action's input and must match one of them.
+    - Every ``{{<name>}}`` placeholder in an ``invocation_input`` query sits inside a quoted value.
+    - Every placeholder in a target names a root that every subscribed event exposes, or ``envelope`` or ``trigger``.
+
+    A schedule fires for one platform event type,
+    :py:attr:`~roboto.domain.platform_events.PlatformEventType.ScheduleFired`, so the same checks apply to it with
+    that type's roots.
+
+    Args:
+        catalog: Descriptors of the platform event types, which give each type's roots and supported ``once_per``
+            values. Defaults to :py:const:`~roboto.domain.platform_events.DEFAULT_PLATFORM_EVENT_CATALOG`.
     """
 
     def __init__(self, catalog: PlatformEventCatalog = DEFAULT_PLATFORM_EVENT_CATALOG) -> None:
-        """Bind the validator to an event catalog.
-
-        Args:
-            catalog: Source of descriptors for the event types a source fires for.
-        """
         self.__catalog = catalog
 
     def validate_record(self, record: TriggerRecord) -> None:
-        """Validate a full trigger record.
+        """Reject a trigger record that breaks one of the rules ``validate`` checks.
 
-        Raises:
-            ValueError: Any rule in :meth:`validate` fails.
+        It has no failures of its own; the ``ValueError`` that ``validate`` raises when a rule fails applies.
+
+        Args:
+            record: Trigger record to check.
         """
         self.validate(
             fires_on=record.fires_on,
@@ -87,19 +99,19 @@ class TriggerValidator:
         targets: collections.abc.Sequence[TriggerTargetSpec],
         managed_by: typing.Optional[ManagedBy] = None,
     ) -> None:
-        """Validate the cross-field rules for one trigger's parts.
+        """Reject a trigger whose source, condition or targets break a rule, raising at the first rule that fails.
 
         Args:
-            fires_on: The trigger's firing source.
-            condition: Optional predicate over the firing's namespace.
-            targets: The trigger's target specs.
-            managed_by: The trigger's owner, if it is managed. An ingestion rule's trigger accepts
-                only the files the rule's path patterns match, so its per-file targets need no
-                ``required_inputs``.
+            fires_on: What makes the trigger fire: an :py:class:`~roboto.domain.triggers.EventSubscription` or a
+                :py:class:`~roboto.domain.triggers.Schedule`.
+            condition: Condition over the variables a firing exposes. ``None`` skips the condition checks.
+            targets: Targets the trigger runs when it fires.
+            managed_by: Owner that manages the trigger, or ``None`` if the organization's members manage it. A trigger
+                an ingestion rule manages runs only on the files the rule's path patterns match, so its action targets
+                on events about a file need no ``required_inputs``.
 
         Raises:
-            ValueError: The first rule that fails, with a message naming the offending
-                field, root, or event.
+            ValueError: A rule fails. The message names the field, root, or event at fault.
         """
         event_types = self.__event_types(fires_on)
         shared_roots = self.__shared_roots(event_types)
@@ -110,7 +122,7 @@ class TriggerValidator:
         )
 
     def __event_types(self, fires_on: TriggerSource) -> list[PlatformEventType]:
-        """The event types the source fires for, after validating the source itself."""
+        """Return the event types ``fires_on`` fires for, after checking an event subscription's own rules."""
         if isinstance(fires_on, Schedule):
             return [PlatformEventType.ScheduleFired]
         self.__validate_subscription(fires_on)
@@ -136,9 +148,8 @@ class TriggerValidator:
                 )
         subject_types = {self.__catalog.descriptor(event_type).subject_type for event_type in subscription.events}
         if len(subject_types) > 1:
-            # Every subscribed type must be about the same kind of entity. Otherwise the
-            # condition has no root every event exposes and once_per collapses to
-            # occurrence. One trigger per entity kind expresses the same intent.
+            # __subject_type reads the kind of entity from the first subscribed event only, and the
+            # required_inputs check in __validate_targets depends on that kind.
             raise ValueError(
                 f"A trigger subscribes to platform events about one kind of entity; "
                 f"{sorted(event.value for event in subscription.events)} are about "
@@ -146,7 +157,7 @@ class TriggerValidator:
             )
 
     def __subject_type(self, fires_on: TriggerSource) -> typing.Optional[RobotoUriType]:
-        """The one kind of entity the subscription's events are about; ``None`` for a schedule."""
+        """Return the kind of entity the subscribed events are about, or ``None`` for a schedule."""
         if isinstance(fires_on, Schedule):
             return None
         return self.__catalog.descriptor(fires_on.events[0]).subject_type
@@ -194,7 +205,7 @@ class TriggerValidator:
         event_types: collections.abc.Sequence[PlatformEventType],
         shared_roots: frozenset[str],
     ) -> str:
-        """Why the firing names no dataset, phrased for the source the author actually wrote."""
+        """Return the error-message clause saying why the firing names no dataset, worded for ``fires_on``."""
         if isinstance(fires_on, Schedule):
             return (
                 f"the trigger fires on a schedule, which names no {DATASET_ROOT}; "

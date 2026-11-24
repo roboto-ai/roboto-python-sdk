@@ -8,6 +8,7 @@ import argparse
 import json
 
 from ...domain.orgs import (
+    EmailDomainBindingOutcome,
     Org,
     OrgInvite,
     OrgRoleName,
@@ -38,6 +39,12 @@ def generic_org_add_argument(parser, action_to_perform: str = GENERIC_ORG_ONLY_S
 def generic_org_only_setup_parser(
     action_to_perform: str = GENERIC_ORG_ONLY_SETUP_PARSER_DEFAULT_HELP,
 ):
+    """Build a parser setup function for a command whose only argument is ``--org``.
+
+    Args:
+        action_to_perform: What the command does, as a verb phrase that completes the ``--org`` help text.
+    """
+
     def setup(parser):
         generic_org_add_argument(parser=parser, action_to_perform=action_to_perform)
 
@@ -58,7 +65,8 @@ def create_setup_parser(parser):
     parser.add_argument(
         "--bind-email-domain",
         action="store_true",
-        help="Automatically add new users with your email domain to this org",
+        help="Bind your email domain to this org, so people who sign up with an address at it join the org. Where "
+        + "Roboto requires email domains to be verified, starts a verification of the domain instead.",
     )
 
 
@@ -107,8 +115,7 @@ def show_setup_parser(parser):
 def list_org_members(args, context: CLIContext, parser: argparse.ArgumentParser):
     org_users = Org.from_id(args.org).users()
     for org_user in org_users:
-        # We'll need to rethink filtering out service users once
-        # they are more directly customer-facing
+        # Leave out service users: non-human users that Roboto runs the organization's automated work as.
         if org_user.user.is_service_user:
             continue
 
@@ -246,8 +253,26 @@ def remove_role_setup_parser(parser):
 
 
 def bind_email_domain(args, context: CLIContext, parser: argparse.ArgumentParser):
-    Org.from_id(org_id=args.org, roboto_client=context.roboto_client).bind_email_domain(args.email_domain)
-    print(f"Successfully bound domain {args.email_domain}")
+    org = Org.from_id(org_id=args.org, roboto_client=context.roboto_client)
+    response = org.start_email_domain_verification(args.email_domain)
+    if response.outcome == EmailDomainBindingOutcome.Bound:
+        print(f"Successfully bound domain {args.email_domain}")
+        return
+
+    txt_record = response.verification_txt_record
+    if txt_record is None:
+        print(
+            f"A verification of {args.email_domain} is already in progress. To get a new DNS TXT record for it, "
+            + "open the organization's email domain settings in Roboto."
+        )
+        return
+
+    print(
+        f"To verify {args.email_domain}, publish this DNS TXT record, then check it from the organization's email "
+        + "domain settings in Roboto. Roboto shows the record only once.\n"
+        + f"Name: {txt_record.name}\n"
+        + f"Value: {txt_record.value}"
+    )
 
 
 def bind_email_domain_setup_parser(parser):
@@ -369,8 +394,10 @@ bind_email_domain_command = RobotoCommand(
     logic=bind_email_domain,
     setup_parser=bind_email_domain_setup_parser,
     command_kwargs={
-        "help": "Binds an email domain to this org, so all new users whose "
-        + "emails are part of that domain will automatically be added."
+        "help": "Binds an email domain to this org, so people who sign up with an address at the domain join the "
+        + "org. Where Roboto requires email domains to be verified, starts a verification of the domain instead and "
+        + "prints the DNS TXT record to publish; people join once the domain is verified and auto-join is turned on "
+        + "in the organization's email domain settings."
     },
 )
 

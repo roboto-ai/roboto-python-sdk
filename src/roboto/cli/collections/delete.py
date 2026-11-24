@@ -13,6 +13,11 @@ from .shared_helpdoc import COLLECTION_ID_HELP
 
 
 def delete(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Delete the collection the ID names, keeping its members, and print the ID.
+
+    Fetches the collection before deleting it, so an ID that matches no collection fails with
+    ``RobotoNotFoundException``, where :py:meth:`~roboto.domain.collections.Collection.delete` alone would succeed.
+    """
     Collection.from_id(
         collection_id=args.collection_id,
         roboto_client=context.roboto_client,

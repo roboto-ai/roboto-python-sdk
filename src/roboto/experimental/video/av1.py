@@ -4,16 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Minimal AV1 low-overhead bitstream inspection.
-
-AV1 has no Annex B framing: a message payload is one temporal unit — a
-sequence of OBUs (open bitstream units), each with a 1-2 byte header and a
-LEB128-coded size (AV1 Bitstream Specification section 5.2). This module
-walks the OBUs and parses only the fixed leading bits of the frame header
-needed for keyframe detection; the decoder reads everything else from the
-in-band sequence header.
-"""
-
 from __future__ import annotations
 
 import dataclasses
@@ -21,10 +11,9 @@ import enum
 
 
 class ObuType(enum.IntEnum):
-    """AV1 OBU types (AV1 Bitstream Specification section 5.3.2) relevant here.
+    """Type of an AV1 OBU (open bitstream unit), with members for four of the types.
 
-    OBU headers can carry any 4-bit type value, so :py:attr:`Obu.type` is a
-    plain ``int``; compare against these members for the types that matter.
+    An OBU header can carry any 4-bit type, so ``Obu.type`` is an ``int``; compare it against these members.
     """
 
     SEQUENCE_HEADER = 1
@@ -35,17 +24,20 @@ class ObuType(enum.IntEnum):
 
 @dataclasses.dataclass(frozen=True)
 class Obu:
-    """One OBU split out of a low-overhead AV1 temporal unit."""
+    """One OBU (open bitstream unit) of an AV1 temporal unit, as ``find_obus`` splits it out."""
 
     type: int
-    """``obu_type`` from the OBU header."""
+    """Type of the OBU, the ``obu_type`` field of its header."""
 
     payload: bytes
-    """The OBU's payload bytes (header and size field excluded)."""
+    """Payload of the OBU, without its header or size field."""
 
 
 def _read_leb128(data: bytes, offset: int) -> tuple[int, int] | None:
-    """Read a LEB128 value at ``offset``; returns ``(value, next_offset)`` or ``None`` when truncated."""
+    """Read the LEB128-coded value at ``offset``, as ``(value, next_offset)``.
+
+    Return ``None`` when the data ends before the value does, or when the value runs past 8 bytes.
+    """
     value = 0
     for i in range(8):
         if offset + i >= len(data):
@@ -58,18 +50,20 @@ def _read_leb128(data: bytes, offset: int) -> tuple[int, int] | None:
 
 
 def find_obus(data: bytes) -> list[Obu]:
-    """Split a low-overhead AV1 temporal unit into its OBUs.
+    """Split an AV1 temporal unit into its OBUs (open bitstream units).
 
-    Walking stops (returning the OBUs found so far) at the first malformed
-    header, truncated size field, or size that overruns the payload. An OBU
-    without a size field extends to the end of the data, as the spec allows
-    for the last OBU of a temporal unit.
+    A compressed-video message holds one AV1 temporal unit in the low-overhead bitstream format: OBUs back to back,
+    each a 1- or 2-byte header, a LEB128-coded size and a payload, with no start codes between them.
+
+    Splitting stops at the first OBU whose forbidden bit is set, whose header or size field is cut off, or whose size
+    runs past the end of the data, and returns the OBUs before it. An OBU without a size field is taken to run to the
+    end of the data.
 
     Args:
-        data: One temporal unit's bytes in the low-overhead bitstream format.
+        data: Bytes of one temporal unit in the low-overhead bitstream format.
 
     Returns:
-        The unit's OBUs in bitstream order, payloads copied.
+        The OBUs in bitstream order, each holding a copy of its payload.
     """
     obus: list[Obu] = []
     offset = 0
@@ -98,23 +92,20 @@ def find_obus(data: bytes) -> list[Obu]:
 
 
 def is_keyframe(data: bytes) -> bool:
-    """Whether the AV1 temporal unit contains a KEY_FRAME (clean decoder entry point).
+    """Return whether the first frame in an AV1 temporal unit is a keyframe, a point decoding can start from.
 
-    The first frame (or frame-header) OBU's leading bits are checked:
-    ``show_existing_frame`` must be 0 and ``frame_type`` KEY_FRAME. When the
-    unit's own sequence header declares ``reduced_still_picture_header``, the
-    frame is a keyframe by definition (that mode only encodes intra frames).
+    Only the first frame or frame-header OBU is read, and only the leading bits of its frame header: it is a keyframe
+    when ``show_existing_frame`` is 0 and ``frame_type`` is ``KEY_FRAME``. When a sequence header earlier in the same
+    unit sets ``reduced_still_picture_header``, every frame is a ``KEY_FRAME``, so those bits are not read. A unit with
+    no frame OBU, or whose first frame OBU is empty, is not a keyframe.
 
     Args:
-        data: One temporal unit's bytes in the low-overhead bitstream format.
-
-    Returns:
-        True when the unit contains a keyframe.
+        data: Bytes of one temporal unit in the low-overhead bitstream format.
     """
     reduced_still_picture = False
     for obu in find_obus(data):
         if obu.type == ObuType.SEQUENCE_HEADER and len(obu.payload) >= 1:
-            # seq_profile (3 bits), still_picture (1), reduced_still_picture_header (1)
+            # Leading bits: seq_profile (3), still_picture (1), reduced_still_picture_header (1)
             reduced_still_picture = bool(obu.payload[0] & 0x08)
         elif obu.type in (ObuType.FRAME, ObuType.FRAME_HEADER):
             if len(obu.payload) < 1:
@@ -122,7 +113,7 @@ def is_keyframe(data: bytes) -> bool:
             if reduced_still_picture:
                 return True
             first_byte = obu.payload[0]
-            if first_byte & 0x80:  # show_existing_frame: re-display, not a new frame
+            if first_byte & 0x80:  # show_existing_frame: shows a decoded frame again
                 return False
             frame_type = (first_byte >> 5) & 0x03
             return frame_type == 0  # KEY_FRAME

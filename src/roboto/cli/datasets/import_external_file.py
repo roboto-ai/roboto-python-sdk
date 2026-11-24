@@ -13,6 +13,7 @@ from .shared_helpdoc import DATASET_ID_HELP
 
 
 def import_external_file(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Import the object at the ``--file`` URI into the dataset without copying it, and print the file's ID."""
     normalized_relative_path = args.path if args.path else args.file.split("/")[-1]
 
     fl = File.import_one(

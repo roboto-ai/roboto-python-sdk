@@ -33,6 +33,24 @@ logger = default_logger()
 
 
 class ParquetParser:
+    """Reader of a local Parquet file's schema, row groups and timestamp column.
+
+    :py:meth:`~roboto.domain.topics.Topic.create_from_df` finds a new topic's time range through it, and its message
+    paths through :py:func:`~roboto.formats.parquet.generate_message_path_requests`, so most code never calls it. It
+    can also tell whether the file's row groups let Roboto read a time range of it efficiently, and write a copy that
+    does.
+
+    Args:
+        source: Path of the local Parquet file to read.
+        min_required_row_group_size: Number of rows below which the file's average row group counts as small, for
+            ``requires_rewrite``.
+        small_row_group_count_threshold: Number of row groups above which a file of small row groups needs
+            rewriting, for ``requires_rewrite``.
+
+    Raises:
+        ImportError: The ``roboto[ingestion]`` extra is not installed.
+    """
+
     __file: "pyarrow.parquet.ParquetFile"
     __min_required_row_group_size: int
     __schema: "pyarrow.Schema"
@@ -40,12 +58,19 @@ class ParquetParser:
 
     @staticmethod
     def is_parquet_file(path: pathlib.Path) -> bool:
+        """Return whether the file at ``path`` begins with the Parquet magic bytes ``PAR1``.
+
+        A file that cannot be opened or read, such as one that does not exist, counts as Parquet when its name ends
+        in ``.parquet``, in any letter case.
+
+        Args:
+            path: Path of the local file to check.
+        """
         try:
             with path.open("rb") as f:
                 magic_bytes = f.read(4)
                 return magic_bytes == b"PAR1"
         except (FileNotFoundError, IOError, OSError):
-            # If we can't read the file, fall back to extension-based detection
             return path.suffix.lower() == ".parquet"
 
     def __init__(
@@ -63,35 +88,51 @@ class ParquetParser:
 
     @property
     def column_count(self) -> int:
+        """Number of leaf columns the file stores, in which each field of a struct counts as its own column."""
         return self.__file.metadata.num_columns
 
     @property
     def fields(self) -> typing.Generator["pyarrow.Field", None, None]:
+        """Top-level fields of the file's schema, in schema order."""
         yield from self.__schema
 
     @property
     def row_count(self) -> int:
+        """Number of rows in the file."""
         return self.__file.metadata.num_rows
 
     @property
     def row_group_count(self) -> int:
+        """Number of row groups in the file."""
         return self.__file.metadata.num_row_groups
 
     @property
     def row_group_size(self) -> int:
+        """Average number of rows per row group, rounded to the nearest whole number.
+
+        The final row group is left out of the average, since it holds whatever rows remain and is usually smaller.
+        For a file with one row group, the value is that group's row count; for a file with none, ``0``.
+        """
         if self.__file.metadata.num_row_groups == 0:
             return 0
 
         if self.__file.metadata.num_row_groups == 1:
             return self.__file.metadata.row_group(0).num_rows
 
-        # avg row group sizes, omitting the final row group from the avg (not expected to be full)
         row_group_counts = [
             self.__file.metadata.row_group(i).num_rows for i in range(self.__file.metadata.num_row_groups - 1)
         ]
         return round(statistics.mean(row_group_counts))
 
     def find_timestamp_field_by_type(self) -> "pyarrow.Field":
+        """Return the first top-level field whose type is a timezone-aware timestamp.
+
+        Logs a warning for each timestamp field without a time zone that it passes over, since Roboto cannot use one
+        as the timestamp.
+
+        Raises:
+            TimestampFieldNotFoundException: No top-level field is a timezone-aware timestamp.
+        """
         pa = import_optional_dependency("pyarrow", "ingestion")
 
         for field in self.__schema:
@@ -115,6 +156,30 @@ class ParquetParser:
         timestamp_column_name: typing.Optional[str] = None,
         timestamp_unit: typing.Optional[typing.Union[str, TimeUnit]] = None,
     ) -> TimestampInfo:
+        """Read the file's timestamp column, its unit, and the earliest and latest timestamps in it.
+
+        Reads the whole timestamp column to find its minimum and maximum. A timezone-aware timestamp column yields
+        ``datetime.datetime`` values; a numeric column yields numbers in ``timestamp_unit``. When pandas is not
+        installed and either value has a fraction of a microsecond, both are integers in nanoseconds instead. A file
+        with no rows yields ``None`` for both.
+
+        Args:
+            timestamp_column_name: Name of the top-level column that holds each row's timestamp. ``None`` uses the
+                first column whose type is a timezone-aware timestamp.
+            timestamp_unit: Unit of the timestamp values, as a :py:class:`~roboto.time.TimeUnit` or its value, such
+                as ``"ms"``. ``None`` takes the unit from the column's timestamp type. A unit given here wins over
+                the type's, with a logged warning when the two differ.
+
+        Returns:
+            The timestamp column's field, its unit, and the minimum and maximum of its values.
+
+        Raises:
+            TimestampFieldNotFoundException: ``timestamp_column_name`` names no top-level column, or it is ``None``
+                and no top-level column is a timezone-aware timestamp.
+            IngestionException: The named column is neither numeric nor a timestamp, is a timestamp without a time
+                zone, or is numeric and no ``timestamp_unit`` was given.
+            ValueError: ``timestamp_unit`` is not a :py:class:`~roboto.time.TimeUnit` value.
+        """
         pa = import_optional_dependency("pyarrow", "ingestion")
         pc = import_optional_dependency("pyarrow.compute", "ingestion")
 
@@ -150,13 +215,8 @@ class ParquetParser:
         table = self.get_data_for_column(field.name)
         data = table.column(0)
         min_max = pc.min_max(data)
-        # If the value is in nanoseconds, we'll get an error like
-        #
-        # ValueError: Nanosecond resolution temporal type 999 is not safely convertible to microseconds to convert
-        # to datetime.datetime. Install pandas to return as Timestamp with nanosecond support or
-        # access the .value attribute.
-        #
-        # ...which we can handle by just grabbing the int value as "value". We'll normalize it later anyway.
+        # Without pandas, as_py raises ValueError for a nanosecond timestamp with a fraction of a microsecond, which
+        # datetime.datetime cannot hold. Take the integer nanosecond values instead.
         try:
             start_time = min_max["min"].as_py()
             end_time = min_max["max"].as_py()
@@ -172,9 +232,26 @@ class ParquetParser:
         )
 
     def get_data_for_column(self, column_name: str) -> "pyarrow.Table":
+        """Read one column of every row group into memory.
+
+        Args:
+            column_name: Name of the column to read.
+
+        Returns:
+            A table whose only column is the one named.
+        """
         return self.__file.read(columns=[column_name])
 
     def get_timestamp_field_by_name(self, column_name: str) -> "pyarrow.Field":
+        """Return the top-level field named ``column_name``, after checking that it can hold timestamps.
+
+        Args:
+            column_name: Name of the top-level column that holds each row's timestamp.
+
+        Raises:
+            TimestampFieldNotFoundException: No top-level column has this name.
+            IngestionException: The column is neither numeric nor a timestamp, or is a timestamp without a time zone.
+        """
         pa = import_optional_dependency("pyarrow", "ingestion")
 
         try:
@@ -184,7 +261,6 @@ class ParquetParser:
                 f"'{column_name}' provided as timestamp, but that field is not present in the provided data.",
             ) from None
 
-        # Does it look like a timestamp?
         if not is_timestamp_like(field.type):
             raise IngestionException(
                 f"'{column_name}' provided as timestamp, "
@@ -200,11 +276,21 @@ class ParquetParser:
         return field
 
     def requires_rewrite(self, timestamp: TimestampInfo) -> bool:
+        """Return whether the file needs rewriting with ``rewrite`` before Roboto can read time ranges of it quickly.
+
+        Roboto reads a time range of a Parquet file by skipping the row groups whose timestamp statistics fall
+        outside it. A file with rows needs rewriting, with a logged warning, when either holds:
+
+        1. It has more row groups than ``small_row_group_count_threshold`` and they average fewer rows than
+           ``min_required_row_group_size``, which makes reading it slow.
+        2. A row group lacks statistics for the timestamp column, so Roboto cannot skip that row group.
+
+        Args:
+            timestamp: The file's timestamp column, from ``extract_timestamp_info``.
+        """
         if self.row_count == 0:
-            # Edge case: the file has no data, no need to rewrite
             return False
 
-        # Parquet files with many small row groups will perform poorly in Roboto.
         many_row_groups = self.row_group_count > self.__small_row_group_count_threshold
         row_groups_are_small = self.row_group_size < self.__min_required_row_group_size
         many_small_row_groups = many_row_groups and row_groups_are_small
@@ -215,8 +301,6 @@ class ParquetParser:
             )
             return True
 
-        # Selecting slices of files depends on row group filtering based on timestamp statistics.
-        # Rewrite the file if the timestamp column is missing statistics.
         missing_row_group_stats = self.__is_timestamp_column_missing_stats(timestamp.field)
         if missing_row_group_stats:
             logger.warning(
@@ -231,18 +315,26 @@ class ParquetParser:
         self,
         outfile: pathlib.Path,
         timestamp: TimestampInfo,
-        # The bigger the better, but there is a direct correlation between this and system memory utilization
-        # This can (and maybe should) be dialed up to 500MB or 1GB, but that would require a beefier VM.
-        target_row_group_size_bytes: int = 100 * 1000 * 1000,  # 100MB
+        target_row_group_size_bytes: int = 100 * 1000 * 1000,
     ) -> None:
+        """Write a copy of the file with large row groups and statistics on the timestamp column.
+
+        The copy's row groups are sized to hold as many rows as fit in ``target_row_group_size_bytes``, at the largest
+        uncompressed size per row of any row group in this file, and never fewer than 100,000 rows. Only the timestamp
+        column gets statistics, which Roboto uses to skip row groups outside a requested time range.
+
+        Args:
+            outfile: Path to write the copy to. An existing file there is overwritten.
+            timestamp: The file's timestamp column, from ``extract_timestamp_info``.
+            target_row_group_size_bytes: Uncompressed size to aim for in each row group, in bytes. Larger row groups
+                read faster, but the rewrite holds one row group in memory at a time. Defaults to 100 MB.
+        """
         pq = import_optional_dependency("pyarrow.parquet", "ingestion")
 
         metadata = self.__file.metadata
 
-        # determine optimal row group size to use while reading the source file to:
-        #   1. make sure this action doesn't run out of memory
-        #   2. ensure read efficiency of the target file
-        #       (as currently implemented, batch size at read time is the row group size at write time)
+        # Each batch read below becomes one row group of the copy, unless pyarrow splits a batch longer than its
+        # maximum row group length, so this size bounds both the copy's row groups and the rows held in memory at once.
         max_bytes_per_row = (
             max(
                 (metadata.row_group(i).total_byte_size / metadata.row_group(i).num_rows)
@@ -263,14 +355,10 @@ class ParquetParser:
         with pq.ParquetWriter(
             where=outfile,
             schema=self.__schema,
-            # https://github.com/apache/parquet-format/blob/eb4b31c1d64a01088d02a2f9aefc6c17c54cc6fc/src/main/thrift/parquet.thrift#L619
-            # vs
-            # https://github.com/apache/parquet-format/blob/eb4b31c1d64a01088d02a2f9aefc6c17c54cc6fc/src/main/thrift/parquet.thrift#L577
-            # Supported by our in-browser reader:
-            # https://github.com/hyparam/hyparquet/blob/master/src/datapage.js
+            # The Roboto web app reads Parquet files in the browser, and its reader supports version 2 data pages.
             data_page_version="2.0",
-            # Statistics are used for row group filtering
             write_statistics=[timestamp.field.name],
+            # Format version 2.6 stores nanosecond timestamps as they are; earlier versions coerce them to microseconds.
             # https://arrow.apache.org/docs/python/parquet.html#storing-timestamps
             version="2.6",
         ) as writer:

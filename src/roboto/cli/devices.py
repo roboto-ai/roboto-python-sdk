@@ -129,14 +129,19 @@ def generate_device_creds_common_logic(
     config_file: pathlib.Path,
     context: CLIContext,
 ):
-    """
-    Used in ``generate-creds`` and ``register``
+    """Create an access token for the device and save its credentials to ``config_file`` as a Roboto config file.
+
+    The token expires after 366 days. The file holds one profile, its default, named ``<org_id>_<device_id>`` because
+    a device ID is unique only within its organization.
+
+    Args:
+        config_file: Path to write the config file to. An existing file is overwritten.
+        context: CLI context whose client's endpoint the profile records.
     """
     device_token, device_secret = device.create_token()
 
     profiles: dict[str, RobotoConfig] = {}
 
-    # Name the default profile after the fully qualified device ID
     default_profile = f"{device.org_id}_{device.device_id}"
     profiles[default_profile] = RobotoConfig(
         api_key=device_secret,
@@ -166,7 +171,8 @@ def generate_device_creds_setup_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-f",
         "--config-file",
-        # Distinct from the global --config-file's dest, which names the config the CLI reads its own credentials from.
+        # Distinct from the global `--config-file`'s dest, which names the config the CLI reads its own credentials
+        # from.
         dest="output_config_file",
         type=pathlib.Path,
         default="config.json",
@@ -203,8 +209,9 @@ def register_device(args: argparse.Namespace, context: CLIContext, parser: argpa
             device_type_id=args.device_type_id,
         )
     except (RobotoConflictException, pydantic.ValidationError) as failure:
-        # A device registered before device IDs were checked keeps an ID that create refuses, so a refused ID is
-        # looked up the same way as one that is already taken.
+        # An existing device can hold an ID that Device.create rejects, so a rejected ID is looked up the same way as
+        # one already taken. When no device has the ID, a rejected ID prints its validation error and exits; after a
+        # conflict, the lookup's RobotoNotFoundException propagates.
         try:
             device = devices.Device.from_id(
                 device_id=args.device_id,
@@ -230,7 +237,8 @@ def register_device_setup_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "-f",
         "--config-file",
-        # Distinct from the global --config-file's dest, which names the config the CLI reads its own credentials from.
+        # Distinct from the global `--config-file`'s dest, which names the config the CLI reads its own credentials
+        # from.
         dest="output_config_file",
         type=pathlib.Path,
         default="config.json",

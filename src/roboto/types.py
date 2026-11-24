@@ -7,4 +7,7 @@
 import typing
 
 JsonablePrimitive = typing.Union[int, str, float, bool]
+"""Scalar value that encodes directly to JSON: an ``int``, ``str``, ``float`` or ``bool``."""
+
 UserMetadata = dict[str, JsonablePrimitive]
+"""Key-value metadata with string keys, each value a ``JsonablePrimitive``."""

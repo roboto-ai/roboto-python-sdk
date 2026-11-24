@@ -4,13 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""What makes a trigger fire: a platform event subscription or a schedule.
-
-A trigger has exactly one firing source. Both kinds feed the same condition and the
-same targets, and a target cannot tell which one fired it beyond what the event
-namespace exposes.
-"""
-
 import typing
 
 import cron_converter
@@ -23,20 +16,20 @@ _FROZEN = pydantic.ConfigDict(frozen=True)
 
 
 class TriggerSourceType(StrEnum):
-    """Discriminator for :data:`TriggerSource`."""
+    """Kind of firing source, the ``type`` of each ``TriggerSource``."""
 
     Events = "events"
-    """The trigger fires when a subscribed platform event occurs."""
+    """Subscription to platform events: the trigger fires when one of them occurs."""
 
     Schedule = "schedule"
-    """The trigger fires on a cron schedule."""
+    """Cron schedule: the trigger fires at each of its scheduled minutes."""
 
 
 class _SourceBase(pydantic.BaseModel):
     """Common base for firing sources.
 
-    Marks the ``type`` discriminator as explicitly set at construction so it survives
-    ``exclude_unset`` serialization, the same way target specs do.
+    Marks ``type`` as set at construction, because the SDK serializes request bodies with ``exclude_unset``, and a
+    source sent without ``type`` cannot be parsed back into ``TriggerSource``.
     """
 
     model_config = _FROZEN
@@ -46,49 +39,67 @@ class _SourceBase(pydantic.BaseModel):
 
 
 class EventSubscription(_SourceBase):
-    """Fire when any of the subscribed platform events occurs.
+    """Firing source that fires a trigger when any of its subscribed platform events occurs.
 
-    Carries ``once_per`` because it only means something here: it names what the
-    *event* is about that the trigger fires at most once for, and a schedule has no
-    such subject.
+    When the trigger is saved, Roboto requires at least one event type, all about the same kind of entity, such as
+    files, and rejects :py:attr:`~roboto.domain.platform_events.PlatformEventType.ScheduleFired`; a trigger fires on
+    a schedule by declaring a ``Schedule`` instead.
+
+    Constructing a subscription with a ``type`` other than ``TriggerSourceType.Events`` raises
+    ``pydantic.ValidationError``.
     """
 
     type: typing.Literal[TriggerSourceType.Events] = TriggerSourceType.Events
-    """Discriminator for :data:`TriggerSource`."""
+    """Kind of firing source, always ``TriggerSourceType.Events``."""
 
     events: list[PlatformEventType]
-    """Event types the trigger subscribes to. At least one; a condition may only
-    reference namespace roots exposed by every subscribed event."""
+    """Platform event types the trigger subscribes to.
+
+    Its condition and target templates can read only the names, such as ``dataset``, that every one of them exposes.
+    """
 
     once_per: OncePer
-    """What the trigger fires at most once per: the occurrence, or an entity the event
-    names. Must be legal for every subscribed event type."""
+    """What the trigger runs each target at most once for.
+
+    :py:class:`~roboto.domain.platform_events.OncePer` describes the choices and which event types support each.
+    """
 
     def fires_for(self, event_type: PlatformEventType) -> bool:
-        """Return whether an event of ``event_type`` is one this subscription fires for."""
+        """Return whether a platform event of ``event_type`` fires this subscription's trigger.
+
+        Roboto calls this when it evaluates a trigger for a platform event.
+
+        Args:
+            event_type: Type of the platform event.
+        """
         return event_type in self.events
 
 
 class Schedule(_SourceBase):
-    """Fire on a cron schedule, in UTC.
+    """Firing source that fires a trigger on a cron schedule, in UTC.
 
-    Each scheduled minute fires the trigger once (``once_per='occurrence'`` over the
-    schedule tick). A
-    missed minute is skipped rather than replayed later, so a delayed schedule never
-    floods targets with backdated firings. Cron expressions are evaluated in UTC; a
-    schedule cannot name a time zone.
+    Each scheduled minute runs the trigger's targets at most once, even when Roboto delivers that minute twice. A
+    minute Roboto misses, such as during an outage, is skipped and never fired later, so a delayed schedule does not
+    run its targets for past minutes. A schedule cannot name a time zone. The trigger's condition and target templates
+    read the firing under ``schedule``: ``schedule.scheduled_for`` is the scheduled minute and ``schedule.cron`` the
+    cron expression.
+
+    Constructing a schedule with a cron expression that cannot be parsed, or with a ``type`` other than
+    ``TriggerSourceType.Schedule``, raises ``pydantic.ValidationError``.
     """
 
     type: typing.Literal[TriggerSourceType.Schedule] = TriggerSourceType.Schedule
-    """Discriminator for :data:`TriggerSource`."""
+    """Kind of firing source, always ``TriggerSourceType.Schedule``."""
 
     cron: str
-    """A five-field cron expression (``minute hour day-of-month month day-of-week``),
-    evaluated in UTC — e.g. ``0 9 * * 1`` for 09:00 UTC every Monday."""
+    """Five-field cron expression (``minute hour day-of-month month day-of-week``), evaluated in UTC.
+
+    For example, ``0 9 * * 1`` fires at 09:00 UTC every Monday.
+    """
 
     @property
     def once_per(self) -> OncePer:
-        """A schedule always fires once per scheduled minute."""
+        """Firing limit, :py:attr:`~roboto.domain.platform_events.OncePer.Occurrence`: once per scheduled minute."""
         return OncePer.Occurrence
 
     @pydantic.field_validator("cron")
@@ -101,7 +112,14 @@ class Schedule(_SourceBase):
         return value
 
     def fires_for(self, event_type: PlatformEventType) -> bool:
-        """Return whether ``event_type`` is the schedule occurrence this source fires for."""
+        """Return whether a platform event of ``event_type`` fires this schedule's trigger.
+
+        Roboto calls this when it evaluates a trigger for a platform event. Only
+        :py:attr:`~roboto.domain.platform_events.PlatformEventType.ScheduleFired` fires it.
+
+        Args:
+            event_type: Type of the platform event.
+        """
         return event_type is PlatformEventType.ScheduleFired
 
 
@@ -109,7 +127,10 @@ TriggerSource = typing.Annotated[
     typing.Union[EventSubscription, Schedule],
     pydantic.Field(discriminator="type"),
 ]
-"""A trigger's firing source, discriminated on ``type``."""
+"""Firing source of any kind: one of ``EventSubscription`` and ``Schedule``, told apart by ``type``.
+
+A trigger has exactly one firing source.
+"""
 
 
 __all__ = [

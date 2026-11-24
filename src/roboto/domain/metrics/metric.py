@@ -45,9 +45,8 @@ logger = default_logger()
 
 
 def _warn_if_groups_truncated(name: str, total_groups: typing.Optional[int], groups_truncated: bool) -> None:
-    # The service sets groups_truncated only alongside a count, but the two are independent fields
-    # on the response, so a malformed one could carry the flag alone. Say nothing rather than warn
-    # that the metric "grouped into None named groups".
+    # Roboto sets groups_truncated only alongside total_groups, but they are separate response fields, so a
+    # malformed response could carry the flag alone. Log nothing then, rather than `grouped into None named groups`.
     if groups_truncated and total_groups is not None:
         logger.warning(
             "Metric '%s' grouped into %s named groups; only the %d with the most sessions were returned "
@@ -60,22 +59,14 @@ def _warn_if_groups_truncated(name: str, total_groups: typing.Optional[int], gro
 
 @experimental
 class MetricDefinition:
-    """A named schema for a metric tracked across sessions and devices.
+    """A metric definition: a named numeric quantity that an organization records for its sessions.
 
-    Metric definitions are org-scoped schemas that describe a single measurable
-    quantity. They act as the registry entry that all :py:class:`Metric` data
-    points reference. Every metric definition has a unique ``name`` within an
-    organization, and an optional human-readable ``description``.
+    Peak CPU usage is one example. A metric definition has an optional unit and description, and its name is unique
+    within its organization. Every
+    ``Metric`` data point is recorded under one. Publishing a value under a name the organization has no definition
+    for creates the definition, so ``create`` is needed only to set a description or unit from the start.
 
-    Metric definitions are created once per org and reused across many sessions.
-    Use :py:meth:`create` to register a definition the first time, and
-    :py:meth:`update` to change its description later.
-    :py:meth:`for_org` lists all definitions that belong to an organization.
-
-    Note:
-        ``MetricDefinition`` instances should not be constructed directly.
-        Always obtain them via :py:meth:`create`, :py:meth:`get`, or
-        :py:meth:`for_org`.
+    Get a ``MetricDefinition`` from ``create``, ``get``, or ``for_org`` rather than building one directly.
     """
 
     __record: MetricDefinitionRecord
@@ -87,18 +78,20 @@ class MetricDefinition:
         owner_org_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["MetricDefinition", None, None]:
-        """Yield all metric definitions belonging to an organization.
+        """List the metric definitions an organization owns.
+
+        Fetches the definitions a page at a time as you iterate.
 
         Args:
-            owner_org_id: Organization that owns the metric definitions to enumerate.
-            roboto_client: Roboto client to use. Defaults to the client
-                configured in the environment.
+            owner_org_id: Organization whose metric definitions to list.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Each :py:class:`MetricDefinition` belonging to *owner_org_id*.
+            Each metric definition the organization owns.
 
         Examples:
-            >>> for definition in MetricDefinition.for_org("og_myorg"):
+            >>> for definition in MetricDefinition.for_org("og_12345"):
             ...     print(definition.name, "-", definition.description)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -127,29 +120,27 @@ class MetricDefinition:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "MetricDefinition":
-        """Create a new metric definition in the caller's organization.
+        """Create a metric definition.
 
         Args:
-            name: Unique metric name. Must contain only
-                URL-safe characters (``A–Z``, ``a–z``, ``0–9``, ``-``, ``.``,
-                ``_``, ``~``). Dots are conventional namespace separators, e.g.
-                ``cpu.usage_pct``.
-            description: Optional human-readable description of what the metric
-                measures.
-            unit: Optional unit of measure for values recorded under this
-                metric, e.g. ``"%"``, ``"ms"``, ``"m/s"``. Free-form and
-                unvalidated. Omit for a unitless metric.
-            caller_org_id: Organization to create the definition in. Defaults
-                to the authenticated caller's organization.
-            roboto_client: Roboto client to use. Defaults to the client
-                configured in the environment.
+            name: Name of the metric definition, unique within its organization. It may use only ASCII letters, digits,
+                ``-``, ``.``, ``_`` and ``~``. Dots conventionally separate namespaces, as in ``cpu.usage_pct``.
+            description: Human-readable description of what the metric measures.
+            unit: Unit of measure of every value recorded under the metric, such as ``"%"``, ``"ms"`` or ``"m/s"``, at
+                most 63 characters. Roboto does not check it against any list of units. ``None`` makes the metric
+                unitless.
+            caller_org_id: Organization to create the metric definition in. Required when the caller belongs to more
+                than one organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The newly created :py:class:`MetricDefinition`.
+            The new metric definition.
 
         Raises:
-            :py:exc:`~roboto.exceptions.RobotoConflictException`: A definition
-                with this name already exists in the organization.
+            RobotoConflictException: The organization already has a metric definition with this name.
+            RobotoIllegalArgumentException: ``name`` uses a character other than those listed above.
+            pydantic.ValidationError: ``unit`` is longer than 63 characters.
 
         Examples:
             >>> MetricDefinition.create(
@@ -175,22 +166,20 @@ class MetricDefinition:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "MetricDefinition":
-        """Retrieve an existing metric definition by name.
+        """Fetch a metric definition by name.
 
         Args:
-            name: Name of the metric definition to retrieve. Must match exactly
-                (case-sensitive) the name used when the definition was created.
-            owner_org_id: Organization that owns the definition. Defaults to the
-                authenticated caller's organization.
-            roboto_client: Roboto client to use. Defaults to the client
-                configured in the environment.
+            name: Name of the metric definition, matched exactly, case included.
+            owner_org_id: Organization that owns the metric definition. Defaults to the organization the caller acts
+                in.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The :py:class:`MetricDefinition` with the given name.
+            The metric definition with this name.
 
         Raises:
-            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: No definition
-                with this name exists in the organization.
+            RobotoNotFoundException: The organization has no metric definition with this name.
 
         Examples:
             >>> definition = MetricDefinition.get("cpu.usage_max")
@@ -215,13 +204,19 @@ class MetricDefinition:
         description: typing.Optional[typing.Union[NotSetType, str]] = NotSet,
         unit: typing.Optional[typing.Union[NotSetType, str]] = NotSet,
     ) -> None:
-        """Update the mutable attributes of this definition.
+        """Update the metric definition's description or unit.
+
+        An argument left unset (:py:const:`~roboto.sentinels.NotSet`) is unchanged. This instance's record is updated
+        from Roboto's response.
 
         Args:
-            description: New human-readable description, ``None`` to clear, or
-                :py:data:`~roboto.sentinels.NotSet` to leave unchanged.
-            unit: New unit of measure, ``None`` to clear, or
-                :py:data:`~roboto.sentinels.NotSet` to leave unchanged.
+            description: Human-readable description of what the metric measures. ``None`` clears it.
+            unit: Unit of measure of every value recorded under the metric, at most 63 characters. ``None`` makes the
+                metric unitless.
+
+        Raises:
+            RobotoNotFoundException: The metric definition no longer exists.
+            pydantic.ValidationError: ``unit`` is longer than 63 characters.
 
         Examples:
             >>> definition = MetricDefinition.get("cpu.usage_max")
@@ -235,11 +230,13 @@ class MetricDefinition:
         ).to_record(MetricDefinitionRecord)
 
     def delete(self) -> None:
-        """Delete this metric definition and all of its associated data points.
+        """Delete the metric definition and every data point recorded under it.
 
-        Warning:
-            This operation is irreversible. All :py:class:`Metric` data points
-            recorded under this name will be permanently removed.
+        Note:
+            Deleting cannot be undone.
+
+        Raises:
+            RobotoNotFoundException: The metric definition no longer exists.
 
         Examples:
             >>> definition = MetricDefinition.get("cpu.usage_max")
@@ -256,6 +253,7 @@ class MetricDefinition:
 
     @property
     def metric_id(self) -> str:
+        """Unique ID of the metric definition, beginning with ``mt_``."""
         return self.__record.metric_id
 
     @property
@@ -273,26 +271,17 @@ class MetricDefinition:
 
 @experimental
 class Metric:
-    """A summary value recorded for one session under a metric definition.
+    """A metric data point: one numeric value recorded for one session under a metric definition.
 
-    Each ``Metric`` stores exactly **one** value per ``(metric, session)`` pair.
-    Calling :py:meth:`publish` a second time for the same metric name and
-    ``session_id`` replaces the previous value (upsert semantics). This makes
-    metrics suitable for recording per-session summary statistics that are computed
-    once (or updated as reprocessing happens), not for streaming time-series data.
+    A session holds at most one data point per metric definition, and publishing another value replaces it. Metrics
+    therefore suit per-session summary statistics, computed once or again when a session is reprocessed, and not
+    streams of values over time.
 
-    **Recording a metric** (:py:meth:`publish`) stores the value under the
-    :py:class:`MetricDefinition` with the given name.
+    ``publish`` records values under the ``MetricDefinition`` of each name, ``query`` yields the data points whose
+    session time falls in a time range, and ``aggregate`` groups data points by the calendar period their session time
+    falls in and applies a sum, mean, maximum, minimum, or count to each period's values.
 
-    **Querying metrics** (:py:meth:`query`) returns the data points with a session
-    timestamp in the given range.
-    **Aggregating metrics** (:py:meth:`aggregate`) groups sessions by the calendar
-    period their stored timestamp falls into and applies a summary function
-    (sum, mean, max, min, or count) across the values in each period.
-
-    Note:
-        ``Metric`` instances should not be constructed directly. Obtain them
-        via :py:meth:`publish` or :py:meth:`query`.
+    Get a ``Metric`` from ``publish``, ``get_by_session``, or ``query`` rather than building one directly.
     """
 
     __record: MetricRecord
@@ -307,43 +296,36 @@ class Metric:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> BatchResponse[Metric]:
-        """Record metric values for a session in a single network call.
+        """Publish metric values for a session in one request.
 
-        Each ``(metric, session)`` pair is upserted: republishing under the same
-        name and ``session_id`` replaces the previous value. Repeating a metric name
-        within one call stores the last value given for it that the platform accepted,
-        and every accepted entry naming that metric reports the stored value.
-
-        A metric definition is created for any name the org does not already have one
-        for. When called from within a Roboto action, every recorded value is linked to
-        that action invocation.
+        Publishing a value under a name the session already has a value for replaces that value. When one call names a
+        metric more than once, Roboto stores the last of those values it accepts, and every accepted entry naming that
+        metric reports the stored value. Roboto creates a metric definition, with no description or unit, for any name
+        the organization has none for. When an action invocation publishes, every value records the invocation's ID in
+        ``MetricRecord.invocation_id``.
 
         Args:
-            session_id: Session to attach every published value to.
-            metrics: Metric names and values to record. An empty list returns an empty
-                response without contacting the platform.
-            device_id: Device to associate with every published value, or
-                :py:data:`None` to associate none. When omitted, Roboto infers the
-                device from the session's attached devices, which succeeds only when
-                exactly one device is attached.
-            caller_org_id: Organization context for the request. Defaults to
-                the authenticated caller's organization.
-            roboto_client: Roboto client to use. Defaults to the client
-                configured in the environment.
+            session_id: ID of the session to record every value for.
+            metrics: Metric names and values to publish. An empty list returns an empty response without a request to
+                Roboto.
+            device_id: ID of the device to associate with each published value. ``None`` associates none. Left unset
+                (:py:const:`~roboto.sentinels.NotSet`), Roboto uses the session's attached device, which succeeds only
+                when exactly one device is attached.
+            caller_org_id: Organization to act in. Required when the caller belongs to more than one organization;
+                otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            A :py:class:`~roboto.http.BatchResponse` holding one element per entry, in request
-            order, carrying either the recorded :py:class:`Metric` or the exception the platform
-            refused that entry with. An entry whose value is not finite, or whose name uses a
-            character other than an ASCII letter, a digit, ``-``, ``.``, ``_``, or ``~``, is refused
-            on its own; the remaining entries are recorded. A database error while recording
-            stores none of the entries and is reported on every entry not already refused.
+            A :py:class:`~roboto.http.BatchResponse` with one element per entry, in request order, holding either the
+            published ``Metric`` or the exception Roboto refused the entry with. Roboto refuses an entry on its own
+            when its value is not finite or its name uses a character other than an ASCII letter, a digit, ``-``,
+            ``.``, ``_`` or ``~``, and records the other entries. When recording fails for the whole request, Roboto
+            stores none of the entries and reports that failure on every entry it had not already refused.
 
         Raises:
-            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: ``session_id``
-                does not exist in the caller's organization.
-            :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`:
-                ``device_id`` was omitted and the session has no attached device or
+            RobotoNotFoundException: The organization has no session with this ID.
+            RobotoInvalidRequestException: ``device_id`` is left unset and the session has no attached device, or
                 more than one.
 
         Examples:
@@ -351,24 +333,24 @@ class Metric:
 
             >>> from roboto.domain.metrics import Metric, MetricEntry
             >>> published = Metric.publish(
-            ...     session_id="ss_abc123",
+            ...     session_id="se_12345",
             ...     metrics=[MetricEntry(name="cpu.usage_max", value=87.2)],
             ...     device_id="robot01",
             ... )
-            >>> len(published.succeeded)
-            1
+            >>> for metric in published.succeeded:
+            ...     print(metric.name, metric.value)
 
-            Let the server infer the device from the session's single attached device:
+            Let Roboto take the device from the session's one attached device:
 
             >>> Metric.publish(
-            ...     session_id="ss_abc123",
+            ...     session_id="se_12345",
             ...     metrics=[MetricEntry(name="memory.peak_mb", value=2048.0)],
             ... )
 
             Record values that are not tied to any device:
 
             >>> Metric.publish(
-            ...     session_id="ss_abc123",
+            ...     session_id="se_12345",
             ...     metrics=[MetricEntry(name="run.duration_s", value=42.0)],
             ...     device_id=None,
             ... )
@@ -394,29 +376,30 @@ class Metric:
         name_prefix: typing.Optional[str] = None,
         exclude_name_prefix: typing.Optional[str] = None,
     ) -> list["Metric"]:
-        """Return the metrics published to ``session_id``, at most
-        :py:data:`~roboto.domain.metrics.MAX_METRIC_LIST_RESULTS` (10,000) of them.
+        """List a session's metric data points, at most 10,000 of them (``MAX_METRIC_LIST_RESULTS``).
 
-        For a session with more metrics than that, the listing returns that many and gives no sign that it
-        left any out; which ones it leaves out is unspecified. Narrow the listing with ``name_prefix`` or
-        ``exclude_name_prefix`` to read such a session's metrics in parts.
+        For a session with more data points than that, the listing returns 10,000 and gives no sign that it left any
+        out; which ones it leaves out is not specified. Narrow the listing with ``name_prefix`` or
+        ``exclude_name_prefix`` to read such a session's data points in parts.
 
         Args:
-            session_id: Session whose metrics to fetch.
-            roboto_client: Roboto client to use. Defaults to the client
-                configured in the environment.
-            name_prefix: Return only metrics whose name starts with this text.
-            exclude_name_prefix: Leave out metrics whose name starts with this text.
+            session_id: ID of the session whose data points to list.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
+            name_prefix: List only data points of metrics whose name starts with this text. ``None`` lists every
+                metric.
+            exclude_name_prefix: Leave out data points of metrics whose name starts with this text. ``None`` leaves
+                out none.
 
         Returns:
-            One :py:class:`Metric` per matching ``(metric_definition, session)``
-            pair. May be empty. Order is unspecified.
+            One ``Metric`` per metric definition that has a value for the session, in no specified order. Empty when
+            the session has none.
 
         Examples:
             >>> from roboto.domain.metrics import Metric
-            >>> for m in Metric.get_by_session("ss_abc123"):
-            ...     print(m.metric_id, m.value)
-            >>> topic_stats = Metric.get_by_session("ss_abc123", name_prefix="topic_stats.")
+            >>> for m in Metric.get_by_session("se_12345"):
+            ...     print(m.name, m.value)
+            >>> topic_stats = Metric.get_by_session("se_12345", name_prefix="topic_stats.")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         query: dict[str, typing.Any] = {}
@@ -448,27 +431,25 @@ class Metric:
         survive.
 
         Args:
-            session_id: Session whose metrics to prune.
-            name_prefix: Delete only metrics whose name starts with this text. Must not be empty.
+            session_id: ID of the session whose data points to delete.
+            name_prefix: Delete only data points of metrics whose name starts with this text. Must not be empty.
             published_before: Delete only values published before this time. Must carry a UTC offset.
-            caller_org_id: Organization that owns the session. Defaults to the caller's only organization.
-            roboto_client: Roboto client to use. Defaults to the client
-                configured in the environment.
+            caller_org_id: Organization to act in, which must own the session. Required when the caller belongs to
+                more than one organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            :py:exc:`~roboto.exceptions.RobotoUnauthorizedException`: The caller is not running in an action
-                invocation, or may not manage the organization's sessions.
-            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: ``session_id`` does not exist in the
-                organization.
-            :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`: ``name_prefix`` is empty, or
-                ``published_before`` has no UTC offset.
+            RobotoUnauthorizedException: The caller is not running in an action invocation.
+            RobotoNotFoundException: The organization has no session with this ID.
+            RobotoInvalidRequestException: ``name_prefix`` is empty, or ``published_before`` has no UTC offset.
 
         Examples:
             >>> import datetime
             >>> from roboto.domain.metrics import Metric
             >>> started = datetime.datetime.now(datetime.timezone.utc)
             >>> Metric.publish(...)  # doctest: +SKIP
-            >>> Metric.prune_session("ss_abc123", name_prefix="my_stats.", published_before=started)
+            >>> Metric.prune_session("se_12345", name_prefix="my_stats.", published_before=started)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         roboto_client.delete(
@@ -495,73 +476,58 @@ class Metric:
         roboto_client: typing.Optional[RobotoClient] = None,
         sort_by: typing.Optional[str] = None,
     ) -> collections.abc.Generator["Metric", None, None]:
-        """Yield stored metric values whose session time falls in a range.
+        """Yield a metric's data points whose session time falls in a time range.
 
-        The time window is matched against the session's start or end time, whichever ``time_filter`` selects.
-        A session with no start or end time counts as starting and ending when it was created,
-        both for matching the window and for sorting by time.
-        The data point yielded for it has ``None`` for ``min_timestamp_ns`` and ``max_timestamp_ns``.
+        ``time_filter`` selects whether the session's start time or its end time must fall in the range. A session
+        with no start or end time counts as starting and ending when it was created, both for matching the range and
+        for sorting by time; its data point has ``None`` for ``min_timestamp_ns`` and ``max_timestamp_ns``.
 
-        The generator requests one page of data points at a time and keeps
-        requesting until the server reports no more data, so ``max_results``
-        limits each page, not the total number of data points yielded.
+        Fetches one page of data points at a time as you iterate, until Roboto reports no more, so ``max_results``
+        limits each page, not the number of data points yielded. The exceptions under ``Raises`` surface on the first
+        iteration.
 
         Args:
-            name: Name of the metric definition to query.
-            start_time: Inclusive start of the query window. Accepts any
-                :py:data:`~roboto.time.Time` value (int Unix-epoch
-                nanoseconds, ``datetime``, ISO 8601 string, decimal seconds,
-                etc.). Defaults to ``None`` (the Unix epoch).
-            end_time: Exclusive end of the query window. Same input shape as
-                ``start_time``. Defaults to ``None`` (now).
-            time_filter: Whether to match the window against the session's
-                start time or end time. Defaults to end time.
-            max_results: Most data points one page holds. Must be between 1 and
-                :py:data:`MAX_METRIC_LIST_RESULTS` (10,000). A page holds fewer
-                when that many would exceed the size limit of one API response.
-            descending: Yield the largest ``sort_by`` values first instead of
-                the smallest, so with the default ``sort_by`` the most recent
-                sessions come first. Applies across the whole result set, not
-                just within a page. Data points with no ``device_id`` or
-                ``invocation_id`` then sort before every other value.
-            include_device_ids: Restrict to specific device IDs, or ``None``
-                to match only rows with no ``device_id``.
-            include_session_ids: Restrict to specific session IDs.
-            include_invocation_ids: Restrict to specific invocation IDs, or
-                ``None`` to match only rows with no ``invocation_id``.
-            condition: Restrict to data points whose session, producing device, or session's
-                collections match this ``Condition`` or ``ConditionGroup``. See
-                :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the accepted
-                fields, and for how collection conditions evaluate when a session belongs to
-                several collections or to none.
-            group_by: Field whose value each yielded data point carries under
-                :py:attr:`~roboto.domain.metrics.MetricRecord.group_key`, for separating the points
-                into a series per distinct value. Keeps data points under at most
-                :py:data:`~roboto.domain.metrics.MAX_METRIC_GROUPS` named values (plus those with no
-                value) and logs a warning when it drops any; see
-                :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.group_by` for the accepted
-                fields.
-            owner_org_id: Organization that owns the metric data. Defaults to
-                the authenticated caller's organization.
-            roboto_client: Roboto client to use. Defaults to the client
-                configured in the environment.
-            sort_by: Field to order the data points by. See
-                :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.sort_by` for
-                the accepted fields. Defaults to the session time selected by
-                ``time_filter``.
+            name: Name of the metric definition to read.
+            start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts. ``None`` starts at the Unix epoch.
+            end_time: Exclusive end of the time range, in the same form. ``None`` ends at the time of the request.
+            time_filter: Session time that places each data point in the time range: its start or its end.
+            max_results: Maximum number of data points per page, from 1 to 10,000 (``MAX_METRIC_LIST_RESULTS``). A
+                page holds fewer when that many data points would exceed the size limit of one API response.
+            descending: Whether to yield the largest ``sort_by`` values first. With the default ``sort_by``, the most
+                recent sessions come first. It orders the whole result, not each page. Data points with no
+                ``device_id``, ``invocation_id`` or group key then sort before every other value.
+            include_device_ids: IDs of the devices whose data points to read. ``None`` reads only data points
+                published without a device. Left unset (:py:const:`~roboto.sentinels.NotSet`), the device does not
+                filter the query.
+            include_session_ids: IDs of the sessions whose data points to read. Left unset (``NotSet``), the session
+                does not filter the query.
+            include_invocation_ids: IDs of the action invocations whose data points to read. ``None`` reads only data
+                points no action published. Left unset (``NotSet``), the invocation does not filter the query.
+            condition: :py:class:`~roboto.query.Condition` or :py:class:`~roboto.query.ConditionGroup` that the data
+                point's session, the device that produced it, or the session's collections must match.
+                ``QueryMetricsRequest.condition`` lists the accepted fields, and says how a collection condition
+                matches a session in several collections or in none.
+            group_by: Field whose value each yielded data point carries in ``MetricRecord.group_key``, so that the
+                data points can be separated into one series per value. ``QueryMetricsRequest.group_by`` lists the
+                accepted fields. Only the data points of at most 100 named values (``MAX_METRIC_GROUPS``) are yielded,
+                together with those with no value for the field, and the SDK logs a warning when it leaves any out.
+            owner_org_id: Organization that owns the metric. Defaults to the organization the caller acts in.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
+            sort_by: Field to order the data points by, one of those ``QueryMetricsRequest.sort_by`` lists. ``None``
+                orders them by the session time ``time_filter`` selects.
 
         Yields:
-            One :py:class:`Metric` per matching session, sorted by ``sort_by`` —
-            ascending by default, descending when ``descending`` is set — with
-            ``session_id`` as a deterministic tiebreaker.
+            One ``Metric`` per matching session, ordered by ``sort_by`` and then by ``session_id``.
 
         Raises:
-            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: No metric
-                with this ``name`` exists in the organization.
-            :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`: ``condition`` or
-                ``group_by`` references a field or comparator the request does not accept, or a
-                custom field that is either undefined in your organization or defined but not in
-                the ``Ready`` state.
+            RobotoNotFoundException: The organization has no metric definition with this name.
+            RobotoInvalidRequestException: ``sort_by`` names a field the query cannot order by.
+            RobotoIllegalArgumentException: ``condition`` or ``group_by`` names a field or comparator the query does
+                not accept, or a custom field the organization has not defined or that is not
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
+            pydantic.ValidationError: ``max_results`` is not from 1 to 10,000.
 
         Examples:
             Query a metric over a single day, passing ``datetime`` directly:
@@ -585,7 +551,7 @@ class Metric:
             ...     )
             ... )
 
-            Take just the 10 most recent sessions:
+            Take the 10 most recent sessions:
 
             >>> import itertools
             >>> recent = list(itertools.islice(Metric.query(name="cpu.usage_max", descending=True), 10))
@@ -599,10 +565,10 @@ class Metric:
             ...     )
             ... )
 
-            Restrict to data points from ``production``-tagged sessions that either ran in the
-            EMEA region or were produced by a device at the Berlin site. Both custom fields,
-            ``region`` on Sessions and ``site`` on Devices, must be defined by your organization
-            and moved to ``Ready``; the query raises if either has not been:
+            Read only data points of sessions tagged ``production`` that either ran in the EMEA region or were
+            produced by a device at the Berlin site. Your organization must have defined both custom fields,
+            ``region`` on sessions and ``site`` on devices, and moved them to ``Ready``; otherwise the query raises
+            ``RobotoIllegalArgumentException``:
 
             >>> from roboto.query import Comparator, Condition, ConditionGroup, ConditionOperator
             >>> for m in Metric.query(
@@ -670,7 +636,7 @@ class Metric:
                 query=query_params,
             ).to_record(MetricQueryPage)
             if next_token is None:
-                # Every page of one read carries the same group summary, so warn on the first only.
+                # Every page of one query carries the same total_groups and groups_truncated, so warn on the first only.
                 _warn_if_groups_truncated(name, results.total_groups, results.groups_truncated)
             for record in results.items:
                 yield cls(record, roboto_client)
@@ -697,74 +663,66 @@ class Metric:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> list[NumericAggregateMetricRecord]:
-        """Aggregate a metric across sessions, grouped by calendar period.
+        """Aggregate a metric's data points by calendar period.
 
-        Groups the sessions whose start or end time (selected by ``time_filter``) falls inside the [``start_time``,
-        ``end_time``) window into periods of size ``period``, each starting at midnight in ``time_zone``, and applies
-        the chosen :py:class:`~roboto.domain.metrics.NumericAggregation` to the values in each period.
+        Groups the data points whose session time, the start or end that ``time_filter`` selects, falls in
+        [``start_time``, ``end_time``) into periods of length ``period``, each starting at midnight in ``time_zone``,
+        and applies ``aggregation`` to the values in each period.
 
-        The server snaps the requested window outward to whole-period
-        boundaries to guarantee apples-to-apples comparisons.
-        All time period buckets always cover their complete calendar period. For example,
-            * a monthly aggregation requested between Jan 15 – Mar 15 will return aggregated data for all of
-                January, February, and March.
-            * a quarterly aggregation from Apr 27 - Dec 28 will return aggregated data for all of Q2, Q3, and Q4.
+        Roboto widens the time range to whole periods, so the first and last buckets aggregate their whole calendar
+        period, including data points outside the requested range. A monthly aggregation from January 15 to March 15
+        returns buckets for all of January, February and March, and a quarterly one from April 27 to December 28
+        returns buckets for all of the second, third and fourth quarters.
 
         Args:
             name: Name of the metric definition to aggregate.
-            period: Calendar bucket size to group observations by.
-            aggregation: Function to apply to values in each bucket.
-            start_time: Inclusive start of the aggregation window. Accepts any
-                :py:data:`~roboto.time.Time` value.
-            end_time: Exclusive end of the aggregation window. Same input
-                shape as ``start_time``.
-            time_filter: Whether to match the window against each session's
-                start time or end time. Defaults to end time.
-            include_device_ids: Restrict to specific device IDs, or ``None``
-                to match only rows with no ``device_id``.
-            include_session_ids: Restrict to specific session IDs.
-            include_invocation_ids: Restrict to specific invocation IDs, or
-                ``None`` to match only rows with no ``invocation_id``.
-            condition: Restrict the aggregated data points to those whose session, producing
-                device, or session's collections match this ``Condition`` or
-                ``ConditionGroup``. It narrows what each bucket aggregates without moving the
-                window's period boundaries; a bucket left with no matching data points is omitted
-                from the result. See
-                :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the accepted
-                fields, and for how collection conditions evaluate when a session belongs to
-                several collections or to none.
-            group_by: Split each period bucket by the distinct values of this field, one record
-                per (period, value) pair. Accepts ``device.device_id`` and String, Enum, or
-                Boolean custom fields on sessions and devices (``session.custom.<name>``,
-                ``device.custom.<name>``); any other field is rejected. Data points carrying no
-                value for the field come back under a null
-                :py:attr:`~roboto.domain.metrics.NumericAggregateMetricRecord.group_key` rather
-                than being dropped. At most :py:data:`~roboto.domain.metrics.MAX_METRIC_GROUPS`
-                named values come back, those with the most sessions in the window; a warning is
-                logged when others were dropped. Defaults to no split.
+            period: Length of the calendar periods to group data points into.
+            aggregation: Function to apply to the values of the data points in each bucket.
+            start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+            end_time: Exclusive end of the time range, in the same form.
+            time_filter: Session time that places each data point in the time range and in a period: its start or its
+                end.
+            include_device_ids: IDs of the devices whose data points to aggregate. ``None`` aggregates only data points
+                published without a device. Left unset (:py:const:`~roboto.sentinels.NotSet`), the device does not
+                filter the aggregation.
+            include_session_ids: IDs of the sessions whose data points to aggregate. Left unset (``NotSet``), the
+                session does not filter the aggregation.
+            include_invocation_ids: IDs of the action invocations whose data points to aggregate. ``None`` aggregates
+                only data points no action published. Left unset (``NotSet``), the invocation does not filter the
+                aggregation.
+            condition: :py:class:`~roboto.query.Condition` or :py:class:`~roboto.query.ConditionGroup` that the data
+                point's session, the device that produced it, or the session's collections must match. It narrows
+                what each bucket aggregates without moving the periods' bounds, and a period left with no matching
+                data points has no bucket. ``QueryMetricsRequest.condition`` lists the accepted fields, and says how a
+                collection condition matches a session in several collections or in none.
+            group_by: Field to split each period's bucket by, giving one bucket per period and distinct value of the
+                field. ``None`` aggregates every matching data point of a period into one bucket. Accepts
+                ``device.device_id`` and String, Enum, or Boolean custom fields of sessions and devices
+                (``session.custom.<name>``, ``device.custom.<name>``). Data points with no value for the field are
+                aggregated into a bucket whose ``NumericAggregateMetricRecord.group_key`` is ``None``. At most 100
+                named values (``MAX_METRIC_GROUPS``) come back, those with the most data points in the requested
+                range, and the SDK logs a warning when it leaves any out.
             time_zone: IANA name of the time zone in which each period starts at midnight, such as
-                ``"America/Los_Angeles"``. Defaults to UTC.
-            week_start: The day each week starts on when ``period`` is weekly. Defaults to Monday.
-            owner_org_id: Organization that owns the metric data. Defaults to
-                the authenticated caller's organization.
-            roboto_client: Roboto client to use. Defaults to the client
-                configured in the environment.
+                ``"America/Los_Angeles"``.
+            week_start: Day each week starts on when ``period`` is ``AggregationPeriod.Weekly``. Other periods ignore
+                it.
+            owner_org_id: Organization that owns the metric. Defaults to the organization the caller acts in.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            One :py:class:`NumericAggregateMetricRecord` per period bucket that
-            contains at least one observation, sorted by ``start_time``
-            ascending. Under ``group_by``, one per (bucket, distinct value)
-            pair instead, each naming its value in ``group_key``.
+            The buckets that hold at least one data point, sorted by ``start_time``, earliest first: one
+            ``NumericAggregateMetricRecord`` per period, or with ``group_by``, per period and distinct value, each
+            carrying its value in ``group_key``.
 
         Raises:
-            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: No metric
-                with this ``name`` exists in the organization.
-            :py:exc:`~roboto.exceptions.RobotoIllegalArgumentException`: ``condition``
-                references a field or comparator the request does not accept; ``condition`` or
-                ``group_by`` references a custom field that is either undefined in your
-                organization or defined but not in the ``Ready`` state; ``group_by`` names a
-                field that cannot be a series; or ``time_zone`` is ``CET``, ``EET``, ``MET``, ``WET``, or a
-                name not in the IANA time zone database.
+            RobotoNotFoundException: The organization has no metric definition with this name.
+            RobotoIllegalArgumentException: ``condition`` names a field or comparator the aggregation does not accept;
+                ``condition`` or ``group_by`` names a custom field the organization has not defined or that is not
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`; ``group_by`` names a field that
+                cannot form a series; or ``time_zone`` is ``CET``, ``EET``, ``MET``, ``WET``, or a name not in the
+                IANA time zone database.
 
         Examples:
             Daily max CPU usage over a month, passing ``datetime`` directly:
@@ -784,13 +742,11 @@ class Metric:
             ... ):
             ...     print(bucket.start_time, bucket.value)
 
-            The same aggregation over data points published from a device in the ``delivery``
-            fleet. The Device custom field ``fleet`` must be defined by your organization and moved
-            to ``Ready``; the aggregation raises if it has not been. A data point published without
-            a device carries no ``fleet``, so ``Equals`` drops it, and ``NotEquals`` drops it too:
-            only ``IsNull`` and ``NotExists`` match a data point with no device. See
-            :py:attr:`~roboto.domain.metrics.QueryMetricsRequest.condition` for the full field and
-            comparator rules:
+            The same aggregation over data points published from a device in the ``delivery`` fleet. Your
+            organization must have defined the device custom field ``fleet`` and moved it to ``Ready``; otherwise the
+            aggregation raises ``RobotoIllegalArgumentException``. A data point published without a device carries no
+            ``fleet``, so ``Equals`` leaves it out, and so does ``NotEquals``: only ``IsNull`` and ``NotExists`` match
+            a data point with no device. ``QueryMetricsRequest.condition`` gives the full field and comparator rules:
 
             >>> from roboto.query import Comparator, Condition
             >>> delivery_buckets = Metric.aggregate(
@@ -808,8 +764,8 @@ class Metric:
             >>> for bucket in delivery_buckets:
             ...     print(bucket.start_time, bucket.end_time, bucket.value, bucket.total)
 
-            One line per robot rather than one line for the fleet. Buckets aggregating data points
-            published without a device come back with ``group_key`` set to ``None``:
+            One series per device rather than one for the fleet. The buckets of data points published without a
+            device have ``None`` as their ``group_key``:
 
             >>> per_device = Metric.aggregate(
             ...     name="cpu.usage_max",
@@ -871,6 +827,7 @@ class Metric:
 
     @property
     def metric_id(self) -> str:
+        """ID of the metric definition the data point is recorded under."""
         return self.__record.metric_id
 
     @property
@@ -899,24 +856,39 @@ class Metric:
 
     @property
     def group_key(self) -> typing.Optional[str]:
+        """Value of the ``QueryMetricsRequest.group_by`` field for this data point, as text whatever the field's type.
+
+        ``MetricRecord.group_key`` says when it is ``None``.
+        """
         return self.__record.group_key
 
     @property
     def published(self) -> datetime.datetime:
+        """Time the data point was last published."""
         return self.__record.published
 
     @property
     def published_by(self) -> str:
+        """Principal that last published the data point, as ``<type>:<id>``, such as ``user:<user_id>``."""
         return self.__record.published_by
 
     @property
     def min_timestamp_ns(self) -> typing.Optional[int]:
+        """Earliest time covered by the data point's session, in nanoseconds since the Unix epoch.
+
+        ``MetricRecord.min_timestamp_ns`` says when it is ``None``.
+        """
         return self.__record.min_timestamp_ns
 
     @property
     def max_timestamp_ns(self) -> typing.Optional[int]:
+        """Latest time covered by the data point's session, in nanoseconds since the Unix epoch.
+
+        ``MetricRecord.max_timestamp_ns`` says when it is ``None``.
+        """
         return self.__record.max_timestamp_ns
 
     @property
     def record(self) -> MetricRecord:
+        """Record of the metric data point that this instance holds."""
         return self.__record

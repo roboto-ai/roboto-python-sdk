@@ -114,6 +114,11 @@ def show_device_type_setup_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def update_device_type(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Apply the changes the flags give to the device type and print its updated record as JSON.
+
+    A flag left out changes nothing. Exits with a usage error, before any request to Roboto, when no flag changes
+    anything.
+    """
     update_kwargs: dict[str, typing.Any] = {}
     if is_set(args.name):
         update_kwargs["name"] = args.name

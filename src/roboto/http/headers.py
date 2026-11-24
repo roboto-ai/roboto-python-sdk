@@ -15,6 +15,10 @@ from .constants import (
 )
 
 CONTENT_TYPE_JSON_HEADER = {"Content-Type": "application/json"}
+"""Header naming JSON as the request body's content type, as a dictionary to merge into a request's headers.
+
+No SDK method reads it.
+"""
 
 
 def roboto_headers(
@@ -24,6 +28,26 @@ def roboto_headers(
     additional_headers: Optional[dict[str, str]] = None,
     api_version: RobotoApiVersion = RobotoApiVersion.latest(),
 ):
+    """Build the headers that tell Roboto which API version, organization and user a request is for.
+
+    :py:meth:`~roboto.http.RobotoClient.get` and the other request methods of :py:class:`~roboto.http.RobotoClient`
+    build their headers through it, so most code never calls it. The result always names the API version; each other
+    argument adds its header only when it is not ``None``.
+
+    Args:
+        org_id: Organization to act in, sent as :py:const:`~roboto.http.ORG_OVERRIDE_HEADER`. Required when the
+            caller belongs to more than one organization; otherwise the caller's only organization.
+        user_id: ID of the user to act as, which for a person is their email address, sent as
+            :py:const:`~roboto.http.USER_OVERRIDE_HEADER`. ``None`` acts as the caller.
+        resource_owner_id: Organization that owns the resource the request reads or changes, sent as
+            :py:const:`~roboto.http.RESOURCE_OWNER_OVERRIDE_HEADER`. ``None`` omits the header.
+        additional_headers: Further headers to send. They are added last, so one with the same name as a header above
+            replaces it.
+        api_version: API version the request is made against. Defaults to the newest version this SDK knows.
+
+    Returns:
+        Header names mapped to their values.
+    """
     headers: dict[str, str] = {API_VERSION_HEADER: api_version}
 
     if org_id is not None:

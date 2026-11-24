@@ -4,23 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""GOP-aware compressed-video stream decoding backed by PyAV.
-
-Compressed-video topics store one encoded frame per message. Unlike still
-images, those frames are not independently decodable: a delta frame is only
-meaningful relative to the frames since the preceding keyframe (its group of
-pictures, "GOP"). The decoder here consumes an in-order stream of encoded
-frames, maintains that state, and yields decoded frames mapped back to their
-source messages' log times.
-
-The decoder is codec-agnostic: a :py:class:`~roboto.experimental.video.codec.VideoCodec`
-supplies the PyAV decoder name and keyframe predicate, so H.265/VP9/AV1 reuse
-this GOP machinery unchanged (see :py:mod:`.codec`).
-
-Requires the ``roboto[video]`` extra (PyAV; Pillow/numpy for the pixel
-accessors on :py:class:`DecodedVideoFrame`).
-"""
-
 from __future__ import annotations
 
 import collections.abc
@@ -39,11 +22,10 @@ logger = default_logger()
 
 
 class DecodedVideoFrame:
-    """A decoded video frame paired with the log time of its source message.
+    """Decoded video frame, paired with the log time of the message that held its encoded bytes.
 
-    Pixel data stays in the decoder's native representation until one of the
-    accessors is called, so frames that a caller samples past are never
-    converted.
+    ``decode_stream`` builds these; you do not construct one directly. The pixels stay in the decoder's format until
+    ``to_image`` or ``to_ndarray`` converts them, so a frame you skip is never converted.
     """
 
     def __init__(self, log_time: int, frame: av.VideoFrame) -> None:
@@ -52,44 +34,38 @@ class DecodedVideoFrame:
 
     @property
     def log_time(self) -> int:
-        """Log time (nanoseconds since Unix epoch) of the message this frame came from."""
+        """Log time of the message that held this frame's encoded bytes, in nanoseconds since the Unix epoch."""
         return self.__log_time
 
     @property
     def is_keyframe(self) -> bool:
-        """Whether this frame is a keyframe (clean decoder entry point)."""
+        """Whether this frame is a keyframe, which decodes without any earlier frame."""
         return bool(self.__frame.key_frame)
 
     @property
     def width(self) -> int:
-        """Frame width in pixels."""
+        """Width of the frame, in pixels."""
         return int(self.__frame.width)
 
     @property
     def height(self) -> int:
-        """Frame height in pixels."""
+        """Height of the frame, in pixels."""
         return int(self.__frame.height)
 
     def to_image(self) -> PIL.Image.Image:
-        """Convert the frame to a PIL RGB image.
-
-        Returns:
-            The frame's pixels as a :py:class:`PIL.Image.Image` in RGB mode.
+        """Return the frame's pixels as a ``PIL.Image.Image`` in RGB mode.
 
         Raises:
-            ImportError: If Pillow is not installed (``roboto[video]``).
+            ImportError: The ``roboto[video]`` extra is not installed.
         """
         import_optional_dependency("PIL", "video")
         return self.__frame.to_image()
 
     def to_ndarray(self) -> numpy.ndarray:
-        """Convert the frame to an ``(height, width, 3)`` uint8 RGB array.
-
-        Returns:
-            The frame's pixels as a numpy array in RGB channel order.
+        """Return the frame's pixels as a ``numpy.ndarray`` of shape ``(height, width, 3)``, in ``uint8`` RGB.
 
         Raises:
-            ImportError: If numpy is not installed (``roboto[video]``).
+            ImportError: The ``roboto[video]`` extra is not installed.
         """
         import_optional_dependency("numpy", "video")
         return self.__frame.to_ndarray(format="rgb24")
@@ -99,26 +75,22 @@ def decode_stream(
     encoded_frames: collections.abc.Iterable[tuple[int, bytes]],
     codec: VideoCodec,
 ) -> collections.abc.Generator[DecodedVideoFrame, None, None]:
-    """Decode an in-order stream of encoded frames of a single codec.
+    """Yield the frames decoded from a stream of encoded frames of one codec.
 
-    Frames before the first keyframe are skipped — without the preceding GOP
-    state no decoder can render them. Individually corrupt frames are likewise
-    skipped (with a warning) and decoding resumes at the next decodable frame.
-    A fresh decoder session is created per call; concatenating unrelated
-    streams into one call is only valid if each starts with a keyframe.
+    A frame other than a keyframe decodes only after the frames back to the keyframe before it, so the frames before
+    the first keyframe are skipped. A frame that fails to decode is skipped with a logged warning, and decoding
+    continues with the next frame. Each call starts a new decoder, so to decode several separate streams in one call,
+    each must begin with a keyframe.
 
     Args:
-        encoded_frames: ``(log_time, data)`` pairs in ascending log-time order,
-            where ``data`` is one encoded frame in ``codec``'s bitstream format.
-        codec: The codec of every frame in ``encoded_frames``; supplies the
-            PyAV decoder name and the keyframe predicate.
+        encoded_frames: ``(log_time, data)`` pairs in ascending log-time order, where ``log_time`` is in nanoseconds
+            since the Unix epoch and ``data`` is one encoded frame in the codec's bitstream format.
 
     Yields:
-        One :py:class:`DecodedVideoFrame` per decodable input frame, carrying
-        the source message's log time.
+        One ``DecodedVideoFrame`` for each frame that decodes, carrying the log time of the message that held it.
 
     Raises:
-        ImportError: If PyAV is not installed (``roboto[video]``).
+        ImportError: The ``roboto[video]`` extra is not installed. It surfaces on the first iteration.
 
     Examples:
         >>> from roboto.experimental.video.codec import H264
@@ -131,9 +103,8 @@ def decode_stream(
     codec_context = av_module.CodecContext.create(codec.pyav_codec_name, "r")
     if codec.decoder_thread_count is not None:
         codec_context.thread_count = codec.decoder_thread_count
-    # Input packets are stamped with their fed-order index as pts so decoded
-    # frames (which the codec may emit later, e.g. on flush) map back to their
-    # source message's log time regardless of internal reordering.
+    # Each packet's pts is its index in log_times. The decoder copies a packet's pts onto the frame decoded from it,
+    # which can come out several packets later or only at the flush, so frame.pts finds that frame's log time.
     log_times: list[int] = []
     reached_keyframe = False
 
@@ -141,13 +112,13 @@ def decode_stream(
         try:
             return codec_context.decode(packet)
         except av_module.FFmpegError:
+            # Drops only this packet, or at the flush the frames still buffered, so one corrupt frame does not end
+            # the stream. Exceptions other than FFmpegError propagate.
             log_time = log_times[packet.pts] if packet is not None and packet.pts is not None else None
             logger.warning("Skipping undecodable %s frame (log_time=%s)", codec.name, log_time)
             return []
 
     def to_decoded_frame(frame: av.VideoFrame) -> DecodedVideoFrame:
-        # We stamp every fed packet's pts with its index into log_times (below), and PyAV
-        # echoes that pts onto the decoded frame, so frame.pts is always a valid index back.
         if frame.pts is None:
             raise ValueError("decoded frame is missing the pts stamped on its packet")
         return DecodedVideoFrame(log_time=log_times[frame.pts], frame=frame)
@@ -171,21 +142,21 @@ def decode_stream(
 def decode_h264_stream(
     encoded_frames: collections.abc.Iterable[tuple[int, bytes]],
 ) -> collections.abc.Generator[DecodedVideoFrame, None, None]:
-    """Decode an in-order stream of Annex B-framed H.264 frames.
+    """Yield the frames decoded from a stream of encoded H.264 frames.
 
-    Thin wrapper over :py:func:`decode_stream` bound to the H.264 codec; see it
-    for the GOP, corruption-recovery, and log-time-mapping semantics.
+    Calls ``decode_stream`` with the ``H264`` codec, so its skipping of frames before the first keyframe and of frames
+    that fail to decode applies here too.
 
     Args:
-        encoded_frames: ``(log_time, data)`` pairs in ascending log-time order,
-            where ``data`` is one Annex B-framed H.264 frame.
+        encoded_frames: ``(log_time, data)`` pairs in ascending log-time order, where ``log_time`` is in nanoseconds
+            since the Unix epoch and ``data`` is one H.264 frame in Annex B framing, where a start code
+            (``00 00 01`` or ``00 00 00 01``) precedes each unit of the frame.
 
     Yields:
-        One :py:class:`DecodedVideoFrame` per decodable input frame, carrying
-        the source message's log time.
+        One ``DecodedVideoFrame`` for each frame that decodes, carrying the log time of the message that held it.
 
     Raises:
-        ImportError: If PyAV is not installed (``roboto[video]``).
+        ImportError: The ``roboto[video]`` extra is not installed. It surfaces on the first iteration.
 
     Examples:
         >>> from roboto.experimental.video import decode_h264_stream

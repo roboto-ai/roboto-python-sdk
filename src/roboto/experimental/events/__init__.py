@@ -4,11 +4,10 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Mark moments of interest in a session's data.
+"""Session events: moments or spans of interest in one session's data.
 
-Each event belongs to exactly one session, spans a start and an end time, and can be about one or more topics,
-or fields of a topic. It carries tags, metadata, custom fields, and display options. These events are separate from
-the events that belong to a dataset, in :py:mod:`roboto.domain.events`.
+These are separate from the events that belong to a dataset, in :py:mod:`~roboto.domain.events`. Use ``Event`` to
+create, find, and update session events, and to read their session's topic data over an event's time span.
 """
 
 from .event import Event

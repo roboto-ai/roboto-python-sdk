@@ -23,14 +23,21 @@ GIT_INSTALL_URL = "https://git-scm.com/downloads"
 
 
 def init(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Create an action package under ``path`` from Roboto's action package template, and print ``path``.
+
+    ``path`` defaults to the current directory, and the template asks for the package's details at the terminal.
+    Exits with status 2 when ``path`` is not an existing directory, and with status 1 when Git is not installed or
+    creating the package fails; a missing Docker only prints a warning. Ctrl-C at one of the template's prompts ends
+    the command without a traceback.
+    """
     path: pathlib.Path = args.path
     path = path.resolve()
 
     if not path.is_dir():
         parser.error(f"{path} does not exist, or is not a directory.")
 
-    # Git is needed now: cookiecutter clones the template with it, and the template's hook can run git init and git
-    # commit. Docker is needed only later, to build and run the package.
+    # Creating the package needs Git: cookiecutter clones the template with it, and the template's hook can run
+    # `git init` and `git commit`. Docker is needed only later, to build and run the package, so its absence only warns.
     if shutil.which("git") is None:
         print_error_and_exit(
             [
@@ -49,16 +56,10 @@ def init(args: argparse.Namespace, context: CLIContext, parser: argparse.Argumen
     print(f"Creating Roboto action package under: {path}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # GM (2025-11-05)
-        # cookiecutter currently always includes the following prompt:
-        #   > You've downloaded ... before. Is it okay to delete and re-download it? [y/n] (y)
-        # I think this is annoying and useless. Also selecting "n" is always the wrong thing to do.
-        # cookiecutter maintainers refuse to add an option for always redownloading the template:
-        # see https://github.com/cookiecutter/cookiecutter/issues/1201.
-        # So, this.
-        # Refs:
-        #   1. https://github.com/cookiecutter/cookiecutter/blob/main/cookiecutter/main.py#L79-L82
-        #   2. https://github.com/cookiecutter/cookiecutter/blob/main/cookiecutter/config.py#L89-L113
+        # cookiecutter clones the template into cookiecutters_dir, and when it finds an earlier clone there it asks
+        # `You've downloaded ... before. Is it okay to delete and re-download it?`; answering no either reuses that
+        # possibly outdated clone or exits. Its no_input option skips the question but also the template's own
+        # prompts, so clone into an empty temporary directory instead, where the question never comes up.
         cookiecutter_config = {"cookiecutters_dir": tmpdir}
 
         try:
@@ -68,9 +69,10 @@ def init(args: argparse.Namespace, context: CLIContext, parser: argparse.Argumen
                 default_config=cookiecutter_config,  # type: ignore
             )
         except KeyboardInterrupt:
+            # A user who presses Ctrl-C at one of the template's prompts exits without a traceback.
             pass
         except (CookiecutterException, subprocess.CalledProcessError) as exc:
-            # cookiecutter raises CalledProcessError for a failed git clone and FailedHookException for a failed git
+            # cookiecutter raises CalledProcessError for a failed `git clone` and FailedHookException for a failed git
             # command in the template's hook. Either way, Git's own output is already on the terminal.
             print_error_and_exit(f"Couldn't create the action package: {exc}")
 

@@ -51,7 +51,7 @@ _LOCAL_DEVELOPMENT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 class TextOutput(typing.Protocol):
-    """Where login prints its instructions for the user, such as :py:data:`sys.stdout`."""
+    """Text stream that login prints its instructions for the user to, such as ``sys.stdout``."""
 
     def flush(self) -> object: ...
 
@@ -59,59 +59,84 @@ class TextOutput(typing.Protocol):
 
 
 class LoginError(Exception):
-    """Login did not produce a token."""
+    """Browser sign-in did not produce a token.
+
+    The other login errors subclass it. ``run_login``, ``CredentialRequestApi.for_api_endpoint`` and
+    ``check_api_endpoint`` also raise it directly, for an endpoint or URL that is not HTTPS, a response that does not
+    come from Roboto, or a response without a token secret.
+    """
 
 
 class LoginDeniedError(LoginError):
-    """The user denied the credential request in the browser."""
+    """The user denied the credential request in the browser.
+
+    ``run_login`` raises it.
+    """
 
 
 class LoginExpiredError(LoginError):
-    """The credential request expired before the browser approved or denied it."""
+    """The credential request expired before the browser approved or denied it.
+
+    ``run_login`` raises it.
+    """
 
 
 class LoopbackListenerError(LoginError):
-    """The listener for the browser's redirect could not bind to its port on 127.0.0.1."""
+    """The listener for the browser's redirect could not bind to its port on 127.0.0.1.
+
+    ``run_login`` raises it.
+    """
 
 
 class NoAuthorizationCodeError(LoginError):
-    """The user entered no authorization code."""
+    """The user entered no authorization code.
+
+    ``run_login`` raises it.
+    """
 
 
 class BrowserSignInUnsupportedError(LoginError):
-    """The Roboto API names no credential request service, so the CLI can't sign in through the browser.
+    """The Roboto API names no credential request service, so the CLI cannot sign in through the browser.
 
-    A Roboto deployment that predates browser sign-in has no service discovery document and refuses the lookup with HTTP
-    401. A deployment that serves the document but doesn't offer browser sign-in leaves ``credential_requests.v1`` out
-    of it.
+    ``CredentialRequestApi.for_api_endpoint`` raises it. A Roboto deployment that predates browser sign-in has no
+    service discovery document and refuses the lookup with HTTP 401. A deployment that serves the document but does not
+    offer browser sign-in leaves ``credential_requests.v1`` out of it.
     """
 
 
 class CredentialRequestHttpError(LoginError):
-    """Roboto, or a gateway or proxy in front of it, answered a credential request call with an HTTP error status."""
+    """Roboto, or a gateway or proxy in front of it, answered a credential request call with an HTTP error status.
+
+    The methods of ``CredentialRequestApi``, and ``run_login`` through them, raise it.
+    """
 
 
 class CredentialRequestRateLimitedError(CredentialRequestHttpError):
-    """Roboto answered a credential request call with HTTP 429: too many sign-in requests came from this network."""
+    """Roboto answered a credential request call with HTTP 429: too many sign-in requests came from this network.
+
+    The methods of ``CredentialRequestApi``, and ``run_login`` through them, raise it.
+    """
 
 
 class CredentialRequestNoResponseError(LoginError):
     """A credential request call got no HTTP response.
 
-    The connection failed, or broke or timed out before the response arrived. The call may have reached Roboto.
+    The connection failed, or broke or timed out before the response arrived. The call may have reached Roboto. The
+    methods of ``CredentialRequestApi``, and ``run_login`` through them, raise it.
     """
 
 
 class CredentialRequestApi:
-    """Unauthenticated HTTP adapter for creating requests and exchanging authorization codes.
+    """Adapter that creates credential requests and exchanges their authorization codes, without credentials.
 
-    Neither call retries HTTP 429. Exchange also does not retry lost responses, connection failures, timeouts, or HTTP
-    408/500/504. DNS failures and HTTP 502/503 retain the SDK's retries.
+    Build one with ``for_api_endpoint``. Neither call retries HTTP 429. ``exchange_code`` also does not retry a lost
+    response, a connection failure, a timeout, or HTTP 408, 500 or 504. Both retry a host name that fails to resolve,
+    and HTTP 502 or 503, as the SDK's other requests do.
     """
 
     @classmethod
     def for_api_endpoint(cls, api_endpoint: str) -> CredentialRequestApi:
-        """Return an adapter for the credential request service the Roboto API at ``api_endpoint`` names.
+        """Fetch the credential request service the Roboto API at ``api_endpoint`` names, and build an adapter for it.
 
         The lookup fetches the deployment's :py:class:`~roboto.service_discovery.ServiceDiscoveryDocument`, with the
         SDK's retries. It and the adapter's requests carry no credentials, and identify the CLI as their source.
@@ -122,21 +147,22 @@ class CredentialRequestApi:
             CredentialRequestHttpError: The Roboto API, or a gateway or proxy in front of it, answered the lookup with
                 another HTTP error status.
             CredentialRequestNoResponseError: No HTTP response to the lookup arrived.
-            LoginError: The lookup's response isn't a service discovery document, or the endpoint the Roboto API named
-                is neither HTTPS nor HTTP to this machine.
+            LoginError: ``api_endpoint``, or the endpoint the Roboto API named, is neither HTTPS nor HTTP to this
+                machine, or the lookup's response is not a service discovery document.
         """
+        # Checked before the lookup, because the endpoint may come from the config file rather than from the user.
+        check_api_endpoint(api_endpoint)
         # The lookup goes through an HttpClient because the HttpError it raises keeps the response's status. That status
-        # separates a deployment without the service discovery document, whose authorizer answers 401 to a request
-        # without a token, from a refusal such as a proxy's 403. RobotoClient raises a 401 and a 403 as the same
-        # exception.
+        # separates a deployment without the service discovery document, which answers 401 to a request without a
+        # token, from a refusal such as a proxy's 403. RobotoClient raises a 401 and a 403 as the same exception.
         lookup_client = HttpClient(requester=RobotoRequester.for_tool(RobotoTool.Cli))
         with _raising_login_errors(api_endpoint):
             try:
                 response = lookup_client.get(f"{api_endpoint.rstrip('/')}{SERVICE_DISCOVERY_PATH}")
             except HttpError as exc:
                 if exc.status != http.HTTPStatus.UNAUTHORIZED:
-                    # Translated as RobotoClient translates the other calls' errors, so _raising_login_errors words it
-                    # the same way.
+                    # Converted as RobotoClient converts the other calls' errors, so _raising_login_errors reports it
+                    # with the same message.
                     raise RobotoDomainException.from_client_error(exc) from None
                 # A deployment without the document offers no credential request service.
                 document = ServiceDiscoveryDocument()
@@ -145,9 +171,9 @@ class CredentialRequestApi:
                     document = response.to_record(ServiceDiscoveryDocument, json_path=None)
                 except ValueError:
                     # Each way the body can fail to be a service discovery document raises a ValueError: a
-                    # UnicodeDecodeError or JSONDecodeError for a body that isn't JSON, such as a captive portal's
-                    # sign-in page, or a pydantic ValidationError for JSON that isn't an object or whose
-                    # credential_requests.v1 isn't a string. A failure to read the body isn't a ValueError, so it
+                    # UnicodeDecodeError or JSONDecodeError for a body that is not JSON, such as a captive portal's
+                    # sign-in page, or a pydantic ValidationError for JSON that is not an object or whose
+                    # credential_requests.v1 is not a string. A failure to read the body is not a ValueError, so it
                     # reaches _raising_login_errors.
                     raise LoginError(
                         f"The response from {api_endpoint} didn't come from Roboto. If this network has a sign-in "
@@ -182,10 +208,6 @@ class CredentialRequestApi:
     def create_request(self, request: CreateCredentialRequest) -> CreateCredentialRequestResult:
         """Create a credential request for the user to approve or deny in the browser.
 
-        Args:
-            request: The challenge derived from the CLI's verifier, the new token's lifetime, where to redirect the
-                browser, if anywhere, and what the approval page shows the user.
-
         Raises:
             CredentialRequestHttpError: Roboto, or a gateway or proxy in front of it, answered with an HTTP error
                 status.
@@ -195,12 +217,9 @@ class CredentialRequestApi:
             return self.__client.post("v1/tokens/requests", data=request).to_record(CreateCredentialRequestResult)
 
     def exchange_code(self, request: ExchangeCredentialRequestCode) -> TokenRecord:
-        """Redeem the code for a token, including its secret.
+        """Redeem an approved request's authorization code for a token, including its secret.
 
         A lost successful response leaves the issued secret unavailable; exchanging again cannot recover it.
-
-        Args:
-            request: The approved request's authorization code and the requesting CLI's verifier.
 
         Raises:
             CredentialRequestHttpError: Roboto, or a gateway or proxy in front of it, answered with an HTTP error
@@ -214,7 +233,7 @@ class CredentialRequestApi:
 
 
 def _is_transient_unless_rate_limited(request: HttpRequest, exc: BaseException) -> bool:
-    """Retry predicate: the SDK's default, except that HTTP 429 is never retried.
+    """Return whether to retry a failed attempt as the SDK's default does, except that HTTP 429 is never retried.
 
     A deployment can limit how many credential requests one IP address sends, and answers requests past the limit with
     HTTP 429. Retrying them through the SDK's backoff would only keep the CLI waiting, up to about two and a half
@@ -229,9 +248,8 @@ def _is_transient_unless_rate_limited(request: HttpRequest, exc: BaseException) 
 def _raising_login_errors(endpoint: str) -> collections.abc.Iterator[None]:
     """Re-raise the HTTP and connection failures of a call to ``endpoint`` as login errors.
 
-    HTTP 429 becomes :py:class:`CredentialRequestRateLimitedError`, another HTTP error status
-    :py:class:`CredentialRequestHttpError`, and a missing response :py:class:`CredentialRequestNoResponseError`. Other
-    errors pass through.
+    HTTP 429 becomes ``CredentialRequestRateLimitedError``, another HTTP error status ``CredentialRequestHttpError``,
+    and a missing response ``CredentialRequestNoResponseError``. Other errors pass through.
 
     Every message but the one for HTTP 429 names ``endpoint``. A missing response's message also says to allow its host,
     since a network or sandbox that limits which domains it reaches may allow the Roboto API's host but not the host
@@ -263,13 +281,13 @@ def _raising_login_errors(endpoint: str) -> collections.abc.Iterator[None]:
 
 @dataclasses.dataclass(frozen=True)
 class LoginOptions:
-    """Settings for one run of :py:func:`run_login`."""
+    """Settings for one run of ``run_login``."""
 
     use_loopback: bool
-    """Receive the authorization code through a local redirect. Otherwise the user pastes it from the browser."""
+    """Whether the browser sends the authorization code to a listener on 127.0.0.1. Otherwise the user pastes it."""
 
     loopback_port: int
-    """Port for the local listener; 0 picks a free one."""
+    """Port the listener on 127.0.0.1 binds to, or 0 to pick a free one."""
 
     expiry_days: int
     """Number of days the new token stays valid."""
@@ -282,20 +300,17 @@ class LoginOptions:
 
 
 def parse_token_expiry_days(arg: str) -> int:
-    """argparse ``type`` for the number of days the access token from a browser sign-in stays valid.
+    """Return the number of days a browser sign-in's access token stays valid, as an argparse ``type``.
 
     A value that is not a whole number from 1 to
-    :py:data:`~roboto.domain.tokens.MAX_CREDENTIAL_REQUEST_TOKEN_EXPIRY_DAYS` ends argument parsing with
+    :py:const:`~roboto.domain.tokens.MAX_CREDENTIAL_REQUEST_TOKEN_EXPIRY_DAYS` ends argument parsing with
     ``error: argument <flag>: must be a whole number from 1 to <maximum>``, before the CLI contacts Roboto.
 
     Args:
         arg: Value argparse read for the flag.
 
-    Returns:
-        The number of days.
-
     Raises:
-        argparse.ArgumentTypeError: If ``arg`` is not a whole number from 1 to the maximum.
+        argparse.ArgumentTypeError: ``arg`` is not a whole number from 1 to the maximum.
     """
     message = f"must be a whole number from 1 to {MAX_CREDENTIAL_REQUEST_TOKEN_EXPIRY_DAYS}"
     try:
@@ -308,9 +323,9 @@ def parse_token_expiry_days(arg: str) -> int:
 
 
 class IssuedToken:
-    """A token :py:func:`run_login` issued, which is deleted unless it is saved to a config file profile.
+    """Token that ``run_login`` issued, which is deleted unless it is saved to a config file profile.
 
-    Use it as a context manager. Unless :py:meth:`save_to_profile` returns before the ``with`` block ends, the token is
+    Use it as a context manager. Unless ``save_to_profile`` returns before the ``with`` block ends, the token is
     deleted when the block ends, whatever ends it, Ctrl-C included. The deletion is reported on stderr. So is a failure
     to delete, along with how to delete the token by hand; that failure never replaces an exception that ended the
     block.
@@ -330,12 +345,12 @@ class IssuedToken:
 
     @property
     def record(self) -> TokenRecord:
-        """The token as Roboto issued it, including its secret."""
+        """Record of the token that this instance holds, including its secret."""
         return self.__record
 
     @property
     def secret(self) -> str:
-        """The token's secret, which authenticates requests to Roboto."""
+        """Secret of the token, which authenticates requests to Roboto."""
         # run_login raises LoginError instead of returning a token without a secret.
         return typing.cast(str, self.__record.secret)
 
@@ -346,18 +361,17 @@ class IssuedToken:
         overwrite: bool,
         set_default: bool = False,
     ) -> ProfileWriteResult:
-        """Save the token and the Roboto API endpoint it is used at to a config file profile, through
-        :py:func:`write_profile`.
+        """Save the token and the endpoint it is used at to a profile in the config file.
+
+        ``roboto.cli.config_file.write_profile`` writes the profile.
 
         Args:
-            config_file: Config file to save the token in.
-            profile_name: Profile to save the token under. Defaults to the config file's default profile.
-            overwrite: Replace the token and endpoint of an existing profile of the same name.
-            set_default: Make the profile the default one.
+            profile_name: Profile to save the token under. ``None`` uses the config file's default profile.
+            overwrite: Whether to replace the token and endpoint of an existing profile of the same name.
 
         Raises:
             ProfileAlreadyExistsError: The profile exists and ``overwrite`` is false.
-            ConfigFileError: The config file cannot be safely updated.
+            ConfigFileError: The profile name is invalid, or the config file cannot be safely updated.
             OSError: The config file could not be read or written, or its directory could not be created.
         """
         result = write_profile(
@@ -377,7 +391,8 @@ class IssuedToken:
             Token(record=self.__record, roboto_client=client).delete()
             print("Deleted the new access token because it wasn't saved.", file=sys.stderr)
         except BaseException:
-            # Cleanup errors, including cancellation, must not replace whatever ended the block.
+            # Catches every exception, Ctrl-C included, so that a failed deletion never replaces the exception that
+            # ended the with block; the user is told how to delete the token instead.
             context = self.__record.context
             if context is None:
                 how_to_delete = "Delete it in Settings > Tokens."
@@ -404,8 +419,7 @@ def browser_cannot_reach_loopback(environ: collections.abc.Mapping[str, str], pl
     host. On Linux without a display server there is no browser to start at all.
 
     Args:
-        environ: Environment variables of this process.
-        platform: Value of :py:data:`sys.platform`.
+        platform: Value of ``sys.platform``.
     """
     if environ.get("SSH_CONNECTION") or environ.get("SSH_TTY"):
         return True
@@ -422,7 +436,7 @@ def run_login(
     read_pasted_code: typing.Callable[[], str],
     out: TextOutput,
 ) -> IssuedToken:
-    """Sign in through the browser and return the minted personal access token, to be saved or deleted.
+    """Sign in through the browser and return the personal access token Roboto issued, to be saved or deleted.
 
     1. Create a credential request with a challenge derived from a secret verifier kept by this process.
     2. Print the approval URL and confirmation code. With ``options.use_loopback``, open the URL and wait for the
@@ -433,16 +447,13 @@ def run_login(
     a token not saved by the end of the block is deleted.
 
     Args:
-        api: Client for the credential request endpoints.
         api_endpoint: Roboto API endpoint the token is used at: it is saved with the token, and an unsaved token is
             deleted there.
-        options: How to run the flow.
-        open_browser: Opens a URL in a browser; returns False if it could not.
-        read_pasted_code: Reads an authorization code pasted by the user, without echoing it.
-        out: Where to print instructions for the user.
+        open_browser: Function that opens a URL in a browser, and returns ``False`` if it could not.
+        read_pasted_code: Function that reads an authorization code the user pastes, without echoing it.
 
     Raises:
-        LoopbackListenerError: The listener for the browser's redirect could not start.
+        LoopbackListenerError: The listener for the browser's redirect could not bind to its port.
         LoginDeniedError: The request was denied in the browser.
         LoginExpiredError: The request expired before the browser approved or denied it.
         NoAuthorizationCodeError: The pasted code was empty.
@@ -510,17 +521,32 @@ def _create_request_input(
     )
 
 
+def check_api_endpoint(api_endpoint: str) -> None:
+    """Reject a Roboto API endpoint to sign in at that is not HTTPS.
+
+    Plain HTTP is accepted only to this machine, for a local development stack.
+
+    Raises:
+        LoginError: The endpoint is neither HTTPS nor HTTP to this machine.
+    """
+    if not _is_https_or_local(api_endpoint):
+        raise LoginError(f"The Roboto API endpoint {api_endpoint} isn't HTTPS, so the CLI won't sign in there.")
+
+
 def _check_sign_in_url(url: str) -> None:
-    """Refuse a URL from Roboto that isn't HTTPS: an approval URL to open or print, or an endpoint to sign in at.
+    """Reject a URL from Roboto that is not HTTPS: an approval URL to open or print, or an endpoint to sign in at.
 
     Plain HTTP is accepted only to this machine, for a local development stack.
     """
+    if not _is_https_or_local(url):
+        raise LoginError(f"Roboto returned a sign-in URL that isn't HTTPS, so the CLI won't use it: {url}")
+
+
+def _is_https_or_local(url: str) -> bool:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme == "https" and parsed.hostname:
-        return
-    if parsed.scheme == "http" and parsed.hostname in _LOCAL_DEVELOPMENT_HOSTS:
-        return
-    raise LoginError(f"Roboto returned a sign-in URL that isn't HTTPS, so the CLI won't use it: {url}")
+        return True
+    return parsed.scheme == "http" and parsed.hostname in _LOCAL_DEVELOPMENT_HOSTS
 
 
 def _print_instructions(out: TextOutput, creation_result: CreateCredentialRequestResult, pasting: bool) -> None:

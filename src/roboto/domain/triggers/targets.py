@@ -31,25 +31,23 @@ _FROZEN = pydantic.ConfigDict(frozen=True)
 
 
 class TriggerTargetType(StrEnum):
-    """The kind of thing a trigger does when it fires."""
+    """Kind of target, the ``type`` of each ``TriggerTargetSpec``."""
 
     InvokeAction = "invoke_action"
-    """Invoke a containerized action."""
+    """Invocation of an action."""
 
     StartAgent = "start_agent"
-    """Start an AI agent thread from a saved agent definition."""
+    """Agent thread started from a saved agent."""
 
     SendSlackMessage = "send_slack_message"
-    """Post a message to a Slack channel on the org's allowlist."""
+    """Message posted to a Slack channel the organization allows Roboto to post to."""
 
 
 class _TargetSpecBase(pydantic.BaseModel):
-    """Common base for target specs.
+    """Common base for targets.
 
-    Marks the ``type`` discriminator as explicitly set at construction so it
-    survives ``exclude_unset`` serialization — the SDK's HTTP client serializes
-    request bodies that way, and a spec whose discriminator is dropped cannot be
-    parsed back out of the union on the server.
+    Marks ``type`` as set at construction, because the SDK serializes request bodies with ``exclude_unset``, and a
+    target sent without ``type`` cannot be parsed back into :py:const:`~roboto.domain.triggers.TriggerTargetSpec`.
     """
 
     def model_post_init(self, __context: typing.Any) -> None:
@@ -57,81 +55,118 @@ class _TargetSpecBase(pydantic.BaseModel):
 
 
 class ActionInvocationSpec(pydantic.BaseModel):
-    """How to run an action: which action, its parameters, overrides, and input selectors.
+    """How to invoke an action: the action, its parameter values, its inputs, and overrides of its settings.
 
-    The part of an invoke-action target that says nothing about when it runs, shared by
-    :class:`InvokeActionTarget` and anything else that stores an action invocation to run
-    later, such as an ingestion rule. String leaves of :attr:`parameter_values` and
-    :attr:`invocation_input` may contain ``{{...}}`` placeholders resolved against the
-    event namespace at dispatch time.
+    It says what to run but not when. ``InvokeActionTarget`` extends it with a target's ID and file patterns, and an
+    ingestion rule stores one for the action it runs on the files it matches.
+
+    Strings in ``parameter_values`` and ``invocation_input`` may contain ``{{...}}`` placeholders, such as
+    ``{{dataset.dataset_id}}``, which Roboto fills from the platform event that fired the trigger; see
+    :py:class:`~roboto.domain.triggers.EventNamespace`.
     """
 
     model_config = _FROZEN
 
     action: ActionReference
-    """The action to invoke. ``owner`` defaults to the trigger's org when omitted and
-    ``digest`` to the action's latest version."""
+    """Action to invoke.
+
+    An ``owner`` of ``None`` means the trigger's organization, and a ``digest`` of ``None`` the action's latest version.
+    """
 
     invocation_input: typing.Optional[InvocationInput] = None
-    """Optional query-based input selection (files, topics, sessions) resolved when the
-    invocation runs, e.g. ``InvocationInput.file_query('tags CONTAINS "{{event.name}}"')``.
-    The way a trigger on an event that names no dataset selects its inputs; may also
-    accompany the file patterns of an event that names one."""
+    """Files, topics, or sessions the invocation reads, chosen by query, ID, or name when it runs.
+
+    For example, ``InvocationInput.file_query('tags CONTAINS "{{event.name}}"')``. A trigger whose platform events
+    name no dataset selects its inputs only this way. On an event that names a dataset, these inputs are read along
+    with the files the target's patterns match.
+    """
 
     parameter_values: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Parameter values passed to the action; string leaves may be templated."""
+    """Values of the action's parameters, keyed by parameter name. Any string among them may contain placeholders."""
 
     compute_requirement_overrides: typing.Optional[ComputeRequirements] = None
-    """Optional compute requirement overrides for the invocation."""
+    """Compute requirements, such as vCPU and memory, that replace the action's own.
+
+    ``None`` uses the action's own.
+    """
 
     container_parameter_overrides: typing.Optional[ContainerParameters] = None
-    """Optional container parameter overrides for the invocation."""
+    """Container parameters, such as the entry point and environment variables, that replace the action's own.
+
+    ``None`` uses the action's own.
+    """
 
     timeout: typing.Optional[int] = None
-    """Optional invocation timeout override, in minutes."""
+    """Maximum time the invocation may run, in minutes. ``None`` uses the action's own."""
 
     upload_destination: typing.Optional[InvocationUploadDestination] = None
-    """Optional destination for the invocation's output files."""
+    """Where Roboto uploads the files the invocation writes to its output directory.
+
+    ``None`` uploads them to the dataset the platform event names. On an event that names no dataset, ``None``
+    uploads them to the dataset the inputs come from when they all come from one, and otherwise not at all.
+    """
 
     def referenced_placeholders(self) -> set[str]:
-        """Return every ``{{name}}`` placeholder referenced by this spec's templated fields."""
+        """Return the name of every placeholder in ``parameter_values`` and ``invocation_input``.
+
+        Returns:
+            Placeholder names without their braces, such as ``dataset.dataset_id``.
+
+        Raises:
+            ValueError: A key in ``parameter_values`` contains placeholder syntax.
+        """
         return collect_placeholders(self.parameter_values) | collect_placeholders(
             self.invocation_input.model_dump(mode="json") if self.invocation_input is not None else {}
         )
 
 
 class InvokeActionTarget(ActionInvocationSpec, _TargetSpecBase):
-    """Stored configuration for invoking an action when a trigger fires.
+    """Target that invokes an action when its trigger fires.
 
-    Spec only — dispatch behavior lives server-side. The :class:`ActionInvocationSpec`
-    fields say how to run the action; this class adds the target's identity and its file
-    patterns. String leaves of :attr:`required_inputs` and :attr:`additional_inputs` may
-    contain ``{{...}}`` placeholders, as the spec's may.
+    The fields it shares with ``ActionInvocationSpec`` say how to run the action.
+    This class adds the target's ID and the gitignore-style patterns that pick files from the platform event's
+    dataset, whose strings may contain placeholders too. What the invocation reads depends on the platform event:
 
-    An event that names a dataset invokes the action against that dataset, with inputs
-    matched from its files by the file patterns. An event that names no dataset has no
-    files to match: the invocation has no data source and selects its inputs with
-    :attr:`invocation_input`.
+    - An event that names a dataset, such as a file upload, invokes the action on that dataset. ``required_inputs``
+      decides whether the target runs, and the files it and ``additional_inputs`` match are inputs, along with any
+      ``invocation_input``.
+    - An event that names no dataset, such as a schedule firing or an invocation finishing, invokes the action on no
+      dataset, and it reads what ``invocation_input`` selects. ``required_inputs`` and ``additional_inputs`` must be
+      empty.
+
+    Constructing a target whose ``type`` is not ``InvokeAction``, or whose ``required_inputs`` or
+    ``additional_inputs`` holds only blank patterns, raises ``pydantic.ValidationError``.
     """
 
     model_config = _FROZEN
 
     type: typing.Literal[TriggerTargetType.InvokeAction] = TriggerTargetType.InvokeAction
-    """Discriminator for :data:`TriggerTargetSpec`."""
+    """Kind of target, always ``TriggerTargetType.InvokeAction``."""
 
     target_id: str
-    """Stable id of this target within its trigger. Part of the dispatch idempotency
-    key: the target's once-per history is kept under this id, so renaming it (or
-    replacing it with an identical target under a new id) starts a fresh history and
-    the target fires again for subjects the old id already fired for."""
+    """ID of the target, unique within its trigger.
+
+    Roboto keeps which entities the target already fired for under this ID, so a target given a new ID, even one
+    otherwise identical, fires again for them.
+    """
 
     required_inputs: list[str] = pydantic.Field(default_factory=list)
-    """File patterns (e.g. ``**/*.bag``) that gate dispatch on the firing event's files.
-    Only for events that name a dataset; must be empty otherwise."""
+    """Gitignore-style patterns, such as ``**/*.bag``, for the files the action needs.
+
+    When the trigger fires for one file (a file event at a ``once_per`` finer than
+    :py:attr:`~roboto.domain.platform_events.OncePer.Dataset`), the list must not be empty, and the target runs only if
+    that file matches one of the patterns. When it fires for a whole dataset, the target runs only if each pattern
+    matches a file of its own in the dataset, and on
+    :py:attr:`~roboto.domain.platform_events.PlatformEventType.FileIngested` only once every matching file is ingested.
+    Must be empty when the trigger's platform events name no dataset.
+    """
 
     additional_inputs: typing.Optional[list[str]] = None
-    """Optional extra file patterns passed as invocation inputs beyond the required ones.
-    Only for events that name a dataset; must be empty otherwise."""
+    """Gitignore-style patterns for more of the dataset's files to give the invocation.
+
+    They add to the files ``required_inputs`` match and do not decide whether the target runs. Must be empty when the
+    trigger's platform events name no dataset.
+    """
 
     @classmethod
     def from_invocation(
@@ -142,7 +177,14 @@ class InvokeActionTarget(ActionInvocationSpec, _TargetSpecBase):
         required_inputs: typing.Optional[list[str]] = None,
         additional_inputs: typing.Optional[list[str]] = None,
     ) -> "InvokeActionTarget":
-        """A target that runs ``invocation``, with the given identity and file patterns."""
+        """Build a target that runs ``invocation``, with the given ID and file patterns.
+
+        Args:
+            invocation: How to invoke the action.
+            target_id: ID of the target, unique within its trigger.
+            required_inputs: Patterns for the files the action needs. ``None`` sets none.
+            additional_inputs: Patterns for more files to give the invocation. ``None`` sets none.
+        """
         return cls(
             **{field: getattr(invocation, field) for field in ActionInvocationSpec.model_fields},
             target_id=target_id,
@@ -151,7 +193,7 @@ class InvokeActionTarget(ActionInvocationSpec, _TargetSpecBase):
         )
 
     def invocation(self) -> ActionInvocationSpec:
-        """How this target runs its action, without its identity or file patterns."""
+        """Return how this target invokes its action, without the target's ID or file patterns."""
         return ActionInvocationSpec(**{field: getattr(self, field) for field in ActionInvocationSpec.model_fields})
 
     @pydantic.field_validator("required_inputs")
@@ -165,7 +207,16 @@ class InvokeActionTarget(ActionInvocationSpec, _TargetSpecBase):
         return validate_nonzero_gitpath_specs(value) if value else value
 
     def referenced_placeholders(self) -> set[str]:
-        """Return every ``{{name}}`` placeholder referenced by this target's templated fields."""
+        """Return the name of every placeholder in this target's templated fields.
+
+        Those are ``parameter_values``, ``invocation_input``, ``required_inputs`` and ``additional_inputs``.
+
+        Returns:
+            Placeholder names without their braces, such as ``dataset.dataset_id``.
+
+        Raises:
+            ValueError: A key in ``parameter_values`` contains placeholder syntax.
+        """
         return (
             super().referenced_placeholders()
             | collect_placeholders(self.required_inputs)
@@ -174,61 +225,85 @@ class InvokeActionTarget(ActionInvocationSpec, _TargetSpecBase):
 
 
 class StartAgentTarget(_TargetSpecBase):
-    """Stored configuration for starting an agent thread when a trigger fires.
+    """Target that starts a thread from a saved agent when its trigger fires.
 
-    Spec only — dispatch behavior lives server-side. Each value in :attr:`values` is a
-    template resolved against the event namespace, then handed to the agent's own
-    variable resolution as a plain value.
+    Roboto fills the ``{{...}}`` placeholders in each of ``values`` from the platform event that fired the trigger,
+    then starts the agent with the results as the values of its variables. Constructing a target with any other
+    ``type`` raises ``pydantic.ValidationError``.
     """
 
     model_config = _FROZEN
 
     type: typing.Literal[TriggerTargetType.StartAgent] = TriggerTargetType.StartAgent
-    """Discriminator for :data:`TriggerTargetSpec`."""
+    """Kind of target, always ``TriggerTargetType.StartAgent``."""
 
     target_id: str
-    """Stable id of this target within its trigger; part of the dispatch idempotency key."""
+    """ID of the target, unique within its trigger.
+
+    Roboto keeps which entities the target already fired for under this ID, so a target given a new ID fires again for
+    them.
+    """
 
     agent_id: str
-    """The agent definition to launch."""
+    """ID of the saved agent to start a thread from. The agent must belong to the trigger's organization."""
 
     values: dict[str, str] = pydantic.Field(default_factory=dict)
-    """Agent variable name to a template string resolved against the event namespace."""
+    """Values of the agent's variables, keyed by variable name, each a template that may contain placeholders.
+
+    Variables left out take the agent's defaults.
+    """
 
     visibility: ThreadVisibility = ThreadVisibility.ORG
-    """Visibility of the resulting agent thread."""
+    """Who may read the threads the target starts. Defaults to every member of the organization."""
 
     analysis_scope: typing.Optional[AnalysisScope] = None
-    """Optional analysis scope for the resulting thread."""
+    """Time window the agent analyzes.
+
+    Each bound set here replaces the agent's own, and each bound left ``None`` keeps it. ``None`` uses the agent's own
+    scope.
+    """
 
     def referenced_placeholders(self) -> set[str]:
-        """Return every ``{{name}}`` placeholder referenced by this target's templated values."""
+        """Return the name of every placeholder in ``values``.
+
+        Returns:
+            Placeholder names without their braces, such as ``dataset.dataset_id``.
+        """
         return collect_placeholders(self.values)
 
 
 class SendSlackMessageTarget(_TargetSpecBase):
-    """Stored configuration for posting a Slack message when a trigger fires.
+    """Target that posts a message to a Slack channel when its trigger fires.
 
-    Spec only — dispatch behavior lives server-side. The channel must be on the org's
-    Slack outbound allowlist at dispatch time.
+    Each time it runs, Roboto checks that the organization allows it to post to the channel, and fails the target if
+    not. A platform event Roboto delivers twice can post the message twice. Constructing a target with any other
+    ``type`` raises ``pydantic.ValidationError``.
     """
 
     model_config = _FROZEN
 
     type: typing.Literal[TriggerTargetType.SendSlackMessage] = TriggerTargetType.SendSlackMessage
-    """Discriminator for :data:`TriggerTargetSpec`."""
+    """Kind of target, always ``TriggerTargetType.SendSlackMessage``."""
 
     target_id: str
-    """Stable id of this target within its trigger; part of the dispatch idempotency key."""
+    """ID of the target, unique within its trigger.
+
+    Roboto keeps which entities the target already fired for under this ID, so a target given a new ID fires again for
+    them.
+    """
 
     channel_id: str
-    """Slack channel to post to."""
+    """ID of the Slack channel to post to, such as ``C0123``."""
 
     text: str
-    """Message body; may contain ``{{...}}`` placeholders resolved against the event namespace."""
+    """Message to post. Roboto fills its ``{{...}}`` placeholders from the platform event that fired the trigger."""
 
     def referenced_placeholders(self) -> set[str]:
-        """Return every ``{{name}}`` placeholder referenced by this target's templated text."""
+        """Return the name of every placeholder in ``text``.
+
+        Returns:
+            Placeholder names without their braces, such as ``dataset.dataset_id``.
+        """
         return collect_placeholders(self.text)
 
 
@@ -236,16 +311,22 @@ TriggerTargetSpec = typing.Annotated[
     typing.Union[InvokeActionTarget, StartAgentTarget, SendSlackMessageTarget],
     pydantic.Field(discriminator="type"),
 ]
-"""A trigger target spec, discriminated on ``type``."""
+"""Target of any kind: one of the target models, told apart by ``type``.
+
+A target is what a trigger runs when it fires. The models are ``InvokeActionTarget``, ``StartAgentTarget`` and
+``SendSlackMessageTarget``.
+"""
 
 
 def target_catalog_manifest() -> dict[str, typing.Any]:
-    """The kinds of target a trigger can have, as the web UI's target picker reads them.
+    """Return the kinds of target a trigger can have, keyed by their ``type``.
 
-    ``target_catalog.json`` in this package is this function's output, written by
-    ``scripts/gen_trigger_manifests.py`` and drift-checked by a test on each side. Each
-    entry's body is empty: a target carries no save-time constraint of its own, so the
-    picker offers every type for every event.
+    Roboto calls this when it regenerates ``target_catalog.json`` in this package, the list of target kinds that the
+    Roboto web app mirrors.
+
+    Returns:
+        Dictionary keyed by each kind's ``type`` value. Each value is an empty dictionary, because no kind of target is
+        limited to some platform events.
     """
     spec_classes = typing.get_args(typing.get_args(TriggerTargetSpec)[0])
     return {spec.model_fields["type"].default.value: {} for spec in spec_classes}

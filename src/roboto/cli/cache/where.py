@@ -11,6 +11,7 @@ from ..context import CLIContext
 
 
 def where(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print the path of the local Roboto cache directory to standard output."""
     cache_dir = context.roboto_config.get_cache_dir()
     print(cache_dir)
 

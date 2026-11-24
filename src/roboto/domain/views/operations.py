@@ -19,42 +19,53 @@ from .record import (
 )
 
 MAX_VIEW_NAME_LENGTH: typing.Final[int] = 120
-"""Longest permitted View name, matching the limit layouts uses."""
+"""Maximum length of a View's name, in characters."""
 
 
 class CreateViewRequest(pydantic.BaseModel):
-    """Request payload to create a View."""
+    """Request body for ``POST /v1/views/create``.
+
+    Also the optional body of ``POST /v1/views/id/{view_id}/duplicate``, which uses only ``name`` and ``definition``:
+    the copy keeps the source View's target and is private.
+
+    Building the request raises ``pydantic.ValidationError`` for a ``name`` that is empty or longer than 120
+    characters.
+    """
 
     name: str = pydantic.Field(min_length=1, max_length=MAX_VIEW_NAME_LENGTH)
-    """Display name. Need not be unique."""
+    """Human-readable name of the View.
+
+    From 1 to 120 characters (:py:const:`~roboto.domain.views.MAX_VIEW_NAME_LENGTH`). Names need not be unique.
+    """
 
     target: QueryTarget
-    """The resource type this View searches. Cannot be changed afterwards."""
+    """Resource type the View searches, such as datasets or files. It cannot be changed after the View is created."""
 
     definition: ViewDefinition
-    """The query and presentation state to save."""
+    """Query and presentation state to save.
+
+    Roboto rejects a definition written in RoboQL, with ``RobotoInvalidRequestException``, when ``target`` is not in
+    :py:const:`~roboto.domain.views.ROBOQL_VIEW_TARGETS`.
+    """
 
     visibility: ViewVisibility = ViewVisibility.Private
-    """Who the View is visible to once created.
+    """Who can see the View once it is created, :py:attr:`~roboto.domain.views.ViewVisibility.Private` by default.
 
-    Private by default. A View is a saved search someone arrived at while working, and most
-    are of no interest to anyone else; publishing every one of them to the whole org on the
-    author's behalf is the harder default to undo, since by the time they notice, their
-    colleagues have already seen it. Sharing afterwards is one call to the access endpoint,
-    and is reserved to the author.
-
-    Only these two tiers exist at creation. Granting one named colleague access is a
-    per-user grant, which the access endpoint handles and which no create-time field could
-    express without duplicating it.
+    Afterwards, only the View's author or an admin or owner of its organization can change it, through
+    ``PUT /v1/views/id/{view_id}/access``. That endpoint also grants access to individual users, which this field
+    cannot.
     """
 
 
 class UpdateViewRequest(pydantic.BaseModel):
-    """Request payload to update a View.
+    """Request body for ``PUT /v1/views/id/{view_id}``.
 
-    Omitted fields are left unchanged. ``target`` is absent by design: a View's conditions are
-    written against one resource type, so retargeting it would leave them referring to fields
-    the new target does not have. Create a new View instead.
+    A field left unset (``NotSet``) is unchanged, and fields this model does not declare are ignored. A View's target
+    cannot be changed, because its filters are written against that target's fields; create a new View instead.
+    Change who can see a View through ``PUT /v1/views/id/{view_id}/access``.
+
+    Building the request raises ``pydantic.ValidationError`` for a ``name`` that is empty or longer than 120
+    characters.
     """
 
     name: typing.Union[str, NotSetType] = pydantic.Field(
@@ -62,13 +73,14 @@ class UpdateViewRequest(pydantic.BaseModel):
         min_length=1,
         max_length=MAX_VIEW_NAME_LENGTH,
     )
-    """New display name, or ``NotSet`` to leave it alone."""
+    """New human-readable name, from 1 to 120 characters (:py:const:`~roboto.domain.views.MAX_VIEW_NAME_LENGTH`)."""
 
     definition: typing.Union[ViewDefinition, NotSetType] = NotSet
-    """Replacement query and presentation state, or ``NotSet`` to leave it alone.
+    """New query and presentation state, which replaces the stored definition whole.
 
-    Replaces the definition wholesale rather than merging, so a caller changing one filter must
-    send the whole definition back.
+    To change one filter, send the full definition with that filter changed. Roboto rejects a definition written in
+    RoboQL, with ``RobotoInvalidRequestException``, when the View's target is not in
+    :py:const:`~roboto.domain.views.ROBOQL_VIEW_TARGETS`.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)

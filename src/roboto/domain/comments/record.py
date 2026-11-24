@@ -12,78 +12,71 @@ from ...compat import StrEnum
 
 
 class CommentEntityType(StrEnum):
-    """Enumeration of Roboto platform entities that support comments.
-
-    This enum defines the types of resources in the Roboto platform that can
-    have comments attached to them. Each value corresponds to a specific
-    domain entity type.
-    """
+    """Kind of Roboto resource a comment is on."""
 
     Action = "action"
-    """Actions that can be executed on the platform."""
+    """Actions (:py:class:`~roboto.domain.actions.Action`)."""
 
     Collection = "collection"
-    """Collections of related datasets or resources."""
+    """Collections (:py:class:`~roboto.domain.collections.Collection`)."""
 
     Dataset = "dataset"
-    """Datasets containing uploaded data files."""
+    """Datasets (:py:class:`~roboto.domain.datasets.Dataset`)."""
 
     File = "file"
-    """Individual files within datasets."""
+    """Files (:py:class:`~roboto.domain.files.File`)."""
 
     Invocation = "invocation"
-    """Executions of actions with specific inputs."""
+    """Invocations (:py:class:`~roboto.domain.actions.Invocation`)."""
 
     Trigger = "trigger"
-    """Automated triggers for action execution."""
+    """Triggers (:py:class:`~roboto.domain.triggers.Trigger`)."""
 
 
 class CommentRecord(pydantic.BaseModel):
-    """A wire-transmissible representation of a comment.
+    """Data record of a comment, as the Roboto API returns it.
 
-    This model represents the complete data structure of a comment as stored
-    and transmitted by the Roboto platform API. It includes all metadata
-    about the comment including creation/modification timestamps, user mentions,
-    and the associated entity information.
+    A comment is text a user writes on an action, collection, dataset, file, invocation, or trigger, and it can
+    mention other users in the organization. :py:class:`~roboto.domain.comments.Comment` wraps this record with methods
+    that act on the comment, and exposes it as :py:attr:`~roboto.domain.comments.Comment.record`.
     """
 
     org_id: str
-    """Organization ID that owns this comment (partition key)."""
+    """ID of the organization that owns the comment."""
 
     comment_id: str
-    """Unique identifier for this comment."""
+    """Unique ID of the comment, beginning with ``cm_``."""
 
     entity_type: CommentEntityType
-    """Type of entity this comment is attached to."""
+    """Kind of resource the comment is on."""
 
     entity_id: str
-    """Unique identifier of the entity this comment is attached to."""
+    """ID of the resource the comment is on.
+
+    For example, a dataset's ``ds_`` ID when ``entity_type`` is ``CommentEntityType.Dataset``.
+    """
 
     created: datetime.datetime
-    """Timestamp when the comment was created.
-
-    Stored as datetime.datetime in Python but serialized as ISO 8601 string in UTC
-    when transmitted over the API.
-    """
+    """Time the comment was created."""
 
     created_by: str
-    """User ID of the comment author."""
+    """ID of the user who wrote the comment."""
 
     comment_text: str
-    """The text content of the comment, may include `@mention` syntax."""
+    """Text of the comment, in which each mention of a user is written ``@[<display_name>](<user_id>)``."""
 
     mentions: list[str] = pydantic.Field(default_factory=list)
-    """List of user IDs mentioned in this comment using `@mention` syntax."""
+    """IDs of the users ``comment_text`` mentions, in the order they appear.
 
-    modified: datetime.datetime
-    """Timestamp when the comment was last modified.
-
-    Stored as datetime.datetime in Python but serialized as ISO 8601 string in UTC
-    when transmitted over the API.
+    Roboto reads them from the ``@[<display_name>](<user_id>)`` mentions in the text when the comment is created or
+    edited.
     """
 
-    modified_by: str
-    """User ID of the user who last modified this comment."""
+    modified: datetime.datetime
+    """Time the comment was last modified."""
 
-    # for v2
-    # parent_comment_id: str
+    modified_by: str
+    """ID of the user who wrote the comment.
+
+    Roboto sets it to ``created_by`` and does not change it when the comment is edited.
+    """

@@ -70,49 +70,60 @@ if typing.TYPE_CHECKING:
 
 
 class Session:
-    """An operational time window of a Device.
+    """A session: an operational time window of a device, such as a drone flight, a vehicle drive, or a robot run.
 
-    A Session is a drone flight, a vehicle drive, a robot arm test run: some contiguous activity
-    in the real world. It groups the recordings, logs, and other data produced during that window.
-    Because a Session is bounded by the activity rather than by the recordings, it can span many
-    files or cover just a slice of one. Each file it includes can be narrowed to a sub-window of
-    that file.
+    A session groups the recordings and other data produced during that window, and can span many files or hold only
+    part of one. Because the activity bounds it rather than the recordings, each file it holds can be narrowed to a
+    time window or a range of the file.
 
-    The Session's aggregate bounds, ``min_timestamp_ns`` and ``max_timestamp_ns`` in Unix-epoch
-    nanoseconds, span every file the Session includes. Roboto recomputes them whenever the Session's
-    files or the anchors of their data change, and each method of this class that makes such a change
-    returns with the updated bounds.
+    The session's time bounds, ``min_timestamp_ns`` and ``max_timestamp_ns``, span every file it holds. Roboto
+    recomputes them whenever the session's files or the wall-clock anchors of their data change, and each method of
+    this class that makes such a change updates this instance with the new bounds before it returns.
 
-    A Session can reference one or many devices: a single drone for a solo mission, or all of the
-    drones in a formation flight. Use :py:meth:`attach_to_device` and :py:meth:`detach_from_device`
-    to change which devices it references.
+    A session can have one device attached or several: a single drone for a solo mission, or every drone of a
+    formation flight. ``attach_to_device`` and ``detach_from_device`` change which devices are attached. Roboto also
+    attaches, on its own, each device that one of the session's files, or the dataset holding the file, names.
 
-    How to create a Session:
+    To create a session:
 
-    * :py:meth:`Session.create` accepts zero, one, or many devices, and does not require a name.
-    * :py:meth:`~roboto.domain.devices.Device.create_session` creates one named Session on a
-      device, optionally declaring its files and topics in the same call.
-    * :py:meth:`~roboto.domain.devices.Device.create_sessions` creates many such Sessions on a
-      device in one call.
-    * :py:meth:`~roboto.domain.datasets.Dataset.create_session` creates a Session for an existing
-      Dataset, inferring the devices involved and pre-populating files from the Dataset.
+    * ``create`` attaches zero or more devices, and does not require a name.
+    * :py:meth:`~roboto.domain.devices.Device.create_session` creates one named session on a device, optionally
+      declaring its files and topics in the same call.
+    * :py:meth:`~roboto.domain.devices.Device.create_sessions` creates many such sessions on a device in one call.
+    * :py:meth:`~roboto.domain.datasets.Dataset.create_session` creates a session that holds a dataset's files.
 
-    Once created, include files with :py:meth:`add_file` or :py:meth:`add_files`.
+    Add files to a session with ``add_file`` or ``add_files``. Get a ``Session`` from one of those methods,
+    ``create_if_not_exists``, or ``from_id``. To wrap a :py:class:`~roboto.experimental.sessions.SessionRecord`
+    already fetched from Roboto, build a ``Session`` from it directly. Each instance holds a copy of the session's
+    record: methods that change the session's properties update that copy from Roboto's response, and ``refresh``
+    fetches changes made elsewhere.
+
+    Args:
+        record: Record of the session.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
+
+    Who may use a Session also depends on the datasets its files sit in. Besides the access a method needs in the
+    Session's org, a method that reads one Session needs the right to read every such dataset, and a method that
+    changes one Session (including adding files to it and deleting it) needs the right to change every such dataset.
+    Otherwise the method raises :py:exc:`~roboto.exceptions.RobotoUnauthorizedException`. A dataset restricted to
+    the people it is shared with can be read only with a share on it, and changed only with a share that has the
+    editor role, unless you are an admin or owner of its org.
 
     Examples:
-        Create a Session for a drone flight, include a recording, and list its topics:
+        Create a session for a drone flight, add a recording, and list its topics:
 
         >>> from roboto.experimental.sessions import Session
         >>> session = Session.create(name="flight-2026-04-23-001", device_ids=["robot-abc"])
-        >>> session.add_file("fl_0123456789abcdef")
+        >>> session.add_file("fl_12345")
         >>> for topic in session.list_topics():
         ...     print(topic.name)
 
-        Read one topic's data in a Session as a DataFrame, then print the maximum of each field of every topic
-        the Session holds data of. Both read only the Session's files, and only the part of each file that the Session
+        Read one topic's data in a session as a DataFrame, then print the maximum of each field of every topic the
+        session holds data of. Both read only the session's files, and only the part of each file that the session
         holds:
 
-        >>> session = Session.from_id("se_abc123")
+        >>> session = Session.from_id("se_12345")
         >>> df = session.get_topic("/imu").get_data_as_df(fields_include=[("accel", "x")])
         >>> for topic in session.list_topics():
         ...     stats = session.get_topic_stats(topic.topic_id)
@@ -136,39 +147,43 @@ class Session:
         roboto_client: typing.Optional[RobotoClient] = None,
         completion_policy: typing.Union[CompletionPolicy, None, NotSetType] = NotSet,
     ) -> "Session":
-        """Create a new Session, optionally associating it with one or more devices.
+        """Create a session, with zero or more devices attached.
 
-        Every call creates a new Session. For the common single-device case, prefer
-        :py:meth:`~roboto.domain.devices.Device.create_session`, which identifies the Session by
-        name so a resend converges on the Session it already created. To add devices to an existing
-        Session later, see :py:meth:`attach_to_device`.
+        Every call creates a new session. To create a session on one device that a resent call reuses instead of
+        duplicating, use :py:meth:`~roboto.domain.devices.Device.create_session`, which identifies the session by its
+        name within the device. ``attach_to_device`` attaches more devices later.
 
         Args:
-            name: Optional short name for the Session (max 120 characters).
-            device_ids: Devices to associate with the Session at creation.
-                Empty (the default) creates a Session with no associated devices.
-            description: Optional description of the Session.
-            metadata: Optional initial metadata.
-                Sessions are not filterable or sortable by ``metadata`` keys;
-                for queryable structured attributes, define a custom field on the ``Session`` entity type.
-            tags: Optional initial tags.
-                Sessions can be filtered by tag membership but are not sortable by tag.
-            custom_fields: Optional initial values for Ready custom fields defined on
-                Sessions in the caller's org. Keys must match Ready field names; values
-                must satisfy each field's declared type.
-            caller_org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
-            completion_policy: When Roboto marks the Session complete on its own. Left unset, the
-                Session gets the org's default completion policy, if an org admin has set one, and
-                :py:attr:`completion_policy` on the returned Session shows the policy applied. ``None``
-                means the Session is marked complete only by :py:meth:`complete`, whatever the org's
-                default. Change it later with :py:meth:`update`.
+            name: Human-readable name of the session, at most 120 characters. ``None`` leaves the session unnamed.
+                Roboto does not require names to be unique.
+            device_ids: IDs of the devices to attach to the session. Defaults to none.
+            description: Human-readable description of the session.
+            metadata: Key-value metadata to set on the session. Sessions cannot be filtered or sorted by metadata
+                keys; for an attribute to query by, define a custom field for sessions.
+            tags: Tags to set on the session. Sessions can be filtered by tag but not sorted by tag.
+            custom_fields: Initial values for the session's custom fields, keyed by field name. Each name must be a
+                custom field defined for sessions in the organization the session is created in, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+                field's declared type.
+            caller_org_id: Organization to create the session in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
+            completion_policy: When Roboto marks the session complete on its own. Left unset (``NotSet``), the session
+                takes its organization's default completion policy, if an organization administrator has set one, and
+                the returned session's ``completion_policy`` shows the policy it took. ``None`` means the session is
+                marked complete only by ``complete``, whatever the organization's default. ``update`` changes it
+                later.
 
         Returns:
-            The created Session.
+            The new session.
 
         Raises:
-            RobotoNotFoundException: A device in ``device_ids`` does not exist in the caller's org. No Session is
+            pydantic.ValidationError: ``name`` is longer than 120 characters. Raised before anything is sent to
+                Roboto.
+            RobotoIllegalArgumentException: A key of ``custom_fields`` is not a ``Ready`` custom field defined for
+                sessions, or its value does not match the field's type.
+            RobotoNotFoundException: A device in ``device_ids`` does not exist in the organization. No session is
                 created.
 
         Examples:
@@ -212,41 +227,44 @@ class Session:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Session":
-        """Return the first Session matching a RoboQL query, creating one when none matches.
+        """Fetch the first session that matches a RoboQL query, creating one when none matches.
 
-        Concurrent calls with the same query create one Session between them, so a process handling
-        one file at a time (such as an S3 event handler) can use it to put each file into the
-        Session it belongs to.
+        Concurrent calls with the same query create one session between them, so a process that handles one file at
+        a time, such as a handler of S3 upload events, can use it to put each file into the session it belongs to.
 
-        The Session created must match ``match_roboql_query``. If ``name``, ``tags`` and the other
-        arguments describe a Session the query does not match, every later call creates another one.
+        The session created must match ``match_roboql_query``. If ``name``, ``tags`` and the other arguments describe
+        a session the query does not match, every later call creates another one.
 
-        When several Sessions match, which one is returned is not defined unless the query ends with a
-        ``SORT BY`` clause, e.g. ``name = 'flight-0042' SORT BY session_id``.
+        When several sessions match, which one is returned is not defined unless the query ends with a ``SORT BY``
+        clause, such as ``name = 'flight-0042' SORT BY session_id``.
 
-        A matching Session is returned as it is: the arguments below apply only to a Session this call
-        creates, so ``completion_policy`` and the rest are ignored on a match. Use :py:meth:`update` to
-        change a matched Session. The Session returned may be complete; adding a file to it puts it back in
-        progress. To match only Sessions in progress, add ``AND status = 'in_progress'`` to the query.
+        A matching session is returned as it is: the other arguments apply only to a session this call creates, so a
+        match ignores ``completion_policy`` and the rest. ``update`` changes a matched session. The session returned
+        may be complete; adding a file to it puts it back in progress. To match only sessions in progress, add
+        ``AND status = 'in_progress'`` to the query.
 
         Args:
-            match_roboql_query: RoboQL query over Sessions, e.g. ``name = 'flight-0042'``.
-            name: Name of the Session to create when none matches.
-            device_ids: Devices to associate with a created Session.
-            description: Description of a created Session.
-            metadata: Metadata of a created Session.
-            tags: Tags of a created Session.
-            custom_fields: Custom-field values of a created Session.
-            completion_policy: Completion policy of a created Session; see :py:meth:`create`.
-            caller_org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
+            match_roboql_query: RoboQL query over the organization's sessions, such as ``name = 'flight-0042'``.
+            name: Human-readable name of the session to create when none matches, at most 120 characters.
+            device_ids: IDs of the devices to attach to a created session. Defaults to none.
+            description: Human-readable description of a created session.
+            metadata: Key-value metadata to set on a created session.
+            tags: Tags to set on a created session.
+            custom_fields: Initial values for a created session's custom fields, as in ``create``.
+            completion_policy: Completion policy of a created session, as in ``create``.
+            caller_org_id: Organization to search, and to create the session in. Required when the caller belongs to
+                more than one organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The matching or created Session.
+            The matching or new session.
 
         Raises:
-            RobotoServiceUnavailableException: Other calls with the same query kept this one waiting for
-                more than 10 seconds, after the SDK's own retries. Calling again is safe.
+            pydantic.ValidationError: ``name`` is longer than 120 characters. Raised before anything is sent to
+                Roboto.
+            RobotoServiceUnavailableException: Other calls with the same query kept this one waiting for more than
+                10 seconds, after the SDK's own retries. Calling again is safe.
 
         Examples:
             >>> from roboto.experimental.sessions import CompletionPolicy, Session
@@ -305,18 +323,21 @@ class Session:
         dataset_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Session", None, None]:
-        """Iterate Sessions whose composition includes any file in the given dataset.
+        """List the sessions that include at least one of a dataset's files.
+
+        Only the current version of each file counts. Sessions come in the order ``for_org`` lists them.
 
         Args:
-            dataset_id: Dataset whose sessions to list.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
+            dataset_id: ID of the dataset whose sessions to list.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Sessions, one at a time, following pagination automatically.
+            Each session that includes a file of the dataset, fetched a page at a time as the generator advances.
 
         Examples:
             >>> from roboto.experimental.sessions import Session
-            >>> for session in Session.for_dataset("ds_abc"):
+            >>> for session in Session.for_dataset("ds_12345"):
             ...     print(session.session_id, session.name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -345,14 +366,24 @@ class Session:
         org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Session", None, None]:
-        """Iterate all Sessions visible to the caller's org.
+        """List the sessions in an organization.
+
+        Sessions with time bounds come first, latest ``min_timestamp_ns`` first. Sessions without time bounds, such
+        as those with no files yet, follow, most recently created first.
 
         Args:
-            org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
+            org_id: Organization whose sessions to list. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Sessions, one at a time, following pagination automatically.
+            Each session in the organization, fetched a page at a time as the generator advances.
+
+        Examples:
+            >>> from roboto.experimental.sessions import Session
+            >>> for session in Session.for_org("og_12345"):
+            ...     print(session.session_id, session.name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -382,23 +413,29 @@ class Session:
         org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> list[SessionIngestionSummary]:
-        """Where each of many Sessions stands in ingestion, in counts, a hundred Sessions per request.
+        """Fetch the ingestion state of each of several sessions, in counts.
 
-        Cheaper than :meth:`ingestion_status` on each Session for finding which of many are stuck: a summary has
-        no file lists, only counts, including how many waiting files failed to ingest.
+        A summary lists no files, only counts, so to find which of many sessions are stuck it costs less than
+        ``ingestion_status`` on each. The SDK sends one request per 100 sessions
+        (:py:const:`~roboto.experimental.sessions.MAX_INGESTION_SUMMARIES`), and summarizes a session named more than
+        once only once.
 
         Args:
-            session_ids: Sessions in the caller's org. Others are left out of the result.
-            org_id: Caller's org scope. Required when the caller belongs to multiple orgs.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
+            session_ids: IDs of the sessions to summarize.
+            org_id: Organization to act in. Required when the caller belongs to more than one organization; otherwise
+                the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            One summary per Session found, in request order.
+            One summary per session the organization owns, in the order of ``session_ids``. Sessions outside the
+            organization are left out.
 
         Examples:
-            >>> summaries = Session.ingestion_summaries(["se_abc123", "se_def456"])
-            >>> [s.session_id for s in summaries if s.failed_file_count]
-            ['se_def456']
+            List the sessions with a file whose latest ingestion run failed:
+
+            >>> summaries = Session.ingestion_summaries(["se_12345", "se_67890"])
+            >>> print([summary.session_id for summary in summaries if summary.failed_file_count])
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         ids = list(dict.fromkeys(session_ids))
@@ -418,24 +455,21 @@ class Session:
         session_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Session":
-        """Load a Session by ID.
+        """Fetch a session by its ID.
 
         Args:
-            session_id: Session primary key.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
-
-        Returns:
-            The Session.
+            session_id: Unique ID of the session, beginning with ``se_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: No session with this ID exists.
-            RobotoUnauthorizedException: The caller lacks view access to the org that owns the session.
+            RobotoNotFoundException: No session has this ID.
+            RobotoUnauthorizedException: The caller may not read a dataset that holds one of the session's files.
 
         Examples:
             >>> from roboto.experimental.sessions import Session
-            >>> session = Session.from_id("se_abc123")
-            >>> session.name
-            'flight-2026-04-23-001'
+            >>> session = Session.from_id("se_12345")
+            >>> print(session.name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(
@@ -456,117 +490,129 @@ class Session:
 
     @property
     def created(self) -> typing.Optional[datetime.datetime]:
-        """UTC timestamp when this Session was created."""
+        """Time the session was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """Identifier of the user or service which created this Session."""
+        """Principal that created the session, as ``<type>:<id>``, such as ``user:<user_id>``."""
         return self.__record.created_by
 
     @property
     def custom_fields(self) -> dict[str, typing.Any]:
-        """Custom-field values defined on Sessions in this org.
+        """Values of the custom fields the organization defines for sessions, keyed by field name.
 
-        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` for the org
-        appears as a key. Values that have not been set on this session surface as ``None``
-        rather than being absent. Empty when no custom fields are defined for the org.
-
-        A :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is returned
-        as an ISO 8601 string.
+        :py:attr:`~roboto.experimental.sessions.SessionRecord.custom_fields` says which fields appear as keys. A
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is an ISO 8601 string.
         """
         return self.__record.custom_fields
 
     @property
     def description(self) -> typing.Optional[str]:
-        """Optional description of this Session."""
+        """Human-readable description of the session, or ``None`` if it has none."""
         return self.__record.description
 
     @property
     def ingestion_count(self) -> int:
-        """How many times this Session has been announced ingested."""
+        """Number of times Roboto has announced the session ingested.
+
+        :py:attr:`~roboto.experimental.sessions.SessionRecord.ingestion_count` says when Roboto announces it again.
+        """
         return self.__record.ingestion_count
 
     @property
     def status(self) -> SessionStatus:
-        """Whether this Session is in progress or complete (see :py:meth:`complete`)."""
+        """Status of the session: whether more of its files are expected.
+
+        Adding a file to a complete session puts it back in progress.
+        """
         return self.__record.status
 
     @property
     def completes_at(self) -> typing.Optional[datetime.datetime]:
-        """When Roboto will mark this Session complete unless another file is added first, per its
-        :py:attr:`completion_policy`.
+        """Time Roboto will mark the session complete unless another file is added first.
 
-        ``None`` while the Session is complete, has no completion policy, or has no files.
+        ``None`` while the session is complete, has no completion policy, or has no files.
         """
         return self.__record.completes_at
 
     @property
     def completion_policy(self) -> typing.Optional[CompletionPolicy]:
-        """When Roboto marks this Session complete on its own, or ``None`` if it is marked complete only by
-        :py:meth:`complete`."""
+        """Rule by which Roboto marks the session complete on its own.
+
+        ``None`` if the session is marked complete only by request, with ``complete``.
+        """
         return self.__record.completion_policy
 
     @property
     def max_timestamp_ns(self) -> typing.Optional[int]:
-        """Latest time covered by this Session, in Unix-epoch nanoseconds.
+        """Latest time covered by the session, in nanoseconds since the Unix epoch.
 
-        ``None`` while the Session includes no files, or only files added without a time window whose topic
-        data has no time span registered yet.
+        ``None`` while none of its files supplies a time: the session holds no files, or only files added without a
+        time window whose topic data has no time span registered yet.
         """
         return self.__record.max_timestamp_ns
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
-        """User-supplied metadata attached to this Session.
+        """Copy of the key-value metadata on the session.
 
-        Sessions are not filterable or sortable by ``metadata`` keys.
-        For queryable structured attributes on a Session, define a custom field on the ``Session`` entity type.
+        Sessions cannot be filtered or sorted by metadata keys. To query a structured attribute of sessions, define a
+        custom field for sessions instead.
         """
         return self.__record.metadata.copy()
 
     @property
     def min_timestamp_ns(self) -> typing.Optional[int]:
-        """Earliest time covered by this Session, in Unix-epoch nanoseconds.
+        """Earliest time covered by the session, in nanoseconds since the Unix epoch.
 
-        ``None`` while the Session includes no files, or only files added without a time window whose topic
-        data has no time span registered yet.
+        ``None`` while none of its files supplies a time: the session holds no files, or only files added without a
+        time window whose topic data has no time span registered yet.
         """
         return self.__record.min_timestamp_ns
 
     @property
     def modified(self) -> typing.Optional[datetime.datetime]:
-        """UTC timestamp when this Session was last modified."""
+        """Time the session was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """Identifier of the user or service which last modified this Session."""
+        """Principal that last modified the session, in the same ``<type>:<id>`` form as ``created_by``.
+
+        Roboto's own system user when Roboto made the change.
+        """
         return self.__record.modified_by
 
     @property
     def name(self) -> typing.Optional[str]:
-        """Optional short name of this Session."""
+        """Human-readable name of the session, at most 120 characters, or ``None`` if it has none.
+
+        Roboto does not require names to be unique.
+        """
         return self.__record.name
 
     @property
     def org_id(self) -> str:
-        """Identifier of the organization that owns this Session."""
+        """ID of the organization that owns the session."""
         return self.__record.org_id
 
     @property
     def record(self) -> SessionRecord:
-        """Underlying data record for this Session."""
+        """Record of the session that this instance holds.
+
+        ``refresh`` replaces it with the current one.
+        """
         return self.__record
 
     @property
     def session_id(self) -> str:
-        """Globally unique identifier assigned to this Session on creation."""
+        """Unique ID of the session, beginning with ``se_``."""
         return self.__record.session_id
 
     @property
     def tags(self) -> list[str]:
-        """User-supplied tags on this Session."""
+        """Copy of the tags on the session."""
         return self.__record.tags.copy()
 
     def add_file(
@@ -578,59 +624,52 @@ class Session:
         anchor: typing.Optional[Time] = None,
         topics: typing.Optional[collections.abc.Sequence[TopicDeclaration]] = None,
     ) -> SessionFileView:
-        """Include a single file in this Session, with whatever topic data it carries.
+        """Add one file to the session, with the topic data it carries.
 
-        The singular form of :py:meth:`add_files`, taking the fields of one
-        :py:class:`~roboto.experimental.sessions.SessionFile` as separate arguments. That class documents
-        what each field means; :py:meth:`add_files` documents what the platform does with them.
+        Builds one :py:class:`~roboto.experimental.sessions.SessionFile` from the arguments, which that class
+        describes, and sends it with ``add_files``, whose failures also apply. Where ``add_files`` reports a refused
+        entry in its response, this method raises the exception Roboto refused the file with.
 
         Args:
-            file: A :py:class:`~roboto.domain.files.File` or a file ID.
-            data_range: Slice of the file this Session holds, or ``None`` for the whole file.
-            min_file_timestamp_ns: Optional lower bound of the part of the file to include, in the file's
-                own timestamps. Must be paired with ``max_file_timestamp_ns``.
-            max_file_timestamp_ns: Optional upper bound paired with ``min_file_timestamp_ns``.
-            anchor: Optional wall-clock instant at which time 0 of the data added here occurred: an ``int``
-                of nanoseconds since the Unix epoch, or any other :py:data:`~roboto.time.Time`, read as
-                :py:func:`~roboto.time.to_epoch_nanoseconds` reads it (a ``datetime`` or ISO 8601 string is
-                that instant; a ``float``, ``Decimal``, or numeric string is seconds since the epoch). Must fall
-                after the Unix epoch.
-            topics: Topics this file contributes data to, over the part of the file that carries them. Each
-                lists the files a read of its data opens in
-                :py:attr:`~roboto.experimental.ingest.TopicDeclaration.representations`.
+            file: File to add, as a :py:class:`~roboto.domain.files.File` or its ID.
+            data_range: Part of the file the session holds, as ``(start, end)``. ``None`` holds the whole file.
+            min_file_timestamp_ns: Inclusive start of the time window, in nanoseconds of the file's own timestamps.
+                Set both bounds or neither. ``None`` for both spans the entry's topic data, or the whole file when
+                ``topics`` declares none.
+            max_file_timestamp_ns: Inclusive end of the time window, in the same form.
+            anchor: Wall-clock time at which time 0 of the data this entry names occurred, in nanoseconds since the
+                Unix epoch or any value :py:func:`~roboto.time.to_epoch_nanoseconds` accepts. It must fall after
+                the Unix epoch. ``None`` takes an anchor as
+                :py:attr:`~roboto.experimental.sessions.FileDeclaration.anchor_ns` describes.
+            topics: Topics the file carries data for, each over the part of the file that holds it. ``None``
+                declares none.
 
         Returns:
-            The file's place in this Session, as :py:meth:`list_files` reports it.
+            The file as the session holds it, in the form ``list_files`` yields.
 
         Raises:
-            TypeError: ``anchor`` is not one of the :py:data:`~roboto.time.Time` types.
-            ValueError: ``anchor`` is a boolean, a string that is neither seconds nor ISO 8601, or a negative
-                number (an ``int``, ``float``, ``Decimal``, or numeric string); rejected client-side, before any
-                request is made.
-            OverflowError: ``anchor`` is infinite, such as ``float("inf")``; rejected client-side, before any
-                request is made.
-            pydantic.ValidationError: The arguments break a rule
-                :py:class:`~roboto.experimental.sessions.SessionFile` enforces, such as an ``anchor`` at or
-                before the Unix epoch or a time window with only one of its two bounds, or the representations
-                listed in ``topics`` name one file in two storage formats; rejected client-side, before any request
-                is made. The rules for one topic's own representations are enforced earlier, when the caller builds
-                its :py:class:`~roboto.experimental.ingest.TopicDeclaration`.
-            :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`: With the anchor covering it added, the
-                file's data or the window stated here would fall before the Unix epoch or past the largest
-                storable Unix-epoch nanosecond value, or the anchor would move a window another Session declared
-                over the same data there. Anchor the data at the instant it was recorded.
-            :py:exc:`~roboto.exceptions.RobotoDomainException`: Whatever else the platform refused this file
-                with.
+            TypeError: ``anchor`` is not a :py:const:`~roboto.time.Time`.
+            ValueError: ``anchor`` is a boolean, a negative number, or a string that is neither a number nor an
+                ISO 8601 timestamp.
+            OverflowError: ``anchor`` is infinite, such as ``float("inf")``.
+            pydantic.ValidationError: The arguments break a rule ``SessionFile`` enforces, such as an ``anchor`` at
+                the Unix epoch or a time window with only one of its two bounds, or the representations listed in
+                ``topics`` name one file in two storage formats.
+            RobotoInvalidRequestException: With the anchor covering it added, the file's data or the window stated
+                here would fall before the Unix epoch or after ``2**63 - 1`` nanoseconds past it, or the anchor would
+                move another session's window over the same data outside that span.
+            RobotoDomainException: Roboto refused the file for another reason. The exception raised is the one
+                Roboto reported.
 
         Examples:
-            Include a whole file:
+            Add a whole file:
 
-            >>> session.add_file("fl_0123456789abcdef")
+            >>> session.add_file("fl_12345")
 
-            Include only a sub-window of a file:
+            Add only the part of a file from 0 to 60 seconds of its own timestamps:
 
             >>> session.add_file(
-            ...     "fl_0123456789abcdef",
+            ...     "fl_12345",
             ...     min_file_timestamp_ns=0,
             ...     max_file_timestamp_ns=60_000_000_000,
             ... )
@@ -647,48 +686,47 @@ class Session:
         return self.add_files([entry]).single()
 
     def add_files(self, files: collections.abc.Sequence[SessionFile]) -> BatchResponse[SessionFileView]:
-        """Include the given files in this Session, with whatever topic data they carry.
+        """Add files to the session, with the topic data they carry.
 
-        Each entry states one file's place in this Session, in the same terms a
-        :py:class:`~roboto.experimental.sessions.SessionDeclaration` states the files of a Session declared
-        whole, so a Session composed file by file can say everything a declared one says.
+        Each entry states one file's place in the session in the same terms a
+        :py:class:`~roboto.experimental.sessions.SessionDeclaration` uses, so a session built file by file can state
+        everything a declared one does. :py:class:`~roboto.experimental.sessions.SessionFile` describes what an entry
+        states, including how its time window moves when the file is anchored again.
 
-        The platform decides every refusal before adding anything, so an entry it refuses leaves the others
-        added, while a failure it did not anticipate, such as a timeout, adds none of them. Resending converges on
-        the same composition rather than duplicating it. The platform then recomputes this Session's aggregate
-        bounds across every file it includes, and this instance reflects the new ``min_timestamp_ns`` /
-        ``max_timestamp_ns`` on return.
+        Roboto decides every refusal before it adds anything, so an entry it refuses leaves the others added, while a
+        failure it did not anticipate, such as a timeout, adds none of them. Sending the same entries again leaves the
+        session holding the same files, not each file twice. Roboto then recomputes the session's
+        ``min_timestamp_ns`` and ``max_timestamp_ns`` over every file it holds, and this instance holds the new
+        values when the call returns.
 
         Args:
-            files: Files to include in the Session, each appearing exactly once and listing all of its
-                topics; :py:class:`~roboto.experimental.sessions.SessionFile` documents what one entry
-                states, including how the window it names survives re-anchoring the file. An empty
-                sequence returns an empty response without contacting the platform.
+            files: Files to add, each appearing once and listing all of its topics. An empty sequence returns an
+                empty response without sending a request.
 
         Returns:
-            One element per entry, in request order, holding either the file's place in this Session or
-            why the platform refused it.
+            One element per entry, in request order, holding either the file as the session holds it or the
+            exception Roboto refused the entry with.
 
         Raises:
-            pydantic.ValidationError: The sequence names a file more than once, declares more than
-                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files and topics
-                between them, or lists representations naming one file in two storage formats; rejected
-                client-side, before any request is made.
-            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: A file an entry names, or a file one of its
-                topics' representations names, does not exist in this Session's org or has a status other than
+            pydantic.ValidationError: The entries name a file more than once, declare more than 500 files and
+                topics together (:py:const:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST`), or
+                list representations that name one file in two storage formats.
+            RobotoNotFoundException: A file an entry names, or a file one of its topics' representations names,
+                does not exist in the session's organization or has a status other than
                 :py:attr:`~roboto.domain.files.FileStatus.Available`. Nothing is added.
-            :py:exc:`~roboto.exceptions.RobotoUnauthorizedException`: The caller lacks permission to manage
-                Sessions in the org that owns this Session, cannot edit a file an entry declares topics on,
-                a file it anchors, or a file a listed representation names, or lacks topic edit access in that org
-                while an entry states ``is_default_for_reads`` on a timeline source. Nothing is added.
+            RobotoUnauthorizedException: The caller cannot add files to sessions in an organization that owns one of
+                the files, cannot change a dataset that already holds one of the session's files, cannot read a file
+                an entry names, cannot edit a file an entry declares topics on, anchors, or names in a representation,
+                or cannot edit topics in the organization while an entry sets ``is_default_for_reads`` on a timeline
+                source. Nothing is added.
 
         Examples:
             >>> from roboto.experimental.sessions import SessionFile
             >>> added = session.add_files(
             ...     [
-            ...         SessionFile(file_id="fl_aaa"),
+            ...         SessionFile(file_id="fl_12345"),
             ...         SessionFile(
-            ...             file_id="fl_bbb",
+            ...             file_id="fl_67890",
             ...             min_file_timestamp_ns=0,
             ...             max_file_timestamp_ns=60_000_000_000,
             ...         ),
@@ -707,22 +745,22 @@ class Session:
         return added
 
     def attach_to_device(self, device_id: str) -> None:
-        """Attach a Device to this Session as a subject.
+        """Attach a device to the session.
 
-        A Session may have many device attachments.
-        For example, a formation flight where multiple drones operate within a single activity window.
+        A session can have several devices attached, such as every drone of a formation flight. Attaching a device
+        that is already attached changes nothing, except that a device Roboto attached because the session's files
+        name it stays attached once those files no longer do.
 
         Args:
-            device_id: ID of the Device to add as a subject of this Session.
+            device_id: ID of the device to attach.
 
         Raises:
-            RobotoNotFoundException: The Device does not exist in this Session's org, or the Session no longer
+            RobotoNotFoundException: No device has this ID in the session's organization, or the session no longer
                 exists.
 
         Examples:
             >>> session.attach_to_device("wingman")
-            >>> list(session.list_devices())
-            ['lead', 'wingman']
+            >>> print(list(session.list_devices()))
         """
         self.__roboto_client.post(
             f"v1/sessions/id/{self.session_id}/devices",
@@ -730,40 +768,65 @@ class Session:
         )
 
     def clear_custom_field(self, name: str) -> "Session":
-        """Clear a single custom-field value on this session to ``None``."""
+        """Clear one custom-field value on the session, so the field reads back as ``None``.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            name: Name of a ready custom field defined for sessions in the session's organization.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            >>> session = Session.from_id("se_12345")
+            >>> session.clear_custom_field("flight_count").custom_fields["flight_count"] is None
+            True
+        """
         return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
 
     def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> "Session":
-        """Clear multiple custom-field values on this session to ``None``."""
+        """Clear several custom-field values on the session, so each field reads back as ``None``.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            names: Names of ready custom fields defined for sessions in the session's organization.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            >>> session = Session.from_id("se_12345")
+            >>> session.clear_custom_fields(["pilot", "flight_count"])
+        """
         return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))
 
     def clear_unix_offset(self) -> "Session":
-        """Return this Session's data to an offset of 0.
+        """Return the session's data to an offset of 0, removing its wall-clock anchor.
 
-        Removes the wall-clock anchor from all of this Session's topic data, so the Session's bounds return to
-        their stored values, read as nanoseconds since the Unix epoch with nothing added.
+        The session's topic data then reads in its stored timestamps, as nanoseconds since the Unix epoch with
+        nothing added, and Roboto recomputes the session's time bounds. The call reaches the same data
+        ``set_unix_offset`` writes, and no more, and moves the time windows stated over that data back by the rule
+        ``set_unix_offset`` moves them by.
 
-        Clearing reaches this Session's data and no more, exactly the data :py:meth:`set_unix_offset` writes.
-
-        Any anchoring state can be cleared, and repeating the call changes nothing: clearing a Session that carries
-        no anchor, or has no topic data at all, is a successful no-op, and a Session made of slices anchored at
-        several different instants is still cleared, each slice moving back by its own offset.
+        It succeeds whatever anchors the data carries. A session whose parts are anchored at different instants is
+        cleared too, each part moving back by its own offset. Clearing a session that carries no anchor, or has no
+        topic data, changes nothing, so repeating the call is safe.
 
         Returns:
-            This Session, refreshed with recomputed aggregate bounds.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoInvalidRequestException: Returning the data to an offset of 0 would start it, or a time range
-                declared over it, before the Unix epoch. Data starts there when its own timestamps are negative;
-                a range starts there when it begins earlier than its data's anchor.
-            RobotoConflictException: A concurrent writer added files to the Session while the clear was being
-                applied; retry the call.
-            RobotoNotFoundException: The Session no longer exists.
-            RobotoUnauthorizedException: The caller lacks permission to manage Sessions in the org that owns this
-                Session.
+            RobotoInvalidRequestException: Returning the data to an offset of 0 would place it, or a time window
+                stated over it, before the Unix epoch. Data lands there when its own timestamps are negative, and a
+                window does when it starts earlier than its data's anchor.
+            RobotoConflictException: Another request added files to the session while the anchor was being cleared.
+                Calling again is safe.
+            RobotoNotFoundException: The session no longer exists.
 
         Examples:
-            The recomputed bounds return to the Session's stored values:
+            The session's bounds return to its stored timestamps:
 
             >>> session.min_timestamp_ns
             1700000000250000000
@@ -778,24 +841,23 @@ class Session:
         return self
 
     def complete(self) -> "Session":
-        """Mark this Session complete: declare that all of its files have been added.
+        """Mark the session complete: declare that all of its files have been added.
 
-        Once it is complete, the platform announces the ``session.ingested`` platform event, which triggers
-        can subscribe to, as soon as every ingestable file in the Session is ingested. A file is
-        ingestable when its path matched one of the org's ingestion rules when its current version was
-        created, or it has since been partly or fully ingested. Files that are not ingestable never delay
-        the announcement.
+        Once the session is complete, Roboto announces it ingested, with a ``session.ingested`` platform event that
+        triggers can subscribe to, as soon as every :py:attr:`~roboto.domain.files.FileRecord.ingestable` file it
+        waits for is ingested. Files that are not ingestable never delay the announcement.
 
-        Adding a file to a complete Session puts it back in progress; mark it complete again once the
-        new files are added. If its ingestable files change while it stays complete (a new version, a
-        file removed or deleted), it is announced again once they are all ingested. Marking a complete
-        Session complete changes nothing.
+        Adding a file to a complete session puts it back in progress; mark it complete again once the new files are
+        added. When its ingestable files change while it stays complete, such as a file uploaded again, removed, or
+        deleted, Roboto announces it again once they are all ingested. Marking a complete session complete changes
+        nothing.
 
         Returns:
-            This Session, refreshed from the server response.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
-            >>> session.add_file("fl_0123456789abcdef")
+            >>> from roboto.experimental.sessions import SessionStatus
+            >>> session.add_file("fl_12345")
             >>> session = session.complete()
             >>> session.status is SessionStatus.Complete
             True
@@ -817,33 +879,37 @@ class Session:
         color: typing.Optional[str] = None,
         custom_fields: typing.Optional[dict[str, typing.Any]] = None,
     ) -> Event:
-        """Create an event on this Session.
+        """Create an event on the session.
 
         Args:
-            name: A brief human-readable name, such as ``"Hard landing"``. Many events can share a name.
-            start_time: The start of the event, inclusive, as nanoseconds since the Unix epoch or any value
+            name: Human-readable name of the event, such as ``"Hard landing"``. Many events can share a name.
+            start_time: Inclusive start of the event, in nanoseconds since the Unix epoch or any value
                 :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
-            end_time: The end of the event, inclusive. Omit it for an instantaneous event.
-            topics: The topics, or topic fields, the event is about. Empty means all of the Session's data.
-            description: An optional description.
-            tags: Initial tags.
-            metadata: Initial metadata.
-            color: A CSS color to display the event in.
-            custom_fields: Initial values for Ready custom fields defined on events in this Session's org.
+            end_time: Inclusive end of the event, in the same form. ``None`` makes an instantaneous event.
+            topics: Topics, or fields of topics, the event is about, each as a
+                ``roboto.experimental.events.EventTopicRequest``. Empty means all of the session's data.
+            description: Human-readable description of the event.
+            tags: Tags to set on the event.
+            metadata: Key-value metadata to set on the event.
+            color: CSS color the Roboto web app displays the event in.
+            custom_fields: Initial values for the event's custom fields, keyed by field name. Each name must be a
+                custom field defined for events in the session's organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+                field's declared type.
 
         Returns:
-            The created event.
+            The new event, as a ``roboto.experimental.events.Event``.
 
         Raises:
-            RobotoIllegalArgumentException: A custom field is not a Ready field defined on events in this Session's
-                org, or its value does not satisfy the field's type.
-            RobotoInvalidRequestException: The name is blank, the start is negative or after the end, or ``topics`` is
-                invalid: it names a topic twice, names a topic that does not exist, gives a topic an empty
-                ``field_ids``, or names a field that is in none of the schemas of that topic's data in this Session.
-            RobotoUnauthorizedException: The caller may not create events on this Session.
+            RobotoFeatureNotAvailableException: The session's organization does not support events on sessions.
+            RobotoIllegalArgumentException: A ``custom_fields`` name is not a ready custom field for events, or its
+                value does not match the field's type.
+            RobotoInvalidRequestException: ``name`` is blank, the start is negative or after the end, or ``topics``
+                names a topic twice, names a topic that does not exist, gives a topic an empty ``field_ids``, or names
+                a field that is in none of the schemas of that topic's data in the session.
 
         Examples:
-            >>> session = Session.from_id("se_0123456789ab")
+            >>> session = Session.from_id("se_12345")
             >>> event = session.create_event(
             ...     "Hard landing",
             ...     start_time=1_722_870_127_000_000_000,
@@ -867,16 +933,30 @@ class Session:
         )
 
     def delete(self) -> None:
-        """Delete this Session and its events. The files it included and the devices attached to it are not deleted."""
+        """Delete the session, with its events, custom-field values and AI summary. This cannot be undone.
+
+        The session's files and the devices attached to it are not deleted.
+
+        Examples:
+            >>> session = Session.from_id("se_12345")
+            >>> session.delete()
+        """
         self.__roboto_client.delete(
             f"v1/sessions/id/{self.session_id}",
         )
 
     def detach_from_device(self, device_id: str) -> None:
-        """Remove a Device from this Session's subjects.
+        """Detach a device from the session.
+
+        Detaching a device that is not attached changes nothing. When one of the session's files, or the dataset
+        holding the file, names the device, Roboto attaches it again the next time the session's files, or the
+        devices they name, change.
 
         Args:
-            device_id: ID of the Device to remove as a subject of this Session.
+            device_id: ID of the device to detach.
+
+        Examples:
+            >>> session.detach_from_device("wingman")
         """
         self.__roboto_client.delete(
             f"v1/sessions/id/{self.session_id}/devices",
@@ -884,30 +964,29 @@ class Session:
         )
 
     def generate_summary(self) -> StreamingAISummary:
-        """Generate a new AI summary for this Session.
+        """Start generating a new AI summary of the session.
 
-        An AI agent investigates the Session's topics, metrics, files and devices and
-        writes a summary. Generation is asynchronous: the returned summary starts
-        ``Pending`` and can be awaited or streamed. Each generation is charged against
-        the org's AI credits.
+        Roboto's AI reads the session's topics, metrics, files and devices and writes the summary in the background.
+        This method returns once generation has started; the returned object fetches the rest of the summary from
+        Roboto when you wait for it or stream its text. Each generation is charged against the organization's AI
+        credits.
 
-        A Session has a single summary, which every generation and every
-        :meth:`set_summary` call overwrites:
+        A session has one summary, which every generation and every ``set_summary`` call overwrites:
 
-        - Starting a generation clears the current summary text immediately.
-        - If the generation fails, the summary is left ``Failed`` with no text.
-        - Text written with :meth:`set_summary` is replaced when a later generation completes.
+        - Starting a generation clears the current summary text at once.
+        - If the generation fails, the summary is left :py:attr:`~roboto.ai.summary.AISummaryStatus.Failed`.
+        - Text written with ``set_summary`` is replaced when a later generation completes.
 
         Returns:
-            StreamingAISummary for the summary being generated.
+            The summary being generated, which starts in the
+            :py:attr:`~roboto.ai.summary.AISummaryStatus.Pending` state.
 
         Raises:
-            RobotoLimitExceededException: The org is out of AI credits. Nothing is
-                generated, and the current summary is unchanged.
-            RobotoUnauthorizedException: Caller may not manage Sessions in this Session's org.
+            RobotoLimitExceededException: The organization is out of AI credits. Nothing is generated, and the
+                current summary is unchanged.
 
         Examples:
-            >>> session = Session.from_id("se_abc123")
+            >>> session = Session.from_id("se_12345")
             >>> summary = session.generate_summary()
             >>> print(summary.complete_text)
         """
@@ -919,22 +998,21 @@ class Session:
         )
 
     def get_summary(self) -> StreamingAISummary:
-        """Retrieve this Session's existing AI summary.
-
-        Reading never generates a summary: a Session that has never been summarized
-        raises :class:`RobotoNotFoundException`. Call :meth:`generate_summary` to create one.
+        """Fetch the session's AI summary, without generating one.
 
         Returns:
-            StreamingAISummary wrapping the Session's summary. If a generation started
-            elsewhere is still running, the summary is ``Pending``; poll it with
-            ``await_completion`` or ``text_stream``.
+            The session's summary. If its generation is still running, the summary is
+            :py:attr:`~roboto.ai.summary.AISummaryStatus.Pending`; its ``await_completion`` and ``text_stream``
+            methods wait for the rest.
 
         Raises:
-            RobotoNotFoundException: This Session has no AI summary yet.
+            RobotoNotFoundException: The session has no AI summary. Call ``generate_summary`` to create one.
 
         Examples:
+            Get the existing summary, generating one first if there is none:
+
             >>> from roboto.exceptions import RobotoNotFoundException
-            >>> session = Session.from_id("se_abc123")
+            >>> session = Session.from_id("se_12345")
             >>> try:
             ...     summary = session.get_summary()
             ... except RobotoNotFoundException:
@@ -944,22 +1022,20 @@ class Session:
         return PollingStreamingAISummary(poll_fn=self.__get_latest_summary, poll_on_init=True)
 
     def get_topic(self, topic_name: str) -> Topic:
-        """Return the named Topic, scoped to this Session.
+        """Fetch the topic of this name whose data the session holds, limited to that data.
 
-        Its ``get_data*`` methods read only the data this Session holds, and need neither ``start_time`` nor
-        ``end_time``.
+        The returned topic's ``get_data*`` methods read only the data the session holds, and need neither
+        ``start_time`` nor ``end_time``.
 
         Args:
-            topic_name: Exact name of the topic to retrieve (e.g. ``"/camera/image"``).
+            topic_name: Exact name of the topic, such as ``"/camera/image"``.
 
         Returns:
-            The matching :py:class:`~roboto.experimental.topics.Topic`.
+            The topic, as a ``roboto.experimental.topics.Topic``.
 
         Raises:
-            RobotoNotFoundException: No topic with ``topic_name`` is reachable from this Session
-                (the topic is absent from the org, or this Session holds none of its data).
-            RobotoUnauthorizedException: The caller lacks permission to view Sessions in the org
-                that owns this Session.
+            RobotoNotFoundException: The session holds no data of a topic with this name, including when the
+                organization has no such topic.
 
         Examples:
             >>> topic = session.get_topic("/camera/image")
@@ -977,43 +1053,40 @@ class Session:
         )
 
     def ingestion_status(self) -> SessionIngestionStatus:
-        """Return where this Session stands in ingestion, with the files it is still waiting on.
+        """Fetch the session's ingestion state, with the files it still waits for.
 
-        Returns:
-            The current status. It does not refresh this Session instance.
+        This instance's record is unchanged; call ``refresh`` to update it.
 
         Examples:
             >>> status = session.ingestion_status()
-            >>> status.state
-            <SessionIngestionState.Processing: 'processing'>
-            >>> [f.relative_path for f in status.pending_files]
-            ['flight_002.mcap']
+            >>> print(status.state)
+            >>> print([file.relative_path for file in status.pending_files])
         """
         return self.__roboto_client.get(
             f"v1/sessions/id/{self.session_id}/ingestion",
         ).to_record(SessionIngestionStatus)
 
     def skip_waiting_for(self, file_ids: collections.abc.Sequence[str]) -> SkipWaitingResponse:
-        """Stop waiting for these files to be ingested, e.g. ones whose ingestion failed.
+        """Stop the session waiting for files to be ingested, such as files whose ingestion failed.
 
-        A complete Session is announced ingested once its other ingestable files are. The skip
-        covers each file's current upload: uploading it again makes the Session wait for it again,
-        while editing its tags or metadata does not. Skipped files stay in the Session and are listed
-        in :attr:`SessionIngestionStatus.skipped_files`.
+        A complete session is then announced ingested once its other ingestable files are. The skip covers the
+        version of each file that is current when it is made: editing the file's tags, metadata, or description keeps
+        it, and uploading the file again ends it, so the session waits for the new version. Skipped files stay in the
+        session, and :py:attr:`~roboto.experimental.sessions.SessionIngestionStatus.skipped_files` lists them.
 
         Args:
-            file_ids: Files in this Session.
+            file_ids: IDs of the session's files to stop waiting for. A file not in the session is skipped over and
+                listed in the response.
 
         Returns:
-            Where this Session stands in ingestion afterwards, and the requested files that are not
-            in it.
+            The session's ingestion state after the skip, and the requested files that are not in the session.
+
+        Raises:
+            pydantic.ValidationError: ``file_ids`` is empty or names more than 1,000 files.
 
         Examples:
-            >>> response = session.skip_waiting_for(["fl_0123456789abcdef"])
-            >>> response.ingestion.state
-            <SessionIngestionState.Ingested: 'ingested'>
-            >>> response.not_in_session
-            []
+            >>> response = session.skip_waiting_for(["fl_12345"])
+            >>> print(response.ingestion.state, response.not_in_session)
         """
         return self.__roboto_client.post(
             f"v1/sessions/id/{self.session_id}/ingestion/skip",
@@ -1021,7 +1094,18 @@ class Session:
         ).to_record(SkipWaitingResponse)
 
     def list_devices(self) -> collections.abc.Generator[str, None, None]:
-        """Iterate the device IDs attached as subjects of this Session, paginated."""
+        """List the IDs of the devices attached to the session, in order of device ID.
+
+        The list includes the devices Roboto attached because one of the session's files, or the dataset holding
+        the file, names them.
+
+        Yields:
+            The ID of each attached device, fetched a page at a time as the generator advances.
+
+        Examples:
+            >>> for device_id in session.list_devices():
+            ...     print(device_id)
+        """
         next_token: typing.Optional[str] = None
         while True:
             query: dict[str, typing.Any] = {}
@@ -1045,20 +1129,24 @@ class Session:
         start_time: typing.Optional[Time] = None,
         end_time: typing.Optional[Time] = None,
     ) -> collections.abc.Generator[Event, None, None]:
-        """Yield the events created on this Session, ordered by start time.
+        """List the events on the session, in order of start time.
 
         Args:
-            start_time: Only events that end at or after this time.
-            end_time: Only events that start at or before this time.
+            start_time: Time at or after which an event must end to be listed, in nanoseconds since the Unix epoch or
+                any value :py:func:`~roboto.time.to_epoch_nanoseconds` accepts. ``None`` sets no such limit.
+            end_time: Time at or before which an event must start to be listed, in the same form. ``None`` sets no
+                such limit.
 
         Yields:
-            Matching events, fetched one page at a time.
+            Each matching event, as a ``roboto.experimental.events.Event``, fetched a page at a time as the generator
+            advances.
 
         Raises:
-            RobotoUnauthorizedException: The caller may not view this Session's events.
+            RobotoFeatureNotAvailableException: The session's organization does not support events on sessions. It
+                surfaces on the first iteration.
 
         Examples:
-            >>> for event in Session.from_id("se_0123456789ab").list_events():
+            >>> for event in Session.from_id("se_12345").list_events():
             ...     print(event.name, event.start_time)
         """
         params: dict[str, typing.Any] = {"limit": MAX_EVENTS_PER_PAGE}
@@ -1077,13 +1165,16 @@ class Session:
             params["page_token"] = page.next_token
 
     def list_files(self) -> collections.abc.Generator[SessionFileView, None, None]:
-        """Iterate the files this Session includes, following pagination automatically.
+        """List the files the session holds, with the part of each file it holds.
 
         Yields:
-            :py:class:`SessionFileView` entries, each carrying the part of the file this Session holds (the
-            optional ``data_range`` slice and ``min_wall_clock_timestamp_ns`` / ``max_wall_clock_timestamp_ns``
-            window), the ``unix_epoch_offset_ns`` the platform added to reach that window, and display fields of
-            the file itself (name, dataset, tags, size, ...).
+            Each file as a :py:class:`~roboto.experimental.sessions.SessionFileView`, fetched a page at a time as the
+            generator advances. ``SessionFileView`` says which of its fields describe the part of the file the
+            session holds and which describe the file itself.
+
+        Examples:
+            >>> for file in session.list_files():
+            ...     print(file.relative_path, file.data_range)
         """
         next_token: typing.Optional[str] = None
         while True:
@@ -1107,20 +1198,19 @@ class Session:
         name_prefix: typing.Optional[str] = None,
         exclude_name_prefix: typing.Optional[str] = None,
     ) -> list[Metric]:
-        """Return the metrics published to this Session, at most
-        :py:data:`~roboto.domain.metrics.MAX_METRIC_LIST_RESULTS` (10,000) of them.
+        """List the metrics published to the session, at most 10,000 of them.
 
-        For a Session with more metrics than that, the listing returns that many and gives no sign that it left any
-        out; which ones it leaves out is unspecified. Narrow the listing with ``name_prefix`` or
-        ``exclude_name_prefix`` to read such a Session's metrics in parts. The statistics Roboto computes for the
-        Session's topics are metrics whose names start with ``topic_stats.``.
+        The limit is ``roboto.domain.metrics.MAX_METRIC_LIST_RESULTS``. For a session with more metrics than that,
+        the list holds that many and gives no sign that it left any out; which ones it leaves out is not defined.
+        Narrow the list with ``name_prefix`` or ``exclude_name_prefix`` to read such a session's metrics in parts.
+        The statistics Roboto computes for the session's topics are metrics whose names start with ``topic_stats.``.
 
         Args:
-            name_prefix: Return only metrics whose name starts with this text.
-            exclude_name_prefix: Leave out metrics whose name starts with this text.
+            name_prefix: Text a metric's name must start with to be listed. ``None`` sets no such limit.
+            exclude_name_prefix: Text a metric's name must not start with to be listed. ``None`` leaves out none.
 
         Returns:
-            List of :py:class:`~roboto.domain.metrics.Metric` instances for this Session.
+            The session's metrics, each a ``roboto.domain.metrics.Metric``, in no defined order.
 
         Examples:
             >>> metrics = session.list_metrics()
@@ -1136,23 +1226,22 @@ class Session:
         )
 
     def list_topics(self) -> collections.abc.Generator[Topic, None, None]:
-        """Iterate the topics reachable from this Session, following pagination.
+        """List the topics whose data the session holds, each limited to that data.
 
-        A topic is yielded only when this Session holds some of its data: a time span of the topic
-        (:py:class:`~roboto.domain.topics.TimelineExtentRecord`) on one of the Session's files, inside the slice
-        the Session holds of that file and overlapping the time window it holds. Each topic is yielded once however
-        many files and partitions carry it, ordered by ``name`` with ``topic_id`` as a deterministic tiebreaker.
+        A topic is listed when the session holds some of its data: a time span of the topic
+        (:py:class:`~roboto.domain.topics.TimelineExtentRecord`) on one of the session's files, inside the part of
+        that file the session holds and overlapping the time window it holds. Each topic is listed once, however many
+        files carry it, ordered by name and then by topic ID.
 
-        A yielded Topic is scoped to this Session, so :py:meth:`~roboto.experimental.topics.Topic.get_data`
-        (and the other ``get_data*`` methods) read only the data this Session holds, and need neither ``start_time``
-        nor ``end_time``.
-        Its :py:attr:`~roboto.experimental.topics.Topic.record` is a :py:class:`SessionTopicRecord`, which also
-        carries the topic's schemas, time span, file count and message count in this Session. The property is
-        annotated as :py:class:`~roboto.domain.topics.TopicIdentityRecord`, so narrow it with ``isinstance`` before
-        reading those fields.
+        Each topic's ``get_data*`` methods read only the data the session holds, and need neither ``start_time`` nor
+        ``end_time``. Its ``record`` is a :py:class:`~roboto.experimental.sessions.SessionTopicRecord`, which also
+        carries the topic's schemas, time span, file count and message count in the session. The property is typed
+        :py:class:`~roboto.domain.topics.TopicIdentityRecord`, so narrow it with ``isinstance`` before reading those
+        fields.
 
         Yields:
-            :py:class:`~roboto.experimental.topics.Topic` instances.
+            Each topic, as a ``roboto.experimental.topics.Topic``, fetched a page at a time as the generator
+            advances.
 
         Examples:
             >>> for topic in session.list_topics():
@@ -1182,21 +1271,21 @@ class Session:
                 break
 
     def get_topic_stats(self, topic_id: str) -> SessionTopicStats:
-        """Return the statistics of one topic over this Session's data, grouped by field.
+        """Fetch the statistics of one topic over the session's data, grouped by field.
 
-        The statistics are this Session's ``topic_stats`` metrics, which Roboto computes after the Session is
-        ingested. A field with no statistics, such as a string or an array, is absent.
+        The statistics are the session's ``topic_stats.`` metrics, which Roboto computes after the session is
+        announced ingested. A field with no statistics, such as a string or an array, is absent.
 
         Args:
-            topic_id: Topic whose statistics to return, as yielded by :py:meth:`list_topics`.
+            topic_id: ID of a topic ``list_topics`` lists.
 
         Returns:
-            The topic's statistics. Its ``fields`` is empty and its ``message_count`` is ``None`` while no
-            statistics have been computed for the topic.
+            The topic's statistics. Its ``fields`` is empty and its ``message_count`` is ``None`` while no statistics
+            have been computed for the topic.
 
         Raises:
-            RobotoFeatureNotAvailableException: Topic statistics are not available in this Session's organization.
-            RobotoNotFoundException: This Session takes no data of the topic.
+            RobotoFeatureNotAvailableException: Topic statistics are not available in the session's organization.
+            RobotoNotFoundException: The session holds no data of the topic.
 
         Examples:
             >>> for topic in session.list_topics():
@@ -1209,15 +1298,16 @@ class Session:
         ).to_record(SessionTopicStats)
 
     def get_topic_stats_run(self) -> SessionTopicStatsRun:
-        """Return where the latest run Roboto triggered to compute this Session's topic statistics stands.
+        """Fetch the status of the latest run Roboto triggered to compute the session's topic statistics.
 
-        Roboto runs the ``session_metrics`` action on a Session each time the Session is announced ingested, but
-        only while the organization's session-metrics trigger is installed and enabled. When no run was triggered
-        on the latest announcement and none is scheduled, the status may describe the run on an earlier one. While a
-        run is ``running``, :py:meth:`get_topic_stats` may return statistics from an earlier run, or none.
+        Roboto runs the ``session_metrics`` action on a session each time the session is announced ingested, but
+        only while the organization's session-metrics trigger is installed and enabled. When no run was triggered on
+        the latest announcement and none is scheduled, the status may describe the run on an earlier one. While a run
+        is :py:attr:`~roboto.experimental.sessions.SessionTopicStatsRunStatus.Running`, ``get_topic_stats`` may return
+        statistics from an earlier run, or none.
 
         Raises:
-            RobotoFeatureNotAvailableException: Topic statistics are not available in this Session's organization.
+            RobotoFeatureNotAvailableException: Topic statistics are not available in the session's organization.
 
         Examples:
             >>> from roboto.experimental.sessions import SessionTopicStatsRunStatus
@@ -1234,35 +1324,28 @@ class Session:
         metrics: list[MetricEntry],
         device_id: typing.Union[NotSetType, typing.Optional[str]] = NotSet,
     ) -> BatchResponse[Metric]:
-        """Record metric values for this Session in a single network call.
+        """Publish metric values for the session in one request.
 
-        Convenience wrapper around :py:meth:`~roboto.domain.metrics.Metric.publish`
-        that supplies this Session's ``session_id`` and ``org_id``. Republishing a
-        metric under the same name replaces its previous value for this Session.
-
-        If a metric definition does not already exist for a given name it is
-        created automatically.
+        It calls ``roboto.domain.metrics.Metric.publish`` with the session's ID and organization, so that method's
+        failures also apply. Publishing a metric under a name the session already has a value for replaces that
+        value. Roboto creates a metric definition for any name the organization does not have one for.
 
         Args:
-            metrics: Metric names and numeric values to record.
-            device_id: Device to associate with each published value, or
-                :py:data:`None` to opt out. When omitted, the server infers a
-                device from this Session's attached devices: the call succeeds
-                only if exactly one device is associated and is rejected when
-                zero or more than one are.
+            metrics: Metric names and numeric values to publish.
+            device_id: ID of the device to associate with each published value. ``None`` associates none. Left unset
+                (``NotSet``), Roboto uses the session's attached device, which succeeds only when exactly one device
+                is attached.
 
         Returns:
-            One element per metric entry, in request order, holding either the
-            recorded :py:class:`~roboto.domain.metrics.Metric` or why the platform
-            refused it.
+            One element per entry, in request order, holding either the published metric, as a
+            ``roboto.domain.metrics.Metric``, or the exception Roboto refused the entry with.
 
         Raises:
-            :py:exc:`~roboto.exceptions.RobotoInvalidRequestException`:
-                ``device_id`` was omitted and this Session has zero or more
-                than one attached devices.
+            RobotoInvalidRequestException: ``device_id`` is left unset and the session has no attached device, or
+                more than one.
 
         Examples:
-            Let the server infer the device from this Session's single attached device:
+            Let Roboto take the device from the session's one attached device:
 
             >>> from roboto.domain.metrics import MetricEntry
             >>> published = session.publish_metrics(
@@ -1274,7 +1357,7 @@ class Session:
             >>> len(published.succeeded)
             2
 
-            Attach to an explicit device, overriding inference:
+            Associate the values with a named device:
 
             >>> session.publish_metrics(
             ...     [MetricEntry(name="cpu.usage_max", value=87.2)],
@@ -1290,14 +1373,16 @@ class Session:
         )
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Session":
-        """Add or update metadata fields on this Session.
+        """Set metadata keys on the session, adding new keys and overwriting existing ones.
+
+        Keys the dict does not name keep their values. A dotted key such as ``"weather.condition"`` sets
+        ``condition`` inside the nested ``weather`` object. It calls ``update``, whose failures also apply.
 
         Args:
-            metadata: Field-to-value map. Existing fields are overwritten;
-                fields not in this map are left unchanged.
+            metadata: Key-value metadata to set on the session.
 
         Returns:
-            This Session, refreshed from the server response.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> session.put_metadata({"weather": "clear", "pilot": "alice"})
@@ -1305,15 +1390,15 @@ class Session:
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
 
     def put_tags(self, tags: StrSequence) -> "Session":
-        """Add tags to this Session.
+        """Add tags to the session, keeping its existing tags.
 
-        Tags already present on the Session are not duplicated.
+        A tag the session already has is not added again. It calls ``update``, whose failures also apply.
 
         Args:
-            tags: Tags to add.
+            tags: Tags to add to the session.
 
         Returns:
-            This Session, refreshed from the server response.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> session.put_tags(["pre-flight-check", "training"])
@@ -1321,14 +1406,21 @@ class Session:
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
     def refresh(self) -> "Session":
-        """Re-read this Session from the platform, replacing every property backed by its record.
+        """Replace this instance's record with the session's current record from Roboto.
 
-        Call it when something other than this instance changed the Session: the aggregate bounds
-        ``min_timestamp_ns`` and ``max_timestamp_ns`` are recomputed whenever a Session's composition or
-        anchoring changes, including by another caller.
+        Use it to see changes made after this instance was loaded, by other users or processes or by Roboto itself,
+        which recomputes ``min_timestamp_ns`` and ``max_timestamp_ns`` whenever the session's files or their
+        anchors change.
 
         Returns:
-            This Session.
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            RobotoNotFoundException: The session no longer exists.
+
+        Examples:
+            >>> session = Session.from_id("se_12345")
+            >>> print(session.refresh().status)
         """
         self.__record = self.__roboto_client.get(
             f"v1/sessions/id/{self.session_id}",
@@ -1336,42 +1428,48 @@ class Session:
         return self
 
     def remove_file(self, file: typing.Union["File", str]) -> str:
-        """Remove a single file from this Session.
+        """Remove one file from the session.
 
-        The singular form of :py:meth:`remove_files`.
+        It calls ``remove_files``, whose failures also apply.
 
         Args:
-            file: A :py:class:`~roboto.domain.files.File` or a file ID.
+            file: File to remove, as a :py:class:`~roboto.domain.files.File` or its ID.
 
         Returns:
-            The ID of the removed file.
+            ID of the removed file.
 
         Raises:
-            :py:exc:`~roboto.exceptions.RobotoNotFoundException`: This Session does not hold the file.
+            RobotoNotFoundException: The session does not hold the file.
+
+        Examples:
+            >>> session.remove_file("fl_12345")
         """
         file_id = file if isinstance(file, str) else file.file_id
         return self.remove_files([file_id]).single()
 
     def remove_files(self, files: collections.abc.Sequence[typing.Union["File", str]]) -> BatchResponse[str]:
-        """Remove the given files from this Session.
+        """Remove files from the session.
 
-        A file this Session does not hold is reported as its own element rather than failing the call, while
-        a failure the platform did not anticipate, such as a timeout, removes none of the files. The platform
-        then recomputes this Session's aggregate bounds across the files that remain, and this instance
-        reflects the new ``min_timestamp_ns`` / ``max_timestamp_ns`` on return.
+        Roboto removes every named file the session holds, and reports each file it does not hold as a
+        ``RobotoNotFoundException`` in that file's element of the response. A failure Roboto did not anticipate, such
+        as a timeout, removes none of the files. Roboto then recomputes the session's ``min_timestamp_ns`` and
+        ``max_timestamp_ns`` over the files that remain, and this instance holds the new values when the call returns.
 
         Args:
-            files: Files to remove, each a :py:class:`~roboto.domain.files.File` or a file ID. An empty
-                sequence returns an empty response without contacting the platform.
+            files: Files to remove, each a :py:class:`~roboto.domain.files.File` or its ID. An empty sequence returns
+                an empty response without sending a request.
 
         Returns:
-            One element per named file, in request order, holding either its ID or why the platform
-            refused to remove it.
+            One element per named file, in request order, holding either its ID or the exception Roboto refused to
+            remove it with.
 
         Raises:
-            pydantic.ValidationError: The sequence names a file more than once, or names more than
-                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files; rejected
-                client-side, before any request is made.
+            pydantic.ValidationError: ``files`` names a file more than once, or names more than 500 files
+                (:py:const:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST`).
+
+        Examples:
+            >>> removed = session.remove_files(["fl_12345", "fl_67890"])
+            >>> print(removed.succeeded)
         """
         if not files:
             return BatchResponse[str](responses=[])
@@ -1385,13 +1483,16 @@ class Session:
         return removed
 
     def remove_metadata(self, metadata: StrSequence) -> "Session":
-        """Remove metadata keys from this Session.
+        """Remove metadata keys from the session. Keys the session does not have are ignored.
+
+        A dotted key such as ``"weather.condition"`` removes ``condition`` from inside the nested ``weather`` object.
+        It calls ``update``, whose failures also apply.
 
         Args:
-            metadata: Metadata keys to remove. Dot notation addresses nested keys (``"weather.condition"``).
+            metadata: Metadata keys to remove.
 
         Returns:
-            This Session, refreshed from the server response.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> session.remove_metadata(["pilot", "weather.condition"])
@@ -1399,14 +1500,15 @@ class Session:
         return self.update(metadata_changeset=MetadataChangeset(remove_fields=metadata))
 
     def remove_tags(self, tags: StrSequence) -> "Session":
-        """Remove the given tags from this Session.
+        """Remove tags from the session. Tags the session does not have are ignored.
+
+        It calls ``update``, whose failures also apply.
 
         Args:
-            tags: Tags to remove. Tags not present on the Session are
-                silently ignored.
+            tags: Tags to remove from the session.
 
         Returns:
-            This Session, refreshed from the server response.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> session.remove_tags(["training"])
@@ -1414,41 +1516,57 @@ class Session:
         return self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
     def set_custom_field(self, name: str, value: typing.Any) -> "Session":
-        """Set a single custom-field value on this session.
+        """Set one custom-field value on the session.
 
-        ``name`` must be the name of a
-        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
-        field for this session's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
-        entity type; ``value`` must satisfy the field's declared type.
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            name: Name of a custom field defined for sessions in the session's organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
+            value: Value to set, which must match the field's declared type.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            >>> session = Session.from_id("se_12345")
+            >>> session.set_custom_field("flight_count", 12)
         """
         return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
 
     def set_custom_fields(self, fields: dict[str, typing.Any]) -> "Session":
-        """Set or overwrite multiple custom-field values on this session.
+        """Set several custom-field values on the session. Fields not named keep their values.
 
-        Each key must name a Ready custom field for this session's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
-        entity type; each value must satisfy the field's declared type.
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            fields: New values keyed by field name. Each name must be a custom field defined for sessions in the
+                session's organization, with status :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`,
+                and each value must match that field's declared type.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            >>> session = Session.from_id("se_12345")
+            >>> session.set_custom_fields({"pilot": "alice", "flight_count": 12})
         """
         return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
 
     def set_summary(self, summary: str) -> "Session":
-        """Set the AI summary text for this Session.
+        """Set the text of the session's AI summary.
 
-        Use this when an action or other component writes a more specialized summary
-        than :meth:`generate_summary` would. The text stays until the next generation
-        starts or this method is called again.
+        Use it when an action or another program writes a more specialized summary than ``generate_summary`` would.
+        The text stays until the next generation starts or this method is called again.
 
         Args:
-            summary: The summary text, rendered as Markdown. It may include ``roboto://``
-                entity links.
+            summary: Text of the summary, rendered as Markdown. It may include ``roboto://`` links to resources.
 
         Returns:
-            This Session, for method chaining.
+            This instance. Its record is unchanged.
 
-        Raises:
-            RobotoUnauthorizedException: Caller may not manage Sessions in this Session's org.
+        Examples:
+            >>> session.set_summary("Flight ended early: the battery voltage dropped below 3.3 V per cell.")
         """
         self.__roboto_client.put(
             f"v1/sessions/id/{self.session_id}/summary",
@@ -1457,56 +1575,49 @@ class Session:
         return self
 
     def set_unix_offset(self, anchor: Time) -> "Session":
-        """Anchor this Session's data to wall-clock time.
+        """Anchor the session's data to wall-clock time.
 
-        ``anchor`` becomes the wall-clock instant of stored time 0 for all of this Session's topic data, and the
-        Session's aggregate bounds are recomputed to reflect it.
+        ``anchor`` becomes the wall-clock time of stored time 0 for all of the session's topic data, and Roboto
+        recomputes the session's time bounds from it.
 
-        This write reaches this Session's data and no more. Where several Sessions share one file, each owning a
-        slice of it, it anchors the slices this Session holds and leaves the file's other slices at whatever instant
-        they were given. Data another Session also holds is shared, not copied, so that Session reads the same anchor.
+        The anchor reaches the session's data and no more. Where several sessions share one file, each holding part
+        of it, it anchors the parts this session holds and leaves the file's other parts at the anchors they have.
+        Data another session also holds is shared, not copied, so that session reads the same anchor. A time window
+        stated over a file moves with its data only when all the data the window covers carries one anchor before the
+        call and one after.
 
-        An anchor exists only when a caller supplies one, either as the data is added (the ``anchor`` argument of
-        :py:meth:`add_file`, or ``anchor_ns`` on a :py:class:`~roboto.experimental.sessions.SessionFile`) or through
-        this method. Until then, the data carries an offset of 0 and its stored timestamps are read as nanoseconds
-        since the Unix epoch. Applying an anchor overwrites whatever anchor the data carried before; applying the
-        one it already carries changes nothing, so repeating the call succeeds. An anchor survives re-ingest:
-        redeclaring a slice without supplying an anchor preserves the one it already had.
+        Data carries an anchor only when one is given: as the data is added, with the ``anchor`` argument of
+        ``add_file`` or :py:attr:`~roboto.experimental.sessions.FileDeclaration.anchor_ns`, or with this method.
+        Until then, its offset is 0 and its stored timestamps read as nanoseconds since the Unix epoch. A new anchor
+        replaces the one the data carried; giving the one it already carries changes nothing, so repeating the call is
+        safe. Declaring a file's data again without an anchor keeps the anchor it has.
 
         Args:
-            anchor: Wall-clock instant of stored time 0: an ``int`` of nanoseconds since the Unix epoch, or any other
-                :py:data:`~roboto.time.Time`, read as :py:func:`~roboto.time.to_epoch_nanoseconds` reads it (a
-                ``datetime`` or ISO 8601 string is that instant; a ``float``, ``Decimal``, or numeric string is seconds
-                since the epoch). Must fall after the Unix epoch: zero is not an anchor (use
-                :py:meth:`clear_unix_offset` to return the Session to an offset of 0), and earlier instants are
-                rejected.
+            anchor: Wall-clock time of stored time 0, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts. It must fall after the Unix epoch; to return the
+                session to an offset of 0, use ``clear_unix_offset``.
 
         Returns:
-            This Session, refreshed with recomputed aggregate bounds.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            TypeError: ``anchor`` is not one of the :py:data:`~roboto.time.Time` types.
-            ValueError: ``anchor`` is a boolean, a string that is neither seconds nor ISO 8601, zero, before the Unix
-                epoch, or too large for a signed 64-bit integer of nanoseconds; rejected client-side, before any request
-                is made. A range refusal is raised as :py:exc:`pydantic.ValidationError`, a subclass of ``ValueError``.
-            OverflowError: ``anchor`` is infinite, such as ``float("inf")``; rejected client-side, before any
-                request is made.
-            RobotoInvalidRequestException: Any of three cases: the Session has no topic data to anchor; the
-                Session's own data already carries several distinct anchors, and the server will not pick one of
-                them to move everything from (anchor less than a whole Session at a time instead, either one topic
-                with :py:meth:`~roboto.experimental.topics.Topic.set_unix_offset` on a Topic from
-                :py:meth:`get_topic` or :py:meth:`list_topics`, or one whole file with
-                :py:meth:`~roboto.domain.files.File.set_timeline_offset`); or the anchor would move the Session's
-                data, or a time range declared over it, before the Unix epoch or past the largest storable
-                Unix-epoch nanosecond value; anchor the data at the instant it was recorded.
-            RobotoConflictException: A concurrent writer added files to the Session while the anchor was being
-                applied; retry the call.
-            RobotoNotFoundException: The Session no longer exists.
-            RobotoUnauthorizedException: The caller lacks permission to manage Sessions in the org that owns this
-                Session.
+            TypeError: ``anchor`` is not a :py:const:`~roboto.time.Time`.
+            ValueError: ``anchor`` is a boolean, a string that is neither a number nor an ISO 8601 timestamp, the Unix
+                epoch or earlier, or at least ``2**63`` nanoseconds after it. The epoch itself and a value that large
+                raise ``pydantic.ValidationError``, a subclass of ``ValueError``.
+            OverflowError: ``anchor`` is infinite, such as ``float("inf")``.
+            RobotoInvalidRequestException: The session has no topic data to anchor; its data already carries several
+                different anchors, so Roboto cannot tell which to move from; or the anchor would move the session's
+                data, or a time window stated over it, before the Unix epoch or past ``2**63 - 1`` nanoseconds after
+                it. To anchor data that carries several anchors, anchor one topic at a time with
+                ``roboto.experimental.topics.Topic.set_unix_offset`` on a topic from ``get_topic`` or ``list_topics``,
+                or one whole file with :py:meth:`~roboto.domain.files.File.set_timeline_offset`.
+            RobotoConflictException: Another request added files to the session while the anchor was being set.
+                Calling again is safe.
+            RobotoNotFoundException: The session no longer exists.
 
         Examples:
-            The recomputed bounds are the offset plus the Session's stored values:
+            The session's bounds become the anchor plus its stored timestamps:
 
             >>> session.min_timestamp_ns
             250000000
@@ -1538,34 +1649,35 @@ class Session:
         custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None,
         completion_policy: typing.Union[CompletionPolicy, None, NotSetType] = NotSet,
     ) -> "Session":
-        """Update mutable Session fields.
+        """Update the session's description, name, tags, metadata, custom fields or completion policy.
 
-        Fields left at the ``NotSet`` default are preserved;
-        for nullable fields (``description``, ``name``, ``completion_policy``), pass ``None`` to clear.
+        An argument left at its default (``NotSet`` or ``None``) leaves that property unchanged.
 
         Args:
-            description: New description for the Session. Set to ``None`` to clear the description.
-                Leave at the default to leave the description unchanged.
-            metadata_changeset: Tag and metadata changes to apply (put/remove tags and fields).
-                See :py:meth:`put_tags`, :py:meth:`remove_tags`, :py:meth:`put_metadata`,
-                and :py:meth:`remove_metadata` for shorthand helpers.
-            name: New name for the Session. Set to ``None`` to clear the name.
-                Leave at the default to leave the name unchanged.
-            custom_fields_changeset: Changes to apply to Ready custom-field values
-                on this session. Field names not referenced by the changeset are
-                left unchanged.
-            completion_policy: When Roboto marks the Session complete on its own. ``None`` removes the
-                policy, so the Session is marked complete only by :py:meth:`complete`. On a Session in
-                progress that has files, a new policy counts its inactivity from now. A complete Session
-                stays complete, and the policy applies after a file is added to it.
+            description: Human-readable description of the session. ``None`` clears it.
+            metadata_changeset: Changes to the session's tags and metadata. ``put_tags``, ``remove_tags``,
+                ``put_metadata`` and ``remove_metadata`` each make one kind of change.
+            name: Human-readable name of the session, at most 120 characters. ``None`` clears it.
+            custom_fields_changeset: Changes to the session's custom-field values. Each field name it references must
+                be a ready custom field defined for sessions in the session's organization. Fields it does not name
+                are unchanged.
+            completion_policy: When Roboto marks the session complete on its own. ``None`` removes the policy, so the
+                session is marked complete only by ``complete``. On a session in progress that has files, a new
+                policy counts its inactivity from now. A complete session stays complete, and the policy applies once
+                a file is added to it.
 
         Returns:
-            This Session, refreshed from the server response.
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            pydantic.ValidationError: ``name`` is longer than 120 characters.
+            RobotoIllegalArgumentException: A ``custom_fields_changeset`` name is not a ready custom field for
+                sessions, or a value it sets does not match the field's type.
 
         Examples:
             >>> session.update(description="formation flight #4", name="flight-2026-04-23-001")
 
-            Let Roboto mark a Session complete 30 minutes after its last file is added:
+            Let Roboto mark the session complete 30 minutes after its last file is added:
 
             >>> from roboto.experimental.sessions import CompletionPolicy
             >>> session.update(completion_policy=CompletionPolicy(inactivity_minutes=30))
@@ -1587,33 +1699,30 @@ class Session:
         return self
 
     def wait_until_ingested(self, timeout: float = 600, poll_interval: int = 15) -> "Session":
-        """Block until every ingestable file in this Session is ingested and Roboto has announced it ingested.
+        """Wait until every ingestable file the session waits for is ingested and Roboto has announced it ingested.
 
-        The wait ends once Roboto records the announcement that fires ``session.ingested``, which raises
-        :py:attr:`ingestion_count`. A Session already announced ingested since it was last marked complete
-        returns at once.
+        The wait ends once Roboto records the announcement, the ``session.ingested`` platform event, which raises
+        ``ingestion_count``. A session already announced ingested since it was last marked complete returns at once.
 
-        A Session in progress is waited for when it will complete on its own: it has a
-        :py:attr:`completion_policy` and files, so :py:attr:`completes_at` is set. The wait then includes the
-        policy's inactivity. A Session in progress that will not complete on its own is refused, as only
-        :py:meth:`complete` would complete it.
+        A session in progress is waited for when it will complete on its own: it has a ``completion_policy`` and
+        files, so ``completes_at`` is set, and the wait then includes the policy's inactivity. A session in progress
+        that will not complete on its own raises, since only ``complete`` would complete it.
 
-        The default ``timeout`` of 10 minutes may be too short for a Session of large recordings. Pass a
-        longer one, e.g. ``timeout=2 * 60 * 60`` for two hours.
+        The default ``timeout`` of 10 minutes may be too short for a session of large recordings. Pass a longer one,
+        such as ``timeout=2 * 60 * 60`` for two hours.
 
         Args:
-            timeout: Maximum seconds to wait.
-            poll_interval: Seconds between status checks.
+            timeout: Maximum time to wait, in seconds.
+            poll_interval: Time between checks of the session's ingestion state, in seconds.
 
         Returns:
-            This Session, refreshed from the server.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RuntimeError: This Session is in progress and will not complete on its own: it has no completion
-                policy, or it has one but no files.
-            roboto.waiters.TimeoutError: ``timeout`` elapsed first. The message says where the Session stands
-                and lists up to 10 of the files it is still waiting for. It is also a built-in
-                :py:exc:`TimeoutError`.
+            RuntimeError: The session is in progress and will not complete on its own: it has no completion policy,
+                or it has one but no files.
+            roboto.waiters.TimeoutError: ``timeout`` passed first. The message says where the session stands and
+                lists up to 10 of the files it still waits for. It subclasses the built-in ``TimeoutError``.
 
         Examples:
             >>> session = session.complete().wait_until_ingested(timeout=2 * 60 * 60)
@@ -1637,7 +1746,9 @@ class Session:
                 return True
             if saw_files_pending:
                 return False
-            # Ingested at the first poll: either announced already, or the announcement is not recorded yet.
+            # Ingested at the first check, with no rise in the count yet: the session was announced before the wait
+            # began, or its announcement is not recorded yet. It was announced if Roboto announced it at or after the
+            # time it was last marked complete.
             self.refresh()
             completed_at, ingested_at = self.__record.completed_at, self.__record.ingested_at
             return completed_at is not None and ingested_at is not None and ingested_at >= completed_at

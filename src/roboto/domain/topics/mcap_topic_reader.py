@@ -29,13 +29,23 @@ logger = default_logger()
 
 
 class SignedUrlResolver(typing.Protocol):
-    """Resolves a file ID to a signed download URL."""
+    """Callable that turns a file's ID into a signed URL its contents can be downloaded from."""
 
-    def __call__(self, file_id: str) -> str: ...
+    def __call__(self, file_id: str) -> str:
+        """Return a signed download URL for the file with this ID.
+
+        Args:
+            file_id: ID of the file to download, beginning with ``fl_``.
+        """
+        ...
 
 
 class RobotoClientUrlResolver:
-    """A :class:`SignedUrlResolver` that fetches signed URLs via the Roboto API."""
+    """``SignedUrlResolver`` that fetches each URL from Roboto.
+
+    :py:meth:`~roboto.domain.topics.Topic.get_data` fetches MCAP files' signed URLs through it, so most code never
+    calls it. ``McapTopicReader`` builds one when it is given a ``roboto_client`` and no ``signed_url_resolver``.
+    """
 
     def __init__(self, roboto_client: RobotoClient):
         self.__roboto_client = roboto_client
@@ -46,16 +56,23 @@ class RobotoClientUrlResolver:
 
 
 class McapTopicReader(TopicReader):
-    """Private interface for retrieving topic data stored in MCAP files.
+    """Reader of topic data stored in MCAP files.
 
-    Uses HTTP Range requests to efficiently fetch only required chunks from remote
-    storage, avoiding full file downloads.
+    The SDK's own code uses it; to read topic data, use the ``get_data`` or ``get_data_as_df`` methods
+    of :py:class:`~roboto.domain.topics.Topic`, :py:class:`~roboto.domain.topics.MessagePath` or
+    :py:class:`~roboto.domain.events.Event` instead.
 
-    Note:
-        This is not intended as a public API.
-        To access topic data, prefer the ``get_data`` or ``get_data_as_df`` methods
-        on :py:class:`~roboto.domain.topics.Topic`, :py:class:`~roboto.domain.topics.MessagePath`,
-        or :py:class:`~roboto.domain.events.Event`.
+    Reads each file with HTTP range requests, so it downloads only the chunks that hold the requested messages
+    rather than the whole file.
+
+    Args:
+        roboto_client: Client to make requests to Roboto with, to fetch each file's signed URL from
+            ``v1/files/{file_id}/signed-url``. Ignored when ``signed_url_resolver`` is given.
+        signed_url_resolver: Callable that returns a signed download URL for a file ID. Takes precedence over
+            ``roboto_client``.
+
+    Raises:
+        ValueError: Neither ``roboto_client`` nor ``signed_url_resolver`` is given.
     """
 
     __signed_url_resolver: SignedUrlResolver
@@ -64,6 +81,10 @@ class McapTopicReader(TopicReader):
     def accepts(
         message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
     ) -> bool:
+        """Return whether every mapping's representation is stored as MCAP, and so whether this reader can read it.
+
+        An empty iterable returns ``True``.
+        """
         for mapping in message_paths_to_representations:
             if mapping.representation.storage_format != RepresentationStorageFormat.MCAP:
                 return False
@@ -74,17 +95,6 @@ class McapTopicReader(TopicReader):
         roboto_client: typing.Optional[RobotoClient] = None,
         signed_url_resolver: typing.Optional[SignedUrlResolver] = None,
     ):
-        """Initialize the MCAP topic reader.
-
-        Provide either a ``roboto_client`` (which will fetch signed URLs via the Roboto API)
-        or a ``signed_url_resolver`` that maps file IDs to signed download URLs directly.
-
-        Args:
-            roboto_client: Client for making Roboto API requests. Used to resolve signed URLs
-                via the ``v1/files/{file_id}/signed-url`` endpoint.
-            signed_url_resolver: A :class:`SignedUrlResolver` that returns a signed download URL
-                for a given file ID. Takes precedence over ``roboto_client``.
-        """
         if signed_url_resolver is not None:
             self.__signed_url_resolver = signed_url_resolver
         elif roboto_client is not None:
@@ -102,24 +112,27 @@ class McapTopicReader(TopicReader):
     ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
         """Yield ``(log_time, record)`` pairs from the mappings' MCAP files in log-time order.
 
-        Each record merges the projected fields of one message from every file whose next message has that log time.
+        Each record merges, from every file whose next message has that log time, that message's fields at the
+        requested message paths.
 
         Args:
-            message_paths_to_representations: The message paths to read.
-                Each :py:class:`MessagePathRepresentationMapping` pairs message paths
-                with the representation whose associated MCAP file stores them;
-                a mapping whose representation is not associated with a file is skipped.
-            start_time: Inclusive lower bound on message log time in nanoseconds, or ``None`` for unbounded.
-            end_time: Exclusive upper bound on message log time in nanoseconds, or ``None`` for unbounded.
-            timestamp_message_path_representation_mapping: Not read;
-                each row's timestamp is the log time of the messages it merges.
-            topic_name: Read only messages on MCAP channels of this topic, or on every channel when ``None``.
+            message_paths_to_representations: Message paths to read. Each
+                :py:class:`~roboto.domain.topics.MessagePathRepresentationMapping` pairs message paths with the
+                representation whose MCAP file stores them. A mapping whose representation does not belong to a file
+                is skipped with a logged warning.
+            start_time: Inclusive start of the log-time range, in nanoseconds. ``None`` leaves the range unbounded
+                below.
+            end_time: Exclusive end of the log-time range, in nanoseconds. ``None`` leaves the range unbounded above.
+            timestamp_message_path_representation_mapping: Ignored: each record's timestamp is the log time of the
+                messages it merges.
+            topic_name: Topic whose MCAP channels to read. ``None`` reads every channel.
 
         Yields:
-            The log time in nanoseconds and the merged record.
+            ``(log_time, record)`` tuples: the log time in nanoseconds and the merged record.
 
         Raises:
             RobotoInternalException: ``topic_name`` is given and a file's summary lists no channel on that topic.
+                It surfaces on the first iteration.
         """
         http_readers: list[HttpRangeReader] = []
         mcap_readers: list[McapReader] = []
@@ -183,6 +196,27 @@ class McapTopicReader(TopicReader):
         end_time: typing.Optional[int] = None,
         timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
     ) -> tuple[pandas.Series, pandas.DataFrame]:
+        """Fetch this reader's records as a series of log times and a data frame of records.
+
+        The records are the ones ``get_data`` yields.
+        Reads every channel of each file. Nested fields become columns with dot-delimited names, such as
+        ``pose.position.x``.
+
+        Args:
+            message_paths_to_representations: Message paths to read, as for ``get_data``.
+            start_time: Inclusive start of the log-time range, in nanoseconds. ``None`` leaves the range unbounded
+                below.
+            end_time: Exclusive end of the log-time range, in nanoseconds. ``None`` leaves the range unbounded above.
+            timestamp_message_path_representation_mapping: Ignored: each row's timestamp is the log time of the
+                messages it merges.
+
+        Returns:
+            ``(log_times, records)``: the log time of each row in nanoseconds and a data frame with one row per merged
+            record.
+
+        Raises:
+            ImportError: The ``roboto[analytics]`` extra is not installed.
+        """
         pd = import_optional_dependency("pandas", "analytics")
         timestamps = []
         data = []

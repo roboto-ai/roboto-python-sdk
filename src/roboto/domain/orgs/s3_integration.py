@@ -22,102 +22,139 @@ logger = default_logger()
 
 
 class S3BucketHealthCheck(pydantic.BaseModel):
-    """Summary of the most recent health check against an S3 bucket integration.
+    """Result of a health check, in which Roboto tests that it can reach an organization's S3 bucket.
 
-    Carries only a machine-readable classification and curated, non-sensitive copy: no identifiers
-    (bucket name, role ARN, account ID), no secrets, and no raw AWS error text. The identifiers a
-    reader needs live on the enclosing :class:`S3BucketIntegrationRecord`.
+    Holds no bucket name, role Amazon Resource Name (ARN), AWS account ID, secret, or AWS error message, so it is safe
+    to display; the record that carries it holds the bucket's identifiers. Carried in
+    ``S3BucketIntegrationRecord.last_health_check``.
     """
 
     reason_code: str
-    """Machine-readable result classification — a fixed token, e.g. ``ok`` or ``permission_denied``."""
+    """Classification of the result.
+
+    One of ``ok``, ``role_not_assumable``, ``permission_denied``, ``bucket_not_found``, ``region_mismatch``,
+    ``encryption_denied``, ``throttled`` or ``roboto_error``.
+    """
 
     aws_error_code: str | None = None
-    """AWS error code that drove the classification (e.g. ``AccessDenied``), if any — a fixed token,
-    never AWS's free-text message."""
+    """AWS error code behind the result, such as ``AccessDenied``, or ``None`` if no AWS error caused it."""
 
     message: str
-    """Curated, human-readable explanation, safe to display."""
+    """Human-readable explanation of the result, safe to display."""
 
     probes: dict[str, str] = pydantic.Field(default_factory=dict)
-    """Outcome per probe name (assume_role, list, put, …), each one of ``ok`` / ``denied`` / ``error`` / ``skipped``."""
+    """Outcome of each request Roboto tried, keyed by request.
+
+    The keys are ``assume_role``, ``location``, ``list``, ``put``, ``get`` and ``delete``. Each outcome is ``ok``,
+    ``denied``, ``error`` or ``skipped``. Roboto stops at the first request that fails and skips the rest, and on a
+    read-only bucket it skips ``put``, ``get`` and ``delete``.
+    """
 
 
 class S3BucketIntegrationRecord(pydantic.BaseModel):
-    """Record representing an S3 bucket integration with a Roboto organization."""
+    """Data record of an S3 bucket integration, as ``GET /v1/integrations/storage/s3/buckets`` returns it.
+
+    ``POST /v1/integrations/storage/s3/buckets/{bucket}/healthcheck`` also returns it, after checking the bucket.
+    An S3 bucket integration is an S3 bucket in a customer's own AWS account that an organization has registered
+    with Roboto, so that Roboto reads and stores the organization's files there.
+    """
 
     bucket_name: str
-    """Name of the integrated S3 bucket."""
+    """Name of the S3 bucket."""
 
     org_id: str
-    """Organization ID this bucket is associated with."""
+    """ID of the organization that registered the bucket."""
 
     aws_region: str
-    """AWS region where the S3 bucket is located."""
+    """AWS region the bucket is in, such as ``us-west-2``."""
 
     readonly: bool
     """Whether Roboto has read-only access to the bucket."""
 
     status: str
-    """Integration status: one of 'unverified', 'healthy', 'unhealthy', 'unknown'."""
+    """Result of the most recent health check.
+
+    One of ``healthy``, ``unhealthy`` when the check found a problem to fix, ``unknown`` when it reached no verdict,
+    such as when AWS throttled it, or ``unverified`` if the bucket has never been checked.
+    """
 
     created: datetime.datetime
-    """Timestamp when the integration was created."""
+    """Time the bucket was registered."""
 
     modified: datetime.datetime
-    """Timestamp when the integration was last modified."""
+    """Time the integration's configuration was last modified. Health checks do not change it."""
 
     status_last_updated: datetime.datetime | None = None
-    """Timestamp when ``status`` was last written, i.e. when the most recent health check ran."""
+    """Time ``status`` was last set.
+
+    This is when the most recent health check ran, or when the bucket was registered if it has never been checked.
+    """
 
     last_health_check: S3BucketHealthCheck | None = None
-    """Summary of the most recent health check, or ``None`` if the integration has never been checked."""
+    """Result of the most recent health check, or ``None`` if the bucket has never been checked."""
 
 
 class RegisterS3IntegrationRequest(pydantic.BaseModel):
-    """Request payload to integrate an S3 bucket with Roboto."""
+    """Request body for ``S3IntegrationService.register_bucket``."""
 
     account_id: str
-    """AWS account ID that owns the S3 bucket."""
+    """ID of the AWS account that owns the bucket."""
 
     aws_region: str
-    """AWS region where the S3 bucket is located."""
+    """AWS region the bucket is in, such as ``us-west-2``."""
 
     bucket_name: str
-    """Name of the S3 bucket to integrate."""
+    """Name of the S3 bucket to register."""
 
     org_id: str
-    """Organization ID to associate with this S3 integration."""
+    """ID of the organization to register the bucket with."""
 
     transfer_accelerated: bool = False
-    """Whether to enable S3 Transfer Acceleration for faster uploads."""
+    """Whether the bucket uses S3 Transfer Acceleration. Roboto records the value; it does not turn acceleration on."""
 
     readonly: bool = False
-    """Whether Roboto should have read-only access to the bucket."""
+    """Whether to grant Roboto read-only access to the bucket.
+
+    ``False`` grants read-write access and makes the bucket the organization's default bucket for new datasets' files.
+    Only a Roboto administrator can register a read-only bucket.
+    """
 
 
 class RegisterS3IntegrationResponse(pydantic.BaseModel):
-    """Response payload containing S3 integration setup instructions."""
+    """Response body of ``S3IntegrationService.register_bucket``.
+
+    Holds the IAM role and CORS rules that the bucket's AWS account needs before Roboto can reach the bucket;
+    ``register_bucket`` creates them.
+    """
 
     iam_role_name: str
-    """Name of the IAM role to create for Roboto access."""
+    """Name of the IAM role to create in the bucket's AWS account, which Roboto assumes to reach the bucket."""
 
     iam_role_policy: dict[str, typing.Any]
-    """IAM policy document to attach to the role."""
+    """Inline policy document to attach to the role, granting the S3 actions Roboto needs on the bucket."""
 
     iam_role_trust_relationship: dict[str, typing.Any]
-    """IAM trust policy document for the role."""
+    """Trust policy document for the role, which lets Roboto's AWS account assume it.
+
+    Roboto's account must present an external ID unique to this registration to assume the role.
+    """
 
     s3_bucket_cors_policy: list[dict[str, typing.Any]]
-    """CORS policy to apply to the S3 bucket."""
+    """CORS rules to set on the bucket, so that the Roboto web app can read and write the bucket's objects."""
 
 
 class S3IntegrationService:
-    """Service for integrating S3 buckets with Roboto organizations.
+    """Client that registers an S3 bucket in the caller's own AWS account with a Roboto organization.
 
-    This service handles the setup of cross-account IAM roles and S3 bucket
-    policies to allow Roboto to access customer S3 buckets for data storage
-    and processing.
+    Calls AWS with the caller's AWS credentials to grant Roboto access to the bucket. To register a bucket from the
+    command line, use ``roboto orgs register-bucket``.
+
+    Args:
+        roboto_client: Client to make requests to Roboto with.
+        sts_client: boto3 STS client to make AWS requests with. ``None`` creates one from the environment's AWS
+            credentials and configuration.
+        s3_client: boto3 S3 client to make AWS requests with. ``None`` creates one the same way.
+        iam_client: boto3 IAM client to make AWS requests with. ``None`` creates one the same way.
     """
 
     __roboto_client: RobotoClient
@@ -132,14 +169,6 @@ class S3IntegrationService:
         s3_client: typing.Optional[typing.Any] = None,
         iam_client: typing.Optional[typing.Any] = None,
     ):
-        """Initialize the S3 integration service.
-
-        Args:
-            roboto_client: Roboto client instance for API communication.
-            sts_client: Optional boto3 STS client. If not provided, creates a default client.
-            s3_client: Optional boto3 S3 client. If not provided, creates a default client.
-            iam_client: Optional boto3 IAM client. If not provided, creates a default client.
-        """
         self.__s3_client = s3_client or boto3.client("s3")
         self.__sts_client = sts_client or boto3.client("sts")
         self.__iam_client = iam_client or boto3.client("iam")
@@ -153,36 +182,54 @@ class S3IntegrationService:
         transfer_accelerated: bool = False,
         readonly: bool = False,
     ):
-        """Register an S3 bucket for use with a Roboto organization.
+        """Register an S3 bucket with an organization and grant Roboto access to it.
 
-        This method sets up the necessary IAM roles and S3 bucket policies to allow
-        Roboto to access the specified S3 bucket. The caller must have appropriate
-        AWS credentials with permissions to create IAM roles and modify S3 bucket policies.
+        Uses the environment's AWS credentials, which must belong to ``account_id`` and be allowed to create IAM roles
+        and set the bucket's CORS configuration. In order, it:
+
+        1. Checks that the credentials belong to ``account_id`` and that the account owns the bucket.
+        2. Registers the bucket with Roboto, which returns the IAM role and CORS rules Roboto needs.
+        3. Creates the IAM role in the account and attaches its inline policy.
+        4. Sets the bucket's CORS rules.
+
+        Only a member of the organization can call it, and only a Roboto administrator can register a read-only
+        bucket.
 
         Args:
-            org_id: Organization ID to associate with this S3 integration.
-            account_id: AWS account ID that owns the S3 bucket.
-            bucket_name: Name of the S3 bucket to integrate.
-            transfer_accelerated: Whether to enable S3 Transfer Acceleration.
-            readonly: Whether Roboto should have read-only access to the bucket.
+            org_id: ID of the organization to register the bucket with.
+            account_id: ID of the AWS account that owns the bucket.
+            bucket_name: Name of the S3 bucket to register.
+            transfer_accelerated: Whether the bucket uses S3 Transfer Acceleration. Roboto records the value; this
+                method does not turn acceleration on.
+            readonly: Whether to grant Roboto read-only access to the bucket. ``False`` grants read-write access and
+                makes the bucket the organization's default bucket for new datasets' files.
 
         Raises:
-            RobotoInvalidRequestException: AWS credentials are invalid or account ID mismatch.
-            ValueError: The specified bucket does not exist or is not owned by the account.
-            botocore.exceptions.ClientError: AWS API errors during setup.
+            RobotoInvalidRequestException: AWS cannot identify the credentials, or they belong to an account other
+                than ``account_id``.
+            ValueError: The account does not own a bucket named ``bucket_name``.
+            RobotoUnauthorizedException: The organization is not on the premium tier, or the caller is not allowed to
+                register the bucket.
+            RobotoConflictException: The organization has already registered the bucket.
+            botocore.exceptions.ClientError: An AWS request fails, such as when the credentials cannot create IAM roles
+                or a role with the same name already exists.
+
+        Note:
+            Step 4 replaces any CORS rules the bucket already has. If step 3 or 4 fails, the bucket stays registered
+            with Roboto, so calling this method again raises ``RobotoConflictException``.
 
         Examples:
             Register a bucket for read-write access:
 
-            >>> from roboto.domain.orgs import S3IntegrationService
             >>> from roboto import RobotoClient
-            >>> service = S3IntegrationService(RobotoClient())
-            >>> service.register_bucket(org_id="org_12345", account_id="123456789012", bucket_name="my-data-bucket")
+            >>> from roboto.domain.orgs.s3_integration import S3IntegrationService
+            >>> service = S3IntegrationService(RobotoClient.from_env())
+            >>> service.register_bucket(org_id="og_12345", account_id="123456789012", bucket_name="my-data-bucket")
 
             Register a bucket with read-only access:
 
             >>> service.register_bucket(
-            ...     org_id="org_12345", account_id="123456789012", bucket_name="my-readonly-bucket", readonly=True
+            ...     org_id="og_12345", account_id="123456789012", bucket_name="my-readonly-bucket", readonly=True
             ... )
         """
         logger.info("Checking that you have access to the specified account and bucket")
@@ -226,7 +273,7 @@ class S3IntegrationService:
 
         self.__iam_client.put_role_policy(
             RoleName=response.iam_role_name,
-            # Policy name limit is 128 characters, we'll cap at a couple characters short of that.
+            # IAM limits policy names to 128 characters; the 15-character prefix plus 110 of the bucket name fits.
             PolicyName=f"RobotoS3Access-{bucket_name[:110]}",
             PolicyDocument=json.dumps(response.iam_role_policy),
         )

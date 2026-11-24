@@ -12,6 +12,14 @@ from roboto.types import UserMetadata
 
 
 def field_serializer_user_metadata(value: dict[str, typing.Any]) -> UserMetadata:
+    """Serialize metadata values as strings, numbers and booleans, converting ``decimal.Decimal`` to ``float``.
+
+    Changes ``value`` in place and returns it.
+
+    Raises:
+        ValueError: A value's type is not exactly ``bool``, ``int``, ``float``, ``str`` or ``decimal.Decimal``. This
+            rejects ``None`` and subclasses, such as a ``str`` enum.
+    """
     for k, v in value.items():
         if type(v) in [bool, int, float, str]:
             continue
@@ -24,10 +32,9 @@ def field_serializer_user_metadata(value: dict[str, typing.Any]) -> UserMetadata
 
 
 def field_serializer_custom_field_values(value: dict[str, typing.Any]) -> dict[str, typing.Any]:
-    """Render a custom-field value map for JSON, spelling UTC as ``+00:00``.
+    """Serialize custom field values for JSON, writing each ``datetime`` with ``datetime.datetime.isoformat``.
 
-    Pydantic's own JSON encoding gives a UTC ``datetime`` a ``Z`` suffix, which
-    ``datetime.datetime.fromisoformat`` rejects before Python 3.11. This SDK supports
-    Python 3.10, where only the numeric offset ``datetime.isoformat`` emits parses.
+    ``isoformat`` writes UTC as ``+00:00``. Pydantic's JSON encoding writes it as ``Z``, which
+    ``datetime.datetime.fromisoformat`` rejects before Python 3.11, and the SDK supports Python 3.10.
     """
     return {k: v.isoformat() if isinstance(v, datetime.datetime) else v for k, v in value.items()}

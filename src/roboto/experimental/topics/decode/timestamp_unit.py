@@ -20,8 +20,9 @@ def plan_timestamp_unit(partition: ReadPlanPartition) -> typing.Optional[TimeUni
     """Return the unit the plan gives the partition's timestamp field, or ``None`` when it gives none.
 
     Raises:
-        RobotoReadPlanExecutionException: With kind ``unsupported-timestamp``, for a unit other than s, ms, us or ns,
-            which only a plan built without validation can hold.
+        RobotoReadPlanExecutionException: With kind
+            :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.UNSUPPORTED_TIMESTAMP`, when the unit is not a
+            :py:class:`~roboto.time.TimeUnit` value, which only a plan built without validation can hold.
     """
     unit = partition.timestamp.unit
     if unit is None:

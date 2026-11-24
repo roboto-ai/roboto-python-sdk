@@ -4,12 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Request bodies for the session endpoints, and what a caller declares about sessions in them.
-
-What the platform reports back is in :py:mod:`roboto.experimental.sessions.record`, and the types describing
-a file's contents, independent of any session, live in :py:mod:`roboto.experimental.ingest`.
-"""
-
 import typing
 
 import pydantic
@@ -31,16 +25,18 @@ from ..ingest.operations import (
 from .record import CompletionPolicy, SessionDevice, SessionIngestionSummary
 
 MAX_SESSIONS_PER_REQUEST = 100
-"""Cap on the number of sessions one request may declare on a device; split a larger batch across several
-calls.
+"""Maximum number of sessions one call to :py:meth:`~roboto.domain.devices.Device.create_sessions` may declare.
 
-:py:class:`CreateSessionsRequest` applies the cap when the request body is constructed, and the platform
-applies it again on arrival, so a body built by hand cannot exceed it either.
+Split a larger batch across several calls. ``CreateSessionsRequest`` applies the limit when the request body is built,
+and Roboto applies it again when the request arrives, so a body built by hand is held to it too.
 """
 
 
 class SessionAttributes(pydantic.BaseModel):
-    """Descriptive attributes a caller can set on a session, whichever call creates it."""
+    """Descriptive attributes of a session that a request creating the session can set.
+
+    ``CreateSessionRequest`` and ``SessionDeclaration`` take these fields.
+    """
 
     model_config = pydantic.ConfigDict(
         extra="ignore",
@@ -48,62 +44,72 @@ class SessionAttributes(pydantic.BaseModel):
     )
 
     description: typing.Optional[str] = None
-    """Optional description of the Session."""
+    """Human-readable description of the session."""
 
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Key-value metadata to associate with the Session.
+    """Key-value metadata to set on the session.
 
-    Sessions cannot be filtered or sorted by ``metadata`` keys;
-    for queryable structured attributes, define a custom field on the ``Session`` entity type.
+    Sessions cannot be filtered or sorted by metadata keys; to query sessions by an attribute, define a custom field for
+    sessions.
     """
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """Tags to associate with the Session."""
+    """Tags to set on the session."""
 
     custom_fields: typing.Optional[dict[str, typing.Any]] = None
-    """Initial values for Ready custom fields on this session.
+    """Initial values for the session's custom fields, keyed by field name. ``None`` sets none.
 
-    Each key must be the name of a :py:class:`~roboto.domain.custom_fields.CustomField`
-    that is :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` for the
-    caller's org and the :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session`
-    entity type; each value must satisfy the field's declared type. Names that are
-    undefined or not ``Ready``, and values that don't match the field's type, are
-    rejected with a structured error.
+    Each name must be a :py:class:`~roboto.domain.custom_fields.CustomField` defined for
+    :py:attr:`~roboto.domain.custom_fields.TargetEntityType.Session` in the organization the session is created in,
+    with status :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+    field's declared type. Otherwise Roboto refuses the session with ``RobotoIllegalArgumentException``.
     """
 
     completion_policy: typing.Optional[typing.Union[CompletionPolicy, NotSetType]] = NotSet
-    """When Roboto marks the session complete on its own. Omit it to use the org's default completion
-    policy, if the org has one. ``None``: the session is marked complete only by request, whatever the
-    org's default."""
+    """When Roboto marks the session complete on its own.
+
+    Left unset (``NotSet``), the session takes its organization's default completion policy, if the organization has
+    one. ``None`` means Roboto marks the session complete only when asked to, by
+    :py:meth:`~roboto.experimental.sessions.Session.complete`, whatever the organization's default.
+    """
 
 
 class CreateSessionRequest(SessionAttributes):
-    """Request body for ``POST /v1/sessions``.
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.create`.
 
-    Creates a new session with zero, one, or many devices attached as subjects.
+    Every request creates a new session, with zero or more devices attached. A ``name`` longer than 120 characters
+    raises ``pydantic.ValidationError``.
     """
 
     name: typing.Optional[str] = pydantic.Field(default=None, max_length=120)
-    """Optional short name for the Session (max 120 characters)."""
+    """Human-readable name of the session, at most 120 characters. ``None`` leaves the session unnamed."""
 
     device_ids: list[str] = pydantic.Field(default_factory=list)
-    """Devices to attach to the Session as subjects; empty creates a Session with no devices."""
+    """IDs of the devices to attach to the session. Defaults to none."""
 
 
 class CreateSessionIfNotExistsRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/sessions/create_if_not_exists``."""
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.create_if_not_exists`.
+
+    Roboto creates the session only when no session matches a RoboQL query. That method describes how several matches
+    and concurrent requests are resolved.
+    """
 
     match_roboql_query: str
-    """RoboQL query over sessions. The first matching session is returned instead of creating one."""
+    """RoboQL query that looks for an existing session in the organization.
+
+    When sessions match, the response is the first of them and nothing is created.
+    """
 
     create_request: CreateSessionRequest
-    """The session to create when none matches."""
+    """Properties of the session to create when no session matches ``match_roboql_query``."""
 
 
 class SessionUpdate(pydantic.BaseModel):
-    """Partial update for a session.
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.update`.
 
-    Fields left at ``NotSet`` are not modified.
+    A field left at its default (``NotSet`` or ``None``) is unchanged. A ``name`` longer than 120 characters raises
+    ``pydantic.ValidationError``.
     """
 
     model_config = pydantic.ConfigDict(
@@ -112,111 +118,120 @@ class SessionUpdate(pydantic.BaseModel):
     )
 
     description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
-    """New description for the Session. Set to ``None`` to clear the description."""
+    """Human-readable description of the session. ``None`` clears it."""
 
     metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
-    """Tag and metadata changes to merge into the Session (add, update, or remove fields and tags)."""
+    """Changes to the session's tags and metadata."""
 
     name: typing.Optional[
         typing.Union[typing.Annotated[str, pydantic.StringConstraints(max_length=120)], NotSetType]
     ] = NotSet
-    """New name for the Session (max 120 characters). Set to ``None`` to clear the name."""
+    """Human-readable name of the session, at most 120 characters. ``None`` clears it."""
 
     custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None
-    """Changes to apply to Ready custom-field values on this session.
+    """Changes to the session's custom-field values.
 
-    Each referenced field name must be a
-    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom field
-    for this session's org and the
-    :py:class:`~roboto.domain.custom_fields.TargetEntityType.Session` entity type;
-    each ``set_fields`` value must satisfy the field's declared type. Names that
-    are undefined or not ``Ready`` are rejected with a structured error. Field
-    names not mentioned by the changeset are left unchanged.
+    Each field name the changeset references must be a custom field defined for
+    :py:attr:`~roboto.domain.custom_fields.TargetEntityType.Session` in the session's organization, with status
+    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each ``set_fields`` value must match that
+    field's declared type. Otherwise the request fails with ``RobotoIllegalArgumentException``. Fields the changeset
+    does not name are unchanged.
     """
 
     completion_policy: typing.Optional[typing.Union[CompletionPolicy, NotSetType]] = NotSet
-    """New completion policy for the Session. ``None`` removes it, so the Session is marked complete only by
-    request.
+    """Completion policy of the session.
 
-    On a Session in progress that has files, setting a policy restarts its inactivity: Roboto marks the
-    Session complete ``inactivity_minutes`` from now, unless a file is added first. A complete Session
-    stays complete; the policy applies after a file is added to it, which puts it back in progress.
+    ``None`` removes it, so Roboto marks the session complete only when asked to, by
+    :py:meth:`~roboto.experimental.sessions.Session.complete`.
+
+    On a session in progress that has files, setting a policy restarts its inactivity: Roboto marks the session
+    complete :py:attr:`~roboto.experimental.sessions.CompletionPolicy.inactivity_minutes` from now, unless a file is
+    added first. A complete session stays complete; the policy applies once a file is added to it, which puts it back
+    in progress.
     """
 
 
 class AttachToDeviceRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/sessions/id/<session_id>/devices``.
-
-    Attaches a device as a subject of the session.
-    """
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.attach_to_device`."""
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     device_id: str
+    """ID of the device to attach to the session."""
 
 
 class FileDeclaration(pydantic.BaseModel):
-    """One already-uploaded file and the topic data it carries.
+    """Declaration of one uploaded file and the topic data it carries, independent of any session.
 
-    Everything here is true of the file and its recording whether or not any session ever names it, which is
-    why :py:meth:`~roboto.domain.files.File.declare_topics` can state the same facts without naming a
-    session. :py:class:`SessionFile` adds the one fact only a session can state: the window of the file's
-    data that session holds.
+    ``SessionFile`` builds on it to state the file's place in a session. Every field here states a fact about the file
+    and its recording that holds whichever session, if any, names the file, which is why
+    :py:meth:`~roboto.domain.files.File.declare_topics` can state the same facts without naming a session.
 
-    A file may contribute to any number of topics (a LeRobot parquet file typically carries several as
-    columns of the same rows); declare them all on the one declaration for that file.
+    A file can carry data for any number of topics (a LeRobot parquet file usually carries several, as columns of the
+    same rows); declare all of them on the file's one declaration.
 
     Data range (``data_range``):
 
-    * Use when one file is shared by several sessions and its own timestamps cannot tell the shared parts
-      apart (for example, a LeRobot v3 data file, whose episodes each restart their timestamp column at 0).
-      When they can tell them apart, name the slice by time instead, with the time window on
-      :py:class:`SessionFile`.
-    * ``(start, end)``: ``start`` is the first covered position; ``end`` is one past the last. Values are in
-      the file's own units: stored-row positions (counted from 0), or nanoseconds of
-      media time for video.
+    * Use one when several sessions share a file and the file's own timestamps cannot tell their parts apart, such as
+      a LeRobot v3 data file, whose episodes each restart their timestamp column at 0. When the timestamps can tell
+      the parts apart, state each part by time instead, with the time window on ``SessionFile``.
+    * ``(start, end)``: ``start`` is the first position covered and ``end`` is one past the last. Positions are in the
+      file's own units: stored-row positions counted from 0, or nanoseconds of media time for video.
     * Leaving it unset covers the whole file.
-    * Each topic's data in a file is stored as one or more partitions, and a topic declared over a range is
-      registered as a partition over that range. Reading it returns only the positions in that range: a
-      topic declared over ``(8, 20)`` of a 20-row file reads back 12 rows, not the file's 20.
-    * Inside a session the range also decides which of the file's partitions the session admits; see
-      :py:class:`SessionFile`.
+    * Roboto stores each topic's data in a file as one or more partitions, and registers a topic declared over a range
+      as a partition over that range. Reading the topic returns only the positions in that range: a topic declared
+      over ``(8, 20)`` of a 20-row file reads back 12 rows, not 20.
+    * Inside a session, the range also decides which of the file's partitions the session includes; see
+      ``SessionFile``.
+
+    Building it raises ``pydantic.ValidationError`` when:
+
+    * ``file_id`` is empty.
+    * ``anchor_ns`` does not fall after the Unix epoch, is larger than ``2**63 - 1``, or is a value
+      :py:func:`~roboto.time.to_epoch_nanoseconds` refuses.
+    * ``topics`` declares one topic twice over the same part of the file.
+    * A topic's ``data_range`` reaches outside this declaration's ``data_range``.
     """
 
     model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
     file_id: str = pydantic.Field(min_length=1)
-    """Identifier of the already-uploaded file this declaration describes."""
+    """ID of the uploaded file this declaration describes."""
 
     data_range: typing.Optional[DataRange] = None
-    """The slice of the file this declaration describes, or ``None`` for the whole file."""
+    """Part of the file this declaration describes, as ``(start, end)``, or ``None`` for the whole file."""
 
     anchor_ns: typing.Optional[_EpochNanosecondsFromTime] = pydantic.Field(default=None, gt=0, le=INT64_MAX)
-    """Optional wall-clock anchor for the data this declaration names: the real-world time, in nanoseconds
-    since the Unix epoch, at which that data's time 0 occurred. It covers exactly what the declaration names,
-    the slice named by :py:attr:`data_range` or the whole file when none is named, so a file holding several
-    slices can give each of them the instant it happened. Must fall after the Unix epoch, and be small enough
-    to fit in the signed 64-bit integer the platform stores it in. Also accepts any
-    :py:data:`roboto.time.Time` at runtime, converted as :py:func:`roboto.time.to_epoch_nanoseconds` converts
-    it: an ``int`` is nanoseconds, a ``float``, ``Decimal``, or numeric string is seconds, and a ``datetime``
-    or ISO 8601 string is that instant. The field is typed ``int``, so convert with that function first to
-    satisfy a type checker. When omitted on a declaration inside a
-    :py:class:`SessionDeclaration`, the declaration takes that session's
-    :py:attr:`~SessionDeclaration.anchor_ns` if one is set: ``None`` means "inherit", not "no anchor", so a
-    declaration cannot opt out of a session-level anchor. With no anchor from either level, the data this
-    declaration names keeps the anchor it already carries from an earlier declaration, and keeps an offset of
-    0 when it carries none: its timestamps read exactly as declared. Nothing is inherited across slices: a
-    slice with no anchor of its own never takes on a neighbor's instant, however the file's other slices are
-    anchored."""
+    """Wall-clock time at which time 0 of the data this declaration names occurred, in nanoseconds since the Unix epoch.
+
+    The anchor covers exactly what the declaration names: the part of the file ``data_range`` names, or the whole file
+    when it names none, so a file holding several parts can give each the instant it happened.
+
+    It must fall after the Unix epoch and be at most ``2**63 - 1`` (:py:const:`~roboto.int64.INT64_MAX`). Any
+    :py:const:`~roboto.time.Time` is also accepted, converted as :py:func:`~roboto.time.to_epoch_nanoseconds` converts
+    it: an ``int`` is nanoseconds, a ``float``, ``decimal.Decimal``, or numeric string is seconds, and a
+    ``datetime.datetime`` or ISO 8601 string is that instant. The field is typed ``int``, so convert with that function
+    first to satisfy a type checker.
+
+    ``None`` takes an anchor from elsewhere rather than removing one:
+
+    * Inside a ``SessionDeclaration``, the declaration takes that session's ``anchor_ns`` when one is set, and cannot
+      opt out of it.
+    * With no anchor at either level, the data keeps the anchor an earlier declaration gave it, or an offset of 0 when
+      it has none, so its timestamps read exactly as declared.
+    * Nothing is inherited across parts of a file: a part with no anchor of its own never takes another part's
+      instant.
+    """
 
     topics: list[TopicDeclaration] = pydantic.Field(default_factory=list)
-    """Topics this file contributes data to, each over the part of the file that carries it. Every topic
-    sits inside the slice this declaration names: one declaring no
-    :py:attr:`~roboto.experimental.ingest.TopicDeclaration.data_range` of its own covers all of it, and one
-    declaring a range must sit within it. A topic and the slice it names identify one partition of the file,
-    so each is declared at most once here. A topic's data is read from the files the topic lists in
-    :py:attr:`~roboto.experimental.ingest.TopicDeclaration.representations`, and from this file only when the
-    topic lists it there."""
+    """Topics this file carries data for, each over the part of the file that holds it.
+
+    A topic with no :py:attr:`~roboto.experimental.ingest.TopicDeclaration.data_range` of its own covers everything
+    this declaration names, and one with a range must stay within this declaration's ``data_range``. A topic and its
+    range identify one partition of the file, so each pair appears at most once. Roboto reads a topic's data from the
+    files listed in its :py:attr:`~roboto.experimental.ingest.TopicDeclaration.representations`, and from this file
+    only when it is listed there.
+    """
 
     @pydantic.model_validator(mode="after")
     def _check_declared_topics(self) -> "FileDeclaration":
@@ -231,8 +246,8 @@ class FileDeclaration(pydantic.BaseModel):
                 )
             declared_topic_slices.add(topic_slice)
 
-            # A topic naming no range of its own covers whatever this declaration names, and a declaration
-            # naming no slice names the whole file; either way the topic cannot reach outside it.
+            # A topic with no range covers whatever this declaration names, and a declaration with no range names
+            # the whole file; either way the topic stays inside it.
             if topic.data_range is None or self.data_range is None:
                 continue
             if topic.data_range[0] < self.data_range[0] or topic.data_range[1] > self.data_range[1]:
@@ -245,63 +260,66 @@ class FileDeclaration(pydantic.BaseModel):
 
 
 class SessionFile(FileDeclaration):
-    """One already-uploaded file that belongs to a session, and the topic data it carries.
+    """One uploaded file in a session, with the topic data it carries and the window of that data the session holds.
 
-    Adds to :py:class:`FileDeclaration` the window of the file's data this session holds. Everything else
-    the entry states is true of the file whichever session, if any, names it.
+    It adds the time window to ``FileDeclaration``; everything else it states holds whichever session, if any, names
+    the file. The same entry states a file's place in a session however the session is built: inside a
+    ``SessionDeclaration`` that creates the session with its files, or passed to
+    :py:meth:`~roboto.experimental.sessions.Session.add_files` afterwards. An entry with no topics attaches the file
+    without registering topic data; its topics can be declared later, with this entry again or with
+    :py:meth:`~roboto.domain.files.File.declare_topics`.
 
-    The same entry states a file's place in a session however that session is composed: inside a
-    :py:class:`SessionDeclaration` that creates the session whole, or handed to
-    :py:meth:`~roboto.experimental.sessions.Session.add_files` afterwards. An entry with no topics attaches
-    the file without registering topic data; topics can be declared for the same file later, through this
-    entry again or through :py:meth:`~roboto.domain.files.File.declare_topics`.
-
-    A topic listed here takes its anchor from this entry's :py:attr:`~FileDeclaration.anchor_ns`, which
-    anchors everything the entry declares. A :py:class:`~roboto.experimental.ingest.FileTopicDeclaration`
-    carrying an ``anchor_ns`` of its own is rejected here; state that anchor on the entry instead.
+    Topics listed here take their anchor from this entry's ``anchor_ns``, which anchors everything the entry declares.
+    State the anchor there, not on a :py:class:`~roboto.experimental.ingest.FileTopicDeclaration`.
 
     Time window (``min_file_timestamp_ns`` and ``max_file_timestamp_ns``):
 
-    * Values are nanoseconds as the file's own data carries them, measured the same way as the
-      ``min_file_timestamp_ns`` a timeline source such as
-      :py:class:`~roboto.experimental.ingest.SchemaFieldSource` declares. A slice of a shared file whose
-      timestamp column restarts at 0 states bounds from 0.
-    * Set both or set neither; a window with only one bound is rejected. The window is the closed interval
-      ``[min_file_timestamp_ns, max_file_timestamp_ns]``, both endpoints included.
-    * The window this entry gives the session is the smallest one enclosing these bounds and the bounds of
-      every timeline source its topics declare. State them when the file's topics are not declared here, or
-      when what belongs to the session runs past the declared topic data. Leave both unset for a window
-      spanning whatever the entry's topic data spans, or, on an entry declaring no topics, the file's whole
-      window.
-    * The anchor covering this entry is added to the stored window, so re-anchoring the file moves the window
-      along with the data it names. The bounds may be negative, but with the anchor added the window must lie
-      between the Unix epoch and the largest storable Unix-epoch nanosecond value (``2**63 - 1``). The platform
-      refuses an entry whose window would fall outside that span, an entry whose anchor would move a window
-      another session declared over the same data outside it, and a later re-anchoring that would move this
-      window outside it. The platform reports the window back in wall clock, on
-      :py:attr:`~roboto.experimental.sessions.SessionFileView.min_wall_clock_timestamp_ns` and
+    * Values are nanoseconds as the file's own data carries them, measured as a timeline source such as
+      :py:class:`~roboto.experimental.ingest.SchemaFieldSource` measures its ``min_file_timestamp_ns``. A part of a
+      shared file whose timestamp column restarts at 0 states bounds from 0.
+    * Set both or neither. The window is the closed interval ``[min_file_timestamp_ns, max_file_timestamp_ns]``.
+    * The window the entry gives the session is the smallest one enclosing these bounds and the bounds of every
+      timeline source its topics declare. State the bounds when the file's topics are not declared here, or when the
+      session's part of the file runs past the declared topic data. Leave both unset for a window spanning the entry's
+      topic data, or, on an entry declaring no topics, the whole file.
+    * Roboto adds the anchor covering this entry to the stored window, so re-anchoring the file moves the window with
+      its data. The bounds may be negative, but with the anchor added the window must lie between the Unix epoch and
+      ``2**63 - 1`` nanoseconds after it (:py:const:`~roboto.int64.INT64_MAX`). Roboto refuses an entry whose window
+      would fall outside that span, an entry whose anchor would move another session's window over the same data
+      outside it, and a later re-anchoring that would move this window outside it. Roboto reports the window in
+      wall-clock time, as :py:attr:`~roboto.experimental.sessions.SessionFileView.min_wall_clock_timestamp_ns` and
       :py:attr:`~roboto.experimental.sessions.SessionFileView.max_wall_clock_timestamp_ns`.
-    * Several sessions can share one file, each stating its own window. A session takes on the file's data
-      that overlaps its window, and its own time bounds span the windows of all the files it holds; a read
-      scoped to the session covers those bounds unless it names a window of its own.
-    * The window this entry gives the session also trims a read of this file. A read scoped to this
-      session returns only the rows of the file inside that window, however wide a window the read itself
-      names, so a session holding part of a shared file reads back that part and not the whole file.
+    * Several sessions can share one file, each stating its own window. A session holds the file's data that overlaps
+      its window, and the session's own time bounds span the windows of all its files. A read scoped to the session
+      covers those bounds unless it names a window of its own.
+    * A read scoped to the session returns only the rows of this file inside the window, however wide a window the
+      read names, so a session holding part of a shared file reads back that part alone.
 
     Data range (``data_range``) inside a session:
 
-    * The range decides which of the file's partitions this session admits. It admits a partition only
-      when every one of its positions sits inside it; a partition reaching past either end is left out
-      whole, never trimmed.
-    * A range that cuts through a partition the file has already registered is refused by the platform
-      rather than accepted to admit nothing of that partition.
+    * The session includes one of the file's partitions only when every position of the partition lies inside the
+      range; a partition reaching past either end is left out whole, never trimmed.
+    * Roboto refuses a range that cuts through a partition the file already has, rather than accepting it and
+      including nothing of that partition.
+
+    Building it raises ``pydantic.ValidationError`` in the cases ``FileDeclaration`` lists, and when:
+
+    * Only one of ``min_file_timestamp_ns`` and ``max_file_timestamp_ns`` is set, or ``min_file_timestamp_ns`` is
+      greater than ``max_file_timestamp_ns``.
+    * A bound does not fit in a signed 64-bit integer.
+    * A topic is a ``FileTopicDeclaration`` with its own ``anchor_ns``.
+    * The input has a ``range_min_timestamp_ns`` or ``range_max_timestamp_ns`` key. Those keys state a window in
+      nanoseconds since the Unix epoch; this entry takes its window in the file's own timestamps.
     """
 
     min_file_timestamp_ns: typing.Optional[_FileWindowBoundNs] = None
-    """Lower bound of the time window this entry states, in the file's own timestamps."""
+    """Inclusive start of the time window, in nanoseconds of the file's own timestamps.
+
+    ``None``, with ``max_file_timestamp_ns`` also ``None``, spans the entry's topic data.
+    """
 
     max_file_timestamp_ns: typing.Optional[_FileWindowBoundNs] = None
-    """Upper bound of the time window this entry states, in the file's own timestamps."""
+    """Inclusive end of the time window, in the same form. ``None`` only together with ``min_file_timestamp_ns``."""
 
     @pydantic.model_validator(mode="after")
     def _check_window(self) -> "SessionFile":
@@ -318,9 +336,9 @@ class SessionFile(FileDeclaration):
     @pydantic.model_validator(mode="after")
     def _check_topics_state_no_anchor(self) -> "SessionFile":
         for topic in self.topics:
-            # FileTopicDeclaration subclasses TopicDeclaration, so a topic built for File.declare_topics
-            # can be handed to a session entry. Serializing this list under its declared TopicDeclaration
-            # type would drop the anchor that topic carries, silently ignoring what the caller asked for.
+            # FileTopicDeclaration subclasses TopicDeclaration, so a topic built for File.declare_topics can be
+            # passed to a session entry. Serializing this list as TopicDeclaration would drop that topic's anchor
+            # without an error.
             if isinstance(topic, FileTopicDeclaration) and topic.anchor_ns is not None:
                 raise ValueError(
                     f"topic {topic.topic_name!r} carries an anchor_ns; inside a session entry this entry's "
@@ -331,8 +349,8 @@ class SessionFile(FileDeclaration):
     @pydantic.model_validator(mode="before")
     @classmethod
     def _refuse_epoch_window_keys(cls, data: typing.Any) -> typing.Any:
-        # These keys state a window in Unix epoch nanoseconds, which this entry does not take. Ignored like
-        # other unknown keys, they would attach the file over its whole span with no error.
+        # These keys state a window in Unix epoch nanoseconds, which this entry does not take. Ignored like other
+        # unknown keys, they would attach the file over its whole span with no error.
         if isinstance(data, dict) and ("range_min_timestamp_ns" in data or "range_max_timestamp_ns" in data):
             raise ValueError(
                 "range_min_timestamp_ns and range_max_timestamp_ns are not accepted; state the window as "
@@ -343,15 +361,15 @@ class SessionFile(FileDeclaration):
 
 
 def _count_files_and_topics(entries: list[SessionFile]) -> int:
-    """How many files and topics a set of entries declares, which is what the per-request cap bounds."""
+    """Count the files and topics the entries declare, which ``MAX_FILES_AND_TOPICS_PER_REQUEST`` bounds."""
     return len(entries) + sum(len(entry.topics) for entry in entries)
 
 
 def _reject_repeated_file_ids(entries: list[SessionFile]) -> None:
-    """Raise when two entries name the same file, which would contradict each other about what it carries.
+    """Reject entries that name the same file twice, which would contradict each other about what it carries.
 
     Args:
-        entries: The entries to check, in the order the caller stated them.
+        entries: Entries to check.
 
     Raises:
         ValueError: Two entries name the same file.
@@ -367,18 +385,20 @@ def _reject_repeated_file_ids(entries: list[SessionFile]) -> None:
 
 
 class AddFilesRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/sessions/id/<session_id>/files``.
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.add_files`.
 
-    Adds one or more files to the session, each with whatever topic data it carries, and reports what became of
-    each entry. The platform decides every refusal before writing anything, so an entry it refuses leaves the
-    others added, and a failure it did not anticipate adds none of them.
+    Building it raises ``pydantic.ValidationError`` when:
+
+    * ``files`` is empty, or its entries and their topics number more than 500 together
+      (:py:const:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST`).
+    * Two entries name the same file.
+    * Representations name one file in two storage formats.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     files: list[SessionFile] = pydantic.Field(min_length=1, max_length=MAX_FILES_AND_TOPICS_PER_REQUEST)
-    """Files to include, each appearing exactly once and listing all of its topics. The entries and the
-    topics on them count together toward ``MAX_FILES_AND_TOPICS_PER_REQUEST``."""
+    """Files to add to the session, each appearing once and listing all of its topics."""
 
     @pydantic.model_validator(mode="after")
     def _validate_declared_files(self) -> "AddFilesRequest":
@@ -397,35 +417,39 @@ class AddFilesRequest(pydantic.BaseModel):
 
 
 class DetachFromDeviceRequest(pydantic.BaseModel):
-    """Request body for ``DELETE /v1/sessions/id/<session_id>/devices``.
-
-    Detaches a device from the session; the session itself is not deleted.
-    """
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.detach_from_device`."""
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     device_id: str
+    """ID of the device to detach from the session."""
 
 
 class SkipWaitingRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/sessions/id/<session_id>/ingestion/skip``."""
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.skip_waiting_for`.
+
+    Building it raises ``pydantic.ValidationError`` when ``file_ids`` is empty or names more than 1,000 files.
+    """
 
     file_ids: list[str] = pydantic.Field(min_length=1, max_length=1000)
-    """Member files the session stops waiting for. Files not in the session are reported back, not skipped."""
+    """IDs of the session's files to stop waiting for.
+
+    A file not in the session is listed in :py:attr:`~roboto.experimental.sessions.SkipWaitingResponse.not_in_session`
+    and nothing is skipped for it.
+    """
 
 
 class RemoveFilesRequest(pydantic.BaseModel):
-    """Request body for ``DELETE /v1/sessions/id/<session_id>/files``.
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.remove_files`.
 
-    Removes the listed files from the session and reports what became of each: a file the session does not
-    hold is reported as its own entry rather than failing the call, and a failure the platform did not
-    anticipate removes none of them.
+    Building it raises ``pydantic.ValidationError`` when ``file_ids`` is empty, names more than 500 files
+    (:py:const:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST`), or names a file more than once.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     file_ids: list[str] = pydantic.Field(min_length=1, max_length=MAX_FILES_AND_TOPICS_PER_REQUEST)
-    """Files to remove, each named at most once."""
+    """IDs of the files to remove from the session, each named once."""
 
     @pydantic.model_validator(mode="after")
     def _validate_unique_file_ids(self) -> "RemoveFilesRequest":
@@ -438,22 +462,23 @@ class RemoveFilesRequest(pydantic.BaseModel):
 
 
 class SetUnixOffsetRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/sessions/id/<session_id>/unix-offset``.
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.set_unix_offset`.
 
-    Anchors the session's data to wall-clock time. See
-    :py:meth:`~roboto.experimental.sessions.Session.set_unix_offset` for the write's reach and its
-    interaction with anchors already on the data.
+    That method describes which data the anchor reaches and how it replaces anchors already on the data. Building it
+    raises ``pydantic.ValidationError`` when ``unix_epoch_offset_ns`` does not fall after the Unix epoch, is larger
+    than ``2**63 - 1``, or is a value :py:func:`~roboto.time.to_epoch_nanoseconds` refuses.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     unix_epoch_offset_ns: _EpochNanosecondsFromTime
-    """Wall-clock instant of stored time 0, in nanoseconds since the Unix epoch.
-    Must fall after the Unix epoch, and must fit in the signed 64-bit integer the platform stores it in.
-    Also accepts any :py:data:`roboto.time.Time` at runtime, converted as
-    :py:func:`roboto.time.to_epoch_nanoseconds` converts it: an ``int`` is nanoseconds, a ``float``,
-    ``Decimal``, or numeric string is seconds, and a ``datetime`` or ISO 8601 string is that instant. The
-    field is typed ``int``, so convert with that function first to satisfy a type checker."""
+    """Wall-clock time of stored time 0, in nanoseconds since the Unix epoch.
+
+    Any :py:const:`~roboto.time.Time` is also accepted, converted as :py:func:`~roboto.time.to_epoch_nanoseconds`
+    converts it: an ``int`` is nanoseconds, a ``float``, ``decimal.Decimal``, or numeric string is seconds, and a
+    ``datetime.datetime`` or ISO 8601 string is that instant. The field is typed ``int``, so convert with that function
+    first to satisfy a type checker.
+    """
 
     @pydantic.field_validator("unix_epoch_offset_ns")
     @classmethod
@@ -469,29 +494,41 @@ class SetUnixOffsetRequest(pydantic.BaseModel):
 
 
 class SessionDeclaration(SessionAttributes):
-    """One session to create on a device, with the files composing it.
+    """Declaration of one session to create on a device, with the files that make it up.
 
-    Handed, one per session, to :py:meth:`~roboto.domain.devices.Device.create_sessions`.
-    :py:meth:`~roboto.domain.devices.Device.create_session` builds one from its arguments for the
-    single-session case.
+    Pass a list of them to :py:meth:`~roboto.domain.devices.Device.create_sessions`;
+    :py:meth:`~roboto.domain.devices.Device.create_session` builds one from its arguments.
+
+    Building it raises ``pydantic.ValidationError`` when:
+
+    * ``name`` is empty or longer than 120 characters.
+    * ``anchor_ns`` does not fall after the Unix epoch, is larger than ``2**63 - 1``, or is a value
+      :py:func:`~roboto.time.to_epoch_nanoseconds` refuses.
+    * Two entries in ``files`` name the same file.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     name: str = pydantic.Field(min_length=1, max_length=120)
-    """Name of the session (max 120 characters), unique within the device: retrying a batch converges on the
-    existing session with this name instead of creating a duplicate."""
+    """Human-readable name of the session, from 1 to 120 characters, unique within the device.
+
+    The name identifies the session the declaration creates or reuses, so resending a batch reuses the session already
+    under this name instead of creating a second one.
+    """
 
     anchor_ns: typing.Optional[_EpochNanosecondsFromTime] = pydantic.Field(default=None, gt=0, le=INT64_MAX)
-    """Optional wall-clock anchor applied to every entry in this session that does not carry its own
-    :py:attr:`FileDeclaration.anchor_ns`; each such entry then anchors the data it declares, which is its
-    slice of the file when it names one. Takes the same values as :py:attr:`FileDeclaration.anchor_ns`, which
-    states the range and the forms it accepts, what an anchor covers, and what an entry's data does when
-    neither level states one."""
+    """Wall-clock time at which time 0 of the session's data occurred, for every entry that states no anchor of its own.
+
+    Each such entry then anchors the data it declares, which is its part of the file when it names one. It takes the
+    same values as ``FileDeclaration.anchor_ns``, which says which values it accepts, what an anchor covers, and what an
+    entry's data does when neither level states one. ``None`` leaves each entry to its own ``anchor_ns``.
+    """
 
     files: list[SessionFile] = pydantic.Field(default_factory=list)
-    """Files (and the topics they contribute to) composing this session. Each file appears exactly once,
-    listing all of its topics."""
+    """Files that make up the session, with the topics each carries data for. Defaults to none.
+
+    Each file appears once, listing all of its topics.
+    """
 
     @pydantic.model_validator(mode="after")
     def _validate_declared_files(self) -> "SessionDeclaration":
@@ -500,23 +537,24 @@ class SessionDeclaration(SessionAttributes):
 
 
 class CreateSessionsRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/devices/id/<device_id>/sessions``.
+    """Request body for :py:meth:`~roboto.domain.devices.Device.create_sessions`.
 
-    Creates up to ``MAX_SESSIONS_PER_REQUEST`` sessions on one device, each with its files, topics, and
-    schemas, in a single call; the platform additionally rejects batches declaring more than
-    ``MAX_FILES_AND_TOPICS_PER_REQUEST`` files and topics combined, counted across all sessions.
+    That method describes what a declaration writes, what a refused one leaves behind, and what resending the same batch
+    does.
 
-    A malformed batch is rejected whole, before anything is written. Past that point the platform decides
-    every declaration's refusal before writing anything, writes the others together, and answers with one
-    element per declaration, in the order they were declared; see
-    :py:meth:`~roboto.domain.devices.Device.create_sessions` for what a declaration writes, what a refused one
-    leaves behind, and what a resend of the same batch does.
+    Building it raises ``pydantic.ValidationError`` when:
+
+    * ``sessions`` is empty or holds more than 100 declarations (``MAX_SESSIONS_PER_REQUEST``).
+    * The declarations name more than 500 files and topics together
+      (:py:const:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST`).
+    * Two declarations have the same ``name``.
+    * Representations name one file in two storage formats.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     sessions: list[SessionDeclaration] = pydantic.Field(min_length=1, max_length=MAX_SESSIONS_PER_REQUEST)
-    """Sessions to create, between 1 and ``MAX_SESSIONS_PER_REQUEST`` per request."""
+    """Sessions to create, one declaration each."""
 
     @pydantic.model_validator(mode="after")
     def _validate_declared_sessions(self) -> "CreateSessionsRequest":
@@ -547,37 +585,53 @@ class CreateSessionsRequest(pydantic.BaseModel):
 
 
 MAX_INGESTION_SUMMARIES = 100
-"""Most sessions one ``POST /v1/sessions/ingestion/summaries`` takes."""
+"""Maximum number of sessions one request to ``POST /v1/sessions/ingestion/summaries`` may name.
+
+:py:meth:`~roboto.experimental.sessions.Session.ingestion_summaries` splits a longer list across several requests.
+"""
 
 
 class SessionIngestionSummariesRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/sessions/ingestion/summaries``."""
+    """Request body for :py:meth:`~roboto.experimental.sessions.Session.ingestion_summaries`.
+
+    Building it raises ``pydantic.ValidationError`` when ``session_ids`` is empty or names more than 100 sessions
+    (``MAX_INGESTION_SUMMARIES``).
+    """
 
     session_ids: list[str] = pydantic.Field(min_length=1, max_length=MAX_INGESTION_SUMMARIES)
-    """Sessions to summarize, at most :py:data:`MAX_INGESTION_SUMMARIES`."""
+    """IDs of the sessions to summarize."""
 
 
 class SessionIngestionSummariesResponse(pydantic.BaseModel):
-    """Response of ``POST /v1/sessions/ingestion/summaries``."""
+    """Response body of :py:meth:`~roboto.experimental.sessions.Session.ingestion_summaries`."""
 
     summaries: list[SessionIngestionSummary]
-    """One per requested session in the caller's org, in request order. Others are left out."""
+    """One summary per requested session, in request order.
+
+    Sessions outside the organization the caller acts in are left out.
+    """
 
 
 MAX_SESSION_DEVICES_REQUEST = 100
-"""Most sessions one ``POST /v1/sessions/devices`` takes."""
+"""Maximum number of sessions one request to ``POST /v1/sessions/devices`` may name."""
 
 
 class SessionDevicesRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/sessions/devices``."""
+    """Request body for ``POST /v1/sessions/devices``.
+
+    Building it raises ``pydantic.ValidationError`` when ``session_ids`` is empty or names more than 100 sessions
+    (``MAX_SESSION_DEVICES_REQUEST``).
+    """
 
     session_ids: list[str] = pydantic.Field(min_length=1, max_length=MAX_SESSION_DEVICES_REQUEST)
-    """Sessions whose devices to list, at most :py:data:`MAX_SESSION_DEVICES_REQUEST`."""
+    """IDs of the sessions whose devices to list."""
 
 
 class SessionDevicesResponse(pydantic.BaseModel):
-    """Response of ``POST /v1/sessions/devices``."""
+    """Response body of ``POST /v1/sessions/devices``."""
 
     devices: dict[str, list[SessionDevice]]
-    """Each requested session's attached devices, sorted by device ID, keyed by session ID. A session with no
-    devices, or not in the caller's org, has no key."""
+    """Devices attached to each requested session, sorted by device ID and keyed by session ID.
+
+    A session with no devices, or outside the organization the caller acts in, has no key.
+    """

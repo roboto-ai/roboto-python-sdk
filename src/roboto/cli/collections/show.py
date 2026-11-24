@@ -20,6 +20,10 @@ from .shared_helpdoc import (
 
 
 def show(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print a collection's record as JSON, at ``--collection-version`` or the current version.
+
+    Members appear in the ``--content-mode`` form, which defaults to a reference to each member.
+    """
     content_mode = [x for x in CollectionContentMode if x.value == args.content_mode][0]
 
     collection = Collection.from_id(

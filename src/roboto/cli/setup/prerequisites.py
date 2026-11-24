@@ -13,29 +13,31 @@ from .files import download_file
 from .prompts import Prompts, confirm
 
 DOCKER_CHECK_TIMEOUT_SECONDS = 20
+"""Number of seconds ``check_docker`` waits for ``docker info`` to finish."""
+
 DOCKER_INSTALL_URL = "https://docs.docker.com/get-started/get-docker/"
 
 UV_INSTALL_SCRIPT_URL = "https://astral.sh/uv/install.sh"
 UV_INSTALL_COMMAND = f"curl -LsSf {UV_INSTALL_SCRIPT_URL} | sh"
-# The PowerShell pipeline that downloads Astral's installer for Windows and runs it.
 UV_WINDOWS_INSTALL_PIPELINE = "irm https://astral.sh/uv/install.ps1 | iex"
+"""PowerShell pipeline that downloads Astral's uv installer for Windows and runs it."""
+
 UV_WINDOWS_INSTALL_ARGUMENTS = ("-ExecutionPolicy", "ByPass", "-c", UV_WINDOWS_INSTALL_PIPELINE)
-# The same arguments as typed at a Windows prompt, with the pipeline, which holds spaces, in double quotes.
 UV_WINDOWS_INSTALL_COMMAND = f'powershell -ExecutionPolicy ByPass -c "{UV_WINDOWS_INSTALL_PIPELINE}"'
+"""Same command as typed at a Windows prompt, with the pipeline, which holds spaces, in double quotes."""
 
 
 def check_uv(environment: SetupEnvironment, prompts: typing.Optional[Prompts]) -> StepOutcome:
-    """Report whether uv is installed, and offer to install it when it isn't.
+    """Report whether uv is installed, and offer to install it when it is not.
 
     The ``roboto-guide`` skill runs Python scripts with uv when uv is installed, and needs Python 3.11 or newer
     without it, so uv is optional. When ``prompts`` is given and the user agrees, uv is installed with the installer
-    Astral publishes for the platform, whose output goes to the terminal. A missing uv, a declined offer, and an
-    install that fails are all reported as optional, never as a failure of setup, with the command that installs uv.
+    Astral publishes for the operating system, which writes its output to the terminal. A missing uv, a declined
+    offer, and a failed install are each reported as optional, never as a failure of setup, with the command that
+    installs uv.
 
     Args:
-        environment: The machine to check.
-        prompts: Asks the user whether to install uv. ``None`` when nobody is at the keyboard, in which case nothing
-            is installed.
+        prompts: Asks the user whether to install uv. ``None``, for when nobody is at the keyboard, installs nothing.
     """
     if environment.which("uv") is not None:
         return StepOutcome(step="uv", status=StepStatus.AlreadyDone, summary="Installed.")
@@ -59,7 +61,8 @@ def check_uv(environment: SetupEnvironment, prompts: typing.Optional[Prompts]) -
     try:
         installed = _install_uv(environment)
     except Exception as exc:
-        # The installer couldn't be downloaded or started, whatever the cause. Ctrl-C propagates and stops setup.
+        # Any Exception from downloading or starting the installer is reported here. Ctrl-C raises KeyboardInterrupt,
+        # which this does not catch, so it still stops setup.
         return not_installed(f"Couldn't install it: {exc}")
     if not installed:
         return not_installed("Its installer failed.")
@@ -69,13 +72,10 @@ def check_uv(environment: SetupEnvironment, prompts: typing.Optional[Prompts]) -
 
 
 def check_docker(environment: SetupEnvironment) -> StepOutcome:
-    """Report whether Docker is installed and running. Installs nothing.
+    """Report whether Docker is installed and running, without installing it.
 
-    Only the ``create-roboto-action`` skill needs Docker, to build and run actions on the user's machine, so a missing
-    or stopped Docker is reported as optional.
-
-    Args:
-        environment: The machine to check.
+    The skills that build and run actions on the user's machine, such as ``create-roboto-action``, need Docker.
+    Nothing else setup installs depends on it, so a missing or stopped Docker is reported as optional.
     """
     what_for = "The create-roboto-action skill uses Docker to test actions on this machine."
 
@@ -100,22 +100,22 @@ def check_docker(environment: SetupEnvironment) -> StepOutcome:
 
 
 def _install_uv(environment: SetupEnvironment) -> bool:
-    """Run Astral's uv installer for the platform, and return whether it exited successfully."""
+    """Run Astral's uv installer for the operating system, and return whether it exited successfully."""
     env = dict(environment.env)
     if environment.platform == "win32":
         powershell = environment.which("powershell") or "powershell"
         return subprocess.run([powershell, *UV_WINDOWS_INSTALL_ARGUMENTS], env=env).returncode == 0  # noqa: S603
 
-    # The same script `curl ... | sh` would run. Setup downloads it itself, so curl isn't needed for that; the script
-    # then downloads uv with curl or wget, and fails where the machine has neither.
+    # The script UV_INSTALL_COMMAND pipes to sh. Setup downloads it itself, so this needs no curl, but the script then
+    # downloads uv with curl or wget and fails on a machine with neither.
     script = download_file(UV_INSTALL_SCRIPT_URL)
     return subprocess.run(["/bin/sh"], input=script, env=env).returncode == 0  # noqa: S603
 
 
 def _docker_info_succeeds(docker: str, environment: SetupEnvironment) -> bool:
-    # `docker info` exits non-zero when it can't connect to Docker: Docker is stopped, or the user lacks permission
-    # to use it. A command that fails to start (OSError) or doesn't answer within the timeout counts as a failure
-    # too; anything else, such as Ctrl-C, propagates.
+    # `docker info` exits non-zero when it cannot reach the Docker daemon: Docker is not running, or the user lacks
+    # permission to use it. A command that fails to start (OSError) or does not finish within
+    # DOCKER_CHECK_TIMEOUT_SECONDS also counts as a failure; any other exception, such as Ctrl-C, propagates.
     try:
         completed = subprocess.run(  # noqa: S603
             [docker, "info"],

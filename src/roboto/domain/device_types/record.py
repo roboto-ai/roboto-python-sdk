@@ -11,37 +11,41 @@ import pydantic
 
 
 class DeviceTypeRecord(pydantic.BaseModel):
-    """A device type as returned by Roboto."""
+    """Data record of a device type, as the Roboto API returns it.
+
+    A device type is a named kind of device within an organization, such as one robot model.
+    ``DeviceType`` wraps this record with methods that act on the device type, and exposes it as ``DeviceType.record``.
+    """
 
     device_type_id: str
-    """A Roboto-assigned identifier for this device type (``dt_...``), unique across all orgs and never changed."""
+    """Unique ID of the device type, beginning with ``dt_``."""
 
     org_id: str
-    """The org to which this device type belongs."""
+    """ID of the organization that owns the device type."""
 
     name: str
-    """A user-provided name for this device type, unique within its org."""
+    """Human-readable name of the device type, unique within its organization."""
 
     description: typing.Optional[str] = None
-    """Free-text description of this device type."""
+    """Human-readable description of the device type, or ``None`` if it has none."""
 
     device_count: int
     """Number of devices of this device type, counted when Roboto returned this record."""
 
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Key-value metadata pairs associated with this device type."""
+    """Key-value metadata on the device type."""
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """List of tags associated with this device type."""
+    """Tags on the device type."""
 
     created: datetime.datetime
-    """Date/time when this device type was created."""
+    """Time the device type was created."""
 
     created_by: str
-    """The user who created this device type."""
+    """Principal that created the device type, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     modified: datetime.datetime
-    """Date/time when this device type was last modified."""
+    """Time the device type was last modified."""
 
     modified_by: str
-    """The user who last modified this device type."""
+    """Principal that last modified the device type, in the same ``<type>:<id>`` form as ``created_by``."""

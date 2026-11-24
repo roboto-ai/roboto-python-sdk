@@ -13,6 +13,12 @@ from ..context import CLIContext
 
 
 def delete_repository(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Delete the named image repository from Roboto's private image registry, printing nothing.
+
+    The name takes the form ``<org_id>/<name>``; a name without the ``--org`` organization's prefix, or one that matches
+    no repository, deletes nothing and still succeeds. Without ``--force``, a repository that holds any image raises
+    ``RobotoConflictException``.
+    """
     image_registry = ImageRegistry(context.roboto_client)
     image_registry.delete_repository(args.repository_name, org_id=args.org, force=args.force)
 

@@ -23,44 +23,48 @@ from ..files.operations import (
 
 
 class CreateDatasetRequest(pydantic.BaseModel):
-    """Request payload for creating a new dataset.
+    """Request body for :py:meth:`~roboto.domain.datasets.Dataset.create`.
 
-    Used to specify the initial properties of a dataset during creation,
-    including optional metadata, tags, name, and description.
+    Passing ``None`` for ``metadata`` or ``tags`` is the same as omitting it. A ``name`` longer than 120 characters
+    raises ``pydantic.ValidationError``.
     """
 
     description: typing.Optional[str] = pydantic.Field(
         default=None,
         description="An optional human-readable description for this dataset.",
     )
-    """Optional human-readable description of the dataset."""
+    """Human-readable description of the dataset."""
 
     device_id: typing.Optional[str] = pydantic.Field(
         default=None,
         description="The ID of the device which created this dataset, if applicable.",
     )
-    """Optional identifier of the device that generated this data."""
+    """ID of the device that produced the dataset's data.
+
+    Must name a device in the organization the dataset is created in. ``None`` records the calling device when a
+    device makes the request, and no device otherwise.
+    """
 
     name: typing.Optional[str] = pydantic.Field(
         default=None,
         description="A short name for this dataset. Must be under 120 characters or less.",
         max_length=120,
     )
-    """Optional short name for the dataset (max 120 characters)."""
+    """Human-readable name of the dataset, at most 120 characters."""
 
     metadata: dict[str, typing.Any] = pydantic.Field(
         default_factory=dict,
         description="Initial key-value pairs to associate with this dataset for discovery and search, e.g. "
         + "`{ 'softwareVersion': '3.1.4' }`",
     )
-    """Key-value metadata pairs to associate with the dataset for discovery and search."""
+    """Key-value metadata to set on the dataset."""
 
     tags: list[str] = pydantic.Field(
         default_factory=list,
         description="Initial tags to associate with this dataset for discovery and search, e.g. "
         + "`['sunny', 'campaign5']`",
     )
-    """List of tags for dataset discovery and organization."""
+    """Tags to set on the dataset."""
 
     custom_fields: typing.Optional[dict[str, typing.Any]] = pydantic.Field(
         default=None,
@@ -68,14 +72,12 @@ class CreateDatasetRequest(pydantic.BaseModel):
         + "`{ 'drone_id': 'DJI-X', 'flight_count': 12 }`. Each name must match a Ready custom-field "
         + "definition for the org's Dataset entity type; values are typed against the field's declared type.",
     )
-    """Initial values for Ready custom fields on this dataset.
+    """Initial values for the dataset's custom fields, keyed by field name. ``None`` sets none.
 
-    Each key must be the name of a :py:class:`~roboto.domain.custom_fields.CustomField`
-    that is :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` for the
-    caller's org and the :py:class:`~roboto.domain.custom_fields.TargetEntityType.Dataset`
-    entity type; each value must satisfy the field's declared type. Names that are
-    undefined or not ``Ready``, and values that don't match the field's type, are
-    rejected with a structured error.
+    Each name must be a :py:class:`~roboto.domain.custom_fields.CustomField` defined for
+    :py:attr:`~roboto.domain.custom_fields.TargetEntityType.Dataset` in the organization the dataset is created in,
+    with status :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+    field's declared type. Otherwise the request fails with ``RobotoIllegalArgumentException``.
     """
 
     def __init__(self, **data):
@@ -83,92 +85,109 @@ class CreateDatasetRequest(pydantic.BaseModel):
 
 
 class QueryDatasetsRequest(pydantic.BaseModel):
-    """Request payload for querying datasets with filters.
+    """Request body holding filter criteria for datasets.
 
-    Used to search for datasets based on various criteria such as metadata,
-    tags, and other dataset properties. The filters are applied server-side
-    to efficiently return matching datasets.
+    No SDK method or Roboto route uses this model. To search datasets, pass a
+    :py:class:`~roboto.query.QuerySpecification` to :py:meth:`~roboto.domain.datasets.Dataset.query`.
     """
 
     filters: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Dictionary of filter criteria to apply when searching for datasets."""
+    """Filter criteria for datasets."""
 
     model_config = ConfigDict(extra="ignore")
 
 
 class UpdateDatasetRequest(pydantic.BaseModel):
-    """Request payload for updating dataset properties.
+    """Request body for :py:meth:`~roboto.domain.datasets.Dataset.update`.
 
-    Used to modify dataset metadata, description, name, and other properties.
-    Only specified fields will be updated; others remain unchanged.
+    A field left at its default (``NotSet`` or ``None``) is unchanged. A ``name`` longer than 120 characters raises
+    ``pydantic.ValidationError``.
     """
 
     metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet
-    """Metadata changes to apply (add, update, or remove fields/tags)."""
+    """Changes to the dataset's tags and metadata."""
 
     description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
-    """New description for the dataset. Set to None to clear the description."""
+    """Human-readable description of the dataset. ``None`` clears it."""
 
     device_id: typing.Optional[typing.Union[str, NotSetType]] = NotSet
-    """New device ID for the dataset. Set to None to clear the device association."""
+    """ID of the device that produced the dataset's data, which must be in the dataset's organization.
+
+    ``None`` clears it.
+    """
 
     name: typing.Optional[
         typing.Union[typing.Annotated[str, pydantic.StringConstraints(max_length=120)], NotSetType]
     ] = NotSet
-    """New name for the dataset (max 120 characters). Set to None to clear the name."""
+    """Human-readable name of the dataset, at most 120 characters. ``None`` clears it."""
 
     custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None
-    """Changes to apply to Ready custom-field values on this dataset.
+    """Changes to the dataset's custom-field values.
 
-    Each referenced field name must be a
-    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom field
-    for this dataset's org and the
-    :py:class:`~roboto.domain.custom_fields.TargetEntityType.Dataset` entity type;
-    each ``set_fields`` value must satisfy the field's declared type. Names that
-    are undefined or not ``Ready`` are rejected with a structured error. Field
-    names not mentioned by the changeset are left unchanged.
+    Each field name the changeset references must be a custom field defined for
+    :py:attr:`~roboto.domain.custom_fields.TargetEntityType.Dataset` in the dataset's organization, with status
+    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each ``set_fields`` value must match that
+    field's declared type. Otherwise the request fails with ``RobotoIllegalArgumentException``. See
+    :py:class:`~roboto.updates.CustomFieldChangeset`.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
 
 
 class CreateDatasetIfNotExistsRequest(pydantic.BaseModel):
-    """Request payload to create a dataset if no existing dataset matches
-    the specified query.
+    """Request body for :py:meth:`~roboto.domain.datasets.Dataset.create_if_not_exists`.
 
-    Searches for existing datasets using the provided RoboQL query. If a matching
-    dataset is found, returns that dataset. If no match is found, creates a new
-    dataset with the specified properties and returns it.
+    Roboto creates the dataset only when no dataset matches a RoboQL query. That method describes how several matches
+    and concurrent requests are resolved.
     """
 
     match_roboql_query: str
+    """RoboQL query that looks for an existing dataset in the organization.
+
+    When a dataset matches, the response is that dataset and nothing is created.
+    """
+
     create_request: CreateDatasetRequest
+    """Properties of the dataset to create when no dataset matches ``match_roboql_query``."""
 
 
 class BeginSingleFileUploadRequest(pydantic.BaseModel):
-    """
-    Request payload to begin a single file upload
+    """Deprecated. Request body for ``POST /v2/datasets/{dataset_id}/uploads``.
+
+    Upload a file with :py:meth:`~roboto.domain.datasets.Dataset.upload_file` instead. The route starts uploading one
+    file to a dataset.
     """
 
     origination: typing.Optional[str] = pydantic.Field(
         description="Additional information about what uploaded the file, e.g. `roboto client v1.0.0`.",
         default=None,
     )
+    """What uploaded the file, such as ``roboto client v1.0.0``. ``None`` records the caller's user ID."""
+
     file_path: str = pydantic.Field(
         description=(
             "The destination path to upload the file to in the dataset, e.g. `recording.bag`or `path/to/metadata.json`."
         ),
     )
+    """Path within the dataset to upload the file to, such as ``path/to/metadata.json``."""
+
     file_size: int = pydantic.Field(description="The size of the file in bytes.")
+    """Size of the file in bytes."""
 
 
 class BeginSingleFileUploadResponse(pydantic.BaseModel):
-    """
-    Response to a single file upload
+    """Deprecated. Response body of ``POST /v2/datasets/{dataset_id}/uploads``.
+
+    Upload a file with :py:meth:`~roboto.domain.datasets.Dataset.upload_file` instead. Send the file's bytes to
+    ``upload_url`` with an HTTP PUT, then mark the upload complete with
+    ``PUT /v2/datasets/{dataset_id}/uploads/{upload_id}/complete``.
     """
 
     upload_id: str
+    """Unique ID of the upload."""
+
     upload_url: str
+    """Pre-signed URL that accepts the file's bytes in an HTTP PUT."""
 
 
 __all__ = (

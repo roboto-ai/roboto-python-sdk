@@ -4,12 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Input specification parsing utilities.
-
-This module handles parsing and validating invocation input specifications
-from CLI arguments.
-"""
-
 import argparse
 import typing
 
@@ -37,7 +31,7 @@ def parse_input_spec(
     Input data is specified one of two ways, or not at all:
 
     1. Selectors: ``--file-query``, ``--session-id``, ``--session-query``, ``--topic-query``. Any combination is
-       accepted, and files, sessions, and topics are each looked up independently of the others.
+       accepted, and each flag selects only its own kind of input: files, sessions, or topics.
        ``--session-id`` and ``--session-query`` given together select every session named by ID plus every
        session the query matches, each session once.
     2. A dataset and paths within it: ``--dataset`` together with ``--file-path``.
@@ -49,7 +43,7 @@ def parse_input_spec(
         args: Parsed arguments from a parser that ``add_input_specification_args`` has configured.
 
     Returns:
-        The selected input, or None when no selector flag was given and ``--dataset`` and ``--file-path`` were
+        The selected input, or ``None`` when no selector flag was given and ``--dataset`` and ``--file-path`` were
         not both given.
     """
     if _has_selector_input(args):
@@ -86,11 +80,10 @@ def validate_input_specification(args: argparse.Namespace, parser: argparse.Argu
 
     Args:
         args: Parsed arguments from a parser that ``add_input_specification_args`` has configured.
-        parser: The parser that produced ``args``, used to report a broken rule.
+        parser: Parser that produced ``args``, used to report a broken rule.
 
     Raises:
-        SystemExit: Raised by ``parser.error`` when a rule is broken. The reason and the usage text are printed
-            to stderr and the process exits, so this function does not return to its caller in that case.
+        SystemExit: A rule is broken. ``parser.error`` prints the usage text and the reason to stderr.
     """
     dataset_id = getattr(args, "dataset_id", None)
     file_paths = getattr(args, "file_paths", None)

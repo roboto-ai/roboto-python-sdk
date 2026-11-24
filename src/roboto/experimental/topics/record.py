@@ -16,126 +16,126 @@ from ...domain.topics import RepresentationStorageFormat
 
 
 class RepresentationRecord(pydantic.BaseModel):
-    """One stored variant of a topic partition's data, optionally narrowed to a subset of its fields.
+    """Data record of a representation: one stored copy of a topic partition's data, in one file format.
 
-    A representation pairs a stored file with the data of a single topic partition.
-    ``field_id`` narrows it to one field and the fields nested under it;
-    ``None`` covers every field in the partition.
+    A topic partition is a part of a topic's data that one file holds. A representation holds either every field of
+    the partition or, when ``field_id`` is set, one field and the fields nested under it. One partition can have
+    several representations that differ in ``storage_format``, ``content_format`` and ``transformations``, such as
+    the original image messages and a JPEG encoding of them, and a read chooses among them with
+    ``RepresentationSelector``.
 
-    The same partition can have several representations that differ in ``storage_format``,
-    ``content_format``, and ``transformations``.
-    A consumer picks the one whose attributes suit it: a viewer of image data, for example,
-    may prefer a JPEG- or PNG-encoded variant over the untransformed original.
+    Roboto keeps one record for each representation it stores; no SDK method returns one.
+    ``RepresentationSelector.matches`` tests a record against a selector's criteria.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     content_format: typing.Optional[str] = None
-    """
-    The format of the data inside the stored file.
-    For image data, this may be the image encoding (e.g. ``"jpeg"``, ``"png"``) on a transformed variant.
-    ``None`` when unspecified.
+    """Content format of the data in the representation's file, or ``None`` when the representation states none.
+
+    Encoded images, for example, have the content format ``"jpeg"`` or ``"png"``.
     """
 
     created: typing.Optional[datetime.datetime] = None
+    """Time the representation was created."""
+
     created_by: str
-    """Identity of the user who created this representation."""
+    """ID of the user who created the representation."""
 
     field_id: typing.Optional[str] = None
-    """
-    The field this representation is narrowed to, covering that field and the fields nested under it.
-    ``None`` when the representation covers every field in the partition.
+    """ID of the schema field the representation holds, or ``None`` when it holds every field of the partition.
+
+    A representation that holds one field also holds the fields nested under it.
     """
 
     file_version: typing.Optional[int] = None
-    """
-    The version of this representation's file that was current when the service read the representation. A read plan
-    built from this representation names this version as the one to read. ``None`` when the file has no current
-    version or the version is unknown. A write ignores this field.
+    """Version of the representation's file that was current when Roboto read the representation.
+
+    ``None`` when the file has no current version or the version is unknown. A read plan built from this
+    representation reads this version of the file. Roboto ignores this field when it stores a representation.
     """
 
     fs_node_id: str
-    """Identifier of the file backing this representation."""
+    """ID of the file that holds the representation's data."""
 
     modified: typing.Optional[datetime.datetime] = None
+    """Time the representation was last modified."""
+
     modified_by: str
+    """ID of the user who last modified the representation."""
+
     org_id: str
-    """Identifier of the org that owns this representation."""
+    """ID of the organization that owns the representation."""
 
     representation_id: str
-    """Unique identifier of this representation."""
+    """Unique ID of the representation."""
 
     size_bytes: typing.Optional[int] = None
-    """Size in bytes of the file backing this representation, at :py:attr:`file_version`; ``None`` when unknown.
+    """Size in bytes of the representation's file at ``file_version``, or ``None`` when unknown.
 
-    A read plan built from this representation reports this size for the file. A write ignores this field.
+    A read plan built from this representation reports this size for the file. Roboto ignores this field when it
+    stores a representation.
     """
 
     storage_format: RepresentationStorageFormat
-    """Container the representation data is stored in (e.g. MCAP, Parquet)."""
+    """File format the representation's data is stored in."""
 
     topic_part_id: str
-    """Identifier of the topic partition this representation belongs to."""
+    """ID of the topic partition whose data the representation holds."""
 
     transformations: list[str] = pydantic.Field(default_factory=list)
-    """
-    The transformations applied to the source data to produce this variant, in the order applied.
-    Empty on the untransformed original.
+    """Transformations applied to the partition's data to produce this representation, in the order applied.
 
-    Each entry is a ``"<kind>:<param>"`` string whose ``<kind>`` is a
-    :py:class:`~roboto.domain.topics.TransformationKind` member, e.g. ``["downsample:0.5", "encode:jpeg"]``.
+    Empty for the original data. Each is a ``"<kind>:<param>"`` string, such as ``"downsample:0.5"`` or
+    ``"encode:jpeg"``; :py:class:`~roboto.domain.topics.TransformationKind` lists the kinds.
     """
 
 
 class RepresentationSelector(pydantic.BaseModel):
-    """Describes the stored variants a representation choice accepts.
+    """Criteria for choosing which of a topic partition's representations a read uses.
 
-    The optional criteria ``storage_format``, ``content_format``, and
-    ``transformations`` constrain the corresponding attributes of
-    :py:class:`RepresentationRecord`. A variant must meet every criterion
-    that is set; ``None`` places no requirement on that attribute.
+    A representation meets the selector when it meets every criterion set on it; a criterion left ``None`` places
+    no requirement. Pass selectors in a ``RepresentationPreference``, which decides which selectors a read tries for
+    each field and what happens when none of them covers the requested fields. When the last selector tried sets no
+    criteria and still leaves fields uncovered, the read proceeds as ``ReadPlanPartition.scan_tasks`` describes.
 
-    :py:class:`~roboto.experimental.topics.RepresentationPreference`
-    determines which selectors are tried and whether missing coverage is
-    refused. Missing coverage under a last selector with no criteria has the
-    meaning documented by
-    :py:attr:`~roboto.experimental.topics.ReadPlanPartition.scan_tasks`.
-
-    Successor to :py:class:`roboto.domain.topics.RepresentationSelector`,
-    used by :py:meth:`~roboto.domain.topics.Topic.get_data`.
+    :py:class:`~roboto.domain.topics.RepresentationSelector` is the selector that
+    :py:meth:`~roboto.domain.topics.Topic.get_data` takes. This one differs from it in ``content_format`` and
+    ``transformations``, as those fields describe.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     storage_format: typing.Optional[RepresentationStorageFormat] = None
-    """Required container (e.g. MCAP, Parquet) by scalar equality; ``None`` does not constrain it."""
+    """File format a representation's data must be stored in, or ``None`` for no requirement."""
 
     content_format: typing.Optional[str] = None
-    """Required content encoding (e.g. ``"jpeg"``) by scalar equality; ``None`` does not constrain it.
+    """Content format a representation must have, such as ``"jpeg"``, or ``None`` for no requirement.
 
-    There is no legacy carve-out: a representation whose ``content_format`` is ``None``
-    does not satisfy an explicit request.
+    A representation whose ``content_format`` is ``None`` does not meet a set value.
     """
 
     transformations: typing.Optional[tuple[str, ...]] = None
-    """Required transformations; ``None`` does not constrain, ``()`` requires the untransformed original.
+    """Transformations a representation must have, or ``None`` for no requirement.
 
-    A non-empty tuple is all-of: every token must be satisfied by some descriptor on the
-    representation, which may carry additional transformations. A token is either a bare
-    kind (e.g. ``"downsample"``), satisfied by any descriptor whose kind prefix equals it,
-    or a full ``"<kind>:<param>"`` descriptor (e.g. ``"encode:jpeg"``), satisfied only by
-    an exact match. The grammar is open string matching; the recognized vocabulary
-    (:py:class:`~roboto.domain.topics.TransformationKind`) is enforced by the service at
-    the request boundary, which rejects a token naming an unrecognized kind.
+    ``()`` requires a representation with no transformations: the original data. A non-empty tuple requires each
+    token to be met by one of the representation's transformations, in any order, and the representation may have
+    others too. A token is either:
+
+    - A kind, such as ``"downsample"``, met by any transformation of that kind.
+    - A ``"<kind>:<param>"`` string, such as ``"encode:jpeg"``, met only by that exact string.
+
+    ``matches`` compares the strings and accepts any kind. Roboto rejects a read plan request whose token names a
+    kind :py:class:`~roboto.domain.topics.TransformationKind` does not list, with ``RobotoInvalidRequestException``.
     """
 
     @classmethod
     def raw(cls) -> RepresentationSelector:
-        """Select the untransformed original (a representation with no transformations)."""
+        """Build a selector that requires the original data: a representation with no transformations."""
         return cls(transformations=())
 
     def matches(self, representation: RepresentationRecord) -> bool:
-        """Return whether ``representation`` satisfies every set axis of this selector."""
+        """Return whether ``representation`` meets every criterion set on this selector."""
         if self.storage_format is not None and representation.storage_format != self.storage_format:
             return False
         if self.content_format is not None and representation.content_format != self.content_format:
@@ -150,12 +150,7 @@ class RepresentationSelector(pydantic.BaseModel):
         return True
 
     def __transform_satisfied(self, transform: str, descriptors: collections.abc.Sequence[str]) -> bool:
-        """Return whether a single transformation token is satisfied by a representation's descriptors.
-
-        A ``"<kind>:<param>"`` token must match a descriptor exactly; a bare-kind token is
-        satisfied by any descriptor whose kind prefix equals it. Matching is pure string
-        matching — vocabulary enforcement happens server-side, at the request boundary.
-        """
+        """Return whether one of ``descriptors`` meets the token ``transform``, as ``transformations`` describes."""
         if ":" in transform:
             return transform in descriptors
         return any(descriptor.split(":", 1)[0] == transform for descriptor in descriptors)

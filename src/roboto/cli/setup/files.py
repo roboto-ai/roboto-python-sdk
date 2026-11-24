@@ -14,13 +14,14 @@ from ...http.tls import https_ssl_context
 from ..config import USER_AGENT
 
 DOWNLOAD_TIMEOUT_SECONDS = 60
+"""Number of seconds ``download_file`` waits for the server to connect, and again for each read of the response."""
 
 
 def download_file(url: str) -> bytes:
-    """Return the contents of the file at ``url``.
+    """Download the file at ``url`` and return its contents.
 
     Raises:
-        OSError: The server couldn't be reached, went ``DOWNLOAD_TIMEOUT_SECONDS`` without answering, or answered with
+        OSError: The server could not be reached, went ``DOWNLOAD_TIMEOUT_SECONDS`` without answering, or answered with
             an error status.
     """
     # Astral's download site, which serves the uv installer, answers Python's default user agent with 403.
@@ -37,14 +38,14 @@ def write_file_atomically(path: pathlib.Path, contents: str) -> None:
     permissions; a new file gets the permissions the user's umask gives any file they create.
 
     Args:
-        path: The file to write. Missing parent directories are created.
-        contents: The text to write, encoded as UTF-8.
+        path: File to write. Missing parent directories are created.
+        contents: Text to write, encoded as UTF-8.
 
     Raises:
-        OSError: ``path`` is a symlink that can't be followed, such as one in a loop, or a directory or the file
-            couldn't be created or written. The file is left as it was.
+        OSError: ``path`` is a symlink that cannot be followed, such as one in a loop, or a directory or the file
+            could not be created or written. The file is left as it was.
     """
-    # On every supported Python version, realpath leaves a symlink it can't follow in its result, and writing there
+    # On every supported Python version, realpath leaves a symlink it cannot follow in its result, and writing there
     # would replace the link with a regular file. (Path.resolve raises RuntimeError on a loop before Python 3.13.)
     target = pathlib.Path(os.path.realpath(path))
     if target.is_symlink():

@@ -18,11 +18,19 @@ log = default_logger()
 
 
 class InputSessionResolver:
-    """Looks up the sessions an action invocation runs on, from the session selectors declared as its inputs.
+    """Service that looks up the sessions an action invocation takes as input, from its session selectors.
 
-    A selector names sessions by ID, by name, or with a RoboQL query; every field it populates is looked up and
-    the matches are returned together. ``resolve_all`` returns each session once, while ``resolve`` repeats a
-    session that matches on more than one field.
+    :py:meth:`~roboto.action_runtime.action_input.ActionInputResolver.resolve_input_spec` resolves an invocation's
+    session selectors through it, so most code never calls it. Action code reads the sessions it found through
+    :py:meth:`~roboto.action_runtime.InvocationContext.get_input`.
+
+    A selector names sessions by ID, by name, or with a RoboQL query.
+
+    Args:
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
+        roboto_search: Search client that runs the name and RoboQL lookups. ``None`` builds one that sends its
+            queries through ``roboto_client``.
     """
 
     def __init__(
@@ -31,11 +39,24 @@ class InputSessionResolver:
         roboto_search: typing.Optional[RobotoSearch] = None,
     ):
         self.roboto_client = RobotoClient.defaulted(roboto_client)
+        """Client this service makes requests to Roboto with."""
         self.roboto_search = (
             roboto_search if roboto_search is not None else RobotoSearch.for_roboto_client(self.roboto_client)
         )
+        """Search client that runs the name and RoboQL lookups."""
 
     def resolve_all(self, session_selectors: collections.abc.Sequence[DataSelector]) -> list[Session]:
+        """Fetch the sessions that any of several selectors names, each session once.
+
+        Sessions come back in the order they are first found: selector by selector, and within one selector in the
+        order ``resolve`` gives.
+
+        Args:
+            session_selectors: Selectors of the sessions to fetch.
+
+        Raises:
+            RobotoNotFoundException: No session has one of the IDs in a selector's ``ids``.
+        """
         session_ids: set[str] = set()
         sessions: list[Session] = []
 
@@ -50,12 +71,22 @@ class InputSessionResolver:
         return sessions
 
     def resolve(self, session_selector: DataSelector) -> list[Session]:
-        """Looks up the sessions one selector names. A ``dataset_id`` on the selector is ignored, with a warning."""
+        """Fetch the sessions one selector names.
+
+        Sessions come back with those named by ``ids`` first, then those named by ``names``, then those ``query``
+        matches. A session that more than one of these fields matches appears once for each. The selector's
+        ``dataset_id`` is ignored, and the warning logged for it gives the ``query`` condition to use instead.
+
+        Args:
+            session_selector: Selector of the sessions to fetch.
+
+        Raises:
+            RobotoNotFoundException: No session has one of the IDs in the selector's ``ids``.
+        """
         sessions: list[Session] = []
 
         if session_selector.dataset_id:
-            # A Sessions query can express the same narrowing with dataset.dataset_id,
-            # which matches sessions holding at least one file from that dataset.
+            # The condition the warning suggests matches sessions that include at least one file from the dataset.
             dataset_id = session_selector.dataset_id
             log.warning(
                 f"Ignoring dataset_id {dataset_id!r}. Use DataSelector.query instead: "

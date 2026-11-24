@@ -4,20 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Sample events: what a trigger's condition and target templates can see, shown
-with realistic values.
-
-Before writing a condition or a message template, an author needs to know what
-``{{dataset.name}}`` or ``file.relative_path`` will resolve to. The event catalog says
-which namespace roots an event exposes, but not what sits under them. A sample fills
-that in: it is built with the same :class:`~roboto.domain.triggers.EventNamespace` and
-record models that serve a real firing, so the shape it shows is the shape a trigger
-sees. One coherent scenario runs through every root — one robot, one drive, one file,
-one action run on it — so the values read as a story rather than as placeholders.
-
-Values are illustrative, not templates for real ids. Every id here is fabricated.
-"""
-
 import collections.abc
 import datetime
 import typing
@@ -235,7 +221,13 @@ def _session_event() -> experimental_events.EventRecord:
 
 
 def sample_trigger() -> TriggerRecord:
-    """The trigger the sample is evaluated for; what ``{{trigger.*}}`` sees."""
+    """Build the sample trigger, which the ``trigger`` root shows in every sample but one.
+
+    It subscribes to :py:attr:`~roboto.domain.platform_events.PlatformEventType.FileUploaded` once per file and
+    invokes the sample action on the file's ``.mcap`` files. The
+    :py:attr:`~roboto.domain.platform_events.PlatformEventType.ScheduleFired` sample shows
+    ``sample_schedule_trigger`` instead.
+    """
     return TriggerRecord(
         trigger_id=SAMPLE_TRIGGER_ID,
         org_id=SAMPLE_ORG_ID,
@@ -256,26 +248,27 @@ def sample_trigger() -> TriggerRecord:
 
 
 def sample_schedule_trigger() -> TriggerRecord:
-    """The schedule-fired trigger the ``schedule.fired`` sample is evaluated for, so the
-    sample's ``schedule`` root carries the ``cron`` a template may name."""
+    """Build the sample trigger that the sample of a schedule firing shows.
+
+    It is ``sample_trigger`` renamed ``weekly-report`` and fired by the cron schedule
+    ``0 9 * * 1`` in place of an event subscription, so the
+    :py:attr:`~roboto.domain.platform_events.PlatformEventType.ScheduleFired` sample's ``schedule`` root includes the
+    ``cron`` a template may name.
+    """
     return sample_trigger().model_copy(update={"name": "weekly-report", "fires_on": Schedule(cron="0 9 * * 1")})
 
 
 def _as_json_mapping(record: pydantic.BaseModel) -> collections.abc.Mapping[str, typing.Any]:
-    """Dump a record with the same keys and nesting a condition sees, JSON-typed.
-
-    Datetimes come out as ISO strings and enums as their values, which is both what a
-    sample carries on the wire and what a ``{{ }}`` placeholder substitutes.
-    """
+    """Dump a record the way a real firing's entity root reads it: datetimes as ISO strings, enums as values."""
     return record.model_dump(mode="json")
 
 
 class SampleNamespaceSource:
-    """A :class:`NamespaceSource` that hydrates every root from the sample scenario.
+    """Namespace source that loads every entity root, such as ``dataset`` and ``file``, from the sample records.
 
-    Serves each root the way a real firing does — including ``action`` as the
-    invocation's provenance and ``upload`` as the bare transaction id — so a sample
-    carries exactly the roots a trigger would see.
+    Each root has the shape it has when a trigger fires: ``action`` is the sample invocation's action provenance, and
+    ``upload`` holds only the upload's ``transaction_id``. Pass it to :py:class:`~roboto.domain.triggers.EventNamespace`
+    with a sample platform event to evaluate a condition or template against the sample scenario.
     """
 
     def record_for_root(
@@ -292,8 +285,8 @@ class SampleNamespaceSource:
         if root == "session":
             return _as_json_mapping(_session())
         if root == "event":
-            # As in a real firing, a session event's ``event`` root is its own record shape: a session and topics
-            # in place of a dataset event's associations.
+            # A session event's event root has a session and topics in place of a dataset event's associations,
+            # as in a real firing.
             if event.type is PlatformEventType.SessionEventCreated:
                 return session_event_root(_session_event())
             return _as_json_mapping(_event())
@@ -303,11 +296,14 @@ class SampleNamespaceSource:
 
 
 def template_paths(record: collections.abc.Mapping[str, typing.Any], prefix: str) -> list[str]:
-    """Every dotted path a template may reference under ``prefix``, in document order.
+    """Return every dotted path a condition field or ``{{ }}`` placeholder may name in ``record``, in key order.
 
-    Walks nested mappings only. A list is a leaf, because path resolution descends
-    through mappings and stops at anything else: ``dataset.tags`` is addressable,
-    ``dataset.tags.0`` is not.
+    Descends into nested mappings only. A list is a leaf, because a path resolves through mappings and stops at
+    anything else: ``dataset.tags`` resolves, ``dataset.tags.0`` does not.
+
+    Args:
+        record: Record of one namespace root, such as a dataset's.
+        prefix: Path of ``record`` itself, such as ``"dataset"``. Every returned path begins with it and a dot.
     """
     paths: list[str] = []
     for key, value in record.items():
@@ -319,32 +315,47 @@ def template_paths(record: collections.abc.Mapping[str, typing.Any], prefix: str
 
 
 class PlatformEventSample(pydantic.BaseModel):
-    """One event type, dereferenced: the envelope, every root it exposes, and the
-    template paths that resolve against them."""
+    """Sample of one platform event type: the event, every root it exposes, and the paths that resolve against them.
+
+    Use a sample to see what a trigger's condition fields and target template placeholders, such as
+    ``{{dataset.name}}``, resolve to before writing them. A sample is built with the same
+    :py:class:`~roboto.domain.triggers.EventNamespace` and record models that serve a real firing, so its roots have
+    the shape a trigger sees. Every sample describes one scenario: one organization, robot, dataset, file, session,
+    and action invocation. The values are made up and name nothing that exists in Roboto. Carried in
+    ``PlatformEventSamplesResponse.samples``.
+    """
 
     event_type: PlatformEventType
-    """The event type this sample illustrates."""
+    """Platform event type the sample shows."""
 
     event: dict[str, typing.Any]
-    """The event envelope as it would arrive: id, type, time, org, and payload."""
+    """:py:class:`~roboto.domain.platform_events.PlatformEvent` as a JSON-compatible dictionary.
+
+    It is the sample platform event, with its payload under ``data``.
+    """
 
     namespace: dict[str, dict[str, typing.Any]]
-    """Every namespace root a condition or template may reference for this event
-    type, keyed by root name, with the full record under each. Always includes
-    ``envelope`` and ``trigger``; the rest are the catalog's exposed roots for the type."""
+    """Record of every root a condition or template may read for this event type, keyed by root name.
+
+    Begins with ``envelope`` and ``trigger``, then the roots the catalog exposes for the event type, sorted by name.
+    """
 
     paths: list[str]
-    """Every ``root.path`` a ``{{ }}`` placeholder or condition field may name, in
-    the order the roots and their fields appear in :attr:`namespace`."""
+    """Every ``root.path`` a condition field or ``{{ }}`` placeholder may name.
+
+    The paths follow the order of the roots and their fields in ``namespace``.
+    """
 
 
 class PlatformEventSamplesResponse(pydantic.BaseModel):
-    """Wire shape of ``GET /v1/triggers/events/samples``: one sample per platform event type."""
+    """Response body of :py:meth:`~roboto.domain.triggers.Trigger.platform_event_samples`."""
 
     samples: dict[PlatformEventType, PlatformEventSample]
-    """One sample per event type, keyed by type. A sample whose type this SDK's
-    :class:`PlatformEventType` does not name is omitted, so the response still parses
-    when the server offers an event type newer than this SDK."""
+    """One sample per platform event type, keyed by type.
+
+    A sample whose type this SDK's :py:class:`~roboto.domain.platform_events.PlatformEventType` does not name is
+    left out, so the response still parses when Roboto offers an event type newer than this SDK.
+    """
 
     @pydantic.field_validator("samples", mode="before")
     @classmethod
@@ -359,11 +370,20 @@ def platform_event_sample(
     event_type: PlatformEventType,
     catalog: PlatformEventCatalog = DEFAULT_PLATFORM_EVENT_CATALOG,
 ) -> PlatformEventSample:
-    """Build the sample for one event type.
+    """Build the sample of one platform event type.
 
-    The ``event``, ``changed`` and ``tag`` roots are built by the same
-    :class:`EventNamespace` that serves them when a trigger fires; the entity roots are
-    exactly the ones ``catalog`` exposes for the type.
+    The ``envelope``, ``trigger``, ``changed``, ``tag`` and ``schedule`` roots come from the same
+    :py:class:`~roboto.domain.triggers.EventNamespace` that serves them when a trigger fires. The entity roots, such as
+    ``dataset`` and ``file``, come from ``SampleNamespaceSource``.
+
+    Args:
+        event_type: Platform event type to return the sample of.
+        catalog: Catalog that says which roots ``event_type`` exposes. Defaults to
+            :py:const:`~roboto.domain.platform_events.DEFAULT_PLATFORM_EVENT_CATALOG`.
+
+    Raises:
+        ValueError: This version of the SDK has no sample payload for ``event_type``, ``catalog`` has no descriptor
+            for it, or ``catalog`` exposes a root the sample scenario cannot fill.
     """
     event = sample_platform_event(event_type)
     trigger = sample_schedule_trigger() if event_type is PlatformEventType.ScheduleFired else sample_trigger()
@@ -388,7 +408,16 @@ def platform_event_sample(
 def platform_event_samples(
     catalog: PlatformEventCatalog = DEFAULT_PLATFORM_EVENT_CATALOG,
 ) -> dict[PlatformEventType, PlatformEventSample]:
-    """A sample for every event type in ``catalog``, in catalog order."""
+    """Build the sample of every platform event type in ``catalog``, keyed by event type, in catalog order.
+
+    Args:
+        catalog: Catalog of the event types to return samples of, and of the roots each exposes. Defaults to
+            :py:const:`~roboto.domain.platform_events.DEFAULT_PLATFORM_EVENT_CATALOG`.
+
+    Raises:
+        ValueError: This version of the SDK has no sample payload for one of the event types, or ``catalog`` exposes
+            a root the sample scenario cannot fill.
+    """
     return {descriptor.event_type: platform_event_sample(descriptor.event_type, catalog) for descriptor in catalog}
 
 

@@ -57,40 +57,47 @@ logger = default_logger()
 
 @dataclasses.dataclass
 class GetDataArgs:
-    """
-    Internal interface used to collect arguments passed to ``get_data`` and ``get_data_as_df``.
+    """Topic to read and arguments to read it with, chosen from an event's associations.
+
+    ``Event.get_data`` and ``Event.get_data_as_df`` build one to read an event's data, so most code never builds it.
     """
 
     topic: Topic
+    """Topic to read."""
+
     message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None
+    """Message paths to include. ``None`` includes every message path."""
+
     message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None
+    """Message paths to leave out. ``None`` leaves out none."""
+
     start_time: typing.Optional[Time] = None
+    """Inclusive start of the time range to read.
+
+    In nanoseconds since the Unix epoch, or any value :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+    """
+
     end_time: typing.Optional[Time] = None
+    """Exclusive end of the time range to read, in the same form as ``start_time``."""
+
     cache_dir: typing.Union[str, pathlib.Path, None] = None
+    """Directory to download the topic's data to.
+
+    ``None`` uses :py:attr:`~roboto.domain.topics.TopicDataService.DEFAULT_CACHE_DIR`.
+    """
 
 
 class Event:
-    """Represents an event within the Roboto platform.
+    """An event: an annotation that ties datasets, files, topics, or message paths to a span of time, such as a takeoff.
 
-    An event is a time-anchored annotation that relates Roboto entities (datasets, files,
-    topics, and message paths) to specific time periods. Events enable temporal analysis,
-    data correlation, and annotation of activities across different data sources.
+    An event covers either a single point in time or a range, and carries a name, tags, key-value metadata,
+    custom-field values, and display options such as its color. Roboto shows events on the timeline and plots of the
+    data they annotate, and ``get_data`` reads that data within the event's time span. An event is an annotation on
+    data, not a platform event.
 
-    Events serve as temporal markers that can:
-
-    - Annotate specific time periods in your data
-    - Associate multiple entities (datasets, files, topics, message paths) with time ranges
-    - Enable time-based data retrieval and analysis
-    - Support metadata and tagging for organization and search
-    - Provide visual markers in timeline views and analysis tools
-
-    Events can represent instantaneous moments (point in time) or time ranges. They are
-    particularly useful for marking significant occurrences like sensor anomalies, system
-    events, behavioral patterns, or any other time-based phenomena in your data.
-
-    Events cannot be instantiated directly through the constructor. Use the class methods
-    :py:meth:`Event.create` to create new events or :py:meth:`Event.from_id` to load
-    existing events.
+    Get an ``Event`` from ``create``, ``from_id``, or one of the ``get_by_*`` class methods. Each instance holds a copy
+    of the event's record: methods that change the event update that copy from Roboto's response, and ``refresh``
+    fetches changes made elsewhere.
     """
 
     __roboto_client: RobotoClient
@@ -115,48 +122,49 @@ class Event:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Event":
-        """Create a new event associated with at least one dataset, file, topic, or message path.
+        """Create an event on at least one dataset, file, topic, or message path.
 
-        Creates a time-anchored event that can be associated with various Roboto entities.
-        For instantaneous events (a point in time), only ``start_time`` is required. Otherwise,
-        both ``start_time`` and ``end_time`` should be provided. These fields accept nanoseconds
-        since the UNIX epoch, or any other compatible representations supported by
-        :py:func:`~roboto.time.to_epoch_nanoseconds`.
-
-        Events must be associated with at least one entity. While ``associations``,
-        ``file_ids``, ``topic_ids``, ``dataset_ids`` and ``message_path_ids`` are all optional,
-        at least one of them must contain a valid association for the event.
+        The event is associated with everything named by ``associations``, ``dataset_ids``, ``file_ids``,
+        ``topic_ids``, and ``message_path_ids`` together. Each of those arguments is optional, but between them they
+        must name at least one item.
 
         Args:
-            name: Human-readable name for the event. Required.
-            start_time: Start timestamp of the event as nanoseconds since UNIX epoch,
-                or any value convertible by :py:func:`~roboto.time.to_epoch_nanoseconds`.
-            end_time: End timestamp of the event. If not provided, defaults to start_time
-                for instantaneous events.
-            associations: Collection of :py:class:`~roboto.association.Association` objects
-                linking the event to specific entities.
-            dataset_ids: Dataset IDs to associate the event with.
-            file_ids: File IDs to associate the event with.
-            topic_ids: Topic IDs to associate the event with.
-            message_path_ids: Message path IDs to associate the event with.
-            description: Optional human-readable description of the event.
-            metadata: Key-value metadata for discovery and search.
-            tags: Tags for categorizing and searching the event.
-            display_options: Visual display options such as color.
-            custom_fields: Optional initial values for Ready custom fields defined on
-                Events in the caller's org. Keys must match Ready field names; values
-                must satisfy each field's declared type.
-            caller_org_id: Organization ID of the SDK caller. If not provided,
-                uses the caller's organization.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            name: Human-readable name of the event, such as ``"Takeoff"``. Must not be blank. Roboto does not require
+                names to be unique.
+            start_time: Start of the event, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+            end_time: End of the event, in the same form. ``None`` creates an event at the single point in time
+                ``start_time``.
+            associations: Datasets, files, topics, and message paths to associate the event with, as
+                :py:class:`~roboto.association.Association` objects.
+            dataset_ids: IDs of datasets to associate the event with.
+            file_ids: IDs of files to associate the event with.
+            topic_ids: IDs of topics to associate the event with.
+            message_path_ids: IDs of message paths to associate the event with.
+            description: Human-readable description of the event.
+            metadata: Key-value metadata to set on the event. ``None`` sets none.
+            tags: Tags to set on the event. ``None`` sets none.
+            display_options: How Roboto displays the event, such as its color. ``None`` lets Roboto choose.
+            custom_fields: Initial values for the event's custom fields, keyed by field name. Each name must be a
+                custom field defined for events in the organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+                field's declared type. ``None`` sets none.
+            caller_org_id: Organization to create the event in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            Event instance with the provided attributes and associations.
+            The new event.
 
         Raises:
-            RobotoInvalidRequestException: Invalid parameters (e.g., start_time > end_time),
-                or associations point to non-existent resources.
-            RobotoUnauthorizedException: Caller lacks permission to access associated entities.
+            RobotoInvalidRequestException: The arguments name no dataset, file, topic, or message path; one of them
+                does not exist or belongs to another organization; or ``start_time`` is after ``end_time``.
+            RobotoIllegalArgumentException: ``name`` is blank, or a ``custom_fields`` name is not a ready custom field
+                for events, or its value does not match the field's type.
+            ValueError: ``start_time`` or ``end_time`` is negative, or is a string that is not a time.
+            RobotoUnauthorizedException: The caller may not change one of the datasets or files the event would be
+                attached to.
 
         Examples:
             Create an event for a sensor anomaly on a specific topic:
@@ -172,11 +180,11 @@ class Event:
             ...     metadata={"severity": "high", "sensor_id": "temp_01"},
             ... )
 
-            Create an instantaneous event on a file:
+            Create an event at a single point in time on a file, giving the time as a string of seconds:
 
             >>> event = Event.create(
             ...     name="System Boot",
-            ...     start_time="1722870127.699468923",  # String format also supported
+            ...     start_time="1722870127.699468923",
             ...     file_ids=["fl_xyz789"],
             ...     tags=["system", "boot"],
             ... )
@@ -228,22 +236,23 @@ class Event:
         roboto_client: typing.Optional[RobotoClient] = None,
         strict_associations: bool = False,
     ) -> collections.abc.Generator["Event", None, None]:
-        """Retrieve all events associated with a specific dataset.
+        """Yield the events on a dataset and, by default, on its files, topics, and message paths.
 
-        Returns events that are associated with the given dataset. By default, this includes
-        events associated with the dataset itself, as well as events associated with any
-        files or topics within that dataset. Use ``strict_associations=True`` to only return
-        events with direct dataset associations.
+        Fetches the events a page at a time, as the iteration reaches each page.
 
         Args:
-            dataset_id: ID of the dataset to query events for.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-            strict_associations: If True, only return events with direct dataset associations.
-                If False (default), also return events associated with files or topics
-                within the dataset.
+            dataset_id: ID of the dataset to find events for.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            strict_associations: Whether to yield only events associated with the dataset itself. When ``False``,
+                also yields events on the dataset's files, topics, and message paths.
 
         Yields:
-            Event instances associated with the specified dataset.
+            The matching events.
+
+        Raises:
+            RobotoNotFoundException: No dataset has this ID, and ``strict_associations`` is ``False``; with ``True``,
+                an unknown ID yields no events. It surfaces on the first iteration.
 
         Examples:
             Get all events for a dataset (including file and topic events):
@@ -257,7 +266,7 @@ class Event:
             >>> strict_events = list(Event.get_by_dataset("ds_abc123", strict_associations=True))
             >>> print(f"Found {len(strict_events)} dataset-level events")
 
-            Process events in batches:
+            Process events as they arrive, without collecting them into a list:
 
             >>> for event in Event.get_by_dataset("ds_abc123"):
             ...     if "anomaly" in event.tags:
@@ -265,13 +274,11 @@ class Event:
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
-        # This will return only events that explicitly have an association with this dataset
         if strict_associations is True:
             for event in Event.get_by_associations([Association.dataset(dataset_id)], roboto_client):
                 yield event
             return
 
-        # This will return all events that have an association with this dataset or any of its files or topics
         next_token: typing.Optional[str] = None
         while True:
             results = roboto_client.get(
@@ -290,14 +297,17 @@ class Event:
     def get_by_file(
         cls, file_id: str, roboto_client: typing.Optional[RobotoClient] = None
     ) -> collections.abc.Generator["Event", None, None]:
-        """Retrieve all events with a direct association to a specific file.
+        """Yield the events associated with a file itself, leaving out events on only its topics or message paths.
+
+        It calls ``get_by_associations``, whose failures also apply.
 
         Args:
-            file_id: ID of the file to query events for.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            file_id: ID of the file to find events for.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Event instances directly associated with the specified file.
+            The matching events.
 
         Examples:
             Get all events for a specific file:
@@ -322,14 +332,17 @@ class Event:
         message_path_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Event", None, None]:
-        """Retrieve all events with a direct association to a specific message path.
+        """Yield the events associated with a message path.
+
+        It calls ``get_by_associations``, whose failures also apply.
 
         Args:
-            message_path_id: ID of the message path to query events for.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            message_path_id: ID of the message path to find events for, beginning with ``mp_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Event instances directly associated with the specified message path.
+            The matching events.
 
         Examples:
             Get all events for a specific message path:
@@ -338,7 +351,7 @@ class Event:
             >>> for event in events:
             ...     print(f"Message path event: {event.name}")
 
-            Find events within a time range for a message path:
+            Keep the events that start at or after a given time:
 
             >>> events = Event.get_by_message_path("mp_abc123")
             >>> filtered_events = [event for event in events if event.start_time >= 1722870127699468923]
@@ -351,14 +364,17 @@ class Event:
         topic_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Event", None, None]:
-        """Retrieve all events with a direct association to a specific topic.
+        """Yield the events associated with a topic itself, leaving out events on only its message paths.
+
+        It calls ``get_by_associations``, whose failures also apply.
 
         Args:
-            topic_id: ID of the topic to query events for.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            topic_id: ID of the topic to find events for.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Event instances directly associated with the specified topic.
+            The matching events.
 
         Examples:
             Get all events for a specific topic:
@@ -367,7 +383,7 @@ class Event:
             >>> for event in events:
             ...     print(f"Topic event: {event.name}")
 
-            Analyze event patterns for a topic:
+            Count the topic's events tagged ``anomaly``:
 
             >>> events = list(Event.get_by_topic("tp_abc123"))
             >>> anomaly_events = [e for e in events if "anomaly" in e.tags]
@@ -381,21 +397,26 @@ class Event:
         associations: collections.abc.Collection[Association],
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Event", None, None]:
-        """Retrieve all events associated with the provided associations.
+        """Yield the events associated with any of the given datasets, files, topics, or message paths.
 
-        Returns events that match any of the provided associations. Events that you don't
-        have access to will be filtered out of the response rather than raising an exception.
+        An event matches only when it is associated with one of ``associations`` itself: an event on a file's topic
+        does not match the file. Events the caller cannot see are left out, without an error. Events come in order
+        of start time, fetched a page at a time as the iteration reaches each page.
 
         Args:
-            associations: Collection of :py:class:`~roboto.association.Association` objects
-                to query events for.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            associations: Datasets, files, topics, and message paths to find events for, as
+                :py:class:`~roboto.association.Association` objects. Must contain at least one.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Event instances associated with any of the specified associations.
+            The matching events.
+
+        Raises:
+            RobotoInvalidRequestException: ``associations`` is empty. It surfaces on the first iteration.
 
         Examples:
-            Query events for multiple associations:
+            Find the events on a topic or a file:
 
             >>> from roboto import Association
             >>> associations = [Association.topic("tp_abc123"), Association.file("fl_xyz789")]
@@ -403,7 +424,7 @@ class Event:
             >>> for event in events:
             ...     print(f"Event: {event.name}")
 
-            Query events for a specific dataset and file combination:
+            Find the events on a dataset or a file:
 
             >>> associations = [Association.dataset("ds_abc123"), Association.file("fl_xyz789")]
             >>> events = list(Event.get_by_associations(associations))
@@ -428,18 +449,15 @@ class Event:
 
     @classmethod
     def from_id(cls, event_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> "Event":
-        """Load an existing event by its ID.
+        """Fetch an event by its ID.
 
         Args:
-            event_id: Unique identifier of the event to retrieve.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-
-        Returns:
-            Event instance for the specified ID.
+            event_id: ID of the event, beginning with ``ev_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: Event with the specified ID does not exist.
-            RobotoUnauthorizedException: Caller lacks permission to access the event.
+            RobotoNotFoundException: No event has this ID.
 
         Examples:
             Load an event by ID:
@@ -448,11 +466,12 @@ class Event:
             >>> print(f"Event: {event.name}")
             >>> print(f"Created: {event.created}")
 
-            Load and update an event:
+            Load an event and change its description:
 
             >>> event = Event.from_id("ev_abc123")
-            >>> updated_event = event.set_description("Updated description")
-            >>> print(f"New description: {updated_event.description}")
+            >>> event = event.set_description("Updated description")
+            >>> print(event.description)
+            Updated description
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(f"v1/events/id/{event_id}").to_record(EventRecord)
@@ -464,32 +483,18 @@ class Event:
         event_ids: collections.abc.Collection[str],
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> None:
-        """Delete multiple events.
+        """Delete several events. This cannot be undone.
 
-        Authorization works just like :meth:`delete`: you can delete any event
-        you're able to manage. If the list includes an event you're not allowed
-        to delete, the whole request is rejected and nothing is deleted. This
-        operation cannot be undone. Event IDs that don't exist are ignored, so
-        the call is idempotent and safe to retry.
-
-        The bulk delete API caps each request at
-        :py:const:`~roboto.domain.events.operations.MAX_EVENTS_PER_DELETE_BATCH`
-        event IDs. This method removes that limit for callers by splitting
-        ``event_ids`` into chunks of that size and sending one request per chunk.
-        Because each chunk is its own request, deleting a very large number of
-        events is not atomic: if a request fails partway through, earlier chunks
-        stay deleted. The operation is idempotent, so retrying with the same IDs
-        safely finishes the job.
+        IDs that match no event are skipped, so a call can be retried with the same IDs. Sends the IDs in requests of
+        at most 1,000 events each (:py:const:`~roboto.domain.events.MAX_EVENTS_PER_DELETE_BATCH`), in order. Each
+        request deletes all of its events or none: when the caller cannot delete one of them, that request raises
+        ``RobotoUnauthorizedException`` and deletes nothing. Events deleted by earlier requests stay deleted, and later
+        requests are not sent. Deleting each event takes the permission ``delete`` takes.
 
         Args:
-            event_ids: IDs of the events to delete. May exceed the per-request
-                limit; they are batched automatically.
-            roboto_client: HTTP client for API communication. If None, uses the
-                default client.
-
-        Raises:
-            RobotoUnauthorizedException: Caller isn't allowed to delete one of
-                the requested events.
+            event_ids: IDs of the events to delete, any number of them.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Examples:
             Delete several events at once:
@@ -526,98 +531,106 @@ class Event:
 
     @property
     def color(self) -> typing.Optional[str]:
-        """Display color for the event, if set."""
+        """Display color of the event, as any CSS color value, such as ``"red"``, ``"#ff0000"`` or ``"rgb(255 0 0)"``.
+
+        ``None`` when no color is set, so Roboto chooses one. :py:attr:`~roboto.domain.events.EventDisplayOptions.color`
+        says what the color is for.
+        """
         return self.display_options.color if self.display_options else None
 
     @property
     def created(self) -> datetime.datetime:
-        """Date and time when this event was created."""
+        """Time the event was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """User who created this event."""
+        """Principal that created the event, as ``<type>:<id>``, such as ``user:<user_id>``."""
         return self.__record.created_by
 
     @property
     def description(self) -> typing.Optional[str]:
-        """Optional human-readable description of the event."""
+        """Human-readable description of the event, or ``None`` if it has none."""
         return self.__record.description
 
     @property
     def display_options(self) -> typing.Optional[EventDisplayOptions]:
-        """Display options for the event, such as color."""
+        """How the Roboto web app displays the event, such as its color, or ``None`` if no display options are set."""
         return self.__record.display_options
 
     @property
     def end_time(self) -> int:
-        """End time of the event in nanoseconds since UNIX epoch."""
+        """End of the event's time span, in nanoseconds since the Unix epoch.
+
+        :py:attr:`~roboto.domain.events.EventRecord.end_time` says how it relates to ``start_time``. Reading an event
+        at a single point in time with ``get_data`` returns no messages, because the read excludes ``end_time``.
+        """
         return self.__record.end_time
 
     @property
     def event_id(self) -> str:
-        """Unique identifier for this event."""
+        """Unique ID of the event, beginning with ``ev_``."""
         return self.__record.event_id
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
-        """Key-value metadata associated with this event."""
+        """Key-value metadata on the event."""
         return self.__record.metadata
 
     @property
     @experimental
     def custom_fields(self) -> dict[str, typing.Any]:
-        """Custom-field values defined on Events in this org.
+        """Values of the custom fields the organization defines for events, keyed by field name.
 
-        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` defined
-        for ``(org_id, Event)`` appears as a key. Values that have not been set
-        on this event surface as ``None`` rather than being absent. Empty when
-        no custom fields are defined for the org.
-
-        A :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is returned
-        as an ISO 8601 string.
+        :py:attr:`~roboto.domain.events.EventRecord.custom_fields` says which fields appear as keys. A
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is an ISO 8601 string.
         """
         return self.__record.custom_fields
 
     @property
     def modified(self) -> datetime.datetime:
-        """Date and time when this event was last modified."""
+        """Time the event was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """User who last modified this event."""
+        """Principal that last modified the event, in the same ``<type>:<id>`` form as ``created_by``."""
         return self.__record.modified_by
 
     @property
     def name(self) -> str:
-        """Human-readable name of the event."""
+        """Human-readable name of the event, such as ``"Takeoff"`` or ``"CPU Spike"``.
+
+        :py:attr:`~roboto.domain.events.EventRecord.name` says whether names must be unique.
+        """
         return self.__record.name
 
     @property
     def record(self) -> EventRecord:
-        """Underlying event record data."""
+        """Record of the event that this instance holds.
+
+        ``refresh`` replaces it with the current one.
+        """
         return self.__record
 
     @property
     def start_time(self) -> int:
-        """Start time of the event in nanoseconds since UNIX epoch."""
+        """Start of the event's time span, in nanoseconds since the Unix epoch."""
         return self.__record.start_time
 
     @property
     def tags(self) -> list[str]:
-        """Tags associated with this event for categorization and search."""
+        """Tags on the event."""
         return self.__record.tags
 
     def dataset_ids(self, strict_associations: bool = False) -> list[str]:
-        """Get dataset IDs associated with this event.
+        """Return the IDs of the datasets the event is associated with, each once.
+
+        Reads the event's record and makes no request.
 
         Args:
-            strict_associations: If True, only return datasets with direct associations.
-                If False (default), also return datasets inferred from file and topic associations.
-
-        Returns:
-            List of unique dataset IDs associated with this event.
+            strict_associations: Whether to return only datasets the event is associated with directly. When
+                ``False``, also returns the datasets that contain the event's files, topics, and message paths.
 
         Examples:
             Get all associated dataset IDs:
@@ -640,23 +653,19 @@ class Event:
         )
 
     def delete(self) -> None:
-        """Delete this event permanently.
+        """Delete the event. This cannot be undone.
 
-        This operation cannot be undone. The event and all its associations will be
-        permanently removed from the platform.
-
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to delete this event.
-            RobotoNotFoundException: Event has already been deleted or does not exist.
+        Deleting an event that no longer exists succeeds and changes nothing. Deleting takes permission to change a
+        dataset or file the event is attached to; an event attached to none can be deleted by any member of its
+        organization.
 
         Examples:
             Delete an event:
 
             >>> event = Event.from_id("ev_abc123")
             >>> event.delete()
-            >>> # Event is now permanently deleted
 
-            Conditional deletion:
+            Delete an event only if it has a given tag:
 
             >>> event = Event.from_id("ev_abc123")
             >>> if "temporary" in event.tags:
@@ -666,14 +675,13 @@ class Event:
         self.__roboto_client.delete(f"v1/events/id/{self.event_id}")
 
     def file_ids(self, strict_associations: bool = False) -> list[str]:
-        """Get file IDs associated with this event.
+        """Return the IDs of the files the event is associated with, each once.
+
+        Reads the event's record and makes no request.
 
         Args:
-            strict_associations: If True, only return files with direct associations.
-                If False (default), also return files inferred from topic and message path associations.
-
-        Returns:
-            List of unique file IDs associated with this event.
+            strict_associations: Whether to return only files the event is associated with directly. When ``False``,
+                also returns the files that contain the event's topics and message paths.
 
         Examples:
             Get all associated file IDs:
@@ -705,67 +713,53 @@ class Event:
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
         strict_associations: bool = False,
     ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
-        """
-        Iteratively yield records of the underlying topic data this event annotates.
+        """Yield the messages of a topic the event annotates, within the event's time span.
 
-        An event can be associated with data at multiple resolutions:
-            - as an event on its containing dataset, file, and/or topic,
-            - but also directly with the message path ("signal data")
-        A single event can also span signals that share a timeline,
-        so it may annotate multiple topics in a file, or even multiple files in a dataset.
+        Each call reads one topic. Which topic, and which of its message paths, depends on the event's associations.
+        The most specific kind the event has decides, in this order:
 
-        Each call loads data from one topic (extracted from one file, uploaded to one dataset).
-        The event must have been made on a single file, on one or more topics,
-        or on one or more message paths in one or more topics.
+        1. Message paths. The read includes only those message paths, and ignores ``message_paths_include`` and
+           ``message_paths_exclude``. When they belong to more than one topic, ``topic_name`` must name one of those
+           topics, and only its message paths are read.
+        2. Topics. When the event is on more than one topic, ``topic_name`` must name one of them.
+        3. A file. ``topic_name`` must name a topic in the file. An event on more than one file cannot be read.
 
-        If the event was made on a file, `topic_name` must be provided,
-        and either or both of `message_paths_include` or `message_paths_exclude` may be provided,
-        but are optional.
+        When the associations identify a single topic, ``topic_name`` is ignored. Nothing is fetched until the
+        iteration starts.
 
-        If the event was made on topics, either or both of `message_paths_include` or `message_paths_exclude`
-        may be provided, but are optional.
-        If it was made on more than one topic, `topic_name` must name exactly one of them, and data is loaded
-        from that topic alone. If it was made on a single topic, `topic_name` is ignored.
+        The read includes messages at ``start_time`` and excludes those at ``end_time``, so an event whose start equals
+        its end yields no messages.
 
-        If the event was made on message paths, data is loaded for those message paths.
-        If they belong to more than one topic, `topic_name` must name exactly one of those topics,
-        and data is loaded only for the message paths in that topic.
-        If they belong to a single topic, `topic_name` is ignored.
-        `message_paths_include` and `message_paths_exclude`, if provided, are ignored.
+        Args:
+            message_paths_include: Dot-delimited message paths to include, such as ``"velocity.x"``. A partial path
+                such as ``"velocity"`` includes every path under it. ``None`` includes every message path.
+            message_paths_exclude: Message paths to leave out, in the same form. ``None`` leaves out none.
+            topic_name: Name of the topic to read, when the event's associations span more than one topic or the
+                event is on a file.
+            topic_data_service: Ignored. The data is read with a service that uses this event's ``roboto_client``.
+            cache_dir: Directory to download the topic's data to. ``None`` uses
+                :py:attr:`~roboto.domain.topics.TopicDataService.DEFAULT_CACHE_DIR`.
+            strict_associations: Has no effect. The event's message paths, topics, or file choose the topic as
+                described above, whatever is passed.
 
-        If the event is associated with data at multiple resolutions (e.g., two message paths, one topic, one file),
-        this method uses the most specific associations: message paths first, then topics, then the file.
-
-        If ``message_paths_include`` or ``message_paths_exclude`` are defined,
-        they should be dot notation paths that match attributes of individual data records.
-        If a partial path is provided, it is treated as a wildcard, matching all subpaths.
-
-        For example, given topic data with the following interface:
-
-        ::
-
-            {
-                "velocity": {
-                    "x": <uint32>,
-                    "y": <uint32>,
-                    "z": <uint32>
-                }
-            }
-
-        Calling ``get_data`` on an Event associated with that topic like:
-
-            >>> event.get_data(message_paths_include=["velocity.x", "velocity.y"])
-
-        is expected to give the same output as:
-
-            >>> event.get_data(message_paths_include=["velocity"], message_paths_exclude=["velocity.z"])
+        Yields:
+            ``(timestamp, message)`` tuples, where ``message`` is a dictionary that follows the topic's schema.
 
         Raises:
-            RobotoInvalidRequestException: The event isn't associated with topic data, or its associations and
-                ``topic_name`` don't identify exactly one topic.
+            RobotoInvalidRequestException: The event is on no message path, topic, or file; it is on more than one
+                file and on no topic or message path; or ``topic_name`` is needed but missing, or names other than
+                exactly one of the event's topics. It surfaces on the first iteration.
+            RobotoNotFoundException: The event is on a file that has no topic named ``topic_name``. It surfaces on the
+                first iteration.
 
-        Tip:
-            For many events, parallelize with a thread pool:
+        Examples:
+            For a topic whose messages look like ``{"velocity": {"x": ..., "y": ..., "z": ...}}``, these two calls
+            yield the same data:
+
+            >>> event.get_data(message_paths_include=["velocity.x", "velocity.y"])
+            >>> event.get_data(message_paths_include=["velocity"], message_paths_exclude=["velocity.z"])
+
+            Read many events' data in parallel with a thread pool:
 
             >>> from concurrent.futures import ThreadPoolExecutor
             >>> from itertools import chain
@@ -799,26 +793,33 @@ class Event:
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
         strict_associations: bool = False,
     ) -> pandas.DataFrame:
-        """Return the underlying topic data this event annotates as a pandas DataFrame.
+        """Fetch the data ``get_data`` would yield, as a ``pandas.DataFrame``.
 
-        Collects all data from :py:meth:`get_data` and returns it as a pandas DataFrame
-        with the log time as the index. Requires installing this package using the
-        ``roboto[analytics]`` extra.
+        The DataFrame is indexed by log time. The topic and message paths read are chosen from the event's
+        associations as ``get_data`` describes. Requires the ``roboto[analytics]`` extra.
+
+        The read includes messages at ``start_time`` and excludes those at ``end_time``, so an event whose start equals
+        its end returns no rows.
 
         Args:
-            message_paths_include: Dot notation paths to include in the data.
-            message_paths_exclude: Dot notation paths to exclude from the data.
-            topic_name: Required when the event is associated with a file, with message paths in more than one topic,
-                or (when it has no message paths) with more than one topic; see :py:meth:`get_data`.
-            topic_data_service: Service for accessing topic data.
-            cache_dir: Directory for caching downloaded data.
-
-        Returns:
-            DataFrame containing the event's underlying topic data, indexed by log time.
+            message_paths_include: Dot-delimited message paths to include, such as ``"velocity.x"``. A partial path
+                such as ``"velocity"`` includes every path under it. ``None`` includes every message path. Ignored
+                when the event is on message paths.
+            message_paths_exclude: Message paths to leave out, in the same form. ``None`` leaves out none. Ignored
+                when the event is on message paths.
+            topic_name: Name of the topic to read, when the event's associations span more than one topic or the
+                event is on a file.
+            topic_data_service: Ignored. The data is read with a service that uses this event's ``roboto_client``.
+            cache_dir: Directory to download the topic's data to. ``None`` uses
+                :py:attr:`~roboto.domain.topics.TopicDataService.DEFAULT_CACHE_DIR`.
+            strict_associations: Has no effect. The event's message paths, topics, or file choose the topic as
+                described above, whatever is passed.
 
         Raises:
-            ImportError: If pandas is not installed (install with ``roboto[analytics]``).
-            RobotoInvalidRequestException: Invalid parameters or event associations.
+            ImportError: The ``roboto[analytics]`` extra is not installed.
+            RobotoInvalidRequestException: The event's associations and ``topic_name`` do not identify one topic, as
+                for ``get_data``.
+            RobotoNotFoundException: The event is on a file that has no topic named ``topic_name``.
 
         Examples:
             Get event data as a DataFrame:
@@ -828,19 +829,18 @@ class Event:
             >>> print(f"Data shape: {df.shape}")
             >>> print(df.head())
 
-            Get specific message paths as DataFrame:
+            Read only some message paths:
 
             >>> df = event.get_data_as_df(message_paths_include=["velocity.x", "velocity.y"])
             >>> print(df.columns.tolist())
 
-            Analyze event data:
+            Print the time spanned by the data and the number of rows:
 
             >>> df = event.get_data_as_df()
-            >>> print(f"Event duration: {df.index.max() - df.index.min()} ns")
+            >>> print(f"Data span: {df.index.max() - df.index.min()} ns")
             >>> print(f"Data points: {len(df)}")
 
-        Tip:
-            For many events, parallelize with a thread pool:
+            Read many events' data in parallel with a thread pool, then combine it:
 
             >>> import pandas as pd
             >>> from concurrent.futures import ThreadPoolExecutor
@@ -866,10 +866,9 @@ class Event:
         )
 
     def message_path_ids(self) -> list[str]:
-        """Get message path IDs directly associated with this event.
+        """Return the IDs of the message paths the event is associated with, each once.
 
-        Returns:
-            List of unique message path IDs directly associated with this event.
+        Reads the event's record and makes no request.
 
         Examples:
             Get message path IDs:
@@ -887,13 +886,16 @@ class Event:
         )
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Event":
-        """Add or update metadata fields for this event.
+        """Set metadata keys on the event, adding new keys and overwriting existing ones.
+
+        Keys the dict does not name keep their values. A dotted key such as ``"weather.condition"`` sets
+        ``condition`` inside the nested ``weather`` object. It calls ``update``, whose failures also apply.
 
         Args:
-            metadata: Dictionary of key-value pairs to add or update.
+            metadata: Key-value metadata to set on the event.
 
         Returns:
-            Updated Event instance.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             Add metadata to an event:
@@ -901,20 +903,20 @@ class Event:
             >>> event = Event.from_id("ev_abc123")
             >>> updated_event = event.put_metadata({"severity": "high", "component": "engine", "alert_id": "alert_001"})
             >>> print(updated_event.metadata["severity"])
-            'high'
+            high
         """
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
 
     def put_tags(self, tags: list[str]) -> "Event":
-        """Add tags to this event.
+        """Add tags to the event, keeping its existing tags.
 
-        Keeps the event's existing tags. A tag the event already has is not added again.
+        A tag the event already has is not added again. It calls ``update``, whose failures also apply.
 
         Args:
             tags: Tags to add to the event.
 
         Returns:
-            Updated Event instance.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             Add tags to an event:
@@ -928,19 +930,18 @@ class Event:
         return self.update(metadata_changeset=MetadataChangeset(put_tags=tags))
 
     def refresh(self) -> "Event":
-        """Refresh this event's data from the server.
+        """Replace this instance's record with the event's current record from Roboto.
 
-        Fetches the latest version of this event from the server, updating all
-        properties to reflect any changes made by other processes.
+        Use it to see changes that other users or processes made after this instance was loaded.
 
         Returns:
-            This Event instance with refreshed data.
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            RobotoNotFoundException: The event no longer exists.
 
         Examples:
-            Refresh an event to get latest changes:
-
             >>> event = Event.from_id("ev_abc123")
-            >>> # Event may have been updated by another process
             >>> refreshed_event = event.refresh()
             >>> print(f"Current description: {refreshed_event.description}")
         """
@@ -951,21 +952,20 @@ class Event:
         self,
         metadata: StrSequence,
     ) -> "Event":
-        """Remove metadata fields from this event.
+        """Remove metadata keys from the event. Keys the event does not have are ignored.
+
+        A dotted key such as ``"temp_data.max"`` removes ``max`` from inside the nested ``temp_data`` object. It
+        calls ``update``, whose failures also apply.
 
         Args:
-            metadata: Sequence of metadata field names to remove. Supports dot notation
-                for nested fields.
+            metadata: Metadata keys to remove.
 
         Returns:
-            Updated Event instance.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
-            Remove specific metadata fields:
-
             >>> event = Event.from_id("ev_abc123")
             >>> updated_event = event.remove_metadata(["severity", "temp_data.max"])
-            >>> # Fields 'severity' and nested 'temp_data.max' are now removed
         """
         return self.update(metadata_changeset=MetadataChangeset(remove_fields=metadata))
 
@@ -973,64 +973,126 @@ class Event:
         self,
         tags: StrSequence,
     ) -> "Event":
-        """Remove specific tags from this event.
+        """Remove tags from the event. Tags the event does not have are ignored.
+
+        It calls ``update``, whose failures also apply.
 
         Args:
-            tags: Sequence of tag names to remove from this event.
+            tags: Tags to remove from the event.
 
         Returns:
-            Updated Event instance.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
-            Remove specific tags:
-
             >>> event = Event.from_id("ev_abc123")
             >>> updated_event = event.remove_tags(["temporary", "draft"])
-            >>> # Tags 'temporary' and 'draft' are now removed
+            >>> "draft" in updated_event.tags
+            False
         """
         return self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
     @experimental
     def set_custom_field(self, name: str, value: typing.Any) -> "Event":
-        """Set a single custom-field value on this event.
+        """Set one custom-field value on the event.
 
-        ``name`` must be the name of a
-        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
-        field for this event's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Event`
-        entity type; ``value`` must satisfy the field's declared type.
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            name: Name of a custom field defined for events in the event's organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
+            value: Value to set, which must match the field's declared type.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            RobotoIllegalArgumentException: ``name`` is not a ready custom field for events, or ``value`` does not
+                match its type.
+
+        Examples:
+            >>> event = Event.from_id("ev_abc123")
+            >>> event = event.set_custom_field("severity_score", 7)
         """
         return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
 
     @experimental
     def clear_custom_field(self, name: str) -> "Event":
-        """Clear a single custom-field value on this event to ``None``."""
+        """Clear one custom-field value on the event, so the field reads back as ``None``.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            name: Name of a ready custom field defined for events in the event's organization.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            RobotoIllegalArgumentException: ``name`` is not a ready custom field for events.
+
+        Examples:
+            >>> event = Event.from_id("ev_abc123")
+            >>> event.clear_custom_field("severity_score").custom_fields["severity_score"] is None
+            True
+        """
         return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
 
     @experimental
     def set_custom_fields(self, fields: dict[str, typing.Any]) -> "Event":
-        """Set or overwrite multiple custom-field values on this event.
+        """Set several custom-field values on the event. Fields not named keep their values.
 
-        Each key must name a Ready custom field for this event's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Event`
-        entity type; each value must satisfy the field's declared type.
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            fields: New values keyed by field name. Each name must be a custom field defined for events in the
+                event's organization, with status :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`,
+                and each value must match that field's declared type.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            RobotoIllegalArgumentException: A name is not a ready custom field for events, or a value does not match
+                its field's type.
+
+        Examples:
+            >>> event = Event.from_id("ev_abc123")
+            >>> event = event.set_custom_fields({"severity_score": 7, "reviewer": "pilot"})
         """
         return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
 
     @experimental
     def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> "Event":
-        """Clear multiple custom-field values on this event to ``None``."""
+        """Clear several custom-field values on the event, so each field reads back as ``None``.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            names: Names of ready custom fields defined for events in the event's organization.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            RobotoIllegalArgumentException: A name is not a ready custom field for events.
+
+        Examples:
+            >>> event = Event.from_id("ev_abc123")
+            >>> event = event.clear_custom_fields(["severity_score", "reviewer"])
+        """
         return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))
 
     def set_color(self, color: typing.Optional[str]) -> "Event":
-        """Set the display color for this event.
+        """Set the event's display color.
+
+        It calls ``update``, whose failures also apply.
 
         Args:
-            color: CSS-compatible color value (e.g., "red", "#ff0000", "rgb(255,0,0)").
-                Use None to clear the color and use automatic coloring.
+            color: Display color, as any CSS color value, such as ``"red"``, ``"#ff0000"`` or ``"rgb(255 0 0)"``.
+                ``None`` clears it, so Roboto chooses one.
 
         Returns:
-            Updated Event instance.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             Set event color to red:
@@ -1038,7 +1100,7 @@ class Event:
             >>> event = Event.from_id("ev_abc123")
             >>> updated_event = event.set_color("red")
             >>> print(updated_event.color)
-            'red'
+            red
 
             Clear event color:
 
@@ -1049,13 +1111,15 @@ class Event:
         return self.update(display_options_changeset=EventDisplayOptionsChangeset(color=color))
 
     def set_description(self, description: typing.Optional[str]) -> "Event":
-        """Set the description for this event.
+        """Set the event's description.
+
+        It calls ``update``, whose failures also apply.
 
         Args:
-            description: New description for the event. Use None to clear the description.
+            description: Human-readable description of the event. ``None`` clears it.
 
         Returns:
-            Updated Event instance.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             Set event description:
@@ -1063,7 +1127,7 @@ class Event:
             >>> event = Event.from_id("ev_abc123")
             >>> updated_event = event.set_description("Updated event description")
             >>> print(updated_event.description)
-            'Updated event description'
+            Updated event description
 
             Clear event description:
 
@@ -1074,13 +1138,15 @@ class Event:
         return self.update(description=description)
 
     def set_name(self, name: str) -> "Event":
-        """Set the name for this event.
+        """Set the event's name.
+
+        It calls ``update``, whose failures also apply.
 
         Args:
-            name: New name for the event.
+            name: Human-readable name of the event. Roboto does not require names to be unique.
 
         Returns:
-            Updated Event instance.
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             Update event name:
@@ -1088,19 +1154,17 @@ class Event:
             >>> event = Event.from_id("ev_abc123")
             >>> updated_event = event.set_name("Critical System Alert")
             >>> print(updated_event.name)
-            'Critical System Alert'
+            Critical System Alert
         """
         return self.update(name=name)
 
     def to_dict(self) -> dict[str, typing.Any]:
-        """Convert this event to a dictionary representation.
+        """Return the event's record as a JSON-compatible dictionary.
 
         Returns:
-            Dictionary containing all event data in JSON-serializable format.
+            :py:class:`~roboto.domain.events.EventRecord` of the event, as a JSON-compatible dictionary.
 
         Examples:
-            Convert event to dictionary:
-
             >>> event = Event.from_id("ev_abc123")
             >>> event_dict = event.to_dict()
             >>> print(event_dict["name"])
@@ -1109,14 +1173,13 @@ class Event:
         return self.__record.model_dump(mode="json")
 
     def topic_ids(self, strict_associations: bool = False) -> list[str]:
-        """Get topic IDs associated with this event.
+        """Return the IDs of the topics the event is associated with, each once.
+
+        Reads the event's record and makes no request.
 
         Args:
-            strict_associations: If True, only return topics with direct associations.
-                If False (default), also return topics inferred from message path associations.
-
-        Returns:
-            List of unique topic IDs associated with this event.
+            strict_associations: Whether to return only topics the event is associated with directly. When ``False``,
+                also returns the topics that contain the event's message paths.
 
         Examples:
             Get all associated topic IDs:
@@ -1149,46 +1212,43 @@ class Event:
         display_options_changeset: typing.Union[EventDisplayOptionsChangeset, NotSetType] = NotSet,
         custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None,
     ) -> "Event":
-        """Update this event's attributes.
-
-        Updates various properties of the event including name, time range, description,
-        metadata, and display options. Only specified parameters are updated; others
-        remain unchanged.
-
-        When provided, ``start_time`` and ``end_time`` should be integers representing nanoseconds
-        since the UNIX epoch, or convertible to such integers by :py:func:`~roboto.time.to_epoch_nanoseconds`.
+        """Update the event's properties. Arguments left unset leave their property unchanged.
 
         Args:
-            name: New human-readable name for the event.
-            start_time: New start timestamp for the event.
-            end_time: New end timestamp for the event.
-            description: New description for the event. Set to None to clear existing description.
-            metadata_changeset: Changes to apply to the event's metadata and tags.
-            display_options_changeset: Changes to apply to the event's display options.
-            custom_fields_changeset: Changes to apply to Ready custom-field values on this
-                event. Field names not referenced by the changeset are left unchanged.
+            name: Human-readable name of the event. Roboto does not require names to be unique.
+            start_time: Start of the event, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+            end_time: End of the event, in the same form.
+            description: Human-readable description of the event. ``None`` clears it.
+            metadata_changeset: Changes to the event's tags and metadata.
+            display_options_changeset: Changes to the event's display options.
+            custom_fields_changeset: Changes to the event's custom-field values. Fields the changeset does not name
+                keep their values. ``None`` changes none.
 
         Returns:
-            This Event instance with attributes updated accordingly.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            ValueError: If start_time or end_time are negative.
-            RobotoIllegalArgumentException: If start_time > end_time.
-            RobotoUnauthorizedException: Caller lacks permission to edit this event.
+            RobotoIllegalArgumentException: The update would leave the event starting after it ends; or the
+                custom-field changeset names a field that is not a ready custom field for events, or sets a value
+                that does not match its field's type.
+            ValueError: ``start_time`` or ``end_time`` is negative, or is a string that is not a time.
+            RobotoUnauthorizedException: The caller may not change any dataset or file the event is attached to, or,
+                for an event attached to none, does not belong to its organization.
 
         Examples:
-            Update event name and description:
+            Rename the event and change its description:
 
             >>> event = Event.from_id("ev_abc123")
             >>> updated_event = event.update(
             ...     name="Critical System Alert", description="Updated description with more details"
             ... )
 
-            Update event time range:
+            Change the event's time span:
 
             >>> updated_event = event.update(start_time=1722870127699468923, end_time=1722870127799468923)
 
-            Update metadata and display options:
+            Set a metadata key, add tags, and change the display color:
 
             >>> from roboto.updates import MetadataChangeset
             >>> from roboto.domain.events import EventDisplayOptionsChangeset
@@ -1200,7 +1260,7 @@ class Event:
             ... )
         """
 
-        # Normally would've used is_set(), but MyPy has issues with our TypeAlias 'Time'
+        # Checks with isinstance rather than is_set(), because is_set() does not narrow the Time union for mypy.
         def maybe_get_epoch_nanos(
             time: typing.Union[Time, NotSetType],
         ) -> typing.Union[int, NotSetType]:
@@ -1236,10 +1296,10 @@ class Event:
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
         strict_associations: bool = False,
     ) -> GetDataArgs:
+        """Choose the topic and read arguments for ``get_data`` and ``get_data_as_df`` from the event's associations.
+
+        Uses the event's message paths if it has any, otherwise its topics, otherwise its file.
         """
-        Deduplicate logic used to collect arguments passed to both ``get_data`` and ``get_data_as_df``.
-        """
-        # Event associated with message path(s)
         message_path_ids = self.message_path_ids()
         if len(message_path_ids) > 0:
             message_paths = [
@@ -1264,7 +1324,6 @@ class Event:
                 cache_dir=cache_dir,
             )
 
-        # Event associated with topic
         topic_ids = self.topic_ids(strict_associations=strict_associations)
         if len(topic_ids) > 0:
             topic = self.__select_topic(topic_ids, topic_name)
@@ -1277,7 +1336,6 @@ class Event:
                 cache_dir=cache_dir,
             )
 
-        # Event associated with a file
         file_ids = list(self.file_ids(strict_associations=strict_associations))
         if len(file_ids) != 0:
             if len(file_ids) > 1:

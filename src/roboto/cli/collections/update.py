@@ -22,6 +22,12 @@ from .shared_helpdoc import COLLECTION_ID_HELP
 
 
 def update(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Update the collection the ID names from the command's options, then print its record as JSON.
+
+    An option left out leaves that property unchanged. The IDs to add must all be of one resource type, and so must
+    the IDs to remove; mixing types in either exits with status 2 before any request to Roboto, and prints the usage
+    text and the reason to stderr.
+    """
     provided_add_kinds = sum(
         [
             bool(args.add_dataset_id),

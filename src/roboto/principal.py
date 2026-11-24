@@ -12,42 +12,49 @@ from .compat import StrEnum
 
 
 class RobotoPrincipalType(StrEnum):
-    """Types of principals supported by the Roboto platform."""
+    """Type of a principal: the kind of identity a ``RobotoPrincipal`` names."""
 
     Device = "device"
-    """See :py:class:`roboto.domain.devices.Device`."""
+    """Devices (:py:class:`~roboto.domain.devices.Device`)."""
 
     Integration = "integration"
-    """A third-party integration which has been granted limited access to the Roboto platform."""
+    """Integrations: Roboto features, such as the Slack app, that record changes under their own identity."""
 
     Invocation = "invocation"
-    """See :py:class:`roboto.domain.actions.Invocation`."""
+    """Invocations of actions (:py:class:`~roboto.domain.actions.Invocation`)."""
 
     User = "user"
-    """See :py:class:`roboto.domain.users.User`."""
+    """Users (:py:class:`~roboto.domain.users.User`)."""
 
     Org = "org"
-    """See :py:class:`roboto.domain.orgs.Org`."""
+    """Organizations (:py:class:`~roboto.domain.orgs.Org`)."""
 
 
 class RobotoPrincipal(pydantic.BaseModel):
-    """Represents a principal (user, organization, device, etc.) in the Roboto platform."""
+    """A principal: an identity that acts in Roboto or owns a resource, such as a user, a device, or an organization.
+
+    Fields such as a dataset's ``created_by`` hold a principal in its string form, ``<type>:<id>``, which
+    ``from_string`` parses. Creating a principal, directly or with any method
+    of this class, raises ``pydantic.ValidationError`` when its ID contains a colon.
+    """
 
     ptype: RobotoPrincipalType
-    """The type of principal (user or organization)."""
+    """Type of the principal, such as user or device."""
 
     id: str
-    """Fully qualified principal ID.
+    """ID of the principal, unique among principals of its type.
 
-    For resources which have universally unique IDs (e.g. users, orgs, invocations, datasets, files, etc.) this will
-    just be the resource ID.
-
-    For resources which have org-unique IDs (e.g. devices, actions), this will be the resource ID + "@" + the org ID,
-    e.g. a device ``sn001`` in org ``og_67890`` will have a fully qualified ID of ``sn001@og_67890``.
+    For users, organizations, invocations and integrations, this is the resource's own ID. A device's ID is unique only
+    within its organization, so a device principal's ID is ``<device_id>@<org_id>``: device ``sn001`` in organization
+    ``og_12345`` has the ID ``sn001@og_12345``.
     """
 
     @pydantic.field_validator("id")
     def validate_id(cls, value: str) -> str:
+        """Reject an ID that contains a colon, which separates the type from the ID in the string form.
+
+        Pydantic calls this while it builds a principal.
+        """
         if ":" in value:
             raise ValueError(f"ID cannot contain a colon, got {value}")
 
@@ -55,77 +62,64 @@ class RobotoPrincipal(pydantic.BaseModel):
 
     @classmethod
     def for_device(cls, device_id: str, org_id: str) -> RobotoPrincipal:
-        """Create a principal representing a device.
+        """Build the principal of a device, whose ID is ``<device_id>@<org_id>``.
 
         Args:
-            device_id: Unique identifier for the device.
-            org_id: Organization ID that owns the device.
-
-        Returns:
-            A RobotoPrincipal instance configured for the specified device.
+            device_id: ID the organization gave the device, such as a serial number.
+            org_id: ID of the organization that owns the device.
         """
         return RobotoPrincipal(ptype=RobotoPrincipalType.Device, id=f"{device_id}@{org_id}")
 
     @classmethod
     def for_integration(cls, integration_id: str) -> RobotoPrincipal:
-        """Create a principal representing a third-party integration.
+        """Build the principal of an integration.
 
         Args:
-            integration_id: Unique identifier for the integration.
-
-        Returns:
-            A RobotoPrincipal instance configured for the specified integration.
+            integration_id: ID of the integration, such as ``slack``.
         """
         return RobotoPrincipal(ptype=RobotoPrincipalType.Integration, id=integration_id)
 
     @classmethod
     def for_invocation(cls, invocation_id: str) -> RobotoPrincipal:
-        """Create a principal representing an invocation.
+        """Build the principal of an invocation of an action.
 
         Args:
-            invocation_id: Unique identifier for the invocation.
-
-        Returns:
-            A RobotoPrincipal instance configured for the specified invocation.
+            invocation_id: ID of the invocation, beginning with ``iv_``.
         """
         return RobotoPrincipal(ptype=RobotoPrincipalType.Invocation, id=invocation_id)
 
     @classmethod
     def for_org(cls, org_id: str) -> RobotoPrincipal:
-        """Create a principal representing an organization.
+        """Build the principal of an organization.
 
         Args:
-            org_id: Unique identifier for the organization.
-
-        Returns:
-            A RobotoPrincipal instance configured for the specified organization.
+            org_id: ID of the organization.
         """
         return RobotoPrincipal(ptype=RobotoPrincipalType.Org, id=org_id)
 
     @classmethod
     def for_user(cls, user_id: str) -> RobotoPrincipal:
-        """Create a principal representing a user.
+        """Build the principal of a user.
 
         Args:
-            user_id: Unique identifier for the user.
-
-        Returns:
-            A RobotoPrincipal instance configured for the specified user.
+            user_id: ID of the user, which for a person is their email address.
         """
         return RobotoPrincipal(ptype=RobotoPrincipalType.User, id=user_id)
 
     @classmethod
     def from_string(cls, serialized_principal: str) -> RobotoPrincipal:
-        """Create a principal from a serialized string representation.
+        """Parse a principal from its ``<type>:<id>`` string form, as ``str()`` of a principal returns it.
+
+        Text after a second colon is dropped: ``user:a:b`` parses as user ``a``.
 
         Args:
-            serialized_principal: String in format "ptype:id".
-
-        Returns:
-            A RobotoPrincipal instance parsed from the string.
+            serialized_principal: Principal in its string form, such as ``user:<user_id>`` or
+                ``device:<device_id>@<org_id>``.
 
         Raises:
-            ValueError: If the serialized principal is not in the correct format.
+            ValueError: The text before the first colon, or the whole string when it has none, is not a
+                ``RobotoPrincipalType`` value.
+            IndexError: The string is a type with no colon after it, such as ``user``.
         """
         return RobotoPrincipal(
             ptype=RobotoPrincipalType(serialized_principal.split(":")[0]),
@@ -133,9 +127,5 @@ class RobotoPrincipal(pydantic.BaseModel):
         )
 
     def __str__(self):
-        """Serialize the principal to a string representation.
-
-        Returns:
-            String representation of the principal in format "ptype:id".
-        """
+        """Return the principal's ``<type>:<id>`` string form."""
         return f"{self.ptype.value}:{self.id}"

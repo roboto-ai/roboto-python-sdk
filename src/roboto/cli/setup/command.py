@@ -9,8 +9,10 @@ import dataclasses
 import sys
 import typing
 
+from ...config import ROBOTO_API_ENDPOINT
 from ...domain.tokens import MAX_CREDENTIAL_REQUEST_TOKEN_EXPIRY_DAYS
 from ..auth.login_flow import parse_token_expiry_days
+from ..auth.login_target import ask_for_endpoint
 from ..context import cli_roboto_env, make_cli_client
 from ..outcome import (
     StepOutcome,
@@ -57,6 +59,13 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
         + "a terminal.",
     )
     parser.add_argument(
+        "--choose-endpoint",
+        action="store_true",
+        help=f"Ask for the Roboto API endpoint to sign in to, offering {ROBOTO_API_ENDPOINT}. Use it when your "
+        + "organization runs its own Roboto deployment. Needs a terminal; without one, set ROBOTO_SERVICE_ENDPOINT "
+        + "instead.",
+    )
+    parser.add_argument(
         "--expiry-days",
         type=parse_token_expiry_days,
         default=DEFAULT_SETUP_TOKEN_EXPIRY_DAYS,
@@ -81,29 +90,34 @@ def setup_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def run(args: argparse.Namespace) -> None:
-    """Run every setup step, printing each one's outcome as it finishes with anything it leaves the user to do.
+    """Run every setup step, printing each step's outcome, and anything it leaves the user to do, as the step finishes.
 
     Ends by saying what to do next: fix what failed, when a step failed; otherwise finish any steps left for the user
     and, when a default organization is known and an AI tool was chosen, ask that tool a first question.
 
-    Exits with status 1 when any step failed. The user stops setup by pressing Ctrl-C, which exits with status 130,
-    or by pressing Ctrl-D at a question, which exits with status 1. Ctrl-C stops setup even while it waits for a
-    sign-in to Roboto to be approved in the browser, but during an AI tool's sign-in, it skips that sign-in instead.
+    Exits with status 1 when any step failed, or when ``--choose-endpoint`` is given without a terminal to ask in.
+    The user stops setup by pressing Ctrl-C, which exits with status 130 (128 plus SIGINT), or by pressing Ctrl-D at
+    a question, which exits with status 1. Ctrl-C stops setup even while it waits for a sign-in to Roboto to be
+    approved in the browser, but during an AI tool's sign-in, it skips that sign-in instead.
     """
     color = sys.stdout.isatty()
+    # Without `--choose-endpoint`, the next run would sign in at ROBOTO_SERVICE_ENDPOINT or ROBOTO_API_ENDPOINT, not at
+    # the endpoint the user chose.
+    setup_command = "roboto setup --choose-endpoint" if args.choose_endpoint else "roboto setup"
     try:
         result = _run_steps(args, color)
     except (KeyboardInterrupt, InputEnded) as stop:
         # Stopping here leaves no file half-written: AI tools' config files, the Roboto config file, and each skill
         # directory are written under a temporary name and renamed into place, and a token issued by a sign-in that
-        # was cut short before it was saved is deleted. Running setup again redoes whatever was cut short.
+        # was cut short before it was saved is deleted, or the user is told how to delete it. Running setup again
+        # redoes whatever was cut short.
         print()
-        print("Setup stopped. Run `roboto setup` again to finish.")
+        print(f"Setup stopped. Run `{setup_command}` again to finish.")
         sys.exit(130 if isinstance(stop, KeyboardInterrupt) else 1)
 
     print()
     if any(outcome.status is StepStatus.Failed for outcome in result.outcomes):
-        print("Setup finished with failures. Fix the [failed] steps above, then run `roboto setup` again.")
+        print(f"Setup finished with failures. Fix the [failed] steps above, then run `{setup_command}` again.")
         sys.exit(1)
 
     steps_left = any(outcome.status is StepStatus.ActionNeeded for outcome in result.outcomes)
@@ -120,11 +134,14 @@ def run(args: argparse.Namespace) -> None:
 @dataclasses.dataclass(frozen=True)
 class _SetupResult:
     chosen_tools: list[AiTool]
-    """The AI tools the user chose to connect to Roboto, or every tool found when nobody was asked. Empty when no tool
-    was found, and when both ``--skip-skills`` and ``--skip-mcp`` were given."""
+    """AI tools the user chose to connect to Roboto, or every tool found when setup asked nothing.
+
+    Empty when no tool was found, when the user chose none, and when both ``--skip-skills`` and ``--skip-mcp`` were
+    given.
+    """
 
     organization_name: typing.Optional[str]
-    """Name of the organization commands act in by default, when there is one."""
+    """Name of the organization commands act in by default, or ``None`` when there is none."""
 
     outcomes: list[StepOutcome]
 
@@ -140,6 +157,15 @@ def _run_steps(args: argparse.Namespace, color: bool) -> _SetupResult:
         outcomes.extend(print_outcomes(list(step_outcomes), color))
 
     print_heading("Roboto access", color)
+    endpoint = None
+    if args.choose_endpoint:
+        if prompts is None:
+            print("  --choose-endpoint needs a terminal. Set ROBOTO_SERVICE_ENDPOINT instead.", file=sys.stderr)
+            sys.exit(1)
+        try:
+            endpoint = ask_for_endpoint(prompts.ask, sys.stdout)
+        except EOFError:
+            raise InputEnded() from None
     access = set_up_credentials(
         cli_roboto_env(args.config_file),
         prompts,
@@ -148,6 +174,7 @@ def _run_steps(args: argparse.Namespace, color: bool) -> _SetupResult:
         # Printed before setup asks which organization to use, so the question follows the token it depends on.
         report_token=report,
         token_expiry_days=args.expiry_days,
+        endpoint=endpoint,
     )
     if access.organization is not None:
         report(access.organization)
@@ -158,7 +185,7 @@ def _run_steps(args: argparse.Namespace, color: bool) -> _SetupResult:
         found = environment.ai_tools
         if not found:
             # With no tool found, there is nothing to choose. The skills still go to the shared skills directory,
-            # since an AI tool that setup doesn't look for may read them there, and each step's outcome says what to do
+            # since an AI tool that setup does not look for may read them there, and each step's outcome says what to do
             # for such a tool.
             if not args.skip_skills:
                 report(set_up_agent_skills(environment))
@@ -189,7 +216,8 @@ def _run_steps(args: argparse.Namespace, color: bool) -> _SetupResult:
 def _choose_tools(found: list[AiTool], prompts: typing.Optional[Prompts]) -> list[AiTool]:
     """Ask which of ``found`` to connect to Roboto, and return them: all, none, or those chosen one by one.
 
-    A single tool gets a yes-or-no question. When ``prompts`` is ``None``, nothing is asked and every tool is returned.
+    A single tool gets a yes-or-no question. Among several, an answer other than yes, no, or choose asks again. When
+    ``prompts`` is ``None``, nothing is asked and every tool is returned.
     """
     if prompts is None:
         return found

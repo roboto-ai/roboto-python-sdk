@@ -4,10 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Wire types for Views: named, shareable searches over a single resource type.
+"""Views: named, shareable searches over one resource type, saved with their author's columns, sort, and page size.
 
-A View saves the filters, sort, page size, and column layout a user arrived at, so they can
-return to it later or hand it to a teammate rather than rebuilding it.
+:py:class:`~roboto.domain.views.ViewRecord` holds a View as Roboto returns it,
+:py:class:`~roboto.domain.views.ViewDefinition` holds its saved search and display settings, and
+:py:class:`~roboto.domain.views.CreateViewRequest` and :py:class:`~roboto.domain.views.UpdateViewRequest` are the
+request bodies for creating and updating one. The SDK has no methods for Views; these classes describe what the
+``/v1/views`` endpoints accept and return.
 """
 
 from .operations import (
@@ -18,10 +21,16 @@ from .operations import (
 from .record import (
     ROBOQL_VIEW_TARGETS,
     VIEW_SCHEMA_VERSION_V1,
+    VIEW_SCHEMA_VERSION_V2,
     VIEW_SCHEME_V1,
+    VIEW_SCHEME_V2,
+    ColumnSort,
+    DefaultSort,
+    NoSort,
     ViewDefinition,
     ViewDisplay,
     ViewRecord,
+    ViewSort,
     ViewVisibility,
     ensure_definition_renders_for,
 )
@@ -30,12 +39,18 @@ __all__ = [
     "MAX_VIEW_NAME_LENGTH",
     "ROBOQL_VIEW_TARGETS",
     "VIEW_SCHEMA_VERSION_V1",
+    "VIEW_SCHEMA_VERSION_V2",
     "VIEW_SCHEME_V1",
+    "VIEW_SCHEME_V2",
+    "ColumnSort",
     "CreateViewRequest",
+    "DefaultSort",
+    "NoSort",
     "UpdateViewRequest",
     "ViewDefinition",
     "ViewDisplay",
     "ViewRecord",
+    "ViewSort",
     "ViewVisibility",
     "ensure_definition_renders_for",
 ]

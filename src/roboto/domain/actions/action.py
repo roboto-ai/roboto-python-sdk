@@ -48,30 +48,20 @@ from .invocation_record import (
 )
 
 SHORT_DESCRIPTION_LENGTH = 140
+"""Maximum length of an action's short description, in characters."""
 
 
 class Action:
-    """A reusable function to process, transform or analyze data in Roboto.
+    """An action: a reusable function to process, transform or analyze data in Roboto.
 
-    Actions are containerized functions that can be invoked to process datasets,
-    files, or other data sources within the Roboto platform. They encapsulate
-    processing logic, dependencies, and compute requirements, making data
-    processing workflows reproducible and scalable.
+    An action runs a container image with the compute requirements, container parameters, and timeout it sets, and
+    each invocation can give values for its parameters. A user invokes it with ``invoke``, or a trigger invokes it
+    automatically; each run is an :py:class:`~roboto.domain.actions.Invocation`. An action belongs to one
+    organization, and its accessibility says whether only that organization's members can find and invoke it, or
+    every Roboto user can, through the Action Hub.
 
-    Actions can be created, updated, invoked, and managed through this class.
-    They support parameterization, inheritance from other actions, and can be
-    triggered automatically based on events or conditions.
-
-    An Action consists of:
-
-    - Container image and execution parameters
-    - Input/output specifications
-    - Compute requirements (CPU, memory, etc.)
-    - Parameters that can be customized at invocation time
-    - Metadata and tags for organization
-
-    Actions are owned by organizations and can have different accessibility levels
-    (private to organization or public in the Action Hub).
+    Get an ``Action`` from ``create``, ``from_name``, or ``query``. Each instance holds a copy of one version of the
+    action's record: methods that change the action update that copy from Roboto's response.
     """
 
     __record: ActionRecord
@@ -95,38 +85,47 @@ class Action:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Action":
-        """Create a new action in the Roboto platform.
-
-        Creates a new action with the specified configuration. The action will be
-        owned by the caller's organization and can be invoked to process data.
+        """Create an action.
 
         Args:
-            name: Unique name for the action within the organization.
-            compute_requirements: CPU, memory, and other compute specifications.
-            container_parameters: Container image URI, entrypoint, and environment variables.
-            description: Detailed description of what the action does.
-            inherits: Reference to another action to inherit configuration from.
-            metadata: Custom key-value metadata to associate with the action.
-            parameters: List of parameters that can be provided at invocation time.
-            requires_downloaded_inputs: Whether input files should be downloaded before execution.
-            short_description: Brief description (max 140 characters) for display purposes.
-            tags: List of tags for categorizing and searching actions.
-            timeout: Maximum execution time in minutes before the action is terminated.
-            uri: Container image URI if not inheriting from another action.
-            caller_org_id: Organization ID to create the action in. Defaults to caller's org.
-            roboto_client: Roboto client instance. Uses default if not provided.
+            name: Human-readable name of the action, unique within its organization. Letters, digits, underscores,
+                and dashes only.
+            compute_requirements: CPU, memory, and storage for each invocation of the action. ``None`` uses the
+                defaults of :py:class:`~roboto.domain.actions.ComputeRequirements`.
+            container_parameters: Command, entry point, environment variables, and working directory for the
+                action's container. ``None`` sets none of them.
+            description: Human-readable description of the action.
+            inherits: Deprecated. Roboto rejects a request that sets it; set the configuration on the action itself.
+            metadata: Key-value metadata to set on the action. ``None`` sets none.
+            parameters: Parameters an invocation of the action can give values for. ``None`` sets none.
+            requires_downloaded_inputs: Whether Roboto downloads an invocation's input files into the action's
+                container before it runs. ``None`` means ``True``.
+            short_description: Brief human-readable description of the action, at most 140 characters
+                (``SHORT_DESCRIPTION_LENGTH``).
+            tags: Tags to set on the action. ``None`` sets none.
+            timeout: Maximum time, in minutes, an invocation of the action may run before Roboto stops it. ``None``
+                uses Roboto's default.
+            uri: URI of the container image the action runs, such as ``"ubuntu:latest"``. An action without one
+                cannot be invoked.
+            caller_org_id: Organization to create the action in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The newly created Action instance.
+            The new action.
 
         Raises:
-            RobotoIllegalArgumentException: If short_description exceeds 140 characters
-                or other validation errors occur.
-            RobotoInvalidRequestException: If the request is malformed.
-            RobotoUnauthorizedException: If the caller lacks permission to create actions.
+            RobotoIllegalArgumentException: ``short_description`` is longer than 140 characters. Raised before any
+                request.
+            RobotoConflictException: The organization already has an action with this name.
+            RobotoInvalidRequestException: ``inherits`` is set, two parameters share a name, or a required
+                parameter has a default.
+            RobotoLimitExceededException: The organization has as many actions as its plan allows, or ``timeout``
+                is above the organization's limit.
 
         Examples:
-            Create a simple action:
+            Create an action that runs a public image:
 
             >>> action = Action.create(
             ...     name="hello_world", uri="ubuntu:latest", description="A simple hello world action"
@@ -146,16 +145,6 @@ class Action:
             ...     ],
             ...     tags=["data-processing", "sensors"],
             ...     timeout=60,
-            ... )
-
-            Create an action that inherits from another:
-
-            >>> base_action = Action.from_name("base_processor", owner_org_id="roboto-public")
-            >>> derived_action = Action.create(
-            ...     name="custom_processor",
-            ...     inherits=base_action.record.reference,
-            ...     description="Custom processor based on base_processor",
-            ...     metadata={"version": "2.0", "team": "data-science"},
             ... )
         """
         request = CreateActionRequest(
@@ -200,27 +189,21 @@ class Action:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Action":
-        """Load an existing action by name.
+        """Fetch an action by name.
 
-        Retrieves an action from the Roboto platform by its name and optionally
-        a specific version digest. Action names are unique within an organization,
-        so a name + org_id combination always provides a fully qualified reference
-        to a specific action.
+        Action names are unique within an organization, so a name and an organization identify one action.
 
         Args:
-            name: Name of the action to retrieve. Must be unique within the organization.
-            digest: Specific version digest of the action. If not provided,
-                returns the latest version.
-            owner_org_id: Organization ID that owns the action. If not provided,
-                searches in the caller's organization.
-            roboto_client: Roboto client instance. Uses default if not provided.
-
-        Returns:
-            The Action instance.
+            name: Name of the action.
+            digest: Digest of the version to fetch. ``None`` fetches the latest version.
+            owner_org_id: Organization that owns the action. Defaults to the organization the caller acts in. Name
+                another organization to fetch one of its actions in the Action Hub.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: If the action is not found.
-            RobotoUnauthorizedException: If the caller lacks permission to access the action.
+            RobotoNotFoundException: The organization has no action with this name, or the action has no version
+                with this ``digest``.
 
         Examples:
             Load the latest version of an action:
@@ -231,15 +214,20 @@ class Action:
 
             >>> action = Action.from_name("data_processor", digest="abc123def456")
 
-            Load an action from another organization:
+            Load an action in the Action Hub that another organization owns:
 
-            >>> action = Action.from_name("public_processor", owner_org_id="roboto-public")
+            >>> action = Action.from_name("ros_ingestion", owner_org_id="roboto-public")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        query_params = {"digest": digest} if digest else None
+        query_params: dict[str, typing.Any] = {}
+        if digest:
+            query_params["digest"] = digest
+        if owner_org_id:
+            query_params["owner_org_id"] = owner_org_id
         response = roboto_client.get(
             f"v1/actions/{name}",
-            query=query_params,
+            query=query_params or None,
+            # Sets X-Roboto-Resource-Owner-Id, the only place older versions of Roboto read the action's owner from.
             owner_org_id=owner_org_id,
         )
         record = response.to_record(ActionRecord)
@@ -253,52 +241,45 @@ class Action:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Action", None, None]:
-        """Query actions with optional filtering and pagination.
+        """List the actions in an organization, or in the Action Hub, that match a query specification.
 
-        Searches for actions based on the provided query specification. Can search
-        within an organization or across the public Action Hub.
+        Fetches one page of results at a time as the generator advances, and writes each page's token to
+        ``spec.after`` to request the next.
 
         Args:
-            spec: Query specification with filters, sorting, and pagination.
-                If not provided, returns all accessible actions.
-            accessibility: Whether to search organization actions or public Action Hub.
-                Defaults to Organization.
-            owner_org_id: Organization ID to search within. If not provided,
-                searches in the caller's organization.
-            roboto_client: Roboto client instance. Uses default if not provided.
+            spec: Conditions, sort order, and page size of the query. Each condition's field must be an
+                :py:class:`~roboto.domain.actions.ActionRecord` field, or a dotted path that starts with one, such as
+                ``metadata.software_version``. ``None`` lists every action.
+            accessibility: :py:attr:`~roboto.domain.actions.Accessibility.Organization` lists an organization's
+                actions; :py:attr:`~roboto.domain.actions.Accessibility.ActionHub` lists the actions in the Action
+                Hub.
+            owner_org_id: Organization whose actions to list. Defaults to the organization the caller acts in.
+                Ignored when ``accessibility`` is ``ActionHub``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Action instances matching the query criteria.
+            Actions that match ``spec``.
 
         Raises:
-            ValueError: If the query specification contains unknown fields.
-            RobotoUnauthorizedException: If the caller lacks permission to query actions.
+            ValueError: ``spec`` names a field that is not an action record field. It surfaces on the first
+                iteration, before any request.
 
         Examples:
-            Query all actions in your organization:
+            List every action in the organization:
 
             >>> for action in Action.query():
-            ...     print(f"Action: {action.name}")
+            ...     print(action.name)
 
-            Query actions with specific tags:
-
-            >>> from roboto.query import QuerySpecification
-            >>> spec = QuerySpecification().where("tags").contains("ml")
-            >>> for action in Action.query(spec):
-            ...     print(f"ML Action: {action.name}")
-
-            Query public actions in the Action Hub:
+            List the actions in the Action Hub whose names contain ``ros``:
 
             >>> from roboto.domain.actions import Accessibility
-            >>> spec = QuerySpecification().where("name").contains("ros")
+            >>> from roboto.query import Comparator, Condition, QuerySpecification
+            >>> spec = QuerySpecification(
+            ...     condition=Condition(field="name", comparator=Comparator.Contains, value="ros")
+            ... )
             >>> for action in Action.query(spec, accessibility=Accessibility.ActionHub):
-            ...     print(f"Public ROS Action: {action.name}")
-
-            Query with pagination:
-
-            >>> spec = QuerySpecification().limit(10).order_by("created", ascending=False)
-            >>> recent_actions = list(Action.query(spec))
-            >>> print(f"Found {len(recent_actions)} recent actions")
+            ...     print(action.name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         spec = spec or QuerySpecification()
@@ -306,8 +287,7 @@ class Action:
         known = set(ActionRecord.model_fields.keys())
         actual = set()
         for field in spec.fields():
-            # Support dot notation for nested fields
-            # E.g., "metadata.SoftwareVersion"
+            # A dotted field such as "metadata.SoftwareVersion" is checked by its first segment.
             if "." in field:
                 actual.add(field.split(".")[0])
             else:
@@ -340,12 +320,6 @@ class Action:
         record: ActionRecord,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> None:
-        """Initialize an Action instance.
-
-        Args:
-            record: The action record containing all action data.
-            roboto_client: Roboto client instance. Uses default if not provided.
-        """
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -354,123 +328,138 @@ class Action:
 
     @property
     def accessibility(self) -> Accessibility:
-        """The accessibility level of this action (Organization or ActionHub)."""
+        """Who can find and invoke the action."""
         return self.__record.accessibility
 
     @property
     def compute_requirements(self) -> typing.Optional[ComputeRequirements]:
-        """The compute requirements (CPU, memory) for running this action."""
+        """CPU, memory and storage for each invocation of the action, or ``None`` if none were set.
+
+        :py:attr:`~roboto.domain.actions.ActionRecord.compute_requirements` says what can override them.
+        """
         return self.__record.compute_requirements
 
     @property
     def container_parameters(self) -> typing.Optional[ContainerParameters]:
-        """The container parameters including image URI and execution settings."""
+        """How to run the action's container image.
+
+        :py:attr:`~roboto.domain.actions.ActionRecord.container_parameters` says what can override them.
+        """
         return self.__record.container_parameters
 
     @property
     def created(self) -> datetime.datetime:
-        """The timestamp when this action was created."""
+        """Time the action was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """The user ID who created this action."""
+        """ID of the user who created the action."""
         return self.__record.created_by
 
     @property
     def description(self) -> typing.Optional[str]:
-        """The detailed description of what this action does."""
+        """Human-readable description of the action, or ``None`` if it has none."""
         return self.__record.description
 
     @property
     def digest(self) -> str:
-        """The unique digest identifying this specific version of the action."""
+        """Digest that identifies this version of the action.
+
+        :py:attr:`~roboto.domain.actions.ActionRecord.digest` says where it comes from when the record has none.
+        """
         return self.__record.digest if self.__record.digest else self.__record.compute_digest()
 
     @property
     def inherits_from(self) -> typing.Optional[ActionReference]:
-        """Reference to another action this action inherits configuration from."""
+        """Deprecated. Action this action inherits its configuration from.
+
+        Read the configuration from the action's own properties, such as ``compute_requirements`` and ``uri``, instead.
+        :py:attr:`~roboto.domain.actions.ActionRecord.inherits` says when Roboto rejects it.
+        """
         return self.__record.inherits
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
-        """Custom metadata key-value pairs associated with this action."""
+        """Key-value metadata on the action.
+
+        :py:attr:`~roboto.domain.actions.ActionRecord.metadata` says which values it may hold.
+        """
         return self.__record.metadata
 
     @property
     def modified(self) -> datetime.datetime:
-        """The timestamp when this action was last modified."""
+        """Time the action was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """The user ID who last modified this action."""
+        """ID of the user who last modified the action."""
         return self.__record.modified_by
 
     @property
     def name(self) -> str:
-        """The unique name of this action within its organization."""
+        """Human-readable name of the action, unique within its organization."""
         return self.__record.name
 
     @property
     def org_id(self) -> str:
-        """The organization ID that owns this action."""
+        """ID of the organization that owns the action."""
         return self.__record.org_id
 
     @property
     def parameters(self) -> collections.abc.Sequence[ActionParameter]:
-        """The list of parameters that can be provided when invoking this action."""
+        """Copies of the parameters that an invocation of the action can give values for."""
         return [param.model_copy() for param in self.__record.parameters]
 
     @property
     def published(self) -> typing.Optional[datetime.datetime]:
-        """The timestamp when this action was published to the Action Hub, if applicable."""
+        """Time the action was published to the Action Hub, or ``None`` if it is not in the Action Hub."""
         return self.__record.published
 
     @property
     def record(self) -> ActionRecord:
-        """The underlying action record containing all action data."""
+        """Record of the action that this instance holds."""
         return self.__record
 
     @property
     def requires_downloaded_inputs(self) -> bool:
-        """Whether input files should be downloaded before executing this action."""
-        # An unset value for this flag is interpreted as 'True'
+        """Whether Roboto downloads an invocation's input files before the action runs.
+
+        ``True`` unless the action sets it to ``False``.
+        """
         return self.__record.requires_downloaded_inputs is not False
 
     @property
     def short_description(self) -> typing.Optional[str]:
-        """A brief description of the action (max 140 characters) for display purposes."""
+        """Brief description of the action, or ``None`` if it has none.
+
+        :py:attr:`~roboto.domain.actions.ActionRecord.short_description` gives its maximum length.
+        """
         return self.__record.short_description
 
     @property
     def uri(self) -> typing.Optional[str]:
-        """The container image URI for this action."""
+        """URI of the container image the action runs, or ``None`` if none was set."""
         return self.__record.uri
 
     @property
     def tags(self) -> list[str]:
-        """The list of tags associated with this action for categorization."""
+        """Tags on the action."""
         return self.__record.tags
 
     @property
     def timeout(self) -> typing.Optional[int]:
-        """The maximum execution time in minutes before the action is terminated."""
+        """Maximum time an invocation of the action may run, in minutes, or ``None`` if the action sets none."""
         return self.__record.timeout
 
     def delete(self) -> None:
-        """Delete this action from the Roboto platform.
+        """Delete this action and every version of it.
 
-        Permanently removes this action and all its versions. This operation
-        cannot be undone.
-
-        Raises:
-            RobotoNotFoundException: If the action is not found.
-            RobotoUnauthorizedException: If the caller lacks permission to delete the action.
+        An action in the Action Hub is removed from it first. Deleting an action that no longer exists succeeds
+        and changes nothing.
 
         Examples:
-            Delete an action:
-
             >>> action = Action.from_name("old_action")
             >>> action.delete()
         """
@@ -494,45 +483,63 @@ class Action:
         timeout: typing.Optional[int] = None,
         caller_org_id: typing.Optional[str] = None,
     ) -> Invocation:
-        """Invokes this action using any inputs and options provided.
+        """Start a run of the version of this action this instance holds.
 
-        Executes this action with the specified parameters and returns an Invocation
-        object that can be used to track progress and retrieve results.
+        The invocation is queued to run in the caller's organization, which may differ from the organization that
+        owns the action when the action is in the Action Hub.
 
         Args:
-            invocation_source: Manual, trigger, etc.
-            data_source_type: If set, should equal `Dataset` for backward compatibility.
-            data_source_id: If set, should be a dataset ID for backward compatibility.
-            input_data:
-                Either a list of file name patterns, or an `InvocationInput` specification.
-                None or an empty list selects no inputs; in both cases data_source_id sets the invocation's data source.
-            upload_destination:
-                Default upload destination (e.g. dataset) for files written to the invocation's
-                output directory.
-            compute_requirement_overrides:
-                Overrides for the action's default compute requirements (e.g. vCPU)
-            container_parameter_overrides:
-                Overrides for the action's default container parameters (e.g. entrypoint)
-            idempotency_id:
-                Unique ID to ensure an invocation is run exactly once.
-            invocation_source_id:
-                ID of the trigger or manual operator performing the invocation.
-            parameter_values: Action parameter values.
-            timeout: Action timeout in minutes.
-            caller_org_id: Org ID of the caller.
+            invocation_source: Whether a user or a trigger starts the invocation. Only Roboto can create invocations
+                with source :py:attr:`~roboto.domain.actions.InvocationSource.Trigger`.
+            data_source_id: ID of the dataset the invocation reads from. Required when ``input_data`` is a list of
+                patterns. ``None`` names no data source.
+            data_source_type: Type of the data source that ``data_source_id`` names.
+                :py:attr:`~roboto.domain.actions.InvocationDataSourceType.Dataset` is the only type, and ``None``
+                uses it.
+            input_data: Gitignore-style patterns for the files in the ``data_source_id`` dataset to read, or an
+                :py:class:`~roboto.domain.actions.InvocationInput` that selects files, topics, or sessions. ``None``
+                or an empty list selects no inputs.
+            upload_destination: Dataset to upload the files the invocation writes to its output directory to.
+                ``None`` uploads them to the dataset the invocation's input files and topics come from when they all
+                come from one, and otherwise not at all.
+            compute_requirement_overrides: Compute requirements, such as vCPU and memory, that replace the action's
+                own. Fields left unset keep the action's values; ``None`` keeps them all.
+            container_parameter_overrides: Container parameters, such as the entry point and environment variables,
+                that replace the action's own. Fields left unset keep the action's values; ``None`` keeps them all.
+            idempotency_id: ID that no other invocation may share, so retrying a request never runs the action
+                twice. ``None`` sets no such ID.
+            invocation_source_id: ID of the user or trigger that starts the invocation. On an
+                :py:attr:`~roboto.domain.actions.InvocationSource.Manual` invocation, Roboto replaces it with the
+                caller's user ID.
+            parameter_values: Values for the action's parameters, keyed by parameter name. Roboto converts each value
+                to a string, and gives each parameter left out its default.
+            timeout: Maximum time the invocation may run, in minutes. ``None`` uses the action's timeout, or
+                Roboto's default when the action has none.
+            caller_org_id: Organization to create the invocation in. Required when the caller belongs to more than
+                one organization; otherwise the caller's only organization.
 
         Returns:
-            An `Invocation` object that can be used to track the invocation's progress.
+            The new invocation, with status :py:attr:`~roboto.domain.actions.InvocationStatus.Queued`.
 
         Raises:
-            RobotoIllegalArgumentException: Invalid method parameters or combinations.
-            RobotoInvalidRequestException: Incorrectly formed request.
-            RobotoUnauthorizedException: The caller is not authorized to invoke this action.
+            RobotoIllegalArgumentException: ``input_data`` is a non-empty list and ``data_source_id`` is not set.
+                Raised before any request.
+            RobotoConflictException: Another invocation already has this ``idempotency_id``.
+            RobotoInvalidRequestException: The action has no container image URI, ``parameter_values`` leaves out
+                a required parameter, ``upload_destination`` is not a dataset, or the ``data_source_id`` dataset
+                does not exist or has no files that match ``input_data``.
+            RobotoLimitExceededException: The compute requirements or ``timeout`` are above the organization's
+                limits, or the organization has used up its compute credits.
 
         Examples:
-            Basic invocation with a dataset:
+            Ingest a dataset's ROS bag files with an action from the Action Hub, and wait for it to finish:
 
-            >>> from roboto import Action, InvocationSource
+            >>> from roboto import (
+            ...     Action,
+            ...     InvocationDataSourceType,
+            ...     InvocationSource,
+            ...     InvocationUploadDestination,
+            ... )
             >>> action = Action.from_name("ros_ingestion", owner_org_id="roboto-public")
             >>> iv = action.invoke(
             ...     invocation_source=InvocationSource.Manual,
@@ -543,19 +550,19 @@ class Action:
             ... )
             >>> iv.wait_for_terminal_status()
 
-            Invocation with compute requirement overrides:
+            Invoke an action with a parameter value and more compute than the action asks for, then print the
+            status it ends in:
 
             >>> from roboto import Action, InvocationSource, ComputeRequirements
-            >>> action = Action.from_name("image_processing", owner_org_id="roboto-public")
+            >>> action = Action.from_name("data_processor")
             >>> compute_reqs = ComputeRequirements(vCPU=4096, memory=8192)
             >>> iv = action.invoke(
             ...     invocation_source=InvocationSource.Manual,
             ...     compute_requirement_overrides=compute_reqs,
             ...     parameter_values={"threshold": 0.75},
             ... )
-            >>> status = iv.wait_for_terminal_status()
-            >>> print(status)
-            'COMPLETED'
+            >>> iv.wait_for_terminal_status()
+            >>> print(iv.current_status)
         """
 
         resolved_input_data: typing.Optional[InvocationInput] = None
@@ -587,6 +594,7 @@ class Action:
             parameter_values=parameter_values,
             timeout=timeout,
             upload_destination=upload_destination,
+            owner_org_id=self.org_id,
         )
 
         if request.timeout is None:
@@ -595,9 +603,8 @@ class Action:
         response = self.__roboto_client.post(
             f"v1/actions/{self.name}/invoke",
             data=request,
-            # invocation record will be created in the effective org of the requestor
             caller_org_id=caller_org_id,
-            # owner_org_id is the org that owns the action to be invoked
+            # Sets X-Roboto-Resource-Owner-Id, the only place older versions of Roboto read the action's owner from.
             owner_org_id=self.org_id,
             query={"digest": self.digest},
         )
@@ -605,28 +612,26 @@ class Action:
         return Invocation(record, self.__roboto_client)
 
     def set_accessibility(self, accessibility: Accessibility) -> "Action":
-        """Set the accessibility level of this action.
+        """Set who can find and invoke this action: members of its organization, or every Roboto user.
 
-        Changes whether this action is private to the organization or published
-        to the public Action Hub.
+        Accessibility applies to every version of the action. Only Roboto administrators can change it.
 
         Args:
-            accessibility: The new accessibility level (Organization or ActionHub).
+            accessibility: :py:attr:`~roboto.domain.actions.Accessibility.ActionHub` publishes the action to the
+                Action Hub; :py:attr:`~roboto.domain.actions.Accessibility.Organization` limits it to members of the
+                organization that owns it.
 
         Returns:
-            This Action instance with updated accessibility.
-
-        Raises:
-            RobotoUnauthorizedException: If the caller lacks permission to modify the action.
+            This instance, with its record updated from Roboto's response, which holds the action's latest version.
 
         Examples:
-            Make an action public in the Action Hub:
+            Publish an action to the Action Hub:
 
             >>> from roboto.domain.actions import Accessibility
             >>> action = Action.from_name("my_action")
             >>> action.set_accessibility(Accessibility.ActionHub)
 
-            Make an action private to the organization:
+            Limit it to members of its organization again:
 
             >>> action.set_accessibility(Accessibility.Organization)
         """
@@ -641,18 +646,16 @@ class Action:
         return self
 
     def to_dict(self) -> dict[str, typing.Any]:
-        """Convert this action to a dictionary representation.
+        """Return this action's record as a dictionary of JSON-compatible values.
 
         Returns:
-            Dictionary containing all action data in JSON-serializable format.
+            :py:class:`~roboto.domain.actions.ActionRecord` of the action, as a JSON-compatible dictionary.
 
         Examples:
-            Get action as dictionary:
-
             >>> action = Action.from_name("my_action")
             >>> action_dict = action.to_dict()
             >>> print(action_dict["name"])
-            'my_action'
+            my_action
         """
         return self.__record.model_dump(mode="json")
 
@@ -669,47 +672,63 @@ class Action:
         uri: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
         requires_downloaded_inputs: typing.Union[bool, NotSetType] = NotSet,
     ) -> "Action":
-        """Update this action with new configuration.
+        """Update this action's properties.
 
-        Updates the action with the provided changes. Only specified parameters
-        will be modified; others remain unchanged. This creates a new version
-        of the action.
+        Each argument left unset (``NotSet``) leaves that property unchanged. A change to what the action runs (its
+        image, container, compute, parameters, timeout, or input downloading) creates a new version of the action,
+        with a new digest. A change to only its descriptions, tags, or metadata does not.
 
         Args:
-            compute_requirements: New compute requirements (CPU, memory).
-            container_parameters: New container parameters (image, entrypoint, etc.).
-            description: New detailed description.
-            inherits: New action reference to inherit from.
-            metadata_changeset: Changes to apply to metadata (add, remove, update keys).
-            parameter_changeset: Changes to apply to parameters (add, remove, update).
-            short_description: New brief description (max 140 characters).
-            timeout: New maximum execution time in minutes.
-            uri: New container image URI.
-            requires_downloaded_inputs: Whether to download input files before execution.
+            compute_requirements: CPU, memory, and storage for each invocation of the action. ``None`` resets them to
+                the defaults of :py:class:`~roboto.domain.actions.ComputeRequirements`.
+            container_parameters: Command, entry point, environment variables, and working directory for the
+                action's container. ``None`` clears them.
+            description: Human-readable description of the action. ``None`` or ``""`` clears it.
+            inherits: Deprecated. Roboto rejects a request that sets it to an action reference; set the
+                configuration on the action itself.
+            metadata_changeset: Changes to the action's tags and metadata.
+            parameter_changeset: Parameters to add, replace, or remove, matched by name.
+            short_description: Brief human-readable description of the action, at most 140 characters
+                (``SHORT_DESCRIPTION_LENGTH``). ``None`` or ``""`` clears it.
+            timeout: Maximum time, in minutes, an invocation of the action may run before Roboto stops it. ``None``
+                clears it, so invocations use Roboto's default.
+            uri: URI of the container image the action runs, with surrounding whitespace stripped. ``None`` clears
+                it.
+            requires_downloaded_inputs: Whether Roboto downloads an invocation's input files into the action's
+                container before it runs.
 
         Returns:
-            This Action instance with updated configuration.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoIllegalArgumentException: If short_description exceeds 140 characters
-                or other validation errors occur.
-            RobotoUnauthorizedException: If the caller lacks permission to update the action.
+            RobotoIllegalArgumentException: ``short_description`` is longer than 140 characters. Raised before any
+                request.
+            RobotoInvalidRequestException: ``inherits`` is set to an action reference, two added parameters share a
+                name, or an added required parameter has a default.
+            RobotoLimitExceededException: ``compute_requirements`` or ``timeout`` is above the organization's
+                limits.
 
         Examples:
-            Update action description and timeout:
+            Update the description and timeout:
 
             >>> action = Action.from_name("my_action")
             >>> action.update(description="Updated description of what this action does", timeout=45)
 
-            Update compute requirements:
+            Update the compute requirements:
 
             >>> from roboto.domain.actions import ComputeRequirements
             >>> action.update(compute_requirements=ComputeRequirements(vCPU=4096, memory=8192))
 
-            Add metadata using changeset:
+            Set two metadata fields and add a tag:
 
             >>> from roboto.updates import MetadataChangeset
-            >>> changeset = MetadataChangeset().set("version", "2.0").set("team", "ml")
+            >>> changeset = (
+            ...     MetadataChangeset.Builder()
+            ...     .put_field("version", "2.0")
+            ...     .put_field("team", "ml")
+            ...     .put_tag("ml")
+            ...     .build()
+            ... )
             >>> action.update(metadata_changeset=changeset)
         """
         request = remove_not_set(

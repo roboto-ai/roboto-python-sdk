@@ -23,8 +23,17 @@ logger = default_logger()
 
 
 class BearerTokenDecorator:
-    """
-    Decorates requests with a static, unchanging bearer token.
+    """Request decorator that sends one fixed access token in each request's ``Authorization`` header.
+
+    Pass it to :py:class:`~roboto.http.RobotoClient` as ``auth_decorator``.
+    :py:meth:`~roboto.http.RobotoClient.from_config` builds one from the configured access token.
+
+    Args:
+        token: Roboto access token to send, as ``Bearer <token>``.
+
+    Raises:
+        RobotoDeprecatedException: The token is in the format Roboto issued before March 20, 2024, which begins
+            with ``robo_pat``.
     """
 
     __auth_header: str
@@ -47,27 +56,29 @@ class BearerTokenDecorator:
 
 
 class SigV4AuthDecorator:
-    """Signs each request with AWS Signature Version 4.
+    """Request decorator that signs each request with AWS Signature Version 4.
+
+    Roboto's own services use it to call Roboto with their AWS identity; to send an access token, use
+    ``BearerTokenDecorator`` instead. Role credentials, such as a container's, an EC2 instance's or an assumed role's,
+    are temporary and rotate. Reading them again for each request keeps a long-lived process signing with current ones
+    instead of being rejected as expired until it restarts.
 
     Args:
-        service: The AWS service name to sign for.
-        credentials: Credentials to sign with. ``ReadOnlyCredentials`` are used as given for every request. A
-            botocore ``Credentials`` object, such as ``RefreshableCredentials`` for an assumed role, is read again
-            for each request, so it can refresh itself before it expires. ``None`` resolves this process's own
-            credentials for each request.
-        region: The AWS region to sign for. Defaults to the session's region, then ``AWS_REGION`` or
-            ``AWS_DEFAULT_REGION``.
+        service: Signing name of the AWS service to sign for, such as ``execute-api`` for API Gateway.
+        credentials: Credentials to sign with. ``botocore.credentials.ReadOnlyCredentials`` are used as given for
+            every request. A ``botocore.credentials.Credentials`` object, such as
+            ``botocore.credentials.RefreshableCredentials`` for an assumed role, is read again for each request, so it
+            can refresh itself before it expires. ``None`` resolves this process's own credentials through boto3 for
+            each request.
+        region: AWS region to sign for. ``None`` uses ``lookup_region``.
+
+    Raises:
+        RuntimeError: ``credentials`` is ``None`` and boto3 finds no AWS credentials for this process.
+        ValueError: ``region`` is ``None`` and no region is configured.
     """
 
     __credentials: Optional[Union[ReadOnlyCredentials, Credentials]]
-    """Explicitly supplied credentials, or ``None`` to resolve them per request.
-
-    ``None`` and a botocore ``Credentials`` object are the important cases for a long-lived
-    process. Role credentials -- a Fargate task's, an EC2 instance's, an assumed role's -- are
-    temporary and rotate; a snapshot taken once at construction goes stale within hours, and
-    every request signed with it is then rejected as expired until the process restarts.
-    Resolving per request lets botocore hand over whatever is current.
-    """
+    """Credentials the caller supplied, or ``None`` to resolve them through the session for each request."""
 
     __session: Optional[boto3.Session]
     __region: str
@@ -75,6 +86,14 @@ class SigV4AuthDecorator:
 
     @staticmethod
     def lookup_credentials() -> ReadOnlyCredentials:
+        """Return this process's current AWS credentials, as a new default boto3 session resolves them.
+
+        Building a ``SigV4AuthDecorator`` without ``credentials`` checks for them through it, so most code never
+        calls it.
+
+        Raises:
+            RuntimeError: boto3 finds no AWS credentials for this process.
+        """
         session = boto3.Session()
         creds = session.get_credentials()
         if creds is None:
@@ -84,6 +103,14 @@ class SigV4AuthDecorator:
 
     @staticmethod
     def lookup_region() -> str:
+        """Return the AWS region to sign for when the constructor is given none.
+
+        Uses the default boto3 session's region, which comes from ``AWS_DEFAULT_REGION`` or the AWS config file,
+        then the ``AWS_REGION`` environment variable.
+
+        Raises:
+            ValueError: None of these sets a region.
+        """
         session = boto3.Session()
         if session.region_name:
             return session.region_name
@@ -100,16 +127,15 @@ class SigV4AuthDecorator:
         region: Optional[str] = None,
     ):
         self.__credentials = credentials
-        # One session, reused: it owns botocore's credential resolver, which refreshes role
-        # credentials in the background. A new session per request would re-resolve from
-        # scratch every time and lose that caching.
+        # Reuse one session: it caches the credentials it resolves, and botocore refreshes role
+        # credentials shortly before they expire. A session per request would resolve them from
+        # scratch on every request.
         self.__session = None if credentials else boto3.Session()
         self.__region = region if region else SigV4AuthDecorator.lookup_region()
         self.__service = service
 
         if self.__session is not None:
-            # Fail at construction, not at the first request: a process with no credentials at
-            # all is misconfigured, and finding that out here is far easier to diagnose.
+            # Fail at construction, not at the first request, when the process has no credentials at all.
             SigV4AuthDecorator.lookup_credentials()
 
     def __call__(self, request: HttpRequest) -> HttpRequest:
@@ -123,12 +149,7 @@ class SigV4AuthDecorator:
         return request
 
     def __current_credentials(self) -> ReadOnlyCredentials:
-        """The credentials to sign this request with.
-
-        Explicit frozen ones are returned as given -- a caller that supplied them owns their
-        lifetime. An explicit ``Credentials`` object, or the session, is asked afresh, which is what
-        picks up a rotation.
-        """
+        """Return the credentials for one request, read again on each call unless the caller supplied frozen ones."""
         if isinstance(self.__credentials, Credentials):
             return self.__credentials.get_frozen_credentials()
 
@@ -140,8 +161,8 @@ class SigV4AuthDecorator:
 
         creds = self.__session.get_credentials()
         if creds is None:
-            # Reachable despite the construction-time check: credentials can be withdrawn from
-            # under a running process, and signing with nothing would fail less legibly.
+            # The construction-time check used a separate session, so this one can still find no
+            # credentials if they disappear before the first request. Once found, the session caches them.
             raise RuntimeError("No AWS credentials found")
 
         return creds.get_frozen_credentials()

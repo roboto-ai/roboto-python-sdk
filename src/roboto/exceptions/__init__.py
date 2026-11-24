@@ -4,6 +4,22 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""Exceptions the SDK raises when Roboto rejects a request or fails to complete it.
+
+Any request can fail in the following ways, so method docstrings do not list them:
+
+- :py:class:`~roboto.exceptions.RobotoUnauthorizedException`: the caller lacks permission for the request.
+- :py:class:`~roboto.exceptions.domain.RobotoAuthenticationFailureException`: the caller's token is expired or
+  malformed. Import it from ``roboto.exceptions.domain``.
+- :py:class:`~roboto.exceptions.RobotoNoOrgProvidedException`: the request needs an organization, the caller belongs
+  to more than one, and the request named none.
+- :py:class:`~roboto.exceptions.RobotoServiceException`: Roboto failed unexpectedly.
+- :py:class:`~roboto.exceptions.RobotoServiceUnavailableException`: Roboto could not accept the request, such as under
+  heavy load. Retrying later may succeed.
+
+Each is a subclass of :py:class:`~roboto.exceptions.RobotoDomainException`.
+"""
+
 from .domain import (
     ReadPlanExecutionErrorKind,
     RobotoBoardRevisionConflictException,
@@ -30,6 +46,8 @@ from .domain import (
     RobotoNotImplementedException,
     RobotoNotReadyException,
     RobotoOperationTimeoutException,
+    RobotoOrgCreationRefusedException,
+    RobotoOrgEmailDomainChangeRefusedException,
     RobotoReadPlanExecutionException,
     RobotoResponseTooLargeException,
     RobotoServiceException,
@@ -85,6 +103,8 @@ __all__ = [
     "RobotoServiceException",
     "RobotoServiceUnavailableException",
     "RobotoOperationTimeoutException",
+    "RobotoOrgCreationRefusedException",
+    "RobotoOrgEmailDomainChangeRefusedException",
     "RobotoThreadReadOnlyException",
     "RobotoUnauthorizedException",
     "RobotoUnknownFieldAddressException",

@@ -4,17 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""On-demand extraction of decoded frames from a time range of compressed video.
-
-A time range of video usually starts mid-GOP: its leading delta frames are
-only decodable after the keyframe that precedes the range. This module hides
-that — callers provide a way to load ``(log_time, data)`` messages for a time
-range, ask for a range, and receive one decoded frame per decodable frame in
-it. When the range starts mid-GOP, the preceding keyframe is found by walking
-backward (bounded by ``keyframe_lookback_ns``) and the prefix is decoded but
-not emitted.
-"""
-
 from __future__ import annotations
 
 import collections.abc
@@ -28,18 +17,19 @@ from .decoder import (
 )
 
 MessageRangeLoader = typing.Callable[[int, int], collections.abc.Iterable[tuple[int, bytes]]]
-"""Loads a topic's ``(log_time, data)`` messages for a ``(start_time, end_time)`` range.
+"""Function that loads a topic's messages for a time range, and returns them as ``(log_time, data)`` pairs.
 
-Both times are nanoseconds since Unix epoch; messages must come back in
-ascending log-time order. Whether ``end_time`` is inclusive follows the
-underlying reader — frame emission is bounded by log-time filtering, not by
-the loader's boundary semantics.
+It receives the start and end of the range as positional arguments, in nanoseconds since the Unix epoch, and returns
+the pairs in ascending log-time order, each ``data`` one encoded frame. The end may be inclusive or exclusive:
+``decode_frames_in_range`` discards any lookback message at or after the range's first message. The ``load_messages``
+argument of ``decode_frames_in_range`` says when it is called.
 """
 
 DEFAULT_KEYFRAME_LOOKBACK_NS: int = 10 * 1_000_000_000
-"""How far before a requested range to search for the keyframe that makes the
-range's leading delta frames decodable. Bounds the cost of the backward walk
-on streams with pathological keyframe intervals."""
+"""Default limit, in nanoseconds (10 seconds), on how far back ``decode_frames_in_range`` searches for a keyframe.
+
+The limit caps how much earlier video one call loads and decodes when a stream's keyframes are far apart.
+"""
 
 
 def decode_frames_in_range(
@@ -49,33 +39,31 @@ def decode_frames_in_range(
     keyframe_lookback_ns: int = DEFAULT_KEYFRAME_LOOKBACK_NS,
     codec: VideoCodec = H264,
 ) -> collections.abc.Generator[DecodedVideoFrame, None, None]:
-    """Decode the compressed-video frames of a time range.
+    """Decode the frames of a compressed-video topic in a time range, where each message holds one encoded frame.
 
-    Frames in the range that are undecodable — e.g. delta frames whose keyframe
-    lies further back than ``keyframe_lookback_ns`` — are silently omitted; no
-    player could render them either.
+    A frame other than a keyframe decodes only after the frames back to the keyframe before it. When the first message
+    in the range is not a keyframe, this loads the messages from up to ``keyframe_lookback_ns`` before that message,
+    decodes them from the latest keyframe among them, and yields none of them. When none of them is a keyframe, the
+    range's frames before its first keyframe are omitted. Corrupt frames are omitted too, as ``decode_stream``
+    describes.
 
     Args:
-        load_messages: Loads the topic's ``(log_time, data)`` messages for a
-            time range; called once for the requested range and, when the range
-            starts mid-GOP, once more for the keyframe lookback before it.
-        start_time: Start of the range in nanoseconds since Unix epoch (inclusive).
-        end_time: End of the range in nanoseconds since Unix epoch; passed
-            through to ``load_messages``.
-        keyframe_lookback_ns: Upper bound on how far before ``start_time`` to
-            search for the keyframe that anchors the range's leading delta frames.
-        codec: The codec of every loaded frame (defaults to H.264); supplies
-            keyframe detection and the PyAV decoder. Resolve it from the
-            stream's ``format`` token via
-            :py:func:`~roboto.experimental.video.resolve_codec`.
+        load_messages: Function that loads the topic's messages for a time range. It is called once for the range and,
+            when the range's first message is not a keyframe, once more for the lookback before that message.
+        start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch.
+        end_time: End of the time range, in the same form, passed to ``load_messages`` unchanged. Whether it is
+            inclusive depends on ``load_messages``.
+        keyframe_lookback_ns: Maximum time before the range's first message to search for a keyframe, in nanoseconds.
+        codec: Codec of every message's frame. Defaults to ``H264``. ``resolve_codec`` returns the codec for a
+            message's ``format`` field.
 
     Yields:
-        One :py:class:`~roboto.experimental.video.DecodedVideoFrame` per
-        decodable frame with ``log_time >= start_time``, in ascending log-time
+        One ``DecodedVideoFrame`` per decodable frame with a log time at or after ``start_time``, in ascending log-time
         order.
 
     Raises:
-        ImportError: If PyAV is not installed (``roboto[video]``).
+        ImportError: The ``roboto[video]`` extra is not installed. It surfaces on the first iteration, when the range
+            holds any message.
 
     Examples:
         >>> from roboto.experimental.video import decode_frames_in_range
@@ -106,10 +94,9 @@ def _load_gop_prefix(
     keyframe_lookback_ns: int,
     codec: VideoCodec,
 ) -> list[tuple[int, bytes]]:
-    """Load the frames from the nearest keyframe before ``before`` up to (excluding) ``before``.
+    """Load the messages from the latest keyframe in the ``keyframe_lookback_ns`` before ``before`` up to ``before``.
 
-    Empty when no keyframe exists within ``keyframe_lookback_ns`` — the caller's
-    leading delta frames are then undecodable and get skipped by the decoder.
+    The result excludes ``before`` itself, and is empty when no message in that window is a keyframe.
     """
     lookback_start = max(before - keyframe_lookback_ns, 0)
     if lookback_start >= before:

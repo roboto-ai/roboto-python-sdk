@@ -14,6 +14,11 @@ from ..context import CLIContext
 
 
 def list_images(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Print the ``--org`` organization's tagged images as JSON objects, one per tag, from every page of the listing.
+
+    ``--repository-name`` limits the listing to one repository; without it, every repository the organization owns is
+    listed.
+    """
     image_registry = ImageRegistry(context.roboto_client)
     paginated_results = image_registry.list_images(repository_name=args.repository_name, org_id=args.org)
     while True:

@@ -13,49 +13,60 @@ from ...time import TimeUnit
 
 
 class Field(pydantic.BaseModel):
-    """One column of a topic's data, identified by name, type, and unit.
+    """Field of a topic schema, as a caller declares it: one named value in each of the topic's messages.
 
-    ``path`` lists the names from the schema root down to this field, so a nested field's path extends its
-    parent's. ``name`` and ``path`` state one fact twice (the last path element is the field's name), so
-    either may be omitted and derives from the other: a top-level field needs only ``name``, and a nested
-    field needs only ``path``. A vector column (e.g. a LeRobot ``observation.state`` feature) is one field typed
-    :py:attr:`~roboto.domain.topics.record.CanonicalDataType.NumberArray`, whose elements may be named with
-    :py:attr:`element_names`.
+    Carried in ``Schema.fields``. :py:class:`~roboto.domain.topics.SchemaFieldRecord` is the field as Roboto stores
+    it, with the ID Roboto assigns.
 
-    This is what a caller declares. :py:class:`~roboto.domain.topics.record.SchemaFieldRecord` is what the
-    platform returns for a field it has stored, and carries the identifiers it assigns.
+    ``path`` lists the names from the schema root down to this field, so a nested field's path extends its parent's,
+    and its last name is ``name``. Either one is derived from the other when omitted: a top-level field needs only
+    ``name``, and a nested field needs only ``path``. A vector, such as a LeRobot ``observation.state`` feature, is
+    one field typed :py:attr:`~roboto.domain.topics.CanonicalDataType.NumberArray`, whose elements
+    ``element_names`` may name.
+
+    Building it raises ``pydantic.ValidationError`` when:
+
+    - ``data_type`` is empty.
+    - ``name`` and ``path`` are both omitted or empty, ``path`` has an empty name, or the last name in ``path`` is
+      not ``name``.
+    - ``element_names`` is set on a field that may not carry names, or does not give each element one non-empty
+      name that no other element has.
+    - The field is typed :py:attr:`~roboto.domain.topics.CanonicalDataType.Timestamp` and ``unit`` is ``None`` or
+      not a :py:class:`~roboto.time.TimeUnit` value.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     name: str = ""
-    """Name of the field. Defaults to the last element of ``path`` when only ``path`` is given;
-    at least one of ``name`` and ``path`` must be declared."""
+    """Name of the field: the last name in ``path``. Defaults to that name when only ``path`` is given."""
 
     path: list[str] = pydantic.Field(default_factory=list)
-    """The names from the schema root down to this field; a nested field's path extends its parent's path.
-    Omitted, ``None``, or empty defaults to ``[name]``;
-    when given, every element must be non-empty and the last element must equal ``name``."""
+    """Names from the schema root down to this field, each non-empty, ending with ``name``.
+
+    Omitted, ``None`` or empty defaults to ``[name]``."""
 
     data_type: str = pydantic.Field(min_length=1)
-    """Native type of the field as recorded by the source format (e.g. ``"float32"``)."""
+    """Native data type of the field, as the source data's framework names it, such as ``"float32"``."""
 
     canonical_data_type: CanonicalDataType = CanonicalDataType.Unknown
-    """Roboto's normalized type for the field, used for cross-format reads and visualization."""
+    """Framework-independent data type of the field, which Roboto uses to choose how to display its data."""
 
     unit: typing.Optional[str] = None
-    """Unit of the field's values (e.g. ``"rad"``). A field typed
-    :py:attr:`~roboto.domain.topics.record.CanonicalDataType.Timestamp` must carry a
-    :py:class:`~roboto.time.TimeUnit` value (one of ``"s"``, ``"ms"``, ``"us"``, ``"ns"``)."""
+    """Unit of the field's values, such as ``"rad"``, or ``None`` if it has none or it is unknown.
+
+    A field typed :py:attr:`~roboto.domain.topics.CanonicalDataType.Timestamp` must give a
+    :py:class:`~roboto.time.TimeUnit` value: ``"s"``, ``"ms"``, ``"us"`` or ``"ns"``."""
 
     element_names: typing.Optional[list[str]] = None
-    """Name of each element of a fixed-width numeric array, in element order (e.g. ``["shoulder", "elbow"]`` for a
-    ``float32[2]`` joint vector). Only a top-level field typed
-    :py:attr:`~roboto.domain.topics.record.CanonicalDataType.NumberArray` whose ``data_type`` ends in a single
-    ``[N]`` may carry names, and only when its elements are not one byte wide (``uint8``, ``int8``, ``uint8_t``,
-    ``int8_t``, ``byte``, ``char`` or ``octet``, in any letter case). It takes exactly N names, each non-empty and
-    unique within the array, and the field must have no child fields. Names are part of schema identity: the same
-    array with and without names is two schemas."""
+    """Name of each element of a fixed-length numeric array field, in element order, or ``None`` to leave them unnamed.
+
+    For example, ``["shoulder", "elbow"]`` names the elements of a ``float32[2]`` joint vector.
+
+    Only a top-level field typed :py:attr:`~roboto.domain.topics.CanonicalDataType.NumberArray` may carry names,
+    and only when its ``data_type`` ends in a single ``[<N>]`` and its elements are not one byte wide (``uint8``,
+    ``int8``, ``uint8_t``, ``int8_t``, ``byte``, ``char`` or ``octet``, in any letter case). It takes one name per
+    element, each non-empty and unique within the array, and the schema may declare no field under it. Element
+    names are part of what identifies a schema, so the same array with and without names makes two schemas."""
 
     @pydantic.model_validator(mode="before")
     @classmethod
@@ -136,34 +147,34 @@ class Field(pydantic.BaseModel):
 
 
 class Schema(pydantic.BaseModel):
-    """The structure of one topic's data: the columns it carries.
+    """Topic schema, as a caller declares it: the fields that make up a topic's messages.
 
-    However a schema is produced, whether hand-written field by field or converted from a source format's own
-    metadata, the registered result is the same: schemas are content-addressed server-side. Identity covers
-    every attribute of every field (name, path, source data type, canonical type, unit, and element names), so
-    identical declarations collapse to a single stored schema no matter how many times they are repeated, while
-    declarations differing in any field attribute are stored separately.
+    Carried in :py:attr:`~roboto.experimental.ingest.TopicDeclaration.topic_schema`. A declared schema carries no
+    checksum: Roboto computes one from the fields and stores the schema as a
+    :py:class:`~roboto.domain.topics.TopicSchema`, with that checksum and the ID Roboto assigns.
 
-    A column a timeline source reads is declared by typing it
-    :py:attr:`~roboto.domain.topics.record.CanonicalDataType.Timestamp` with a
-    :py:class:`~roboto.time.TimeUnit` unit; nothing else marks it. Which of a topic's timeline sources reads
-    fall back to is not part of the schema: it is stated on
-    :py:attr:`~roboto.experimental.ingest.TopicDeclaration.timeline_sources` and can be changed later, so the
-    same columns are one schema no matter which source is preferred.
+    Within an organization, declarations with identical fields share one stored schema, whether the fields were
+    written by hand or converted from a source format, and in whatever order they are listed. Every attribute of
+    every field counts: ``name``, ``path``, ``data_type``, ``canonical_data_type``, ``unit`` and ``element_names``.
+    Declarations that differ in any of them are stored as separate schemas. The schema's own ``name`` does not count.
 
-    This is what a caller declares, so it carries no checksum: the platform computes that from the fields.
-    :py:class:`~roboto.domain.topics.record.TopicSchemaRecord` is the stored schema the platform returns,
-    carrying that checksum and the identifiers it assigns.
+    A field a timeline source reads its timestamps from is marked only by its type,
+    :py:attr:`~roboto.domain.topics.CanonicalDataType.Timestamp`, and its :py:class:`~roboto.time.TimeUnit` unit.
+    Which timeline source reads resolve to when they name none is not part of the schema: ``is_default_for_reads``
+    on each entry of :py:attr:`~roboto.experimental.ingest.TopicDeclaration.timeline_sources` states it, and a later
+    declaration can change it, so the same fields make one schema whichever source reads resolve to.
+
+    Building it raises ``pydantic.ValidationError`` when ``fields`` is empty, two fields have the same ``path``, a
+    field sits under a field that has ``element_names``, or a field breaks a rule ``Field`` states.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     name: typing.Optional[str] = None
-    """Informational label for the schema (often the topic name). Not part of schema identity."""
+    """Informational name of the schema, such as the topic's name; not part of its identity."""
 
     fields: list[Field] = pydantic.Field(min_length=1)
-    """Declared columns of the topic's data. At least one is required, and every field's path must be
-    unique within the schema."""
+    """Fields of the topic's messages, each at its own ``path``."""
 
     @pydantic.model_validator(mode="after")
     def _reject_duplicate_field_paths(self) -> "Schema":

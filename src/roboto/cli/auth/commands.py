@@ -26,6 +26,7 @@ from ..config_file import (
     ConfigFileError,
     ProfileWriteResult,
     check_profile_writable,
+    read_configured_profiles,
 )
 from ..context import CLIContext, cli_roboto_env
 from ..terminal import print_error_and_exit
@@ -42,11 +43,18 @@ from .login_flow import (
     parse_token_expiry_days,
     run_login,
 )
+from .login_target import (
+    AmbiguousLoginTargetError,
+    LoginCanceledError,
+    ask_for_endpoint,
+    ask_whether_to_replace_token,
+    choose_login_target,
+)
 
 
 @dataclasses.dataclass(frozen=True)
 class LoginResult:
-    """A token from a successful login and the profile it was saved to."""
+    """Result of a successful login: the new access token and the config file profile it was saved to."""
 
     token: TokenRecord
     profile: ProfileWriteResult
@@ -63,30 +71,28 @@ def login_and_save_profile(
     read_pasted_code: typing.Callable[[], str],
     out: TextOutput,
 ) -> LoginResult:
-    """Sign in through the browser and store the new token in a config file profile.
+    """Sign in through the browser and save the new access token to a config file profile.
 
     Before it contacts Roboto, refuses an invalid profile name, a config file it cannot update, and an existing
-    profile unless ``overwrite`` is set. If saving still fails, deletion is attempted using the new token's own secret,
-    as :py:class:`~roboto.cli.auth.login_flow.IssuedToken` describes.
+    profile unless ``overwrite`` is set. If saving still fails, deletes the new token from Roboto, authenticating with
+    the token itself, as ``IssuedToken`` in ``roboto.cli.auth.login_flow`` describes.
 
     Args:
-        api_endpoint: Roboto API endpoint the token is used at, saved with it in the profile. Credential requests go
-            to the endpoint it names, as :py:meth:`~roboto.cli.auth.login_flow.CredentialRequestApi.for_api_endpoint`
-            describes.
+        api_endpoint: Roboto API endpoint to sign in to, saved with the token in the profile. Credential requests go
+            to the service this endpoint's service discovery document names.
         options: How to create the credential request and receive its authorization code.
-        config_file: Config file to save the token in.
-        profile_name: Profile to save the token under. Defaults to the config file's default profile.
-        overwrite: Replace the token and endpoint of an existing profile of the same name.
-        set_default: Make the profile the default one.
-        open_browser: Opens a URL in a browser; returns False if it could not.
-        read_pasted_code: Reads an authorization code pasted by the user, without echoing it.
+        profile_name: Profile to save the token under. ``None`` saves it under the config file's default profile.
+        overwrite: Whether to replace the token and endpoint of an existing profile of the same name.
+        open_browser: Function that opens a URL in a browser, and returns ``False`` if it could not.
+        read_pasted_code: Function that reads an authorization code the user pastes, without echoing it.
         out: Where to print instructions for the user.
 
     Raises:
         ProfileAlreadyExistsError: The profile exists and ``overwrite`` is false.
-        ConfigFileError: The config file cannot be safely updated.
+        ConfigFileError: The profile name is invalid, or the config file cannot be safely updated.
         OSError: The config file could not be read or written.
-        LoginError: Login did not produce a token.
+        LoginError: Login did not produce a token, for example because the request was denied in the browser or
+            expired. Its subclasses in ``roboto.cli.auth.login_flow`` name each cause.
     """
     check_profile_writable(config_file, profile_name, overwrite, set_default)
 
@@ -103,11 +109,49 @@ def login_and_save_profile(
 
 
 def login(args, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Save a new access token from a browser sign-in to a config file profile, and print the profile and file.
+
+    Also prints a warning to stderr when ``ROBOTO_API_KEY`` or ``ROBOTO_BEARER_TOKEN`` is set, since either one
+    overrides the config file. Exits with status 1 when sign-in fails, when the profile cannot be saved, and when
+    Ctrl-C, or Ctrl-D at a prompt, cancels it.
+    """
     env = cli_roboto_env(args.config_file)
     config_file = resolve_config_file(env)
-    # None leaves write_profile to pick the config file's default profile, the one other commands use.
-    profile_name = requested_profile_name(args.profile, env)
-    endpoint = (args.endpoint or env.roboto_service_endpoint or ROBOTO_API_ENDPOINT).rstrip("/")
+    overwrite = args.overwrite
+    # The prompt is printed to stdout, so asking needs a terminal on both ends.
+    interactive = sys.stdin.isatty() and sys.stdout.isatty()
+    if args.choose_endpoint and not interactive:
+        print_error_and_exit("--choose-endpoint asks for the endpoint in a terminal. Pass --endpoint instead.")
+    try:
+        requested_endpoint = (
+            ask_for_endpoint(input, sys.stdout)
+            if args.choose_endpoint
+            else args.endpoint or env.roboto_service_endpoint
+        )
+        profiles = read_configured_profiles(config_file)
+        target = choose_login_target(
+            profiles,
+            requested_profile=requested_profile_name(args.profile, env),
+            requested_endpoint=requested_endpoint,
+        )
+        profile_name = target.profile_name
+        existing_endpoint = profiles.endpoints.get(profile_name) if profiles is not None else None
+        # Outside a terminal, an existing profile is left for login_and_save_profile to refuse without `--overwrite`,
+        # so scripts keep failing rather than waiting for an answer.
+        if existing_endpoint is not None and not overwrite and interactive:
+            choice = ask_whether_to_replace_token(
+                config_file,
+                target,
+                existing_endpoint=existing_endpoint,
+                set_default=args.set_default,
+                ask=input,
+                out=sys.stdout,
+            )
+            profile_name, overwrite = choice.profile_name, choice.overwrite
+    except (AmbiguousLoginTargetError, ConfigFileError, OSError) as exc:
+        print_error_and_exit(str(exc))
+    except (LoginCanceledError, EOFError, KeyboardInterrupt):
+        print_error_and_exit("Sign-in canceled. Nothing changed.")
 
     use_loopback = not args.no_browser and not browser_cannot_reach_loopback(os.environ, sys.platform)
     options = LoginOptions(
@@ -120,11 +164,11 @@ def login(args, context: CLIContext, parser: argparse.ArgumentParser) -> None:
 
     try:
         result = login_and_save_profile(
-            endpoint,
+            target.endpoint,
             options,
             config_file=config_file,
             profile_name=profile_name,
-            overwrite=args.overwrite,
+            overwrite=overwrite,
             set_default=args.set_default,
             open_browser=open_in_browser,
             read_pasted_code=lambda: getpass.getpass("Authorization code: "),
@@ -166,9 +210,19 @@ def login(args, context: CLIContext, parser: argparse.ArgumentParser) -> None:
 
 
 def login_setup_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
+    endpoint_choice = parser.add_mutually_exclusive_group()
+    endpoint_choice.add_argument(
+        "--choose-endpoint",
+        action="store_true",
+        help=f"Ask for the Roboto API endpoint to sign in to, offering {ROBOTO_API_ENDPOINT}. Use it when your "
+        + "organization runs its own Roboto deployment. Needs a terminal.",
+    )
+    endpoint_choice.add_argument(
         "--endpoint",
-        help=f"Roboto API endpoint to sign in to. Defaults to ROBOTO_SERVICE_ENDPOINT, or {ROBOTO_API_ENDPOINT}.",
+        help="Roboto API endpoint to sign in to. Defaults to ROBOTO_SERVICE_ENDPOINT; otherwise, with a profile named, "
+        + "to that profile's saved endpoint, and with none named, to the endpoint that every profile in the config "
+        + f"file uses; else {ROBOTO_API_ENDPOINT}. With no profile named, the token is saved to the profile that "
+        + "already uses this endpoint.",
     )
     parser.add_argument(
         "--no-browser",
@@ -194,8 +248,8 @@ def login_setup_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--overwrite",
         action="store_true",
-        help="Replace the access token and endpoint of the selected profile if it already exists. The replaced token "
-        + "stays valid.",
+        help="Replace the access token and endpoint of the selected profile if it already exists, without asking. "
+        + "Outside a terminal, replacing them requires this flag. The replaced token stays valid.",
     )
     parser.add_argument(
         "--set-default",
@@ -212,8 +266,9 @@ login_command = RobotoCommand(
     command_kwargs={
         "help": (
             "Sign in through your browser and save a new access token to a profile in the Roboto config file. "
-            + "Select the profile with the top-level --profile flag (default: ROBOTO_PROFILE, then the config file's "
-            + "default profile, then 'default'). Replacing an existing profile's token requires --overwrite."
+            + "Select the profile with the top-level --profile flag (default: ROBOTO_PROFILE, then the profile that "
+            + "already uses the endpoint, then the config file's default profile). If the profile already has a "
+            + "token, login asks whether to replace it; outside a terminal, replacing it requires --overwrite."
         )
     },
 )

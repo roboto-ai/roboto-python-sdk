@@ -16,18 +16,18 @@ from .accessor import (
 
 
 class DecodedMessage:
-    """Facade for values returned from message decoders.
+    """Message decoded from an MCAP file, which ``to_dict`` reduces to the fields a caller selected.
 
-    Provides a unified interface for working with decoded messages regardless
-    of their original encoding format or source. Handles the conversion of decoded
-    message data into dictionary format suitable for analysis and processing.
+    :py:meth:`~roboto.formats.mcap.McapReader.next` returns one for each message it reads. Import it from
+    ``roboto.formats.mcap.decoded_message``.
 
-    A decoded message is a nested ``dict`` / sequence / scalar value: JSON channels and the
-    shared ``mcap_codec`` decoder (which handles the ROS1, ROS2/CDR, and IDL encodings) both
-    materialize to ``dict``, so one dictionary interface serves every encoding.
-
-    This class filters that decoded value down to the specified fields and presents it
-    through a consistent dictionary interface.
+    Args:
+        msg: Decoded message, as nested dictionaries, sequences, and scalars. JSON, msgpack, ROS 1, ROS 2, and IDL
+            messages all decode to this form.
+        fields: Fields ``to_dict`` returns.
+        accessor_cache: Cache that lets the messages of one read reuse the functions compiled to read each field,
+            instead of compiling them for every message. :py:class:`~roboto.formats.mcap.McapReader` passes one.
+            ``None`` compiles them for this message alone.
     """
 
     __message: typing.Any
@@ -36,17 +36,15 @@ class DecodedMessage:
 
     @staticmethod
     def is_path_match(attrib: str, field_path: str) -> bool:
-        """Check if an attribute path matches or is a parent of a field path.
+        """Return whether ``attrib`` is the same message path as ``field_path`` or one of its ancestors.
 
-        Determines whether a given attribute path should be included when filtering
-        message data based on the specified fields.
+        Both paths are dot-delimited, and they are compared component by component, so ``"pose.pos"`` is no ancestor
+        of ``"pose.position.x"``. A component that itself contains a dot cannot be told apart from two nested
+        components.
 
         Args:
-            attrib: Attribute path to check (e.g., "pose.position").
-            field_path: Target field path (e.g., "pose.position.x").
-
-        Returns:
-            True if the attribute matches or is a parent of the field path.
+            attrib: Message path to test, such as ``"pose.position"``.
+            field_path: Message path of the selected field, such as ``"pose.position.x"``.
 
         Examples:
             >>> DecodedMessage.is_path_match("pose", "pose.position.x")
@@ -55,6 +53,8 @@ class DecodedMessage:
             True
             >>> DecodedMessage.is_path_match("pose.position.x", "pose.position.x")
             True
+            >>> DecodedMessage.is_path_match("pose.pos", "pose.position.x")
+            False
             >>> DecodedMessage.is_path_match("velocity", "pose.position.x")
             False
         """
@@ -75,35 +75,28 @@ class DecodedMessage:
         fields: collections.abc.Sequence[FieldSelection],
         accessor_cache: typing.Optional[AccessorCache] = None,
     ):
-        """Wrap a decoded message for dictionary conversion.
-
-        Args:
-            msg: The decoded message -- a nested ``dict`` / sequence / scalar value. JSON
-                channels and the shared ``mcap_codec`` decoder (ROS1, ROS2/CDR, IDL) both
-                materialize to ``dict``.
-            fields: Fields to extract from the message.
-            accessor_cache: Optional cache that lets repeated decodes from the same
-                read pass skip per-message accessor compilation. The reader owns the
-                cache and passes it in; one-off callers can leave it ``None``.
-        """
         self.__message = msg
         self.__fields = fields
         self.__accessor_cache = accessor_cache
 
     def to_dict(self) -> dict:
-        """Convert the decoded message to a dictionary format.
+        """Return the message's selected fields as a dictionary nested the way the message is.
 
-        Extracts and organizes message data into a dictionary structure,
-        including only the attributes that match the specified fields.
+        The dictionary holds only the fields given at construction:
 
-        Returns:
-            Dictionary containing the filtered message data with attribute names as keys.
+        - A field inside a sequence becomes a list holding one dictionary per element.
+        - A field the message lacks is left out, though dictionaries that enclose it may appear, empty.
+        - A path ending in ``nsec`` that reaches a ROS 2 ``Time`` or ``Duration`` value reads that value's
+          ``nanosec`` key, and returns it under ``nanosec``.
 
         Examples:
-            >>> # Assuming fields include "pose.position.x" and "velocity"
-            >>> decoded_msg = DecodedMessage(ros_message, fields)
-            >>> data_dict = decoded_msg.to_dict()
-            >>> print(data_dict)
+            >>> from roboto.formats import FieldSelection
+            >>> fields = [
+            ...     FieldSelection(path_in_schema=("pose", "position", "x")),
+            ...     FieldSelection(path_in_schema=("velocity",)),
+            ... ]
+            >>> message = {"pose": {"position": {"x": 1.5, "y": 0.2}}, "velocity": 2.0, "status": "ok"}
+            >>> DecodedMessage(message, fields).to_dict()
             {'pose': {'position': {'x': 1.5}}, 'velocity': 2.0}
         """
         getter = getter_for(self.__message)

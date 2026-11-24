@@ -35,8 +35,10 @@ from .invocation_record import (
 )
 
 _QUERYABLE_NON_RECORD_FIELDS = frozenset({"data_source_id", "data_source_type", "input.session_id"})
-"""Condition fields the invocations query API accepts that are not attributes of
-:py:class:`~roboto.domain.actions.InvocationRecord`, matched by their full name.
+"""Condition fields the invocations query API accepts that are not invocation record attributes.
+
+None of them is an attribute of :py:class:`~roboto.domain.actions.InvocationRecord`. The API matches each
+by its full name.
 
 :py:class:`~roboto.domain.actions.InvocationRecord` nests the data source under ``data_source``, but
 the API accepts it only in the flat form: it refuses a condition on ``data_source`` or on
@@ -44,29 +46,21 @@ the API accepts it only in the flat form: it refuses a condition on ``data_sourc
 which is set only when its invoker names one. ``data_source_type`` matches every invocation for as
 long as :py:class:`~roboto.domain.actions.InvocationDataSourceType` has a single member.
 
-``input.session_id`` takes only ``EQUALS`` and matches the invocations whose input names that
+``input.session_id`` takes only ``Comparator.Equals`` and matches the invocations whose input names that
 session by ID. It does not match an input that selected sessions by query or by name.
 """
 
 
 class Invocation:
-    """An instance of an execution of an action, initiated manually by a user or automatically by a trigger.
+    """An invocation: one run of an action, started by a user or by a trigger.
 
-    An Invocation represents a single execution of an Action with specific inputs,
-    parameters, and configuration. It tracks the execution lifecycle from creation
-    through completion, including status updates, logs, and results.
+    An invocation records the inputs, parameter values, compute requirements, and container parameters it ran with,
+    the history of statuses it entered, and the log lines its containers wrote.
 
-    Invocations are created by calling :py:meth:`Action.invoke` or through the UI.
-    They cannot be created directly through the constructor. Each invocation has a
-    unique ID and maintains a complete audit trail of its execution.
-
-    Key features:
-
-    - Status tracking (Queued, Running, Completed, Failed, etc.)
-    - Input data specification and parameter values
-    - Compute requirement and container parameter overrides
-    - Log collection and output file management
-    - Progress monitoring and result retrieval
+    Invocations are started by :py:meth:`~roboto.domain.actions.Action.invoke`, by a trigger, or in the Roboto web
+    app. Get an ``Invocation`` from ``from_id`` or ``query``. Each instance holds a copy of the invocation's record,
+    so its status does not change as the invocation runs: ``refresh`` fetches the latest record, and
+    ``wait_for_terminal_status`` polls until the invocation ends.
     """
 
     __record: InvocationRecord
@@ -78,20 +72,22 @@ class Invocation:
         invocation_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Invocation":
-        """Load an existing invocation by its ID.
+        """Fetch an invocation by its ID.
 
-        Retrieves an invocation from the Roboto platform using its unique identifier.
+        Reading an invocation takes permission to read every dataset it was given: its data source, each dataset its
+        input selectors name, the dataset of each file and topic it selects by ID, and each dataset that holds a file
+        of a session it selects by ID. An invocation given no dataset takes only permission to read the invocation.
+        The invocation's own credential, which its action uses, can always read it.
 
         Args:
-            invocation_id: The unique ID of the invocation to retrieve.
-            roboto_client: Roboto client instance. Uses default if not provided.
-
-        Returns:
-            The Invocation instance.
+            invocation_id: ID of the invocation, beginning with ``iv_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: If the invocation is not found.
-            RobotoUnauthorizedException: If the caller lacks permission to access the invocation.
+            RobotoNotFoundException: No invocation has this ID.
+            RobotoUnauthorizedException: The caller may not read a dataset the invocation was given, such as one
+                restricted to the people it is shared with.
 
         Examples:
             Load an invocation and check its status:
@@ -112,29 +108,27 @@ class Invocation:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Invocation", None, None]:
-        """Query invocations with optional filtering and pagination.
+        """Yield the invocations in an organization that match a query, fetching them a page at a time.
 
-        Searches for invocations based on the provided query specification.
-        Can filter by status, action name, creation time, and other attributes.
+        Conditions and sorts name fields of :py:class:`~roboto.domain.actions.InvocationRecord`, such as
+        ``last_status`` or ``created``, or one of ``data_source_id``, ``data_source_type``, and ``input.session_id``.
 
         Args:
-            spec: Query specification with filters, sorting, and pagination.
-                If not provided, returns all accessible invocations.
-            owner_org_id: Organization ID to search within. If not provided,
-                searches in the caller's organization.
-            roboto_client: Roboto client instance. Uses default if not provided.
-
-        Yields:
-            Invocation instances matching the query criteria.
+            spec: Conditions and sort order of the query. ``None`` matches every invocation in the organization.
+            owner_org_id: Organization to query invocations in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            ValueError: If the query specification contains unknown fields.
-            RobotoIllegalArgumentException: If the query filters or sorts on a field the
-                invocations API does not accept, filters ``last_status`` on a value that is
-                neither a whole number nor a status name, or compares ``last_status`` with
-                ``Comparator.Like``, ``Comparator.NotLike``, ``Comparator.Contains``,
-                ``Comparator.NotContains`` or ``Comparator.BeginsWith``.
-            RobotoUnauthorizedException: If the caller lacks permission to query invocations.
+            ValueError: ``spec`` names a field that is neither a field of ``InvocationRecord`` nor one of
+                ``data_source_id``, ``data_source_type``, and ``input.session_id``. Of a dotted field such as
+                ``provenance.action``, only the part before the first dot is checked. It surfaces on the first
+                iteration.
+            RobotoIllegalArgumentException: The query filters or sorts on a field Roboto does not accept for
+                invocations, filters ``last_status`` on a value that is neither a whole number nor a status name, or
+                compares ``last_status`` with :py:attr:`~roboto.query.Comparator.Like`, ``NotLike``, ``Contains``,
+                ``NotContains`` or ``BeginsWith``. It surfaces on the first iteration.
 
         Examples:
             Query all invocations:
@@ -149,7 +143,7 @@ class Invocation:
             ...     condition=Condition(
             ...         field="data_source_id",
             ...         comparator=Comparator.Equals,
-            ...         value="ds_abc123",
+            ...         value="ds_12345",
             ...     )
             ... )
             >>> for invocation in Invocation.query(spec):
@@ -161,15 +155,16 @@ class Invocation:
             ...     condition=Condition(
             ...         field="input.session_id",
             ...         comparator=Comparator.Equals,
-            ...         value="se_abc123",
+            ...         value="se_12345",
             ...     )
             ... )
             >>> on_session = list(Invocation.query(spec))
 
             Query completed invocations. ``last_status`` also accepts the status name in any
             case, so ``value="completed"`` finds the same invocations. Greater-than and
-            less-than comparators compare status numbers, so Cancelled (997), Failed (998) and
-            Deadly (999) count as greater than Completed (5):
+            less-than comparators compare status numbers, so
+            :py:attr:`~roboto.domain.actions.InvocationStatus.Cancelled` (997), ``Failed`` (998) and
+            ``Deadly`` (999) count as greater than ``Completed`` (5):
 
             >>> from roboto.domain.actions import InvocationStatus
             >>> spec = QuerySpecification(
@@ -197,8 +192,7 @@ class Invocation:
         for field in spec.fields():
             if field in _QUERYABLE_NON_RECORD_FIELDS:
                 continue
-            # Support dot notation for nested fields
-            # E.g., "metadata.SoftwareVersion"
+            # A dotted field such as "provenance.action.name" is known when its first part is.
             if "." in field:
                 actual.add(field.split(".")[0])
             else:
@@ -229,12 +223,6 @@ class Invocation:
         record: InvocationRecord,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> None:
-        """Initialize an Invocation instance.
-
-        Args:
-            record: The invocation record containing all invocation data.
-            roboto_client: Roboto client instance. Uses default if not provided.
-        """
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -243,56 +231,70 @@ class Invocation:
 
     @property
     def action(self) -> ActionProvenance:
-        """Provenance information about the action that was invoked."""
+        """Action the invocation ran.
+
+        It is :py:attr:`~roboto.domain.actions.InvocationProvenance.action`: the action's name, the organization that
+        owns it, and its version's digest.
+        """
         return self.__record.provenance.action
 
     @property
     def compute_requirements(self) -> ComputeRequirements:
-        """The compute requirements (CPU, memory) used for this invocation."""
+        """CPU, memory, and storage the invocation runs with: the action's, with any overrides the invoker gave."""
         return self.__record.compute_requirements
 
     @property
     def container_parameters(self) -> ContainerParameters:
-        """The container parameters used for this invocation."""
+        """Command, entry point, environment variables, and working directory the invocation's container starts with.
+
+        They are the action's, with any overrides the invoker gave.
+        """
         return self.__record.container_parameters
 
     @property
     def created(self) -> datetime.datetime:
-        """The timestamp when this invocation was created."""
+        """Time the invocation was created, in UTC."""
         return self.__record.created
 
     @property
     def current_status(self) -> InvocationStatus:
-        """The current status of this invocation (e.g., Queued, Running, Completed)."""
+        """Latest status in the invocation's status history.
+
+        Statuses include :py:attr:`~roboto.domain.actions.InvocationStatus.Queued`, ``Processing``, and ``Completed``.
+        When two statuses share a timestamp, the one with the higher value counts as the latest.
+        """
         sorted_status_records = sorted(
             self.__record.status,
-            # Sort by timestamp ASC, then by status value ASC
             key=lambda status_record: (status_record.timestamp, status_record.status),
         )
         return sorted_status_records[-1].status
 
     @property
     def data_source(self) -> InvocationDataSource:
-        """The data source that provided input data for this invocation."""
+        """Dataset the invocation reads from, or an unspecified data source when its invoker named none."""
         return self.__record.data_source
 
     @property
     def executable(self) -> ExecutableProvenance:
-        """Provenance information about the executable (container) that was run."""
+        """Container image the invocation ran."""
         return self.__record.provenance.executable
 
     @property
     def id(self) -> str:
-        """The unique identifier for this invocation."""
+        """Unique ID of the invocation, beginning with ``iv_``."""
         return self.__record.invocation_id
 
     @property
     def input_data(self) -> typing.Optional[InvocationInput]:
-        """The inputs this invocation selects, or None if it selects none, with or without a `data_source` dataset.
+        """Inputs as the invoker requested them, or ``None`` if it requested none.
 
-        A file selector that has `paths` and no `dataset_id` is relative to the invocation's data source. When
-        that is a dataset, this returns a copy with its `dataset_id` filled in so the selector resolves on its
-        own; the stored record is not changed. With an unspecified data source, the selector is returned as stored.
+        A file selector with ``paths`` and no ``dataset_id`` is relative to the invocation's data source. When the
+        data source is a dataset, this returns a copy of such a selector with ``dataset_id`` set to that dataset's ID,
+        so the selector names its files without the invocation; the record is not changed. When the data source is
+        unspecified, selectors are returned as stored.
+
+        An invocation whose record holds only file paths within its data source, in the deprecated
+        ``InvocationRecord.input_data``, returns a file selector for those paths in that dataset.
         """
         rich = self.__record.rich_input_data
         if rich:
@@ -308,9 +310,8 @@ class Invocation:
             ]
             return rich.model_copy(update={"files": anchored if isinstance(rich.files, list) else anchored[0]})
 
-        # Both halves are required, not just the data source: a file selector carrying neither
-        # paths nor a query is rejected at construction, so a dataset with nothing selected out of
-        # it has no selector to express it and the honest answer is that there are no inputs.
+        # Needs paths as well as a data source: a FileSelector with no paths, query, IDs, or names fails
+        # validation, so a dataset with no paths selected from it is reported as no inputs.
         if not self.__record.data_source.is_unspecified() and self.__record.input_data:
             return InvocationInput.from_dataset_file_paths(
                 dataset_id=self.__record.data_source.data_source_id,
@@ -321,63 +322,71 @@ class Invocation:
 
     @property
     def resolved_input_data(self) -> typing.Optional[InvocationInput]:
-        """The inputs this invocation resolved to, as explicit IDs, or None if its record carries none.
+        """Inputs the request resolved to, each named by its file, session, or topic ID.
 
-        Unlike `input_data`, which can hold paths relative to a dataset or a query, this names every file,
-        session and topic by ID, whatever number of datasets they span.
+        ``None`` if the invocation records none. Where ``input_data`` can select inputs by path or by query, this names
+        each input by its ID, whatever number of datasets they span. See
+        :py:attr:`~roboto.domain.actions.InvocationRecord.resolved_input_data`.
         """
         return self.__record.resolved_input_data
 
     @property
     def org_id(self) -> str:
-        """The organization ID that owns this invocation."""
+        """ID of the organization that owns the invocation."""
         return self.__record.org_id
 
     @property
     def parameter_values(self) -> dict[str, typing.Any]:
-        """The parameter values that were provided when this invocation was created."""
+        """Values of the action's parameters for this invocation, keyed by parameter name.
+
+        Parameters the invoker left out have their defaults.
+        """
         return self.__record.parameter_values
 
     @property
     def reached_terminal_status(self) -> bool:
-        """True if this invocation has reached a terminal status (Completed, Failed, etc.)."""
+        """Whether the current status ends the invocation.
+
+        The statuses that end it are :py:attr:`~roboto.domain.actions.InvocationStatus.Completed`, ``Cancelled``,
+        ``Failed``, and ``Deadly``.
+        """
         return self.current_status.is_terminal()
 
     @property
     def record(self) -> InvocationRecord:
-        """The underlying invocation record containing all invocation data."""
+        """Record of the invocation that this instance holds."""
         return self.__record
 
     @property
     def source(self) -> SourceProvenance:
-        """Provenance information about the source that initiated this invocation."""
+        """User or trigger that started the invocation."""
         return self.__record.provenance.source
 
     @property
     def status_log(self) -> list[InvocationStatusRecord]:
-        """The complete history of status changes for this invocation."""
+        """Statuses the invocation has entered, each with the time it entered it."""
         return self.__record.status
 
     @property
     def timeout(self) -> int:
-        """The timeout in minutes for this invocation."""
+        """Maximum time, in minutes, the invocation may run."""
         return self.__record.timeout
 
     @property
     def upload_destination(self) -> typing.Optional[InvocationUploadDestination]:
-        """The destination where output files from this invocation will be uploaded."""
+        """Where Roboto uploads the files the action writes to its output directory.
+
+        ``None`` if the invoker named no destination. Without one, Roboto uploads them to the dataset the inputs come
+        from, when they all come from one.
+        """
         return self.__record.upload_destination
 
     def cancel(self) -> None:
-        """Cancel this invocation if it is not already in a terminal status.
+        """Cancel the invocation, unless this instance's copy of its status is already terminal.
 
-        Attempts to cancel the invocation. If the invocation has already
-        completed, failed, or reached another terminal status, this method
-        has no effect.
-
-        Raises:
-            RobotoNotFoundException: If the invocation is not found.
-            RobotoUnauthorizedException: If the caller lacks permission to cancel the invocation.
+        Roboto marks the invocation :py:attr:`~roboto.domain.actions.InvocationStatus.Cancelled` and stops its
+        containers. Cancelling an invocation that has already ended changes nothing. This instance's record is not
+        updated; call ``refresh`` to see the new status.
 
         Examples:
             Cancel a running invocation:
@@ -395,21 +404,23 @@ class Invocation:
         )
 
     def get_logs(self, page_token: typing.Optional[str] = None) -> collections.abc.Generator[LogRecord, None, None]:
-        """Retrieve runtime STDOUT/STDERR logs generated during this invocation's execution.
+        """Yield the lines the invocation's containers wrote to STDOUT and STDERR, fetching them a page at a time.
 
-        Fetches log records from the invocation's container execution, with support
-        for pagination to handle large log volumes.
+        The containers are the setup container, the action's own container, and the output handler; each
+        :py:class:`~roboto.domain.actions.LogRecord` names the one that wrote it. An invocation that has written no
+        logs yet yields nothing. To follow the logs of an invocation that is still running, use ``stream_logs``. Reading
+        the logs takes permission to read every dataset the invocation was given, as ``from_id`` does.
 
         Args:
-            page_token: Optional token for pagination. If provided, starts
-                retrieving logs from that point.
+            page_token: Token from a previous page's response that resumes the listing after it. ``None`` starts at
+                the first page.
 
-        Yields:
-            LogRecord instances containing log messages and metadata.
+        Examples:
+            Print every line the invocation wrote:
 
-        Raises:
-            RobotoNotFoundException: If the invocation is not found.
-            RobotoUnauthorizedException: If the caller lacks permission to access logs.
+            >>> invocation = Invocation.from_id("iv_12345")
+            >>> for record in invocation.get_logs():
+            ...     print(record.process, record.log)
         """
         while True:
             response = self.__roboto_client.get(
@@ -426,10 +437,10 @@ class Invocation:
                 break
 
     def is_queued_for_scheduling(self) -> bool:
-        """
-        An invocation is queued for scheduling if:
-            1. its most recent status is "Queued"
-            3. and is not "Deadly"
+        """Return whether the invocation is waiting for Roboto to start it.
+
+        True when the current status is :py:attr:`~roboto.domain.actions.InvocationStatus.Queued` and the status
+        history holds no ``Deadly`` entry.
         """
         if self.current_status != InvocationStatus.Queued:
             return False
@@ -437,6 +448,17 @@ class Invocation:
         return not any(status_record.status == InvocationStatus.Deadly for status_record in self.__record.status)
 
     def refresh(self) -> "Invocation":
+        """Replace this instance's record with the invocation's current record from Roboto.
+
+        Use it to see the status changes and other updates made since this instance was loaded.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            >>> invocation = Invocation.from_id("iv_12345")
+            >>> print(invocation.refresh().current_status)
+        """
         self.__record = Invocation.from_id(self.id, self.__roboto_client).record
         return self
 
@@ -444,9 +466,16 @@ class Invocation:
         self,
         digest: str,
     ) -> "Invocation":
-        """
-        This is an admin-only operation to memorialize the digest of the container image
-        that was pulled in the course of invoking the action.
+        """Record the digest of the container image Roboto pulled to run the invocation.
+
+        Roboto calls this when it has pulled the invocation's container image. It refuses the request unless it comes
+        from a Roboto administrator or with the credentials Roboto gives the running invocation.
+
+        Args:
+            digest: Digest of the pulled container image.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
         """
         request = SetContainerInfoRequest(image_digest=digest)
         response = self.__roboto_client.put(
@@ -459,10 +488,16 @@ class Invocation:
         return self
 
     def set_logs_location(self, logs: LogsLocation) -> "Invocation":
-        """
-        This is an admin-only operation to memorialize the base location where invocation logs are saved.
+        """Record the S3 location where Roboto stores the invocation's log files.
 
-        Use the "get_logs" or "stream_logs" methods to access invocation logs.
+        Roboto calls this when it schedules the invocation. Only Roboto administrators may call it. To read the logs,
+        use ``get_logs`` or ``stream_logs``.
+
+        Args:
+            logs: Bucket and key prefix of the log files.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
         """
         request = SetLogsLocationRequest(bucket=logs.bucket, prefix=logs.prefix)
         response = self.__roboto_client.put(
@@ -477,6 +512,34 @@ class Invocation:
     def stream_logs(
         self, last_read: typing.Optional[str] = None
     ) -> collections.abc.Generator[LogRecord, None, typing.Optional[str]]:
+        """Yield the log lines written after ``last_read``, then return a token that resumes after the last of them.
+
+        Use it to follow the logs of an invocation that is still running. The generator's return value, which is the
+        ``value`` of the ``StopIteration`` it raises when exhausted, is the token to pass as ``last_read`` on the next
+        call, so that call yields only lines written since. It is ``None`` when the invocation has no logs to read.
+        Reading the logs takes permission to read every dataset the invocation was given, as ``from_id`` does.
+
+        Args:
+            last_read: Token a previous call returned. ``None`` starts at the first line.
+
+        Examples:
+            Print the invocation's logs as it writes them, until it ends:
+
+            >>> import time
+            >>> invocation = Invocation.from_id("iv_12345")
+            >>> last_read = None
+            >>> while True:
+            ...     ended = invocation.refresh().reached_terminal_status
+            ...     logs = invocation.stream_logs(last_read)
+            ...     try:
+            ...         while True:
+            ...             print(next(logs).log)
+            ...     except StopIteration as stop:
+            ...         last_read = stop.value
+            ...     if ended:
+            ...         break
+            ...     time.sleep(2)
+        """
         while True:
             response = self.__roboto_client.get(
                 f"v1/actions/invocations/{self.id}/logs/stream",
@@ -501,11 +564,39 @@ class Invocation:
         return streamed_results.last_read
 
     def to_dict(self) -> dict[str, typing.Any]:
+        """Return the record this instance holds as a JSON-compatible dictionary.
+
+        Returns:
+            :py:class:`~roboto.domain.actions.InvocationRecord` of the invocation, as a JSON-compatible dictionary.
+
+        Examples:
+            >>> invocation = Invocation.from_id("iv_12345")
+            >>> invocation.to_dict()["invocation_id"]
+            'iv_12345'
+        """
         return self.__record.model_dump(mode="json")
 
     def update_status(self, next_status: InvocationStatus, detail: typing.Optional[str] = None) -> "Invocation":
+        """Record that the invocation entered ``next_status``.
+
+        Roboto calls this when the invocation moves to a new status. It refuses the request unless it comes from a
+        Roboto administrator or with the credentials Roboto gives the running invocation, and it leaves the status
+        unchanged when the invocation cannot move to ``next_status`` from its current status (see
+        :py:meth:`~roboto.domain.actions.InvocationStatus.can_transition_to`).
+
+        A third failure is recorded as :py:attr:`~roboto.domain.actions.InvocationStatus.Deadly`, which is not
+        retried: when ``next_status`` is ``Failed`` and this instance's status history already holds two ``Failed``
+        entries, ``Deadly`` is sent instead.
+
+        Args:
+            next_status: Status the invocation entered.
+            detail: Human-readable explanation of the status, such as why the invocation failed. ``None`` or an empty
+                string records the text ``"None"``.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+        """
         if next_status == InvocationStatus.Failed:
-            # Heuristic: if this is the third time the invocation has failed, it is Deadly
             num_failures = len(
                 [
                     status_record
@@ -534,14 +625,26 @@ class Invocation:
         timeout: float = 60 * 5,
         poll_interval: Interval = 5,
     ) -> None:
-        """
-        Wait for the invocation to reach a terminal status.
+        """Wait until the invocation's status is terminal, refreshing this instance's record as it polls.
 
-        Throws a :py:exc:`~roboto.waiters.TimeoutError` if the timeout is reached.
+        When this returns, ``current_status`` is :py:attr:`~roboto.domain.actions.InvocationStatus.Completed`,
+        ``Cancelled``, ``Failed``, or ``Deadly``.
 
         Args:
-            timeout: The maximum amount of time, in seconds, to wait for the invocation to reach a terminal status.
-            poll_interval: The amount of time, in seconds, to wait between polling iterations.
+            timeout: Maximum time to wait, in seconds.
+            poll_interval: Seconds to wait between polls, or a function that takes the number of polls made so far and
+                returns the seconds to wait before the next.
+
+        Raises:
+            roboto.waiters.TimeoutError: The invocation did not end within ``timeout``. It subclasses the built-in
+                ``TimeoutError``.
+
+        Examples:
+            Wait up to ten minutes for an invocation to end:
+
+            >>> invocation = Invocation.from_id("iv_12345")
+            >>> invocation.wait_for_terminal_status(timeout=600)
+            >>> print(invocation.current_status)
         """
 
         def _condition() -> bool:

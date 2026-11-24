@@ -13,6 +13,7 @@ from .shared_helpdoc import COLLECTION_ID_HELP
 
 
 def show(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print a collection's changes between two versions, oldest first, one JSON object per change."""
     collection = Collection.from_id(
         collection_id=args.collection_id,
         roboto_client=context.roboto_client,

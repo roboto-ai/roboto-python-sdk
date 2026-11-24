@@ -14,85 +14,107 @@ from ...pydantic.serializers import field_serializer_custom_field_values
 
 
 class EventTopicField(pydantic.BaseModel):
-    """A field of a topic an event is about: one field of one of the topic's schemas."""
+    """Field of a topic that a session event is about: one field of one of the topic's schemas.
+
+    Carried in ``EventTopic.fields``.
+    """
 
     field_id: str
-    """ID of the schema field (``sf_*``). A field ID belongs to one schema: when the topic's schema changes, its fields
-    get new IDs, so the event names this field only in data written with that schema."""
+    """ID of the schema field, beginning with ``sf_``.
+
+    Each schema of a topic has its own field IDs, so when the topic's schema changes, the same path gets a new ID. The
+    event names this field only in the data written with this field's schema.
+    """
 
     path_in_schema: tuple[str, ...]
-    """The field's path within its schema, for display."""
+    """Path of the field within its schema, one element per level, such as ``("pose", "position", "x")``."""
 
 
 class EventTopic(pydantic.BaseModel):
-    """A topic an event is about, and optionally the fields of that topic it is about."""
+    """Topic that a session event is about, and the fields of that topic it is about, if it names any.
+
+    Carried in ``EventRecord.topics``.
+    """
 
     topic_id: str
-    """ID of the topic (``ti_*``), the same in every file and schema that carries it."""
+    """ID of the topic, beginning with ``ti_``.
+
+    Unlike the ``tp_`` ID of a topic in one file, it is the same in every file and schema that carries the topic.
+    """
 
     topic_name: str
-    """The topic's name, unique within the organization."""
+    """Name of the topic, such as ``"/imu/data"``, unique within its organization."""
 
     fields: typing.Optional[list[EventTopicField]] = None
-    """The fields the event is about, or ``None`` for the whole topic. Ordered by path."""
+    """Fields of the topic the event is about, ordered by path, or ``None`` if the event is about the whole topic."""
 
 
 class EventRecord(pydantic.BaseModel):
-    """A wire-transmissible representation of an event that belongs to a session."""
+    """Data record of a session event, as the Roboto API returns it.
+
+    A session event is a moment or span of interest in one session's data. It is separate from the events that belong
+    to a dataset, whose IDs begin with ``ev_``. ``Event`` wraps this record with methods that act on the event, and
+    exposes it as ``Event.record``.
+    """
 
     event_id: str
-    """A globally unique ID used to reference the event (``evt_*``)."""
+    """Unique ID of the event, beginning with ``evt_``."""
 
     org_id: str
-    """The organization that owns the event, which is also the organization that owns its session."""
+    """ID of the organization that owns the event, which also owns the event's session."""
 
     name: str
-    """A brief human-readable name for the event. Many events can have the same name."""
+    """Human-readable name of the event, such as ``"Takeoff"``. Roboto does not require names to be unique."""
 
     description: typing.Optional[str] = None
-    """An optional human-readable description of the event."""
+    """Human-readable description of the event, or ``None`` if it has none."""
 
     session_id: str
-    """The session the event belongs to. Fixed when the event is created."""
+    """ID of the session the event belongs to. Fixed when the event is created."""
 
     topics: list[EventTopic] = pydantic.Field(default_factory=list)
-    """The topics, or topic fields, the event is about, ordered by topic name: one topic, several, or, when empty, all
-    of the session's data."""
+    """Topics, or fields of topics, the event is about, ordered by topic name.
+
+    Empty when the event is about all of the session's data.
+    """
 
     start_time: int
-    """The start of the event, inclusive, in nanoseconds since the Unix epoch."""
+    """Inclusive start of the event's time span, in nanoseconds since the Unix epoch."""
 
     end_time: int
-    """The end of the event, inclusive, in nanoseconds since the Unix epoch. Equal to ``start_time`` for an
-    instantaneous event, and never earlier."""
+    """Inclusive end of the event's time span, in nanoseconds since the Unix epoch.
+
+    Equal to ``start_time`` for an event at a single point in time, and never earlier than ``start_time``.
+    """
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """Tags to associate with the event for discovery and search."""
+    """Tags on the event."""
 
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Key-value pairs to associate with the event for discovery and search."""
+    """Key-value metadata on the event."""
 
     custom_fields: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Values for the custom fields defined on events in this organization.
+    """Values of the custom fields the organization defines for events, keyed by field name.
 
-    Every ``Ready`` custom field defined on events in the organization appears as a key, and a field with no value
-    reads ``None``. Empty when the organization defines no custom fields on events.
+    Every event custom field in the :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` state appears as
+    a key, mapped to ``None`` when the event has no value for it. Fields in any other state are absent, so the map is
+    empty when no event custom field is in that state.
     """
 
     display_options: typing.Optional[EventDisplayOptions] = None
-    """Display options for the event, such as its color."""
+    """How the Roboto web app displays the event, such as its color, or ``None`` if no display options are set."""
 
     created: datetime.datetime
-    """Date and time when the event was created."""
+    """Time the event was created."""
 
     created_by: str
-    """The principal who created the event."""
+    """Principal that created the event, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     modified: datetime.datetime
-    """Date and time when the event was last modified."""
+    """Time the event was last modified."""
 
     modified_by: str
-    """The principal who last modified the event."""
+    """Principal that last modified the event, in the same ``<type>:<id>`` form as ``created_by``."""
 
     @pydantic.field_serializer("custom_fields", when_used="json")
     def _serialize_custom_fields(self, custom_fields: dict[str, typing.Any]) -> dict[str, typing.Any]:

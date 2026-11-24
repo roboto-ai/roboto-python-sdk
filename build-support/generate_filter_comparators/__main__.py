@@ -4,16 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Regenerate the checked-in filter comparator manifest.
+"""Regenerate ``filter_comparators.json``, the checked-in list of the operators each filter type accepts.
 
-The manifest states which operators each filter variant accepts, derived from the models in
-:mod:`roboto.query.filters`. A Vitest test in web-ui reads it to check that the filter UI's
-own copy of that vocabulary agrees, since there is no code generation between the two.
+The list is read from the filter models in ``roboto.query.filters``. The Roboto web app's tests read the file to check
+the web app's own copy of those operators, since nothing generates either one from the other. When a filter model's
+operators change, a test fails until you regenerate the file:
 
-``test_the_checked_in_comparator_manifest_is_current`` fails when the models and the manifest
-disagree. This is what fixes that:
-
-    pants run packages/roboto/build-support/generate_filter_comparators
+    pants run packages/roboto/build-support/generate_filter_comparators:generate
 """
 
 import argparse

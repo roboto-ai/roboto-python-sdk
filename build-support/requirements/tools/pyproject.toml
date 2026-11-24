@@ -36,6 +36,7 @@ module = [
     "cryptography.*",
     "dateutil.*",
     "docker.*",
+    "fastparquet.*",
     "fsspec.*",
     "jose.*",
     "markdown",

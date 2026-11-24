@@ -10,39 +10,52 @@ import typing
 from ...templating import PLACEHOLDER_RE
 
 QUERY_FIELD = "query"
-"""Selector field holding a RoboQL query, the one field of an invocation input whose value
-is an expression rather than a value the expression compares against."""
+"""Name of the selector field that holds a RoboQL query.
+
+It is the one field of an invocation input whose text is read as query syntax rather than taken as a value.
+"""
 
 _UNESCAPABLE = frozenset({"\r", "\n"})
-"""Characters a RoboQL string literal has no spelling for, escaped or otherwise."""
+"""Characters a RoboQL string literal cannot contain, escaped or not."""
 
 
 class QueryPlaceholder(typing.NamedTuple):
-    """One ``{{placeholder}}`` found in a RoboQL query, and the literal enclosing it."""
+    """One ``{{<name>}}`` placeholder found in a RoboQL query, with the string literal that encloses it.
+
+    ``scan_placeholders`` returns one for each placeholder it finds.
+    """
 
     name: str
-    """The placeholder's dotted name, without the braces."""
+    """Dotted name of the placeholder, without the braces, such as ``file.relative_path``."""
 
     quote: typing.Optional[str] = None
-    """The quote character of the string literal the placeholder sits in, or ``None`` when it
-    sits in expression text (a comment counts as expression text: a value could close it)."""
+    """Quote character of the string literal the placeholder sits in, or ``None`` when it sits outside every literal.
+
+    A placeholder inside a comment counts as outside, because a substituted value could close the comment.
+    """
 
     start: int = 0
     """Index of the placeholder's first character in the query."""
 
     end: int = 0
-    """Index one past the placeholder's last character."""
+    """Index one past the placeholder's last character in the query."""
 
 
 def scan_placeholders(query: str) -> list[QueryPlaceholder]:
-    """Return every ``{{placeholder}}`` in ``query``, each with the literal enclosing it.
+    """Return every ``{{<name>}}`` placeholder in a RoboQL query, with the string literal enclosing each.
 
-    Follows the lexical rules of the RoboQL grammar: both quote characters open a string
-    literal, a backslash inside one escapes the next character, and ``//`` and slash-star
-    comments run to their terminator.
+    Roboto calls this when a trigger is saved, through ``placeholders_outside_string_literals``, and when the trigger
+    invokes an action, through ``substitute_query_template``. It scans by the RoboQL lexer's rules:
+
+    - A single or double quote opens a string literal, which the same quote closes.
+    - A backslash inside a literal escapes the character after it.
+    - A ``//`` comment runs to the end of its line, and a ``/*`` comment runs to the next ``*/``.
 
     Args:
-        query: A RoboQL query, possibly carrying ``{{placeholder}}`` templates.
+        query: RoboQL query that may contain ``{{<name>}}`` placeholders.
+
+    Returns:
+        Placeholders, in the order they appear in ``query``.
     """
     placeholders = [
         QueryPlaceholder(name=match.group(1), start=match.start(), end=match.end())
@@ -51,8 +64,7 @@ def scan_placeholders(query: str) -> list[QueryPlaceholder]:
     if not placeholders:
         return []
 
-    # The quote enclosing each character, filled by one pass over the query, so a
-    # placeholder's enclosure is a lookup at its first character.
+    # Record the quote enclosing every character in one pass, so each placeholder's quote is read at its start index.
     enclosing: list[typing.Optional[str]] = [None] * len(query)
     position = 0
     quote: typing.Optional[str] = None
@@ -73,6 +85,7 @@ def scan_placeholders(query: str) -> list[QueryPlaceholder]:
             quote = character
             position += 1
             continue
+        # Characters in a comment keep None, so a placeholder in one counts as outside any literal.
         if query.startswith("//", position):
             end_of_line = query.find("\n", position)
             position = len(query) if end_of_line == -1 else end_of_line
@@ -87,31 +100,37 @@ def scan_placeholders(query: str) -> list[QueryPlaceholder]:
 
 
 def placeholders_outside_string_literals(query: str) -> list[str]:
-    """Return the placeholders in ``query`` that do not sit inside a string literal.
+    """Return the names of the placeholders in a RoboQL query that sit outside every string literal.
 
-    A value spliced inside a literal can be escaped into it (see :func:`escape_string_literal`),
-    so it can only ever be data. A value spliced anywhere else becomes query syntax: a tag or
-    path carrying an operator would rewrite the query it was meant to be compared against.
+    Roboto calls this when a trigger is saved, through :py:meth:`~roboto.domain.triggers.TriggerValidator.validate`,
+    on each query in an action target's ``invocation_input``, and rejects the trigger if any placeholder is returned.
+    A value substituted inside a literal is escaped for it, by ``escape_string_literal``, so it stays data. A value
+    substituted anywhere else, a comment included, becomes query syntax: a tag or path containing an operator would
+    change the query it was meant to be compared in.
 
     Args:
-        query: A RoboQL query, possibly carrying ``{{placeholder}}`` templates.
+        query: RoboQL query that may contain ``{{<name>}}`` placeholders.
 
     Returns:
-        The names of those placeholders, in the order they appear.
+        Names of those placeholders, in the order they appear in ``query``.
     """
     return [placeholder.name for placeholder in scan_placeholders(query) if placeholder.quote is None]
 
 
 def escape_string_literal(value: str, quote: str) -> str:
-    """Return ``value`` escaped for splicing inside a ``quote``-delimited RoboQL string literal.
+    """Return ``value`` escaped for use inside a RoboQL string literal delimited by ``quote``.
+
+    Roboto calls this when a trigger invokes an action, through ``substitute_query_template``, on each value it
+    substitutes. It puts a backslash before each backslash and each ``quote`` character; the other quote character
+    needs no escape.
 
     Args:
-        value: The value to splice.
-        quote: The literal's delimiter, ``"`` or ``'``.
+        value: Text to place inside the literal.
+        quote: Quote character that delimits the literal, ``"`` or ``'``.
 
     Raises:
-        ValueError: ``value`` holds a character the literal cannot carry under any escape,
-            namely a carriage return or a newline.
+        ValueError: ``value`` contains a carriage return or a newline, which a RoboQL string literal cannot contain
+            under any escape.
     """
     unescapable = sorted(_UNESCAPABLE & set(value))
     if unescapable:
@@ -123,18 +142,20 @@ def escape_string_literal(value: str, quote: str) -> str:
 
 
 def substitute_query_template(query: str, resolve: collections.abc.Callable[[str], str]) -> str:
-    """Return ``query`` with each placeholder replaced by ``resolve``'s value for it, escaped in place.
+    """Return a RoboQL query with each placeholder replaced by its value, escaped for the string literal it sits in.
 
-    Each placeholder is substituted exactly once, and a value is escaped for the literal that
-    encloses it, so a value that itself looks like a template or carries a quote stays data.
+    Roboto calls this when a trigger invokes an action, on each query in the target's ``invocation_input``. The query
+    is substituted in one pass, so a value that itself contains ``{{<name>}}`` or a quote stays data and is never
+    substituted again.
 
     Args:
-        query: A RoboQL query carrying ``{{placeholder}}`` templates.
-        resolve: Returns the value for a placeholder name.
+        query: RoboQL query that contains ``{{<name>}}`` placeholders.
+        resolve: Called with each placeholder's dotted name; returns the value to substitute. An exception it raises
+            propagates.
 
     Raises:
-        ValueError: A placeholder sits outside a string literal, or a value cannot be escaped
-            into the literal it lands in.
+        ValueError: A placeholder sits outside every string literal, or a value contains a carriage return or a
+            newline, which no RoboQL string literal can contain.
     """
     rendered: list[str] = []
     consumed = 0
@@ -155,15 +176,20 @@ def map_query_templates(
     invocation_input: collections.abc.Mapping[str, typing.Any],
     transform: collections.abc.Callable[[str], str],
 ) -> dict[str, typing.Any]:
-    """Return ``invocation_input`` with ``transform`` applied to every RoboQL query it holds.
+    """Return a copy of an invocation input with ``transform`` applied to each selector's RoboQL query.
+
+    Roboto calls this when a trigger invokes an action, to replace each query in the target's ``invocation_input``
+    with its substituted form. ``transform`` is called once per query, in the order ``iter_query_templates`` yields
+    them.
 
     Args:
-        invocation_input: An :class:`~roboto.domain.actions.InvocationInput` in its JSON form,
-            whose top-level values are selectors or lists of them.
-        transform: Called with each selector's query; its result replaces that query.
+        invocation_input: :py:class:`~roboto.domain.actions.InvocationInput` as a JSON-compatible dictionary, from
+            ``model_dump(mode="json")``, whose top-level values are selectors or lists of selectors.
+        transform: Called with each selector's query; its return value replaces the query.
 
     Returns:
-        A copy, shallow below the selectors it rewrites.
+        A new dictionary with new lists and selector dictionaries. Values nested inside a selector are shared with
+        ``invocation_input``.
     """
     mapped: dict[str, typing.Any] = {}
     for field, selectors in invocation_input.items():
@@ -177,7 +203,15 @@ def map_query_templates(
 def iter_query_templates(
     invocation_input: collections.abc.Mapping[str, typing.Any],
 ) -> collections.abc.Iterator[str]:
-    """Yield every RoboQL query in ``invocation_input``, in document order."""
+    """Yield the RoboQL query of each selector in an invocation input, in the order the selectors appear.
+
+    Roboto calls this when a trigger is saved, to check each query, and when the trigger invokes an action, to
+    substitute each query. Selectors without a query are skipped.
+
+    Args:
+        invocation_input: :py:class:`~roboto.domain.actions.InvocationInput` as a JSON-compatible dictionary, from
+            ``model_dump(mode="json")``, whose top-level values are selectors or lists of selectors.
+    """
     for selectors in invocation_input.values():
         for selector in selectors if isinstance(selectors, list) else [selectors]:
             if isinstance(selector, collections.abc.Mapping):

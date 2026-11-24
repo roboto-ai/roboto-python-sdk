@@ -8,30 +8,52 @@ from ...compat import StrEnum
 
 
 class OncePer(StrEnum):
-    """A grain an event offers for deduplication: the occurrence itself, or an entity the event names.
+    """Value of a trigger's ``once_per``: what it runs each target at most once for.
 
-    This is an event's vocabulary, not a trigger's. Each
-    :class:`~roboto.domain.platform_events.PlatformEventType` declares the grains it supports,
-    and how an occurrence projects onto each, in its
-    :class:`~roboto.domain.platform_events.PlatformEventDescriptor`; that projection is what
-    turns one occurrence into one idempotency token. A trigger only chooses among the grains
-    its events offer, and its choice must be legal for every event type it subscribes to.
+    Either each platform event, or a resource the platform event names. With ``once_per`` set to ``File``, for example,
+    a trigger on the :py:class:`~roboto.domain.platform_events.PlatformEventType` member ``FileMetadataUpdated`` runs
+    its targets for the first metadata change to a file and not for later changes to that file. The limit applies to
+    each event type separately, so a trigger on both ``FileUploaded`` and ``FileIngested`` with ``once_per`` set to
+    ``File`` can run twice per file, once for each event type.
+
+    Each event type supports ``Occurrence`` and some of the resources its payload names;
+    :py:attr:`~roboto.domain.platform_events.PlatformEventDescriptor.supported_once_per` lists which. Roboto rejects a
+    trigger whose ``once_per`` one of its subscribed event types does not support.
     """
 
     Occurrence = "occurrence"
-    """Fire on every occurrence; nothing collapses. Supported by every event type."""
+    """Each platform event, so the trigger runs for every one and once for a platform event delivered twice.
+
+    Every event type supports it.
+    """
 
     File = "file"
-    """Fire once per file."""
+    """Files (:py:class:`~roboto.domain.files.File`) the platform event names.
+
+    Supported by the :py:class:`~roboto.domain.platform_events.PlatformEventType` members ``FileUploaded``,
+    ``FileIngested`` and ``FileMetadataUpdated``.
+    """
 
     Dataset = "dataset"
-    """Fire once per dataset."""
+    """Datasets (:py:class:`~roboto.domain.datasets.Dataset`) the platform event names.
+
+    The dataset the platform event is about, or the dataset of the file it is about. Supported by every event type
+    about a file or a dataset except :py:attr:`~roboto.domain.platform_events.PlatformEventType.DatasetTagAdded`.
+    """
 
     Invocation = "invocation"
-    """Fire once per action invocation."""
+    """Action invocations (:py:class:`~roboto.domain.actions.Invocation`) the platform event names.
+
+    Supported by :py:attr:`~roboto.domain.platform_events.PlatformEventType.InvocationCompleted` and
+    :py:attr:`~roboto.domain.platform_events.PlatformEventType.InvocationFailed`.
+    """
 
     Event = "event"
-    """Fire once per event, the annotation marking a span of time on your data."""
+    """Events (:py:class:`~roboto.domain.events.Event`), annotations over a span of time, that the platform event names.
+
+    Supported by :py:attr:`~roboto.domain.platform_events.PlatformEventType.EventCreated` and
+    :py:attr:`~roboto.domain.platform_events.PlatformEventType.SessionEventCreated`.
+    """
 
 
 __all__ = ["OncePer"]

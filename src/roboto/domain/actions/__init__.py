@@ -4,39 +4,12 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Actions domain module for the Roboto SDK.
+"""Actions: reusable functions to process, transform or analyze data in Roboto.
 
-This module provides the core domain entities and operations for working with Actions,
-Invocations, and Triggers in the Roboto platform. Actions are reusable functions that
-process, transform, or analyze data. Invocations represent executions of actions, and
-Triggers automatically invoke actions when specific events or conditions occur.
-
-The main classes in this module are:
-
-- :py:class:`~roboto.domain.actions.Action`: A reusable function to process data
-- :py:class:`~roboto.domain.actions.Invocation`: An execution instance of an action
-- :py:class:`~roboto.domain.actions.Trigger` and
-  :py:class:`~roboto.domain.actions.ScheduledTrigger`: the legacy trigger model, deprecated.
-  Triggers now live in :mod:`roboto.domain.triggers`; the classes here remain only so
-  existing code keeps working, and read only the triggers the old model can express.
-
-Examples:
-    Basic action invocation:
-
-    >>> from roboto.domain.actions import Action, InvocationSource
-    >>> action = Action.from_name("my_action", owner_org_id="my-org")
-    >>> invocation = action.invoke(invocation_source=InvocationSource.Manual, parameter_values={"param1": "value1"})
-    >>> invocation.wait_for_terminal_status()
-
-    Creating a trigger:
-
-    >>> from roboto.domain.actions import Trigger, TriggerForEachPrimitive
-    >>> trigger = Trigger.create(
-    ...     name="auto_process",
-    ...     action_name="my_action",
-    ...     required_inputs=["**/*.bag"],
-    ...     for_each=TriggerForEachPrimitive.Dataset,
-    ... )
+Use :py:class:`~roboto.domain.actions.Action` to create, find, and invoke actions,
+:py:class:`~roboto.domain.actions.Invocation` to follow one run of an action, and
+:py:class:`~roboto.domain.triggers.Trigger`, which replaces the deprecated :py:class:`~roboto.domain.actions.Trigger`
+and :py:class:`~roboto.domain.actions.ScheduledTrigger`, to invoke actions on platform events or on a schedule.
 """
 
 from .action import Action

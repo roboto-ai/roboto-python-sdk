@@ -11,114 +11,199 @@ import pydantic
 
 from ...compat import StrEnum
 
-# Maximum length of the per-version `description` field. The description appears
-# inside the LoadSkillTool's tool description, which the model reads on every
-# turn — keeping it tight matters.
 MAX_SKILL_DESCRIPTION_LENGTH = 500
+"""Maximum length of a skill description, in characters.
+
+Roboto's AI reads the description of every skill available to it on each turn of a conversation, so descriptions
+are kept short.
+"""
 
 
 class SkillAccessibility(StrEnum):
-    """Controls who can see and edit a skill."""
+    """Accessibility of a skill: who can see, invoke, and edit it.
+
+    Only a skill's author can delete it or change its accessibility, whatever its accessibility.
+    """
 
     Private = "private"
-    """Only the author (``created_by``) can see, edit, or invoke the skill."""
+    """Only the skill's author can see, invoke, or edit it."""
 
     Org = "org"
-    """All members of the owning org can see and invoke the skill. Only the author can edit."""
+    """Every member of the skill's organization can see and invoke it, and only its author can edit it."""
 
     OrgEditable = "org-editable"
-    """All members of the owning org can see and invoke the skill, and any member who has
-    subscribed to it can also edit its versions, name, and tags. Changing the skill's
-    accessibility and deleting the whole skill remain author-only."""
+    """Every member of the skill's organization can see and invoke it, and subscribed members can also edit it.
+
+    Members subscribed to the skill can edit its versions, name, and tags.
+    """
+
+    Roboto = "roboto"
+    """A skill that Roboto writes and ships.
+
+    Every member of an organization that Roboto has released the skill to can see and invoke it. Nobody can edit it,
+    delete it, subscribe to it, or pin a version of it for the AI: those calls raise ``RobotoUnauthorizedException``,
+    and the AI needs no subscription to load the skill. No request can give a skill this accessibility.
+
+    The Roboto API never returns such a skill's instructions: the ``body`` of its version is empty, because the
+    instructions are written for the AI and are not published. Its name, its description and its list of resources
+    are returned.
+    """
 
 
 class SkillRecord(pydantic.BaseModel):
-    """Top-level skill identity, ownership, and visibility.
+    """Data record of a skill, as the Roboto API returns it.
 
-    A skill on its own carries no procedure content — see :class:`SkillVersionRecord`.
+    A skill is a stored, versioned procedure, written in Markdown, that Roboto's AI can apply during a conversation.
+    This record holds the skill's identity, ownership, and accessibility; the procedure itself is in its versions
+    (``SkillVersionRecord``). :py:class:`~roboto.domain.skills.Skill` wraps this record with methods that act on the
+    skill, and exposes it as :py:attr:`~roboto.domain.skills.Skill.record`.
     """
 
     skill_id: str
+    """Unique ID of the skill, beginning with ``sk_``."""
+
     org_id: str
+    """ID of the organization that owns the skill."""
+
     accessibility: SkillAccessibility
+    """Who can see, invoke, and edit the skill."""
+
     name: str
+    """Human-readable name of the skill.
+
+    The name of a skill with ``SkillAccessibility`` ``Org`` or ``OrgEditable`` accessibility is unique among those
+    skills in its organization. The name of a ``Private`` skill is unique among its author's private skills in the
+    organization, so it can match the name of a skill shared with the organization.
+    """
+
     tags: list[str] = pydantic.Field(default_factory=list)
-    """Free-form labels for categorization (e.g. ``"qa-review"``, ``"experiments"``).
-    Skill-level metadata, not version-scoped — they describe what the skill is for,
-    not how a specific version implements it. Edited via the changeset fields on
-    :class:`UpdateSkillMetadataRequest` (``put_tags`` / ``remove_tags``)."""
+    """Tags on the skill, such as ``"qa-review"``.
+
+    Tags belong to the skill, not to one version. Change them with
+    :py:attr:`~roboto.domain.skills.UpdateSkillMetadataRequest.put_tags` and
+    :py:attr:`~roboto.domain.skills.UpdateSkillMetadataRequest.remove_tags`.
+    """
 
     created: datetime.datetime
+    """Time the skill was created."""
+
     created_by: str
+    """ID of the user who created the skill, its author."""
+
     modified: datetime.datetime
-    """Last edit timestamp. Skill mutations are author-only, so the editor is always
-    ``created_by`` — no separate ``modified_by`` field is stored."""
+    """Time the skill's name, accessibility, or tags were last modified.
+
+    Creating, editing, or deleting a version does not change it.
+    """
+
+
+class SkillResourceSummary(pydantic.BaseModel):
+    """One resource of a skill, without its text.
+
+    A resource is a part of a skill, such as one chapter of a guide, that Roboto's AI loads separately from the
+    skill's ``body`` and from the skill's other resources. Its text is written for the AI, and the Roboto API does not
+    return it.
+    """
+
+    slug: str
+    """The resource's name, unique within its skill."""
+
+    when_to_use: str
+    """One line, written for people, that says when Roboto's AI reads the resource."""
 
 
 class SkillVersionRecord(pydantic.BaseModel):
-    """A single, mutable version of a skill's content."""
+    """Data record of one version of a skill, as the Roboto API returns it.
+
+    A version holds the skill's procedure and the description Roboto's AI uses to decide when to apply it. A version
+    can be edited in place: every user who pinned it gets the edited procedure the next time the AI applies the skill.
+    """
 
     skill_id: str
+    """ID of the skill this version belongs to."""
+
     version: int
+    """Version number, unique within the skill.
+
+    The first version is ``1``, and each new version takes the number after the highest existing one.
+    """
+
     description: str = pydantic.Field(max_length=MAX_SKILL_DESCRIPTION_LENGTH)
-    """Short ``when to use'' text. Surfaces verbatim in the LoadSkillTool description."""
+    """Description of when to apply the skill.
+
+    It is at most 500 characters (``MAX_SKILL_DESCRIPTION_LENGTH``). Roboto's AI reads the description of the
+    version a user pinned to decide whether to apply the skill.
+    """
 
     body: str
-    """The procedure text the model executes when the skill is invoked."""
+    """Procedure Roboto's AI follows when it applies the skill."""
 
     relevant_topics: list[str] = pydantic.Field(default_factory=list)
-    """Topic names this version's procedure investigates (e.g. ``"/imu/data"``).
+    """Names of the topics this version's procedure investigates, such as ``"/imu/data"``.
 
-    Version-scoped content, not skill-level metadata — they track the ``body``,
-    so a new version may reference a different set. When the chat AI loads this
-    skill and is given a dataset scope, it resolves each name to a topic schema
-    and returns them alongside the body in the same ``load_skill`` tool result,
-    sparing a follow-up ``get_topic_schema`` turn. Names only; field-level
-    references live in the ``body`` text. Empty when the author listed none."""
+    The list is empty if the author named none. The names belong to the version, not the skill, so that a new
+    version's procedure can investigate different topics. When Roboto's AI applies the skill to a dataset, Roboto
+    returns the schema of each named topic in that dataset along with the ``body``.
+    """
+
+    resources: list[SkillResourceSummary] = pydantic.Field(default_factory=list)
+    """Resources this version carries, each without its text.
+
+    Only a skill that Roboto ships (:py:attr:`~roboto.domain.skills.SkillAccessibility.Roboto`) has any; for every
+    other skill the list is empty.
+    """
 
     created: datetime.datetime
+    """Time the version was created."""
+
     modified: datetime.datetime
+    """Time the version was last modified."""
 
 
 class SkillSubscriptionRecord(pydantic.BaseModel):
-    """Per-user state for a single skill.
+    """Data record of a subscription to a skill, as :py:meth:`~roboto.domain.skills.Skill.subscribe` returns it.
 
-    Created when a user subscribes to a skill (or authors one — authors are
-    auto-subscribed at create time). Carries the user's choice of which version,
-    if any, should be exposed to the AI auto-invoke registry. ``ai_version=None``
-    means the user is subscribed but has not enabled the skill for AI auto-invoke;
-    manual chip-invocation still works.
+    :py:meth:`~roboto.domain.skills.Skill.set_ai_version` also returns it. A subscription adds a skill to the user's
+    personal skills and records which version, if any, Roboto's AI may apply for that user without being asked.
+    Roboto subscribes a skill's author when the skill is created, with the first version pinned.
     """
 
     user_id: str
+    """ID of the subscribed user, which for a person is their email address."""
+
     skill_id: str
+    """ID of the skill the user subscribed to."""
+
     ai_version: Optional[int] = None
-    """If set, the AI's :class:`LoadSkillTool` registry surfaces this exact version of
-    the skill to this user. If ``None``, the skill is hidden from AI auto-invocation
-    for this user. Manual invocation works regardless."""
+    """Version of the skill Roboto's AI may apply for this user without being asked.
+
+    ``None`` means the AI applies the skill only when the user invokes it. Deleting the pinned version sets this to
+    ``None``.
+    """
 
     subscribed: datetime.datetime
-    """When the subscription was created."""
+    """Time the user subscribed to the skill."""
 
 
 class SkillSummary(pydantic.BaseModel):
-    """Compact projection of a skill plus its latest version (if any).
+    """Summary of a skill for the caller, as :py:meth:`~roboto.domain.skills.Skill.get_summary` returns it.
 
-    Also includes the caller's personal subscription state for the skill, when
-    one exists. ``subscription=None`` means the caller has neither authored nor
-    subscribed to the skill.
+    :py:meth:`~roboto.domain.skills.Skill.list_for_org` also yields it, one for each skill it lists. A summary holds
+    the skill, its latest version, and the caller's subscription to it.
     """
 
     skill: SkillRecord
+    """Record of the skill."""
+
     latest_version: Optional[SkillVersionRecord] = None
-    """The MAX(version) row for this skill. Always populated for summaries
-    returned from the public API: ``Skill.create()`` makes the skill row and
-    v1 atomically, and deleting the last version cascades to delete the
-    parent skill in the same transaction. The ``Optional`` is defense-in-
-    depth for repo-direct callers (test fixtures, manual SQL) and should not
-    be treated as a real branch by SDK consumers."""
+    """Record of the skill's version with the highest version number.
+
+    Roboto always sets it: a skill is created with its first version, and deleting a skill's last version deletes the
+    skill.
+    """
 
     subscription: Optional[SkillSubscriptionRecord] = None
-    """The caller's subscription row for this skill, if any. Populated by the
-    server based on the caller's identity; not used in INSERT or UPDATE
-    payloads."""
+    """Record of the caller's subscription to the skill, or ``None`` if the caller is not subscribed to it.
+
+    An author who unsubscribes from their own skill has no subscription.
+    """

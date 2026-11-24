@@ -17,179 +17,241 @@ from ...query import (
     SortDirection,
 )
 
-# Declared as a bare Final so its type narrows to Literal["view_v1"], letting it serve as the
-# default for ViewDefinition.scheme without widening that field to str.
 VIEW_SCHEME_V1: typing.Final = "view_v1"
-"""Identifier for the first version of the View definition schema."""
+"""Value of ``ViewDefinition.scheme`` for the first shape of a View's definition.
+
+That shape states the display's sort in three fields, ``sort_by``, ``sort_direction`` and ``unsorted``.
+``ViewDefinition`` reads a definition in it as ``VIEW_SCHEME_V2``, so no definition the SDK builds carries this value.
+"""
+
+# A bare Final infers Literal["view_v2"], so this can be the default of ViewDefinition.scheme, which only accepts
+# that literal.
+VIEW_SCHEME_V2: typing.Final = "view_v2"
+"""Value of ``ViewDefinition.scheme`` for the current shape of a View's definition.
+
+That shape states the display's sort in one field, ``ViewDisplay.sort``.
+"""
 
 VIEW_SCHEMA_VERSION_V1: typing.Final[int] = 1
-"""Value stored in the ``schema_version`` column for a :data:`VIEW_SCHEME_V1` definition."""
+"""Value of ``ViewRecord.schema_version`` for a ``"view_v1"`` definition.
+
+No SDK method reads it.
+"""
+
+VIEW_SCHEMA_VERSION_V2: typing.Final[int] = 2
+"""Value of ``ViewRecord.schema_version`` for a ``"view_v2"`` definition.
+
+No SDK method reads it.
+"""
 
 
 class ViewVisibility(StrEnum):
-    """Who a View is visible to: asked for when it is created, reported when it is read.
+    """Visibility of a View: who can see it, chosen when the View is created and reported when it is read.
 
-    Governs who can *see* a View, never who can change it. An ``organization`` View is
-    readable by the whole org and still editable only by its author, anyone granted
-    ``editor`` on it, and org admins.
+    Visibility decides only who can read a View. Whatever its visibility, a View can be edited only by its author,
+    users and groups granted ``editor`` on it, and admins and owners of its organization.
     """
 
     Private = "private"
-    """Visible to its author, anyone later granted access directly, and the org's admins."""
+    """Visible to the View's author, users and groups granted access to it, and admins and owners of its
+    organization."""
 
     Organization = "organization"
-    """Visible to every member of the owning org."""
+    """Visible to every member of the organization that owns the View."""
+
+
+class DefaultSort(pydantic.BaseModel):
+    """Sort that shows a View's results in the order its target's list shows when no sort is chosen.
+
+    Constructing one raises ``pydantic.ValidationError`` for a ``kind`` other than ``"default"``.
+
+    Carried in ``ViewDisplay.sort``.
+    """
+
+    kind: typing.Literal["default"] = "default"
+    """Kind of sort, always ``"default"``."""
+
+
+class NoSort(pydantic.BaseModel):
+    """Sort that shows a View's results in no particular order.
+
+    A View saved from a table whose sort was cleared stores this, so the table reopens unsorted; ``DefaultSort``
+    would reopen it in the target's default order.
+
+    Constructing one raises ``pydantic.ValidationError`` for a ``kind`` other than ``"unsorted"``.
+
+    Carried in ``ViewDisplay.sort``.
+    """
+
+    kind: typing.Literal["unsorted"] = "unsorted"
+    """Kind of sort, always ``"unsorted"``."""
+
+
+class ColumnSort(pydantic.BaseModel):
+    """Sort that orders a View's results by one field.
+
+    Constructing one raises ``pydantic.ValidationError`` for a ``kind`` other than ``"column"``.
+
+    Carried in ``ViewDisplay.sort``.
+    """
+
+    kind: typing.Literal["column"] = "column"
+    """Kind of sort, always ``"column"``."""
+
+    by: str
+    """Field to sort by, such as ``"created"``."""
+
+    direction: SortDirection = SortDirection.Ascending
+    """Direction to sort in, :py:attr:`~roboto.query.SortDirection.Ascending` by default."""
+
+
+ViewSort = typing.Annotated[typing.Union[DefaultSort, NoSort, ColumnSort], pydantic.Field(discriminator="kind")]
+"""Sort of any kind: one of the sort models, told apart by ``kind``.
+
+The models are ``DefaultSort``, ``NoSort`` and ``ColumnSort``.
+"""
 
 
 class ViewDisplay(pydantic.BaseModel):
-    """How a View presents its results: which columns, in what order, sorted how, how many rows.
+    """How a View shows its results: which columns, in what order, sorted how, and how many rows per page.
 
-    Presentation state only. Nothing here changes which records match.
+    None of these settings changes which records match. Constructing a display raises ``pydantic.ValidationError``
+    for a ``page_size`` below 1.
+
+    A display may also state its sort as a ``"view_v1"`` definition does, in ``sort_by``, ``sort_direction`` and
+    ``unsorted``, and is read into ``sort``: ``unsorted`` set to ``True`` gives ``NoSort``, otherwise ``sort_by``
+    gives ``ColumnSort``, ascending unless ``sort_direction`` says otherwise, and neither gives ``DefaultSort``. A
+    ``sort`` given beside those fields wins.
+
+    Carried in ``ViewDefinition.display``.
     """
 
     visible_columns: list[str] = pydantic.Field(default_factory=list)
     """Columns to show, in display order.
 
-    Visibility and ordering are carried by this one list rather than a visibility map plus a
-    separate order: two fields could disagree about a column, and there is no sensible way to
-    resolve that. A column absent from the list is hidden. An empty list means the client falls
-    back to its own defaults, which is what a View saved before a new column shipped will do.
+    A column not in the list is hidden. An empty list leaves the choice of columns to the client's defaults.
     """
 
-    sort_by: typing.Optional[str] = None
-    """Field to sort results by, or ``None`` to leave the target's default sort in place."""
-
-    sort_direction: typing.Optional[SortDirection] = None
-    """Direction to sort in. Only meaningful alongside :attr:`sort_by`."""
-
-    # TODO(eng-2960): fold sort_by, sort_direction and unsorted into one field that states sorted, unsorted or the
-    # target's default, so the three cannot disagree.
-    unsorted: bool = False
-    """Whether the results are shown with no sort at all.
-
-    A ``None`` :attr:`sort_by` cannot say this: it means the target's default sort. ``True`` is how a View
-    saved from an unsorted table keeps its results unsorted, and cannot be combined with :attr:`sort_by`.
-    """
+    sort: ViewSort = pydantic.Field(default_factory=DefaultSort)
+    """Order to show results in, ``DefaultSort`` unless set."""
 
     page_size: typing.Optional[int] = pydantic.Field(default=None, gt=0)
-    """Rows per page, or ``None`` to accept whatever the client's table would pick on its own."""
+    """Rows per page, greater than zero, or ``None`` to leave the page size to the client."""
 
-    @pydantic.model_validator(mode="after")
-    def __unsorted_names_no_column(self) -> "ViewDisplay":
-        """Reject a display that both names a column to sort by and asks for no sort."""
-        if self.unsorted and self.sort_by is not None:
-            raise ValueError("unsorted cannot be combined with sort_by")
-        return self
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def __read_a_sort_stated_as_three_fields(cls, data: typing.Any) -> typing.Any:
+        """Fold ``sort_by``, ``sort_direction`` and ``unsorted``, the sort of a ``view_v1`` display, into ``sort``.
+
+        Roboto does not rewrite Views saved as ``view_v1``, and SDK versions built for that shape still send it.
+        """
+        if not isinstance(data, dict):
+            return data
+        older = {key: data[key] for key in ("sort_by", "sort_direction", "unsorted") if key in data}
+        if not older:
+            return data
+        data = {key: value for key, value in data.items() if key not in older}
+        if "sort" in data:
+            return data
+        if older.get("unsorted"):
+            data["sort"] = {"kind": "unsorted"}
+        elif older.get("sort_by"):
+            data["sort"] = {
+                "kind": "column",
+                "by": older["sort_by"],
+                "direction": older.get("sort_direction") or SortDirection.Ascending,
+            }
+        else:
+            data["sort"] = {"kind": "default"}
+        return data
 
 
 class ViewDefinition(pydantic.BaseModel):
-    """The saved contents of a View: what its author searched for, and how they were shown it.
+    """Saved contents of a View: the search its author made, and how its results are shown.
 
-    Stored as JSON, with no schema constraint behind it: this model is the only thing
-    enforcing the shape.
+    A definition records what the author entered, RoboQL text or filter controls, and the client builds a query from
+    it each time the View loads. It does not store a :py:class:`~roboto.query.QuerySpecification`, because a query
+    specification cannot express a relative date such as "the last 7 days": converting the filter fixes its dates,
+    and the View would show the week it was saved in from then on.
 
-    **A View records intent, not a query.** It holds what the author expressed — filter controls
-    or RoboQL text — and the client rebuilds an executable query from that on load. It does not
-    hold a ready-made :class:`~roboto.query.QuerySpecification`, because one cannot be stored
-    faithfully: ``Comparator`` has no way to say "the last 7 days", so translating a relative
-    date filter resolves it to fixed instants. A stored query would show the week the View was
-    saved forever after, presented as though it were live.
+    Filter controls are recorded as :py:class:`~roboto.query.SavedFilters`, so any caller can build a View's filters.
+    The Roboto web app converts them to a query when the View loads; RoboQL text runs as written.
 
-    Intent is nonetheless recorded in a typed form — :class:`~roboto.query.SavedFilters` — so
-    that anything able to call the API can create a View, not only a client that already knows
-    how a filter control is shaped. A filter-backed View still has to be translated into a query
-    before it runs, and the Roboto web app is what does that; a RoboQL View needs no
-    translation, since its text runs anywhere.
+    At most one of ``roboql`` and ``filters`` is set, and a definition with neither filters nothing. Constructing a
+    definition raises ``pydantic.ValidationError`` when it sets both, or when its ``scheme`` is neither ``"view_v1"``
+    nor ``"view_v2"``. The View's target is not part of its definition; ``ViewRecord.target`` holds it.
 
-    A View's search target is not part of this definition. The View itself carries it, and
-    repeating it here would let the two disagree.
+    Carried in ``ViewRecord.definition``, :py:attr:`~roboto.domain.views.CreateViewRequest.definition` and
+    :py:attr:`~roboto.domain.views.UpdateViewRequest.definition`.
     """
 
-    scheme: typing.Literal["view_v1"] = VIEW_SCHEME_V1
-    """Version tag for this definition's shape.
+    scheme: typing.Literal["view_v2"] = VIEW_SCHEME_V2
+    """Version of the definition's shape, always ``"view_v2"``.
 
-    Readers dispatch on this field, so a definition saved in a later shape is recognized as
-    such instead of being misread as this one.
+    A definition saved as ``"view_v1"`` is read as this shape, since the two differ only in how the display states its
+    sort. A definition saved in a later shape fails validation instead of being read as this one.
     """
 
     roboql: typing.Optional[str] = None
-    """The RoboQL text the author wrote, when the View came from RoboQL rather than filter controls.
+    """RoboQL text the author wrote, or ``None`` when the View uses filter controls or filters nothing.
 
-    RoboQL has no relative-date syntax, so this text does not go stale — it means the same thing
-    whenever it is run, and a backend can execute it directly.
-
-    ``None`` for a View built from structured filters, and also for one that filters nothing at
-    all — see :attr:`filters`.
+    RoboQL has no relative-date syntax, so the text means the same thing whenever it runs. Only Views on the targets
+    in ``ROBOQL_VIEW_TARGETS`` can use RoboQL.
     """
 
     filters: typing.Optional[SavedFilters] = None
-    """The filter controls the author built.
+    """Filter controls the author set, or ``None`` when the View uses RoboQL or filters nothing.
 
-    Serves the same purpose as ``roboql`` for Views built from filter controls rather than typed
-    queries: it records what the author expressed, so a client can rebuild the query on load
-    rather than replaying a translation that has since gone stale.
-
-    This and ``roboql`` are alternatives, not a pair: at most one is ever set. Both are ``None``
-    for a View that filters nothing, which is a legitimate thing to save — it captures a column
-    layout and a sort over the unfiltered list. So ``None`` here does not imply the View is a
-    RoboQL one.
-
-    Typed rather than an opaque blob, so that a View is something any caller can construct. An
-    untyped shape would leave an SDK user, the CLI, or an agent with nothing to build against
-    and no way to learn they got it wrong — the row would store, and only fail later when a
-    client tried to render it. That would make Views a web-UI feature rather than a platform one.
-
-    The cost is a definition that must agree with the filter UI's own. That agreement was always
-    required; it was simply unchecked before, and is now enforced where the data enters.
+    A View with neither ``roboql`` nor ``filters`` saves a column layout and sort over the unfiltered list, so
+    ``None`` here does not mean the View uses RoboQL.
     """
 
     display: ViewDisplay = pydantic.Field(default_factory=ViewDisplay)
-    """Presentation state to restore when the View is loaded: columns, sort, and page size."""
+    """Columns, sort, and page size to restore when the View loads."""
 
     @pydantic.model_validator(mode="after")
-    def _one_form_of_intent_at_most(self) -> "ViewDefinition":
-        """Reject a definition carrying both a RoboQL string and structured filters.
+    def __one_form_of_intent_at_most(self) -> "ViewDefinition":
+        """Reject a definition that sets both ``roboql`` and ``filters``.
 
-        The two record the same thing in different forms, so a View holding both is ambiguous:
-        a client has to choose one silently, and two clients may choose differently. Enforced
-        here rather than left to convention because the column has no database constraint, and
-        an unvalidated shape stores happily and misbehaves whenever the View is next read —
-        which is the failure this model exists to prevent.
-
-        Carrying neither is fine, and means the View filters nothing.
+        Each records the whole search, so a client given both would have to pick one, and two clients could pick
+        differently.
         """
         if self.roboql is not None and self.filters is not None:
             raise ValueError("a View records either RoboQL text or structured filters, not both")
         return self
 
+    @pydantic.model_validator(mode="before")
+    @classmethod
+    def __read_view_v1_as_this_shape(cls, data: typing.Any) -> typing.Any:
+        if isinstance(data, dict) and data.get("scheme") == VIEW_SCHEME_V1:
+            return {**data, "scheme": VIEW_SCHEME_V2}
+        return data
 
+
+# Keep in step with the Roboto web app: a target belongs here exactly when its list page passes a roboql config to its
+# filter bar.
 ROBOQL_VIEW_TARGETS: typing.Final[frozenset[QueryTarget]] = frozenset(
     {QueryTarget.Datasets, QueryTarget.Files, QueryTarget.Events}
 )
-"""Targets whose list page can show a View written in RoboQL.
+"""Targets whose Views can be written in RoboQL: datasets, files, and events.
 
-The other View targets (sessions, devices, collections) have filter controls only, so a RoboQL
-View saved against one of them stores without complaint and then fails for whoever opens it.
-The web app's counterpart is the ``roboql`` config each of these three lists passes to its
-filter bar; a list that gains RoboQL mode is added here at the same time.
+The list pages for the other targets, such as sessions, devices, and collections, have filter controls only, so
+Roboto rejects a RoboQL View on them.
 """
 
 
 def ensure_definition_renders_for(target: QueryTarget, definition: ViewDefinition) -> None:
-    """Refuse a definition that no client could show for the target it is saved against.
+    """Reject a definition written in RoboQL for a target whose list page has no RoboQL mode.
 
-    Applied wherever a definition enters storage, on create and on update, for every caller.
-    The check is per target rather than global because RoboQL is a legitimate way to write a
-    datasets, files, or events View; it is only unrenderable on the targets outside
-    :data:`ROBOQL_VIEW_TARGETS`. Filter controls and unfiltered definitions render everywhere.
+    Roboto calls this when a View is created and when its definition is updated, so calling it first only reports
+    the rejection sooner. A definition that uses filter controls, or filters nothing, passes for every target.
 
     Args:
         target: Resource type the View searches.
-        definition: What the View would store.
+        definition: Definition the View would store.
 
     Raises:
-        RobotoInvalidRequestException: ``definition`` carries RoboQL text and ``target`` has no
-            RoboQL-capable list.
+        RobotoInvalidRequestException: ``definition`` sets ``roboql`` and ``target`` is not in ``ROBOQL_VIEW_TARGETS``.
     """
     if definition.roboql is None or target in ROBOQL_VIEW_TARGETS:
         return
@@ -201,54 +263,61 @@ def ensure_definition_renders_for(target: QueryTarget, definition: ViewDefinitio
 
 
 class ViewRecord(pydantic.BaseModel):
-    """A wire-transmissible representation of a View.
+    """Data record of a View, as ``GET /v1/views/id/{view_id}`` returns it.
 
-    A View is a named, org-scoped, shareable search over one resource type. Who may see or edit
-    it is held in the authorization service rather than in the table this record is read from.
-    :attr:`visibility` is the one part of that answer carried here, because a client cannot
-    otherwise separate a caller's own Views from their team's without a request per row; every
-    finer-grained grant stays behind the access endpoint.
+    ``POST /v1/views/create``, ``PUT /v1/views/id/{view_id}``, ``POST /v1/views/id/{view_id}/duplicate`` and
+    ``GET /v1/views/`` return it too.
+
+    A View is a named, shareable search over one resource type, saved with the columns, sort, and page size its author
+    chose, so the author or a teammate can return to it without rebuilding it. The record carries one part of who can
+    access the View, its ``visibility``, so a client can tell a caller's own Views from those shared with the
+    organization without a request per View. Individual grants are listed by ``GET /v1/views/id/{view_id}/access``.
     """
 
     view_id: str
-    """Unique identifier for the View, and the token that addresses it in a shareable URL."""
+    """Unique ID of the View, beginning with ``vw_``. Shareable URLs address a View by this ID."""
 
     name: str
-    """Display name. Not unique — Views are addressed by ``view_id``, never by name."""
+    """Human-readable name of the View. Names are not unique."""
 
     org_id: str
-    """Organization that owns the View."""
+    """ID of the organization that owns the View."""
 
     target: QueryTarget
-    """The resource type this View searches, e.g. datasets or files.
+    """Resource type the View searches, such as datasets or files.
 
-    Fixed at creation: a View's conditions are written against one target's fields.
+    Fixed when the View is created, because the View's filters are written against that target's fields.
     """
 
     definition: ViewDefinition
-    """The saved query and presentation state."""
+    """Saved search and presentation settings."""
 
     schema_version: int
-    """Version of ``definition``'s shape, mirroring its ``scheme`` so rows can be selected by
-    version in SQL without parsing the JSON."""
+    """Version of the shape ``definition`` was saved in.
+
+    One of ``VIEW_SCHEMA_VERSION_V1`` and ``VIEW_SCHEMA_VERSION_V2``. ``definition`` is always read in the current
+    shape, so a View saved as ``"view_v1"`` reports ``1`` here beside a ``"view_v2"`` definition. Updating the View's
+    definition saves it in the current shape and sets this to ``2``.
+    """
 
     created: datetime.datetime
-    """When the View was first saved."""
+    """Time the View was created."""
 
     created_by: str
-    """User who created the View. The author, who alone may delete it or change who can see it."""
+    """ID of the user who created the View, its author.
+
+    Only the author and owners of the View's organization can delete it or change who can see it.
+    """
 
     modified: datetime.datetime
-    """When the View's name or definition last changed. Shown in the picker alongside
-    ``modified_by``, so a shared View can be judged on how current it is."""
+    """Time the View's name or definition was last modified."""
 
     modified_by: str
-    """User who last changed the View. Surfaced in the picker so a shared View can be judged."""
+    """ID of the user who last modified the View's name or definition."""
 
     visibility: typing.Optional[ViewVisibility] = None
-    """Who can see this View, or ``None`` when it has not been resolved.
+    """Who can see the View, or ``None`` when it was not looked up.
 
-    Every API response carrying a View fills this in. ``None`` means only that the question
-    was not asked — it does not mean private, and a client treating it as private would show
-    a shared View under a personal heading.
+    Roboto sets it on the View it returns from fetching, listing, creating, or duplicating Views, but not from an
+    update. ``None`` does not mean ``ViewVisibility.Private``.
     """

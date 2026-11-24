@@ -17,6 +17,12 @@ from .shared_helpdoc import DATASET_ID_HELP
 
 
 def upload_files(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Upload the ``--path`` file or directory to the ``--dataset-id`` dataset, and print a progress bar.
+
+    A single file goes to the dataset's root under its own name. A directory uploads every file under it at any depth,
+    each keeping its path relative to the directory.
+    ``--exclude`` applies only to a directory, and passing it with a single file exits with a usage error.
+    """
     path: pathlib.Path = args.path
     if args.exclude is not None and not path.is_dir():
         parser.error("Exclude filters are only supported for directory uploads, not single files.")

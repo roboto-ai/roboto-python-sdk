@@ -12,61 +12,92 @@ from ..exceptions import RobotoConditionException
 
 
 class NotificationType(StrEnum):
-    """Notification type enum"""
+    """Kind of event a notification reports."""
 
     CommentMention = "comment_mention"
-    # CommentOnThread = "comment_on_thread"
-    # CommentOnAuthoredAction = "comment_on_authored_action"
-    # etc...
+    """A comment mentions the user."""
 
 
 class NotificationChannel(StrEnum):
-    """Notification channel enum"""
+    """Channel Roboto sends a notification through."""
 
     Email = "email"
+    """Email to the user's email address."""
+
     WebUi = "web_ui"
-    # Slack = "slack"
-    # SMS = "sms"
-    # ApplePush = "apple_push"
-    # AndroidPush = "android_push"
-    # etc...
+    """Notifications menu in the Roboto web app."""
 
 
 class ReadStatus(StrEnum):
-    """Notification read status enum"""
+    """Read status of a notification: whether its user has read it."""
 
     Unread = "unread"
     Read = "read"
 
 
-# https://docs.aws.amazon.com/ses/latest/dg/event-publishing-retrieving-sns-examples.html#event-publishing-retrieving-sns-subscription
 class EmailLifecycleStatus(StrEnum):
-    """Notification email lifecycle status enum"""
+    """Delivery status of a notification's email: the latest event Roboto has recorded for the email."""
 
-    Initiated = "Initiated"  # for Roboto use only, this is not an SES status
+    Initiated = "Initiated"
+    """Roboto created the notification and has recorded no event for its email yet."""
+
     Send = "Send"
-    Failed = "Failed"  # for Roboto use only, this is not an SES status
+    """The email was accepted for sending."""
+
+    Failed = "Failed"
+    """Roboto could not send the email."""
+
     Reject = "Reject"
+    """The email was accepted for sending but not delivered, because it contained a virus."""
+
     Bounce = "Bounce"
+    """The recipient's mail server rejected the email."""
+
     Complaint = "Complaint"
+    """The email was delivered, and the recipient marked it as spam."""
+
     Delivery = "Delivery"
+    """The recipient's mail server accepted the email."""
+
     Open = "Open"
+    """The recipient opened the email."""
+
     Click = "Click"
+    """The recipient clicked a link in the email."""
+
     RenderingFailure = "RenderingFailure"
+    """The email was not sent because its template could not be rendered."""
+
     DeliveryDelay = "DeliveryDelay"
+    """A temporary problem delayed delivery of the email."""
+
     Subscription = "Subscription"
+    """The email was delivered, and the recipient changed their subscription preferences from it."""
 
 
 class WebUiLifecycleStatus(StrEnum):
-    """Notification web ui status enum"""
+    """Status of a notification in the Roboto web app."""
 
     Acknowledged = "Acknowledged"
+    """The user opened the notifications menu while the notification was in it.
+
+    An acknowledged notification no longer counts toward the number on the notifications icon.
+    """
 
 
 class LifecycleStatusValidator:
+    """Mixin for a pydantic model with a ``lifecycle_status`` field, which checks each status against its channel.
+
+    :py:class:`~roboto.notifications.NotificationRecord` and
+    :py:class:`~roboto.notifications.UpdateNotificationRequest` use it. Building such a model raises
+    ``RobotoConditionException`` when an email status is not an ``EmailLifecycleStatus`` value, or a status in the
+    Roboto web app is not a ``WebUiLifecycleStatus`` value.
+    """
+
     @pydantic.field_validator("lifecycle_status", mode="before")
     @classmethod
     def check_lifecycle_status(cls, value):
+        """Reject a ``lifecycle_status`` that holds a status not valid for its channel."""
         for channel, status in value.items():
             if channel == NotificationChannel.Email:
                 try:

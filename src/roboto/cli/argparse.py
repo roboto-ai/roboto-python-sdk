@@ -10,7 +10,15 @@ import typing
 
 
 class DeprecationAction(argparse.Action):
-    """An action that triggers a deprecation error."""
+    """Argparse action that rejects a deprecated option: passing the option exits with an error.
+
+    Pass it as ``action=`` to ``argparse.ArgumentParser.add_argument``. The option takes no value. When the command
+    line includes it, the parser prints the command's usage and the message to standard error and exits with status 2.
+
+    Args:
+        deprecation_msg: Message to exit with. ``None`` or an empty string uses ``Deprecated option: <flag>``.
+        **kwargs: Further arguments passed to ``argparse.Action``.
+    """
 
     __deprecation_msg: typing.Optional[str] = None
 
@@ -31,6 +39,11 @@ class DeprecationAction(argparse.Action):
 
 
 class SortingHelpFormatter(argparse.RawTextHelpFormatter):
+    """Help formatter that lists options in order of their flags and prints help text with its line breaks kept.
+
+    Positional arguments, which have no flags, keep the order they were added in.
+    """
+
     def add_arguments(self, actions):
         actions = sorted(actions, key=attrgetter("option_strings"))
         super(SortingHelpFormatter, self).add_arguments(actions)

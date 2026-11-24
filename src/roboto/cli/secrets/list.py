@@ -14,6 +14,11 @@ from roboto.domain.secrets import Secret
 
 
 def list_logic(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print each secret in the ``--org`` organization as JSON, one per line, without its value.
+
+    Without ``--org``, lists the caller's only organization. Exits with status 2, after ``parser.error`` prints the
+    usage text and the reason to stderr, when the caller is in no organization or in more than one.
+    """
     org_id = args.org
     if org_id is None:
         orgs = list(Org.for_self(context.roboto_client))

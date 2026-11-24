@@ -14,6 +14,13 @@ from ..context import CLIContext
 
 
 def status(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Print the statuses an invocation has entered, as JSON.
+
+    Without ``--tail``, print the status history once, as one JSON array. With ``--tail``, print each status record
+    as its own JSON object, checking for new ones every second until the invocation reaches a status that ends it or
+    the user presses Ctrl-C. A status already printed is not printed again, so the statuses a retried invocation
+    enters a second time do not appear.
+    """
     if not args.tail:
         invocation = actions.Invocation.from_id(
             args.invocation_id,
@@ -48,7 +55,8 @@ def status(args: argparse.Namespace, context: CLIContext, parser: argparse.Argum
             time.sleep(1)
             invocation.refresh()
     except KeyboardInterrupt:
-        pass  # Swallow
+        # Ctrl-C stops following the invocation and exits without a traceback; the invocation keeps running.
+        pass
 
 
 def status_parser(parser: argparse.ArgumentParser):

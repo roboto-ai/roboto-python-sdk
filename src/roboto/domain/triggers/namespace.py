@@ -16,29 +16,42 @@ from ..platform_events import (
 from .record import TriggerRecord
 from .sources import Schedule
 
-# The ``trigger`` root is served only by a namespace bound to a trigger (see
-# EventNamespace.bound_to); an unbound namespace resolves it to nothing, the same as
-# any root the event does not expose. Both reserved roots are declared beside the
-# catalog so no event type can claim them.
-
 CHANGED_ROOT = "changed"
-"""Delta root: the metadata fields an update event put, keyed by field name."""
+"""Root of the trigger condition and template fields that read the metadata fields a metadata update set.
+
+The fields are keyed by field name, with their new values.
+"""
 
 TAG_ROOT = "tag"
-"""Delta root: the tags an event added and removed."""
+"""Root of the trigger condition and template fields that read the tags a platform event added and removed.
+
+The tags are given as ``{"added": [...], "removed": [...]}``. Both lists are empty for an event that changed no tags.
+"""
 
 SCHEDULE_ROOT = "schedule"
-"""Occurrence root for schedule firings: the scheduled minute, plus the bound trigger's
-cron expression. Served from the occurrence itself and never touches the source."""
+"""Root of the trigger condition and template fields that read a schedule firing.
+
+It holds ``scheduled_for``, the minute the firing is for, and ``cron``, the cron expression of the schedule trigger
+being evaluated.
+"""
 
 
 def session_event_root(record: experimental_events.EventRecord) -> dict[str, typing.Any]:
-    """The ``event`` root of a session event's firing: its record, plus the names and IDs of the topics it is about
-    as ``topic_names`` and ``topic_ids``.
+    """Build the ``event`` root a trigger reads when an event is created on a session.
 
-    A condition walks mappings only, so it cannot reach into the record's ``topics`` list of objects; these flat
-    lists let ``event.topic_names CONTAINS "/imu"`` match an event about ``/imu``. Both are empty for an event about
-    all of its session's data.
+    Roboto calls this when a trigger's condition or target templates read the ``event`` root of a
+    :py:attr:`~roboto.domain.platform_events.PlatformEventType.SessionEventCreated` platform event.
+    :py:func:`~roboto.domain.triggers.platform_event_sample` builds that platform event's sample through it, so most
+    code never calls it. The root holds the event's record, plus the names and IDs of the topics the event is about as
+    ``topic_names`` and ``topic_ids``. A condition walks only nested mappings, so it cannot read into the record's
+    ``topics`` list; the two flat lists let ``event.topic_names CONTAINS "/imu"`` match an event about ``/imu``. Both
+    are empty for an event about all of its session's data.
+
+    Args:
+        record: Record of the event, a ``roboto.experimental.events.EventRecord``.
+
+    Returns:
+        The root, as a dictionary of JSON-compatible values.
     """
     return {
         **record.model_dump(mode="json"),
@@ -49,53 +62,61 @@ def session_event_root(record: experimental_events.EventRecord) -> dict[str, typ
 
 @typing.runtime_checkable
 class NamespaceSource(typing.Protocol):
-    """Lazily hydrates entity-backed namespace roots for an event."""
+    """Loader of the entity records a platform event's roots name, such as ``dataset`` and ``file``.
+
+    ``EventNamespace`` calls it the first time a condition or template reads such a root. Roboto supplies one that
+    reads Roboto's records, and :py:class:`~roboto.domain.triggers.SampleNamespaceSource` serves sample records.
+    """
 
     def record_for_root(self, root: str, event: PlatformEvent) -> typing.Optional[typing.Mapping[str, typing.Any]]:
-        """Load the entity for namespace ``root`` as a JSON-able mapping.
+        """Load the record of the entity ``root`` names for ``event``, as a mapping of JSON-compatible values.
 
         Args:
-            root: The namespace root to hydrate (``"dataset"``, ``"file"``,
-                ``"invocation"``, ``"event"``, ...). Never a delta or reserved root:
-                the namespace serves ``envelope``, ``trigger``, ``schedule``,
-                ``changed`` and ``tag`` itself.
-            event: The event whose subject identifies the entity to load.
+            root: Root to load, such as ``"dataset"``, ``"file"``, ``"invocation"`` or ``"event"``. Never
+                ``envelope``, ``trigger``, ``schedule``, ``changed`` or ``tag``, which ``EventNamespace`` reads from
+                the event or the trigger itself.
+            event: Platform event whose payload identifies the entity.
 
         Returns:
-            The entity as a mapping, or ``None`` when ``event`` cannot resolve it
-            (no such root for this event type, or the entity was deleted between
-            emit and evaluation).
+            The entity's record, or ``None`` when the event type has no such root or the entity was deleted between
+            the event and its evaluation.
         """
         ...
 
 
 class EventNamespace:
-    """Resolves dotted variable paths against a platform event.
+    """Namespace of the values a trigger's condition and target templates read for one platform event, by dotted path.
 
-    The one namespace with three consumers: condition evaluation (whole records via
-    :meth:`record`), target template substitution (single paths via :meth:`resolve`,
-    satisfying the :class:`~roboto.templating.VariableResolver` protocol), and
-    idempotency projections. Entity-backed roots hydrate through the
-    :class:`NamespaceSource` at most once each and are cached for the namespace's
-    lifetime — including ``None`` results. The ``envelope``, ``changed``, ``tag`` and
-    ``schedule`` roots are served from the event itself and never touch the source;
-    ``trigger`` is served from the bound trigger (see :meth:`bound_to`) and is
-    otherwise absent.
+    Roboto builds one for each platform event it evaluates triggers on, and
+    :py:func:`~roboto.domain.triggers.platform_event_sample` builds one over sample records. A path such as
+    ``dataset.metadata.vehicle_id`` starts with a root, which names a record, and continues through that record's
+    nested mappings. A condition reads whole records with ``record``, and a template reads single paths with
+    ``resolve``, which makes the namespace a :py:class:`~roboto.templating.VariableResolver`. The roots:
 
-    ``envelope`` carries the event's own fields plus the payload under
-    ``envelope.data``. The payload is fixed when the event is published, while an
-    entity root reads that entity as it stands at evaluation time: on a
-    ``file.uploaded`` event, ``envelope.data.file_version`` is the version that fired
-    the trigger and ``file.version`` is the version the file is on when the condition
-    runs. That payload field is optional on ``file.uploaded``, ``file.ingested`` and
-    ``file.metadata_updated``, and resolves to ``None`` on events published before the
-    payload carried it.
+    - ``envelope``: the event's own fields, with its payload under ``data``.
+    - ``changed``: the metadata fields a metadata update set, with their new values. Empty for other events.
+    - ``tag``: ``{"added": [...], "removed": [...]}``, the tags the event added and removed.
+    - ``schedule``: on a schedule firing, ``scheduled_for``, plus ``cron`` on a namespace bound to a schedule trigger.
+      ``None`` on other events.
+    - ``trigger``: the trigger being evaluated, on a namespace from ``bound_to``, and ``None`` otherwise.
+    - Any other root, such as ``dataset`` or ``file``: the entity's record, fetched from ``source`` the first time it
+      is read and kept for the namespace's lifetime, including a ``None`` result.
 
-    Payload values are rendered as JSON, so a timestamp under ``envelope.data`` is an
-    ISO-8601 string while ``envelope.time`` and ``schedule.scheduled_for`` are
-    :class:`~datetime.datetime` objects. Conditions compare the two forms alike; a
-    template substitutes each in its own spelling (``2026-08-27T09:00:00Z`` against
-    ``2026-08-27 09:00:00+00:00``).
+    The payload is fixed when the event is published, while an entity root reads the entity as it stands when the
+    trigger evaluates the event. On a :py:attr:`~roboto.domain.platform_events.PlatformEventType.FileUploaded` platform
+    event, ``envelope.data.file_version`` (:py:attr:`~roboto.domain.platform_events.FileUploadedPayload.file_version`)
+    is the version that fired the trigger and ``file.version`` is the file's version when the condition runs.
+
+    Payload values are rendered as JSON, so a timestamp under ``envelope.data`` is an ISO-8601 string, while
+    ``envelope.time`` and ``schedule.scheduled_for`` are ``datetime.datetime`` objects. A condition compares
+    either form as an instant. A template substitutes each in its own form: ``2026-08-27T09:00:00Z`` for the string,
+    ``2026-08-27 09:00:00+00:00`` for the datetime.
+
+    Args:
+        event: Platform event whose values the namespace serves.
+        source: Loader of the entity roots' records. The namespace calls it at most once per root.
+        trigger: Trigger being evaluated, which the ``trigger`` root reads. ``None`` leaves that root ``None``. Prefer
+            ``bound_to``, which shares the fetched records with the namespace it is called on.
     """
 
     def __init__(
@@ -106,17 +127,6 @@ class EventNamespace:
         trigger: typing.Optional[TriggerRecord] = None,
         _records: typing.Optional[dict[str, typing.Optional[typing.Mapping[str, typing.Any]]]] = None,
     ) -> None:
-        """Bind the namespace to one event and one hydration source.
-
-        Args:
-            event: The event whose entities and deltas this namespace serves.
-            source: Loader for entity-backed roots; consulted lazily, once per root.
-            trigger: The trigger this namespace is evaluated for, when known; makes
-                the ``trigger`` root resolvable. Prefer :meth:`bound_to` over passing
-                it here, so the hydration cache is shared with the unbound namespace.
-            _records: Hydration cache to share; :meth:`bound_to` passes its own so a
-                bound view never re-fetches what the event-wide namespace already has.
-        """
         self.__event = event
         self.__source = source
         self.__trigger = trigger
@@ -125,32 +135,26 @@ class EventNamespace:
         )
 
     def bound_to(self, trigger: TriggerRecord) -> "EventNamespace":
-        """A view of this namespace for one trigger, in which ``trigger.*`` resolves.
+        """Return a namespace for the same event in which the ``trigger`` root reads ``trigger``.
 
-        One namespace is shared across every trigger evaluated for an event so each
-        entity hydrates once; the trigger being evaluated is per-trigger state, so it
-        lives on a view rather than on the shared object. The view delegates every
-        other root to the same hydration cache -- reading ``dataset.name`` through it
-        and through the parent costs one fetch in total.
+        The returned namespace shares this one's fetched records: reading ``dataset.name`` through both fetches the
+        dataset once. Binding every trigger subscribed to an event from one namespace fetches each entity once.
 
         Args:
-            trigger: The trigger whose templates and condition are being evaluated.
+            trigger: Trigger whose condition and targets are being evaluated.
         """
         return EventNamespace(self.__event, self.__source, trigger=trigger, _records=self.__records)
 
     def record(self, root: str) -> typing.Optional[typing.Mapping[str, typing.Any]]:
-        """Return the whole record for namespace ``root``, hydrating it at most once.
+        """Return the record ``root`` names, fetching an entity's record from the source at most once.
 
         Args:
-            root: Namespace root to fetch. ``envelope`` yields the event's own fields,
-                with the payload fixed at publish time under ``data``; ``changed``
-                yields the changeset's put fields; ``tag`` yields
-                ``{"added": [...], "removed": [...]}``; ``schedule`` and ``trigger``
-                yield the firing schedule and the bound trigger; any other root
-                delegates to the cached :class:`NamespaceSource`.
+            root: Root to read, such as ``"envelope"``, ``"changed"`` or ``"dataset"``. The class docstring lists what
+                each root holds.
 
         Returns:
-            The record as a mapping, or ``None`` when the source cannot resolve the root.
+            The record, or ``None`` when the root does not resolve: the source has no record for it, a ``schedule``
+            root on an event that is not a schedule firing, or a ``trigger`` root on a namespace not from ``bound_to``.
         """
         if root == ENVELOPE_ROOT:
             if ENVELOPE_ROOT not in self.__records:
@@ -159,9 +163,8 @@ class EventNamespace:
         if root == TRIGGER_ROOT:
             return _trigger_record(self.__trigger) if self.__trigger is not None else None
         if root == CHANGED_ROOT:
-            # put_fields is keyed by top-level field name, so a flattened dotted key
-            # (e.g. "metadata.vehicle_id") stays one literal key here and won't resolve
-            # through the dotted-path walk in get().
+            # A put_fields key that contains a dot, such as "vehicle.id", stays one literal key, so
+            # get("changed.vehicle.id") walks "vehicle" and then "id" and does not find it.
             changeset = self.__changeset()
             return dict(changeset.put_fields or {}) if changeset is not None else {}
         if root == TAG_ROOT:
@@ -173,10 +176,11 @@ class EventNamespace:
         return self.__records[root]
 
     def get(self, path: str) -> typing.Any:
-        """Return the value at dotted ``path`` (e.g. ``dataset.metadata.vehicle_id``), or ``None``.
+        """Return the value at a dotted path such as ``dataset.metadata.vehicle_id``, or ``None`` if it is missing.
 
-        The first path segment names the root; the rest walk nested mappings. Any
-        missing segment yields ``None``.
+        Args:
+            path: Root, optionally followed by keys of nested mappings, joined by dots. A root alone returns its whole
+                record.
         """
         root, _, subpath = path.partition(".")
         record = self.record(root)
@@ -187,7 +191,11 @@ class EventNamespace:
         return _walk_path(record, subpath)
 
     def resolve(self, name: str) -> typing.Optional[str]:
-        """Return the string form of the value at ``name`` for template substitution, or ``None``."""
+        """Return the value at dotted path ``name`` as a string, for a ``{{name}}`` template placeholder.
+
+        Returns:
+            ``str()`` of the value, or ``None`` if the path does not resolve.
+        """
         value = self.get(name)
         return None if value is None else str(value)
 
@@ -228,12 +236,10 @@ class EventNamespace:
 
 
 def _trigger_record(trigger: TriggerRecord) -> typing.Mapping[str, typing.Any]:
-    """What a template may say about the trigger itself.
+    """Build the ``trigger`` root: the trigger's identifying and lifecycle fields.
 
-    The identifying and lifecycle fields only: neither the condition, which has already
-    decided this evaluation, nor the targets, which a target's own template would be
-    naming itself in. Enum-valued fields are given as their values, matching how the
-    entity roots read.
+    It leaves out the condition, which has already decided the evaluation, and the targets, which a target's own
+    template would be naming itself in. ``fires_on`` is given in its JSON form, as the entity roots are.
     """
     return {
         "trigger_id": trigger.trigger_id,

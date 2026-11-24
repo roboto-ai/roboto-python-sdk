@@ -4,12 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Action source resolution utilities.
-
-This module handles determining where actions come from (local filesystem vs platform)
-and loading action metadata and configuration.
-"""
-
 import argparse
 import dataclasses
 import pathlib
@@ -30,23 +24,29 @@ from ...validation import (
 
 @dataclasses.dataclass
 class ActionSource:
-    """Encapsulates where an action comes from and provides convenient access to action properties.
+    """Action that ``roboto actions invoke-local`` runs: one read from a local directory, or one fetched from Roboto.
 
-    Either action_config (local action) or action_record (platform action) should be set, not both.
+    A local action sets ``action_config`` and ``action_root``; an action fetched from Roboto sets only
+    ``action_record``. The properties read from whichever of the two is set.
     """
 
     action_config: typing.Optional[actions.ActionConfig] = None
+    """Configuration read from the local directory's ``action.json``, or ``None`` for an action fetched from Roboto."""
+
     action_record: typing.Optional[actions.ActionRecord] = None
+    """Record of the action fetched from Roboto, or ``None`` for a local action."""
+
     action_root: typing.Optional[pathlib.Path] = None
+    """Local directory that holds ``action.json``, or ``None`` for an action fetched from Roboto."""
 
     @property
     def is_local(self) -> bool:
-        """Returns True when action_root is not None (local action)."""
+        """Whether the action was read from a local directory."""
         return self.action_root is not None
 
     @property
     def action_params(self) -> list[actions.ActionParameter]:
-        """Returns parameters from config or record."""
+        """Parameters that an invocation of the action can give values for."""
         if self.action_config:
             return self.action_config.parameters
         elif self.action_record:
@@ -55,7 +55,7 @@ class ActionSource:
 
     @property
     def requires_downloaded_inputs(self) -> bool:
-        """Returns flag from config or record."""
+        """Whether the action's input files are downloaded before it runs. ``True`` when the action leaves it unset."""
         if self.action_config and self.action_config.requires_downloaded_inputs is not None:
             return self.action_config.requires_downloaded_inputs
         elif self.action_record and self.action_record.requires_downloaded_inputs is not None:
@@ -64,7 +64,7 @@ class ActionSource:
 
     @property
     def container_params(self) -> typing.Optional[actions.ContainerParameters]:
-        """Returns container parameters from config or record."""
+        """How to run the action's container image, or ``None`` when the action sets none."""
         if self.action_config:
             return self.action_config.container_parameters
         elif self.action_record:
@@ -73,19 +73,15 @@ class ActionSource:
 
 
 def find_action_root_dir(signal_file_name: str = "action.json") -> pathlib.Path:
-    """Walk filesystem upward from current directory to find action root.
+    """Return the nearest directory, from the current directory upward, that contains ``signal_file_name``.
 
-    Searches for a directory containing the signal file (default: action.json).
-    Stops at filesystem root to avoid infinite loop.
+    The filesystem root itself is never searched.
 
     Args:
-        signal_file_name: Name of file to search for (default: "action.json")
-
-    Returns:
-        Path to directory containing the signal file.
+        signal_file_name: Name of the file that marks an action's directory.
 
     Raises:
-        FileNotFoundError: If signal file is not found in any parent directory.
+        FileNotFoundError: Neither the current directory nor any parent below the filesystem root contains the file.
     """
     current_dir = pathlib.Path.cwd()
     while current_dir != current_dir.parent:
@@ -98,42 +94,32 @@ def find_action_root_dir(signal_file_name: str = "action.json") -> pathlib.Path:
 
 
 def _is_path(value: str) -> bool:
-    """Determine if string is a file path vs action reference.
+    """Return whether ``value`` names a local directory rather than an action reference.
 
-    Heuristics:
-    - Starts with ./ or ../ or / → path
-    - Is exactly "." or ".." → path
-    - Contains / but not at start → could be org/action, check if path exists
-    - Otherwise → action reference
+    The checks, in order:
 
-    Args:
-        value: String to evaluate
-
-    Returns:
-        True if value appears to be a path, False if action reference
+    1. ``.`` and ``..`` are paths.
+    2. A value that starts with ``./``, ``../`` or ``/`` is a path.
+    3. A value with a ``/`` elsewhere is a path only if it exists on disk, since ``<org>/<action>`` is also an action
+       reference.
+    4. Any other value is an action reference, even when a directory of that name exists.
     """
     if value in (".", ".."):
         return True
     if value.startswith(("./", "../", "/")):
         return True
     if "/" in value:
-        # Could be org/action reference
-        # Check if it exists as a path
         return pathlib.Path(value).resolve().exists()
     return False
 
 
 def _load_local_action_from_path(path: typing.Optional[str]) -> ActionSource:
-    """Load action from local filesystem path.
+    """Read the action configuration from ``action.json`` in a local directory, and print the directory.
 
-    Args:
-        path: Path to action directory, or None to use current directory
-
-    Returns:
-        ActionSource with action_config and action_root set
-
-    Raises:
-        ActionRuntimeException: If action.json cannot be found in the specified directory
+    A ``path`` of ``None`` uses the nearest directory, from the current directory upward, that contains
+    ``action.json``. Raises ``ActionRuntimeException`` when the directory has no ``action.json``, or when ``path`` is
+    ``None`` and no directory from the current one upward has one. An ``action.json`` that does not match
+    :py:class:`~roboto.domain.actions.ActionConfig` prints its first validation error and exits the process.
     """
     try:
         action_root = pathlib.Path.cwd()
@@ -148,7 +134,7 @@ def _load_local_action_from_path(path: typing.Optional[str]) -> ActionSource:
         with pydantic_validation_handler("action.json"):
             action_config = actions.ActionConfig.from_file(action_config_path)
     except FileNotFoundError:
-        # Re-raise with no stack trace
+        # from None leaves the FileNotFoundError out of the traceback.
         raise ActionRuntimeException(
             f"Could not find action.json in {action_root}. "
             "To invoke an action from a local directory, it must contain an action.json file. "
@@ -164,15 +150,12 @@ def _load_local_action_from_path(path: typing.Optional[str]) -> ActionSource:
 
 
 def _fetch_platform_action(action_reference: str, org_id: typing.Optional[str], context: CLIContext) -> ActionSource:
-    """Fetch action from Roboto platform.
+    """Fetch the record of the action that ``action_reference`` names from Roboto.
 
-    Args:
-        action_reference: Action reference string (e.g., "my-action", "org/my-action")
-        org_id: Optional organization ID
-        context: CLI context with roboto_client
-
-    Returns:
-        ActionSource with action_record set
+    ``action_reference`` takes the form ``<name>`` or ``<org_id>/<name>``, either optionally followed by ``@<digest>``
+    to pin one version. ``org_id`` owns the action when the reference names no organization, and ``None`` uses the
+    organization the caller acts in. Raises ``RobotoNotFoundException`` when the organization has no action with this
+    name, or the action has no version with this digest.
     """
     action_ref = parse_action_reference_string(action_reference)
     owner_org_id = action_ref.owner if action_ref.owner else org_id
@@ -196,15 +179,22 @@ def _fetch_platform_action(action_reference: str, org_id: typing.Optional[str], 
 def resolve_action_source(
     action_or_path: typing.Optional[str], args: argparse.Namespace, context: CLIContext
 ) -> ActionSource:
-    """Resolve action source from command-line arguments.
+    """Read the action ``roboto actions invoke-local`` runs from a local directory, or fetch it from Roboto.
+
+    A value that is ``.`` or ``..``, starts with ``./``, ``../`` or ``/``, or contains a ``/`` and exists on disk is a
+    local directory; any other value is a reference to an action in Roboto. An ``action.json`` that does not match
+    :py:class:`~roboto.domain.actions.ActionConfig` prints its first validation error and exits the process.
 
     Args:
-        action_or_path: Optional positional argument (path or action reference)
-        args: Parsed command-line arguments
-        context: CLI context
+        action_or_path: Local directory that holds ``action.json``, or a reference to an action in Roboto, as
+            ``<name>``, ``<org_id>/<name>``, or either followed by ``@<digest>``. ``None`` uses the nearest directory,
+            from the current directory upward, that contains ``action.json``.
+        args: Parsed command-line arguments. The ``--org`` organization owns a fetched action when the reference
+            names none.
 
-    Returns:
-        ActionSource indicating where the action comes from
+    Raises:
+        ActionRuntimeException: The local directory has no ``action.json``.
+        RobotoNotFoundException: No action in Roboto matches the reference.
     """
     if action_or_path is None or _is_path(action_or_path):
         return _load_local_action_from_path(action_or_path)

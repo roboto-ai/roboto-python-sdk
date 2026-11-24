@@ -18,11 +18,11 @@ log = default_logger()
 
 
 class InputTopicResolver:
-    """Looks up the topics an action invocation runs on, from the topic selectors declared as its inputs.
+    """Resolver that fetches the topics an action invocation's topic selectors choose.
 
-    A selector names topics by ID, by name, or with a RoboQL query; every field it populates is looked up and
-    the matches are returned together. ``resolve_all`` returns each topic once, while ``resolve`` repeats a
-    topic that matches on more than one field.
+    :py:meth:`~roboto.action_runtime.ActionInputResolver.resolve_input_spec` resolves an input's topic selectors
+    through it, so most code never calls it. Action code reads the resolved topics from
+    :py:meth:`~roboto.action_runtime.InvocationContext.get_input` instead.
     """
 
     def __init__(
@@ -31,11 +31,27 @@ class InputTopicResolver:
         roboto_search: typing.Optional[RobotoSearch] = None,
     ):
         self.roboto_client = RobotoClient.defaulted(roboto_client)
+        """Client to make requests to Roboto with.
+
+        Defaults to one configured from the environment, by :py:meth:`~roboto.http.RobotoClient.from_env`.
+        """
+
         self.roboto_search = (
             roboto_search if roboto_search is not None else RobotoSearch.for_roboto_client(self.roboto_client)
         )
+        """Search client that runs the selectors' RoboQL queries.
+
+        Defaults to one that sends its queries through ``roboto_client``.
+        """
 
     def resolve_all(self, topic_selectors: collections.abc.Sequence[DataSelector]) -> list[Topic]:
+        """Fetch the topics that any of the selectors choose, each topic once.
+
+        Topics come back in the order ``resolve`` finds them, selector by selector. Fails as ``resolve`` does.
+
+        Args:
+            topic_selectors: Topic selectors to resolve.
+        """
         topic_ids: set[str] = set()
         all_topics: list[Topic] = []
 
@@ -50,12 +66,24 @@ class InputTopicResolver:
         return all_topics
 
     def resolve(self, topic_selector: DataSelector) -> list[Topic]:
-        """Looks up the topics one selector names. A ``dataset_id`` on the selector is ignored, with a warning."""
+        """Fetch the topics one selector chooses.
+
+        Looks up the selector's ``ids``, then its ``names``, then its ``query``, and returns every match in that
+        order, so a topic that more than one of them matches appears more than once. A name matches every topic with
+        exactly that name, in any dataset. A ``dataset_id`` on the selector does not narrow the lookup; it is ignored,
+        with a logged warning.
+
+        Args:
+            topic_selector: Selector that chooses topics by ID, by name, or with a RoboQL query.
+
+        Raises:
+            RobotoNotFoundException: No topic has one of the selector's IDs.
+            RobotoIllegalArgumentException: The selector's ``query`` is not valid RoboQL.
+        """
         topics: list[Topic] = []
 
         if topic_selector.dataset_id:
-            # A Topics query can express the same narrowing with dataset.dataset_id, which hops from
-            # the topic to its file to that file's dataset.
+            # In a topic query, dataset.dataset_id matches the topics in that dataset's files.
             dataset_id = topic_selector.dataset_id
             log.warning(
                 f"Ignoring dataset_id {dataset_id!r}. Use DataSelector.query instead: "

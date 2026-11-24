@@ -31,116 +31,135 @@ from .trigger_record import (
 
 
 class TriggerType(StrEnum):
-    """Types of triggers supported by the Roboto platform."""
+    """Kind of trigger: event-driven or scheduled."""
 
     EventDriven = "event_driven"
-    """A trigger that invokes its target action in response to an event.
+    """Trigger that invokes its action in response to platform events, such as an upload of files.
 
-    See :py:class:`~roboto.domain.actions.TriggerEvaluationCause` for the
-    currently supported causes for event-driven triggers to be evaluated.
+    :py:class:`~roboto.domain.actions.TriggerEvaluationCause` lists the platform events it can respond to.
     """
 
     Scheduled = "scheduled"
-    """A trigger that invokes its target action on a recurring schedule."""
+    """Trigger that invokes its action on a recurring schedule."""
 
 
 class TriggerOnEvent(pydantic.BaseModel):
-    """Properties specific to event-driven triggers."""
+    """Settings of an event-driven trigger: the platform events it responds to and the files it passes to its action.
+
+    Carried in ``TriggerView.on_event``.
+    """
 
     causes: list[TriggerEvaluationCause]
-    """One or more events that cause the trigger to be evaluated."""
+    """Platform events that cause Roboto to evaluate the trigger."""
 
     for_each: TriggerForEachPrimitive
-    """Granularity of trigger execution."""
+    """Whether the trigger invokes its action once per dataset or once per file."""
 
     required_inputs: list[str]
-    """File patterns that must be present for trigger to fire."""
+    """Gitignore-style patterns for the files the trigger requires, and passes to the action as its input data."""
 
     additional_inputs: typing.Optional[list[str]] = None
-    """Optional additional file patterns to include."""
+    """Gitignore-style patterns for more files to pass to the action as input data, or ``None`` to add none.
+
+    Unlike ``required_inputs``, no file has to match them for the trigger to invoke its action.
+    """
 
     condition: typing.Optional[ConditionType] = None
-    """Optional condition that must be met for trigger to fire."""
+    """Condition the data must meet for the trigger to invoke its action, or ``None`` if the trigger has none."""
 
 
 class TriggerOnSchedule(pydantic.BaseModel):
-    """Properties specific to scheduled triggers."""
+    """Settings of a scheduled trigger: its schedule and the input each invocation receives.
+
+    Carried in ``TriggerView.on_schedule``.
+    """
 
     schedule: str
-    """Recurring invocation schedule."""
+    """Cron expression, in UTC, for when the trigger invokes the action, such as ``"0 * * * *"`` for every hour."""
 
     invocation_input: typing.Optional[InvocationInput] = None
-    """Input specification for each scheduled invocation."""
+    """Input each invocation receives, or ``None`` if invocations take no input."""
 
     next_occurrence: typing.Optional[datetime.datetime] = None
-    """Next scheduled invocation time."""
+    """Next time the trigger invokes the action, or ``None`` if the trigger is disabled.
+
+    Roboto sets it from ``schedule``; no request does.
+    """
 
 
 class TriggerView(pydantic.BaseModel):
-    """Unified data model for all Roboto trigger types."""
+    """Data record of a trigger, as an item of the response body of ``POST /v1/triggers/aggregated/query``.
+
+    Event-driven and scheduled triggers share this one shape: ``trigger_type`` says which kind the trigger is, and so
+    which of ``on_event`` and ``on_schedule`` is set. The record belongs to the legacy trigger model and covers only the
+    triggers that model can express; :py:class:`~roboto.domain.triggers.Trigger` reads and edits every trigger.
+    """
 
     trigger_id: str
-    """Unique trigger ID."""
+    """Unique ID of the trigger."""
 
     trigger_type: TriggerType
-    """Trigger type."""
+    """Whether the trigger is event-driven or scheduled."""
 
     name: str
-    """Trigger name. Unique within an organization and trigger type."""
+    """Human-readable name of the trigger, unique within its organization."""
 
     on_event: typing.Optional[TriggerOnEvent] = None
-    """Properties of triggers that fire on events (``TriggerType.EventDriven``)."""
+    """Settings of an event-driven trigger, or ``None`` if the trigger is scheduled."""
 
     on_schedule: typing.Optional[TriggerOnSchedule] = None
-    """Properties of triggers that fire on a recurring schedule (``TriggerType.Scheduled``)."""
+    """Settings of a scheduled trigger, or ``None`` if the trigger is event-driven."""
 
     enabled: bool
-    """True if the trigger is enabled."""
+    """Whether the trigger is enabled. A disabled trigger never invokes its action."""
 
     action: ActionReference
-    """Reference to the trigger's target action."""
+    """Action the trigger invokes. A reference without a digest invokes the action's latest version."""
 
     parameter_values: typing.Optional[dict[str, typing.Any]] = None
-    """Optional action parameter values."""
+    """Values for the action's parameters, keyed by parameter name, or ``None`` if the trigger sets none."""
 
     compute_requirement_overrides: typing.Optional[ComputeRequirements] = None
-    """Optional compute requirement overrides."""
+    """Compute requirements that replace the action's own in each invocation, or ``None`` to use the action's."""
 
     container_parameter_overrides: typing.Optional[ContainerParameters] = None
-    """Optional container parameter overrides."""
+    """Container parameters that replace the action's own in each invocation, or ``None`` to use the action's."""
 
     timeout: typing.Optional[int] = None
-    """Optional invocation timeout, in minutes."""
+    """Maximum run time of each invocation, in minutes, or ``None`` to use the action's timeout."""
 
     invocation_upload_destination: typing.Optional[InvocationUploadDestination] = None
-    """Optional default upload destination for action invocations."""
+    """Where each invocation uploads its output files, or ``None`` if the trigger sets no destination."""
 
     service_user_id: str
-    """Service user ID for authentication."""
+    """ID of the service user the trigger invokes its action as."""
 
     org_id: str
-    """Organization ID which owns the scheduled trigger."""
+    """ID of the organization that owns the trigger."""
 
     created: datetime.datetime
-    """Creation time for the scheduled trigger."""
+    """Time the trigger was created."""
 
     created_by: str
-    """User who created the scheduled trigger."""
+    """ID of the user who created the trigger."""
 
     modified: datetime.datetime
-    """Latest modification time for the scheduled trigger."""
+    """Time the trigger was last modified."""
 
     modified_by: str
-    """User who last modified this scheduled trigger."""
+    """ID of the user who last modified the trigger.
+
+    Roboto's own system user when Roboto made the change.
+    """
 
     def to_event_trigger_record(self) -> typing.Optional[TriggerRecord]:
-        """Convert this trigger view into a :py:class:`~roboto.domain.actions.TriggerRecord` if possible.
+        """Return this trigger as a :py:class:`~roboto.domain.actions.TriggerRecord`, or ``None`` if it is scheduled.
 
-        Returns:
-            A ``TriggerRecord`` instance if ``self.trigger_type`` is ``TriggerType.EventDriven``,
-            otherwise None.
+        The record has no field for ``invocation_upload_destination``, so it leaves that setting out.
+
+        Raises:
+            RuntimeError: The trigger is event-driven but ``on_event`` is ``None``.
         """
-
         if self.trigger_type is not TriggerType.EventDriven:
             return None
 
@@ -173,13 +192,14 @@ class TriggerView(pydantic.BaseModel):
         )
 
     def to_scheduled_trigger_record(self) -> typing.Optional[ScheduledTriggerRecord]:
-        """Convert this trigger view into a :py:class:`~roboto.domain.actions.ScheduledTriggerRecord` if possible.
+        """Return this trigger as a scheduled trigger record, or ``None`` if it is event-driven.
 
-        Returns:
-            A ``ScheduledTriggerRecord`` instance if ``self.trigger_type`` is ``TriggerType.Scheduled``,
-            otherwise None.
+        The record is a :py:class:`~roboto.domain.actions.ScheduledTriggerRecord`, which has no field for
+        ``service_user_id`` and so leaves it out.
+
+        Raises:
+            RuntimeError: The trigger is scheduled but ``on_schedule`` is ``None``.
         """
-
         if self.trigger_type is not TriggerType.Scheduled:
             return None
 

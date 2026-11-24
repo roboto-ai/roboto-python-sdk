@@ -15,21 +15,26 @@ import typing
 
 
 class NamedArray(tuple):
-    """The value of an array field whose elements are named, as :py:meth:`Topic.get_data` yields it.
+    """Value of an array field whose elements are named, as ``Topic.get_data`` yields it.
 
     A named array is a ``tuple`` of the array's values, with one subclass per list of names. Everything a tuple does
-    works unchanged: by position (``a[5]``), by slice (``a[2:4]``, a plain ``tuple``), ``len(a)``, iterating over
-    its values, ``a.index(value)`` and ``a.count(value)``. It compares and hashes as a tuple of its values, so it
-    equals a ``tuple`` holding the same values.
+    works unchanged: indexing by position (``a[5]``) and by slice (``a[2:4]``, which returns a ``tuple`` without the
+    names), ``len(a)``, iteration over its values, ``a.index(value)`` and ``a.count(value)``. It compares and hashes as
+    a tuple of its values, so it equals a ``tuple`` holding the same values. It can be pickled, and unpickles as a named
+    array with the same names.
 
-    It adds the names, with the methods of a :py:func:`collections.namedtuple`:
+    It adds the names, with the methods of a ``collections.namedtuple``:
 
-    - ``a["main_gripper"]`` takes the element of that name, whatever the name.
+    - ``a["main_gripper"]`` returns the element of that name, for any name; a name the array lacks raises ``KeyError``.
     - ``a.main_gripper`` does too, when the name is a Python identifier, not a keyword, does not start with an
       underscore, and is not already an attribute of a named array (such as ``index`` or ``count``).
     - ``a._fields`` lists the names in element order, and ``a._asdict()`` maps each name to its value.
     - ``a._replace(main_gripper=0.0)`` returns a copy with new values for the elements named, and
       ``type(a)(**a._asdict())`` builds an equal copy; both take any name as a keyword.
+
+    Raises:
+        TypeError: Building a named array, or calling ``_replace``, gives too many or too few values, a name the array
+            lacks, or a value for one element twice.
 
     Examples:
         >>> from roboto.experimental.sessions import Session
@@ -83,15 +88,19 @@ class NamedArray(tuple):
         return f"NamedArray({values})"
 
     def __reduce__(self) -> tuple[typing.Any, ...]:
+        """Pickle as the element names and values, which unpickling passes to ``named_array_type``.
+
+        Each subclass is built at run time and cannot be imported by name, so pickle cannot restore it by reference.
+        """
         return _rebuild, (self._fields, tuple(self))
 
 
 @functools.cache
 def named_array_type(element_names: tuple[str, ...]) -> type[NamedArray]:
-    """Return the :py:class:`NamedArray` subclass for ``element_names``, the same class for equal names.
+    """Return the ``NamedArray`` subclass for ``element_names``, the same class for equal names.
 
     Args:
-        element_names: The array's element names, in element order; non-empty and unique.
+        element_names: Name of each element of the array, in element order; at least one, each distinct.
     """
     attributes = {
         name: property(operator.itemgetter(index))
@@ -108,8 +117,9 @@ def named_array_type(element_names: tuple[str, ...]) -> type[NamedArray]:
             "__slots__": (),
             "_fields": element_names,
             "_index_by_name": {name: index for index, name in enumerate(element_names)},
-            # A class pattern's positional sub-pattern i reads the attribute named __match_args__[i], so only the
-            # names before the first one without an attribute are listed, keeping sub-pattern i on element i.
+            # In a match statement's class pattern, positional sub-pattern i reads the attribute named
+            # __match_args__[i]. Listing only the names before the first name without an attribute keeps
+            # sub-pattern i on element i.
             "__match_args__": tuple(itertools.takewhile(attributes.__contains__, element_names)),
             **attributes,
         },

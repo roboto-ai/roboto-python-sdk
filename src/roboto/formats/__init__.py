@@ -4,15 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Format-specific decoding of topic data files into rows.
+"""Decoding of topic data stored in MCAP and Parquet files, reading only the fields a caller selects.
 
-This package decodes MCAP and Parquet topic data into Roboto's nested row /
-Arrow representation: per-format parsing and read planning, field projection,
-and timestamp extraction. The byte-transport it builds on (HTTP range reads,
-local disk caching, sparse buffering) lives in ``roboto.storage``; this package
-depends on the topic record and message-path types in ``roboto.domain.topics``
-without depending back on the topic readers, so the readers in both
-``roboto.domain.topics`` and ``roboto.experimental.topics`` build on it.
+:py:class:`~roboto.formats.FieldSelection` names a field to read by its path through a file's schema. To read the
+selected fields from MCAP files, use :py:mod:`~roboto.formats.mcap`; to read them from Parquet files, use
+:py:mod:`~roboto.formats.parquet`. Methods such as :py:meth:`~roboto.domain.topics.Topic.get_data` and
+:py:meth:`~roboto.domain.topics.MessagePath.get_data` read topic data through this package, so most code never calls
+it.
 """
 
 from .fields import FieldSelection

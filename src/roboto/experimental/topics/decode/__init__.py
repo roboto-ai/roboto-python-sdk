@@ -4,7 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Decoding the files of a read plan's partitions into RecordBatches of topic data."""
+"""Decoders that read the MCAP and Parquet files holding a topic's data into ``pyarrow.RecordBatch`` objects.
+
+``roboto.experimental.topics.Topic.get_data_as_record_batches``, and ``Topic.get_data`` and ``Topic.get_data_as_df``,
+built on it, read topic data through this package, so most code never calls it. ``make_file_decoder_opener`` builds
+the function that opens a ``FileDecoder`` on each file, choosing the MCAP or Parquet decoder by the file's format;
+``cached_parquet_name`` names the local copy of a cached Parquet file. Requires the ``roboto[analytics]`` extra:
+``pip install roboto[analytics]``.
+"""
 
 from .common import (
     FileDecodeParams,

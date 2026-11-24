@@ -13,6 +13,7 @@ from .shared_helpdoc import DATASET_ID_HELP
 
 
 def list_files(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print the path within the dataset of each file that ``--include`` and ``--exclude`` select, one per line."""
     dataset = Dataset.from_id(args.dataset_id, context.roboto_client)
 
     for f in dataset.list_files(args.include, args.exclude):

@@ -15,86 +15,95 @@ from ...warnings import experimental
 
 @experimental
 class DashboardAccessibility(StrEnum):
-    """
-    Controls who can view a dashboard.
+    """Accessibility of a dashboard: who can view it.
 
-    On create/update requests this is a knob that the server folds into
-    :py:attr:`DashboardRecord.owner_principal_id`.  On
-    :py:class:`DashboardRecord` it is a derived computed field — always in sync
-    with the owner principal so API consumers never need to parse the principal
-    string themselves.
+    Create and update requests set it, and Roboto records it as the dashboard's owner,
+    ``DashboardRecord.owner_principal_id``. ``DashboardRecord.accessibility`` is derived from that owner.
     """
 
     Organization = "organization"
-    """All members of the organization owning the dashboard can view it."""
+    """Every member of the organization that owns the dashboard can view it."""
 
     User = "user"
-    """Just the user who created the dashboard can view it."""
+    """Only the user who created the dashboard and the organization's administrators can view it."""
 
 
 @experimental
 class DashboardRecord(pydantic.BaseModel):
-    """A wire-transmissible representation of a dashboard"""
+    """Data record of a dashboard, as ``GET /v1/metrics/dashboards/id/{dashboard_id}`` returns it.
+
+    ``POST /v1/metrics/dashboards/create`` and ``PUT /v1/metrics/dashboards/id/{dashboard_id}`` return it too, and
+    ``GET /v1/metrics/dashboards/`` returns a page of them.
+
+    A dashboard is a saved page of metrics in the Roboto web app: a name and a JSON definition of what the page
+    shows, owned either by its organization or by the user who created it.
+    """
 
     created: datetime.datetime
-    """Timestamp when the dashboard was created."""
+    """Time the dashboard was created."""
 
     created_by: str
-    """User ID of the dashboard's creator. Audit metadata only; ownership is carried by
-    :py:attr:`owner_principal_id`."""
+    """ID of the user who created the dashboard.
+
+    Changing the dashboard's accessibility to ``DashboardAccessibility.User`` makes this user its owner again,
+    whoever makes the change.
+    """
 
     dashboard_definition: dict[str, typing.Any]
-    """The dashboard definition as a JSON object.
+    """Content of the dashboard, as a JSON object that carries its own schema version.
 
-    Opaque to the platform, which stores and returns it verbatim. The definition is
-    self-describing: it carries its own schema version, and the client that understands
-    the schema is the one that reads it."""
+    Roboto stores and returns it unchanged and never reads it.
+    """
 
     dashboard_id: str
-    """Unique identifier for the dashboard."""
+    """Unique ID of the dashboard, beginning with ``dsbd_``."""
 
     modified: datetime.datetime
-    """Timestamp when the dashboard was last modified."""
+    """Time the dashboard was last modified."""
 
     modified_by: str
-    """User ID of the last user to modify the dashboard."""
+    """ID of the user who last modified the dashboard."""
 
     name: str
-    """Human-readable name for the dashboard. Unique per owner within an organization;
-    dashboards with different owners may share a name, so by-name lookups can match more
-    than one dashboard."""
+    """Human-readable name of the dashboard, unique among the dashboards of one owner in its organization.
+
+    An organization-wide dashboard and a personal one, or the personal dashboards of two users, may share a name.
+    """
 
     org_id: str
-    """Organization ID that owns the dashboard."""
+    """ID of the organization that owns the dashboard."""
 
     owner_principal_id: str
-    """Principal that owns the dashboard, serialized in the
-    :py:class:`~roboto.principal.RobotoPrincipal` ``ptype:id`` format.
+    """Principal that owns the dashboard, as ``<type>:<id>``.
 
-    ``org:<org_id>`` for organization-wide dashboards, ``user:<user_id>`` for personal
-    dashboards. This is the sole source of truth for org-wide vs personal — a dashboard
-    is org-wide exactly when its owner is the org principal. Ownership anchors
-    authorization — a personal dashboard is editable by its owner or an org admin, an
-    org-wide dashboard by any org member — and scopes name uniqueness: dashboard names
-    are unique per owner within an organization.
+    ``org:<org_id>`` for an organization-wide dashboard, ``user:<user_id>`` for a personal one. Roboto sets it from
+    the ``accessibility`` of create and update requests; no request sets it directly. The owner decides who may
+    change the dashboard:
+
+    - Any member of the organization may update an organization-wide dashboard. Only the organization's
+      administrators may make it personal or delete it.
+    - Only the owner and the organization's administrators may update or delete a personal dashboard.
+
+    :py:class:`~roboto.principal.RobotoPrincipal` parses the string form.
     """
 
     revision: int = 0
-    """How many times the dashboard definition has been written, starting at 0.
+    """Number of times the dashboard's definition has been replaced, starting at ``0``.
 
-    A definition-generation counter, not a row version: it advances only when
-    :py:attr:`dashboard_definition` is replaced, and is deliberately untouched by a rename
-    or an accessibility change. Clients never set it — the server owns it — but they must
-    echo the value they loaded back as ``base_revision`` when writing a new definition, so
-    a write built on a stale copy can be rejected rather than silently erasing someone
-    else's edit.
+    Each update that sets ``dashboard_definition`` adds one; a rename or an accessibility change does not. Roboto
+    sets it; no request does. An update that replaces the definition sends the revision you loaded as
+    ``UpdateDashboardRequest.base_revision``, and Roboto refuses it with
+    ``roboto.exceptions.RobotoDashboardRevisionConflictException`` if someone replaced the definition since.
     """
 
     @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def accessibility(self) -> DashboardAccessibility:
-        """Derived from :py:attr:`owner_principal_id`: organization when owned by
-        the org principal, user otherwise."""
+        """Accessibility of the dashboard, derived from ``owner_principal_id``.
+
+        ``DashboardAccessibility.Organization`` when the organization owns the dashboard, ``User`` otherwise. Included
+        in the record's JSON form.
+        """
         if self.owner_principal_id.startswith("org:"):
             return DashboardAccessibility.Organization
         return DashboardAccessibility.User

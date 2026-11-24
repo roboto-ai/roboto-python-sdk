@@ -23,13 +23,36 @@ from .api import (
 from .specification import QuerySpecification
 
 RoboQLQuery: typing.TypeAlias = str
+"""Query written in RoboQL, such as ``"tags CONTAINS 'warehouse'"``."""
+
 Query: typing.TypeAlias = typing.Union[RoboQLQuery, QuerySpecification]
+"""Query of either form: a RoboQL string or a :py:class:`~roboto.query.QuerySpecification`."""
 
 
 class QueryClient:
-    """
-    A low-level Roboto query client. Prefer :py:class:`~roboto.query.roboto_search.RobotoSearch` for a simpler,
-    more curated query interface.
+    """Client that submits queries to Roboto and yields each result as a dictionary.
+
+    :py:class:`~roboto.roboto_search.RobotoSearch` runs the same queries and yields SDK objects, such as
+    :py:class:`~roboto.domain.datasets.Dataset`, in place of dictionaries.
+
+    Each method that submits a query and yields its results submits it when iteration begins, not when the method is
+    called, and then checks every 2 seconds until the results are available.
+
+    Args:
+        roboto_client: Client to make requests to Roboto with. Defaults to one built from
+            :py:meth:`~roboto.config.RobotoConfig.from_env` with ``roboto_profile``.
+        owner_org_id: Organization to run and read queries in when a method names none. ``None`` leaves it to the
+            organization the caller acts in.
+        roboto_profile: Config file profile to build the default ``roboto_client`` from. Ignored when
+            ``roboto_client`` is given or the environment holds an access token.
+
+    Raises:
+        FileNotFoundError: ``roboto_client`` is not given, no access token is set, and the config file does not exist.
+        OSError: ``roboto_client`` is not given and the config file exists but cannot be read.
+        ValueError: ``roboto_client`` is not given and the config file is not a JSON object, holds no valid profile,
+            or has no profile by the chosen name.
+        RobotoDeprecatedException: ``roboto_client`` is not given and the access token begins with ``robo_pat``, a
+            format Roboto retired in March 2024.
     """
 
     __owner_org_id: typing.Optional[str] = None
@@ -51,12 +74,36 @@ class QueryClient:
 
     @property
     def roboto_client(self) -> RobotoClient:
+        """Client this query client makes requests to Roboto with."""
         return self.__roboto_client
 
     def are_query_results_available(self, query_id: str, owner_org_id: typing.Optional[str] = None) -> bool:
+        """Fetch whether a query has finished and its results can be read.
+
+        Returns ``False`` both while the query is scheduled and after it fails. To tell those apart, read
+        :py:attr:`~roboto.query.QueryRecord.status` from ``get_query_record``.
+
+        Args:
+            query_id: ID of the query.
+            owner_org_id: Organization that owns the query. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
+
+        Raises:
+            RobotoNotFoundException: No query has this ID.
+        """
         return self.get_query_record(query_id, owner_org_id).status == QueryStatus.ResultsAvailable
 
     def get_query_record(self, query_id: str, owner_org_id: typing.Optional[str] = None) -> QueryRecord:
+        """Fetch a query's record, which holds its status and result count.
+
+        Args:
+            query_id: ID of the query.
+            owner_org_id: Organization that owns the query. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
+
+        Raises:
+            RobotoNotFoundException: No query has this ID.
+        """
         response = self.__roboto_client.get(f"v1/query/id/{query_id}", owner_org_id=owner_org_id or self.__owner_org_id)
         return response.to_record(QueryRecord)
 
@@ -70,17 +117,17 @@ class QueryClient:
 
         Args:
             query_id: ID of a query whose results are available.
-            owner_org_id: Organization that owns the query. Defaults to this client's organization.
-            page_size: Number of results to fetch per page, from 1 to
-                :py:data:`~roboto.query.specification.MAX_PAGE_SIZE`. Defaults to
-                :py:data:`~roboto.query.specification.DEFAULT_PAGE_SIZE`.
+            owner_org_id: Organization that owns the query. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
+            page_size: Number of results to fetch per request, from 1 to 1000
+                (:py:const:`~roboto.query.MAX_PAGE_SIZE`). ``None`` fetches 50
+                (:py:const:`~roboto.query.DEFAULT_PAGE_SIZE`).
 
         Yields:
-            Each result record, in the query's sort order.
+            Record of each matching resource, as a dictionary, in the query's sort order.
 
         Raises:
-            RobotoIllegalArgumentException: ``page_size`` is outside 1 to ``MAX_PAGE_SIZE``. Raised when iteration
-                requests the first page, not when this method is called.
+            RobotoIllegalArgumentException: ``page_size`` is outside 1 to 1000. It surfaces on the first iteration.
         """
         query_params: dict[str, str] = {} if page_size is None else {"page_size": str(page_size)}
         while True:
@@ -109,23 +156,26 @@ class QueryClient:
         """Submit a RoboQL or structured query, wait for it to finish, and yield its results.
 
         To cap the total number of results, set ``max_results`` on a
-        :py:class:`~roboto.query.specification.QuerySpecification`, or add ``LIMIT N`` to a RoboQL query.
+        :py:class:`~roboto.query.QuerySpecification`, or add ``LIMIT N`` to a RoboQL query.
 
         Args:
-            query: A RoboQL string or a :py:class:`~roboto.query.specification.QuerySpecification`. ``None`` matches
-                everything in ``target``.
-            target: The kind of entity to query.
-            timeout_seconds: How long to wait for the query to finish.
-            content_mode: Whether results include custom metadata. See
-                :py:class:`~roboto.query.api.QueryContentMode`.
-            owner_org_id: Organization to run the query in. Defaults to this client's organization.
+            query: RoboQL string or :py:class:`~roboto.query.QuerySpecification` to run. ``None`` matches every
+                resource of the ``target`` kind.
+            target: Kind of resource to search, such as :py:attr:`~roboto.query.QueryTarget.Datasets`.
+            timeout_seconds: How long to wait for the query to finish, in seconds.
+            content_mode: Whether each result includes the resource's metadata. See
+                :py:class:`~roboto.query.QueryContentMode`.
+            owner_org_id: Organization to run the query in. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
 
         Yields:
-            Each result record, in the query's sort order.
+            Record of each matching resource, as a dictionary, in the query's sort order.
 
         Raises:
-            TimeoutError: Results were not available within ``timeout_seconds``. A query that fails keeps the wait
-                going until the timeout.
+            RobotoIllegalArgumentException: ``query`` is a string that is not valid RoboQL. It surfaces on the first
+                iteration.
+            roboto.waiters.TimeoutError: The query's results were not available within ``timeout_seconds``. A
+                query that fails keeps the wait going until the timeout. It surfaces on the first iteration.
         """
         if query is None:
             query = QuerySpecification()
@@ -148,6 +198,18 @@ class QueryClient:
         request: SubmitRoboqlQueryRequest,
         owner_org_id: typing.Optional[str] = None,
     ) -> QueryRecord:
+        """Submit a RoboQL query and return its record without waiting for it to finish.
+
+        Pass the record's ``query_id`` to ``get_query_results`` once ``are_query_results_available`` returns ``True``.
+
+        Args:
+            request: Query to submit, and the kind of resource it searches.
+            owner_org_id: Organization to run the query in. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
+
+        Raises:
+            RobotoIllegalArgumentException: The query is not valid RoboQL.
+        """
         response = self.__roboto_client.post(
             "v1/query/submit/roboql",
             data=request,
@@ -166,16 +228,18 @@ class QueryClient:
         To cap the total number of results, add ``LIMIT N`` to the query.
 
         Args:
-            request: The query to submit.
-            timeout_seconds: How long to wait for the query to finish.
-            owner_org_id: Organization to run the query in. Defaults to this client's organization.
+            request: Query to submit, and the kind of resource it searches.
+            timeout_seconds: How long to wait for the query to finish, in seconds.
+            owner_org_id: Organization to run the query in. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
 
         Yields:
-            Each result record, in the query's sort order.
+            Record of each matching resource, as a dictionary, in the query's sort order.
 
         Raises:
-            TimeoutError: Results were not available within ``timeout_seconds``. A query that fails keeps the wait
-                going until the timeout.
+            RobotoIllegalArgumentException: The query is not valid RoboQL. It surfaces on the first iteration.
+            roboto.waiters.TimeoutError: The query's results were not available within ``timeout_seconds``. A
+                query that fails keeps the wait going until the timeout. It surfaces on the first iteration.
         """
         query = self.submit_roboql(request, owner_org_id)
 
@@ -193,6 +257,15 @@ class QueryClient:
         request: SubmitStructuredQueryRequest,
         owner_org_id: typing.Optional[str] = None,
     ) -> QueryRecord:
+        """Submit a structured query and return its record without waiting for it to finish.
+
+        Pass the record's ``query_id`` to ``get_query_results`` once ``are_query_results_available`` returns ``True``.
+
+        Args:
+            request: Query to submit, and the kind of resource it searches.
+            owner_org_id: Organization to run the query in. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
+        """
         response = self.__roboto_client.post(
             "v1/query/submit/structured",
             data=request,
@@ -208,19 +281,21 @@ class QueryClient:
     ) -> collections.abc.Generator[dict[str, typing.Any], None, None]:
         """Submit a structured query, wait for it to finish, and yield its results.
 
-        To cap the total number of results, set ``max_results`` on the query specification.
+        To cap the total number of results, set ``max_results`` on the request's
+        :py:class:`~roboto.query.QuerySpecification`.
 
         Args:
-            request: The query to submit.
-            timeout_seconds: How long to wait for the query to finish.
-            owner_org_id: Organization to run the query in. Defaults to this client's organization.
+            request: Query to submit, and the kind of resource it searches.
+            timeout_seconds: How long to wait for the query to finish, in seconds.
+            owner_org_id: Organization to run the query in. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
 
         Yields:
-            Each result record, in the query's sort order.
+            Record of each matching resource, as a dictionary, in the query's sort order.
 
         Raises:
-            TimeoutError: Results were not available within ``timeout_seconds``. A query that fails keeps the wait
-                going until the timeout.
+            roboto.waiters.TimeoutError: The query's results were not available within ``timeout_seconds``. A
+                query that fails keeps the wait going until the timeout. It surfaces on the first iteration.
         """
         query = self.submit_structured(request, owner_org_id)
 
@@ -234,6 +309,16 @@ class QueryClient:
         yield from self.get_query_results(query.query_id)
 
     def submit_term(self, request: SubmitTermQueryRequest, owner_org_id: typing.Optional[str] = None) -> QueryRecord:
+        """Submit a term query and return its record without waiting for it to finish.
+
+        A term query matches resources whose fields contain a search term. Pass the record's ``query_id`` to
+        ``get_query_results`` once ``are_query_results_available`` returns ``True``.
+
+        Args:
+            request: Term to search for, and the kind of resource to search.
+            owner_org_id: Organization to run the query in. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
+        """
         response = self.__roboto_client.post(
             "v1/query/submit/term",
             data=request,
@@ -251,16 +336,18 @@ class QueryClient:
         """Submit a term query, wait for it to finish, and yield its results.
 
         Args:
-            request: The query to submit.
-            timeout_seconds: How long to wait for the query to finish. Defaults to waiting indefinitely.
-            owner_org_id: Organization to run the query in. Defaults to this client's organization.
+            request: Term to search for, and the kind of resource to search.
+            timeout_seconds: How long to wait for the query to finish, in seconds. Defaults to waiting indefinitely.
+            owner_org_id: Organization to run the query in. Defaults to the organization this client was built
+                with, and otherwise to the organization the caller acts in.
 
         Yields:
-            Each result record, in the query's sort order.
+            Record of each matching resource, as a dictionary, in the query's sort order.
 
         Raises:
-            TimeoutError: Results were not available within ``timeout_seconds``. A query that fails keeps the wait
-                going until the timeout, so with the default ``timeout_seconds`` it never returns.
+            roboto.waiters.TimeoutError: The query's results were not available within ``timeout_seconds``. A
+                query that fails keeps the wait going until the timeout, so with the default ``timeout_seconds``
+                the first iteration never returns.
         """
         query = self.submit_term(request, owner_org_id)
 

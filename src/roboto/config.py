@@ -19,11 +19,17 @@ logger = default_logger()
 
 
 ROBOTO_API_ENDPOINT = "https://api.roboto.ai"
+"""URL of the Roboto API, used when neither ``ROBOTO_SERVICE_ENDPOINT`` nor a config file profile gives an endpoint."""
 
 
 DEFAULT_ROBOTO_DIR = pathlib.Path.home() / ".roboto"
+"""Directory where the Roboto CLI, SDK and upload agent keep their files: ``~/.roboto`` in the user's home directory."""
+
 DEFAULT_ROBOTO_CONFIG_DIR = DEFAULT_ROBOTO_DIR / "config.json"
+"""Path of the Roboto config file when ``ROBOTO_CONFIG_FILE`` is unset: ``~/.roboto/config.json``."""
+
 DEFAULT_ROBOTO_PROFILE_NAME = "default"
+"""Name of the config file profile used when neither the caller, ``ROBOTO_PROFILE``, nor the file names another."""
 
 
 _CONFIG_ERROR_SUFFIX = (
@@ -33,11 +39,19 @@ _CONFIG_ERROR_SUFFIX = (
 
 
 def resolve_cache_dir(env: RobotoEnv, ensure_exists: bool) -> pathlib.Path:
-    """Resolve the base directory under which the SDK caches files it fetches from Roboto.
+    """Return the directory under which the Roboto CLI and SDK cache data they download from Roboto.
 
-    Prefers ``ROBOTO_CACHE_DIR`` from ``env``; absent that, the platform-conventional per-user cache directory.
-    ``ensure_exists`` applies only to the platform default: when true, resolving it also creates the directory on disk.
-    A directory supplied through ``ROBOTO_CACHE_DIR`` is returned as-is and never created here.
+    ``RobotoConfig.get_cache_dir`` finds the cache directory through it when the config sets no ``cache_dir``, so most
+    code never calls it.
+
+    Args:
+        env: Roboto environment variables, whose ``ROBOTO_CACHE_DIR`` names the directory when set.
+        ensure_exists: Whether to create the operating system's per-user cache directory when this returns it. A
+            directory named by ``ROBOTO_CACHE_DIR`` is never created.
+
+    Returns:
+        ``ROBOTO_CACHE_DIR`` when set, otherwise the operating system's per-user cache directory for ``roboto``, such
+        as ``~/.cache/roboto`` on Linux.
     """
     if env.cache_dir:
         return pathlib.Path(env.cache_dir)
@@ -46,9 +60,16 @@ def resolve_cache_dir(env: RobotoEnv, ensure_exists: bool) -> pathlib.Path:
 
 
 def resolve_config_file(env: RobotoEnv) -> pathlib.Path:
-    """Resolve the path of the Roboto config file: ``ROBOTO_CONFIG_FILE`` from ``env``, else ``~/.roboto/config.json``.
+    """Return the path of the Roboto config file, which may not exist.
 
-    The file at the returned path may not exist.
+    ``RobotoConfig.from_env`` finds the file to read, and ``roboto auth login`` and ``roboto setup`` the file to write,
+    through it, so most code never calls it.
+
+    Args:
+        env: Roboto environment variables, whose ``ROBOTO_CONFIG_FILE`` names the file when set.
+
+    Returns:
+        ``ROBOTO_CONFIG_FILE`` when set, otherwise ``~/.roboto/config.json``.
     """
     if env.config_file:
         return pathlib.Path(env.config_file)
@@ -59,7 +80,8 @@ def resolve_config_file(env: RobotoEnv) -> pathlib.Path:
 def requested_profile_name(profile_override: typing.Optional[str], env: RobotoEnv) -> typing.Optional[str]:
     """Return the config file profile named by the caller or by ``ROBOTO_PROFILE``.
 
-    :py:meth:`RobotoConfig.from_env` reads that profile when one is named.
+    ``RobotoConfig.from_env``, ``roboto auth login`` and ``roboto setup`` choose a profile through it, so most code
+    never calls it.
 
     Args:
         profile_override: Profile the caller names, ahead of ``ROBOTO_PROFILE``. An empty value counts as none.
@@ -79,32 +101,48 @@ def requested_profile_name(profile_override: typing.Optional[str], env: RobotoEn
 def resolved_profile_name(requested: typing.Optional[str], default_profile: typing.Optional[str]) -> str:
     """Return the profile ``requested`` names, else the file's ``default_profile``, else ``default``.
 
-    :py:meth:`RobotoConfig.from_env` reads this profile, and ``roboto auth login`` and ``roboto setup`` save a new token
-    to it.
+    ``RobotoConfig.from_env`` chooses the profile to read, and ``roboto auth login`` and ``roboto setup`` the profile to
+    save a new token to, through it, so most code never calls it.
 
     Args:
-        requested: Profile the caller or ``ROBOTO_PROFILE`` names, from :py:func:`requested_profile_name`.
+        requested: Profile the caller or ``ROBOTO_PROFILE`` names, from ``requested_profile_name``.
         default_profile: The config file's ``default_profile``, or ``None`` when it names none.
     """
     return requested or default_profile or DEFAULT_ROBOTO_PROFILE_NAME
 
 
 class RobotoConfig(pydantic.BaseModel):
-    """
-    RobotoConfig captures an ``api_key`` and ``endpoint`` required to programmatically
-    interact with Roboto. Multiple profiles can be configured if desired.
+    """Settings for making requests to Roboto: an access token, the API endpoint, an HTTP timeout and a cache directory.
+
+    Each profile in the Roboto config file holds these fields. ``from_env`` builds a config from the environment or
+    from one of those profiles, and :py:meth:`~roboto.http.RobotoClient.from_config` builds a client from it.
     """
 
     api_key: str
+    """Access token to authenticate requests with, such as a personal access token beginning with ``robo_pat_``."""
+
     cache_dir: typing.Optional[pathlib.Path] = None
+    """Cache directory the ``roboto cache`` commands report on and clear.
+
+    ``None`` uses the directory ``resolve_cache_dir`` returns.
+    """
+
     default_http_timeout: Timeout = NotSet
+    """Seconds to wait for each HTTP request to Roboto before giving up.
+
+    ``None`` waits indefinitely, and ``NotSet`` uses the client's default of 30 seconds.
+    """
+
     endpoint: str = ROBOTO_API_ENDPOINT
+    """URL of the Roboto API to send requests to."""
 
     org_id: typing.Optional[str] = None
     """Organization to act in when the caller names none and ``ROBOTO_ORG_ID`` is unset.
-    The CLI and :py:meth:`~roboto.roboto_search.RobotoSearch.from_env` read it.
-    Only a member of several organizations needs it. ``roboto setup`` saves it to the config file profile;
-    a config built from ``ROBOTO_API_KEY`` or ``ROBOTO_BEARER_TOKEN`` has none."""
+
+    The CLI and :py:meth:`~roboto.roboto_search.RobotoSearch.from_env` read it. Only a member of several organizations
+    needs it. ``roboto setup`` saves it to the config file profile; a config built from ``ROBOTO_API_KEY`` or
+    ``ROBOTO_BEARER_TOKEN`` has none.
+    """
 
     @classmethod
     def from_env(
@@ -113,19 +151,30 @@ class RobotoConfig(pydantic.BaseModel):
         """Build a config from the access token in the environment, or else from a profile in the Roboto config file.
 
         A token in ``ROBOTO_API_KEY`` or ``ROBOTO_BEARER_TOKEN`` takes precedence, and is sent to the endpoint in
-        ``ROBOTO_SERVICE_ENDPOINT``, or to ``https://api.roboto.ai`` when that is unset. Without a token, the config
-        comes from the file at ``ROBOTO_CONFIG_FILE``, or ``~/.roboto/config.json`` when that is unset. Either way,
-        ``ROBOTO_CACHE_DIR`` and ``ROBOTO_DEFAULT_HTTP_TIMEOUT``, when set, override the profile's ``cache_dir`` and
-        ``default_http_timeout``.
+        ``ROBOTO_SERVICE_ENDPOINT``, or to ``https://api.roboto.ai`` when that is unset; the config file is then not
+        read. Without a token, the config comes from a profile in the file at ``ROBOTO_CONFIG_FILE``, or
+        ``~/.roboto/config.json`` when that is unset. In both cases, ``ROBOTO_CACHE_DIR`` and
+        ``ROBOTO_DEFAULT_HTTP_TIMEOUT``, when set, supply ``cache_dir`` and ``default_http_timeout`` over any value in
+        the profile.
 
         Args:
             profile_override: Config file profile to read, ahead of ``ROBOTO_PROFILE`` and the file's default profile.
-            env: Roboto environment variables to read. Defaults to the process's own, through ``RobotoEnv.default()``.
+                Ignored when the environment holds a token.
+            env: Roboto environment variables to read. Defaults to the process's own, through
+                :py:meth:`~roboto.env.RobotoEnv.default`.
 
         Raises:
-            FileNotFoundError: No access token is set and the config file doesn't exist.
-            OSError: The config file exists but can't be read.
-            ValueError: The config file isn't a JSON object, or has no usable profile by the chosen name.
+            FileNotFoundError: No access token is set and the config file does not exist.
+            OSError: The config file exists but cannot be read.
+            ValueError: The config file is not a JSON object, holds no valid profile, or has no profile by the chosen
+                name.
+
+        Examples:
+            Make requests to Roboto with the config file's ``prod`` profile:
+
+            >>> from roboto.http import RobotoClient
+            >>> config = RobotoConfig.from_env(profile_override="prod")
+            >>> roboto_client = RobotoClient.from_config(config)
         """
         if env is None:
             env = RobotoEnv.default()
@@ -163,13 +212,13 @@ class RobotoConfig(pydantic.BaseModel):
         default_profile: typing.Optional[str] = None
         profiles: dict[str, RobotoConfig] = {}
 
-        # First try to interpret it as a V1 new-style config file
+        # A file that fails validation as a v1 file is read in the earlier format, a JSON object mapping each profile
+        # name to a profile. Entries of that object that are not valid profiles in that format are skipped.
         try:
             model = RobotoConfigFileV1.model_validate(config_file_dict)
             profiles = model.profiles
             default_profile = model.default_profile
 
-        # If that doesn't work, interpret the config file as a list of profiles (V0 format)
         except pydantic.ValidationError:
             for config_profile_name, config_profile in config_file_dict.items():
                 if type(config_profile) is dict:
@@ -198,6 +247,11 @@ class RobotoConfig(pydantic.BaseModel):
         return profiles[profile_name].model_copy(update=overrides)
 
     def get_cache_dir(self) -> pathlib.Path:
+        """Return the cache directory the ``roboto cache`` commands report on and clear.
+
+        When ``cache_dir`` is ``None``, this sets it to the directory ``resolve_cache_dir`` returns, creating that
+        directory when it is the operating system's per-user cache directory.
+        """
         if self.cache_dir is None:
             self.cache_dir = resolve_cache_dir(RobotoEnv.default(), ensure_exists=True)
 
@@ -205,24 +259,50 @@ class RobotoConfig(pydantic.BaseModel):
 
 
 class RobotoConfigFileProfileV0(pydantic.BaseModel):
-    """V0 Roboto configuration file"""
+    """Profile in a Roboto config file of the earlier format, which maps each profile name directly to a profile.
+
+    ``RobotoConfig.from_env`` reads a file in this format when it is not a valid ``RobotoConfigFileV1``. Such a file
+    names no default profile, so the profile named ``default`` is used when neither the caller nor ``ROBOTO_PROFILE``
+    names one.
+    """
 
     token: str
+    """Access token to authenticate requests with."""
+
     default_endpoint: str = ROBOTO_API_ENDPOINT
+    """URL of the Roboto API to send requests to."""
 
     def to_config(self) -> RobotoConfig:
+        """Return this profile as a ``RobotoConfig``, with ``token`` as its ``api_key``."""
         return RobotoConfig(api_key=self.token, endpoint=self.default_endpoint)
 
 
 class RobotoConfigFileV1(pydantic.BaseModel):
-    """V1 Roboto configuration file"""
+    """Contents of a Roboto config file in the ``v1`` format, which lists its profiles under ``profiles``.
+
+    ``RobotoConfig.from_env`` reads a file in this format, and ``roboto auth login`` and ``roboto setup`` write one.
+    Building it raises ``pydantic.ValidationError`` when:
+
+    - ``version`` is not ``"v1"``.
+    - ``profiles`` is empty.
+    - ``profiles`` has no profile by the name ``default_profile`` gives.
+    """
 
     version: typing.Literal["v1"]
+    """Format of the config file, always ``"v1"``."""
+
     profiles: dict[str, RobotoConfig]
+    """Profiles keyed by name, each holding the settings for one access token and endpoint."""
+
     default_profile: typing.Optional[str] = DEFAULT_ROBOTO_PROFILE_NAME
+    """Name of the profile to use when neither the caller nor ``ROBOTO_PROFILE`` names one.
+
+    ``None`` uses the profile named ``default``.
+    """
 
     @pydantic.model_validator(mode="after")
     def validate(self):
+        """Reject a config file with no profiles, or whose default profile is not among them."""
         if len(self.profiles) == 0:
             raise ValueError("No profiles found in config file.")
 

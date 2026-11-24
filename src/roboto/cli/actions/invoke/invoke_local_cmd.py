@@ -4,8 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Local action invocation command."""
-
 import argparse
 import os
 import pathlib
@@ -47,47 +45,53 @@ SECTION_TEMPLATE = f"{'#' * 10} {{SECTION_NAME}} {'#' * 10}"
 
 
 def invoke_local(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
-    """Invoke an action locally using Docker.
+    """Run an action on this machine in a Docker container, and print the setup steps and the container's output.
 
-    Supports four scenarios:
-    1. No args: Use current directory as action root
-    2. Path arg: Use specified path as action root
-    3. Action name: Fetch from platform, use temp workspace
-    4. Action name + --workspace-dir: Fetch from platform, use specified workspace
+    The ``action_or_path`` argument and ``--workspace-dir`` decide which action runs and in which workspace
+    directory:
+
+    1. Omitted: the action that the nearest ``action.json`` in the current directory or its parents defines, run in
+       ``.workspace`` under that directory.
+    2. A path: the action that ``action.json`` in that directory defines, run in ``.workspace`` under it.
+    3. An action reference: the action fetched from Roboto, run in a temporary directory that is deleted after the run.
+    4. An action reference with ``--workspace-dir``: the action fetched from Roboto, run in that directory, which is
+       kept after the run.
+
+    Each run first empties the workspace directory.
+
+    An invalid input specification, such as ``--file-path`` without ``--dataset``, exits with status 2 after
+    ``parser.error`` prints the usage text and the reason to stderr. Ctrl-C while the action runs stops the container,
+    killing it if it has not stopped within 5 seconds, and the command then ends normally after the same cleanup as a
+    finished run.
+
+    Raises:
+        ActionRuntimeException: No ``action.json`` is found for a local action.
+        ValueError: A ``--parameter`` names a parameter the action does not define.
     """
     print(SECTION_TEMPLATE.format(SECTION_NAME="setup"))
 
-    # 1. Validate input specification
     validate_input_specification(args, parser)
 
-    # 2. Resolve action source (local path or platform action)
     action_or_path = getattr(args, "action_or_path", None)
     action_source = resolve_action_source(action_or_path, args, context)
 
-    # Warn if workspace_dir is provided for local action
     if action_source.is_local and args.workspace_dir is not None:
         print(
             "Warning: --workspace-dir is ignored for local actions. "
             "It is only applicable when invoking actions fetched from the platform."
         )
 
-    # 3. Resolve workspace directory
     workdir, is_temp_workdir = resolve_workspace(action_source, args.workspace_dir)
 
-    # 4. Setup workspace
     workspace = Workspace.setup_within(workdir)
 
-    # 5. Resolve organization
     org_id = resolve_organization(args.org, context.roboto_client)
 
-    # 6. Validate parameters
     provided_params = getattr(args, "params", {})
     validate_parameters(action_source.action_params, provided_params)
 
-    # 7. Parse input specification
     invocation_input = parse_input_spec(args)
 
-    # 8. Prepare invocation environment
     prepare_invocation_parameters(
         action_parameters=action_source.action_params,
         provided_parameter_values=provided_params,
@@ -102,8 +106,8 @@ def invoke_local(args: argparse.Namespace, context: CLIContext, parser: argparse
     prepare_invocation_input_data(
         requires_downloaded_inputs=action_source.requires_downloaded_inputs,
         input_data=invocation_input,
-        # If downloading input data, download to persistent cache dir
-        # then hardlink from cache dir into workspace
+        # Downloaded files go to the Roboto cache directory, which outlives the emptied workspace, so a later run skips
+        # files already saved there; each is then hard-linked into the workspace's input directory.
         target_directory=workspace.input_dir,
         download_directory=cache_download_path,
         inputs_data_manifest_file=workspace.input_data_manifest_file,
@@ -115,7 +119,6 @@ def invoke_local(args: argparse.Namespace, context: CLIContext, parser: argparse
         dataset_metadata_changeset_path=workspace.dataset_metadata_changeset_file,
     )
 
-    # 9. Run action
     dataset_id = getattr(args, "dataset_id", None) or actions.InvocationDataSource.unspecified().data_source_id
 
     runner = DockerActionRunner(
@@ -135,9 +138,6 @@ def invoke_local(args: argparse.Namespace, context: CLIContext, parser: argparse
 
 
 def invoke_local_parser(parser: argparse.ArgumentParser) -> None:
-    """Setup parser for local invocation command."""
-
-    # Local directory path or action reference
     parser.add_argument(
         "action_or_path",
         nargs="?",
@@ -156,12 +156,11 @@ def invoke_local_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
-    # Arguments shared with platform-based invocation
+    # Shared with `roboto actions invoke`.
     add_org_arg(parser)
     add_input_specification_args(parser)
     add_parameter_args(parser)
 
-    # Misc
     parser.add_argument(
         "--workspace-dir",
         type=pathlib.Path,

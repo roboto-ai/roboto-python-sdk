@@ -4,23 +4,15 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Request and response models for an org's ingestion rules, which decide which uploaded files are ingested
-and with which action.
+"""Ingestion rules: path patterns that mark an organization's files ingestable, and the action that ingests them.
 
-A rule has path patterns and the action that ingests matching files. A file whose path a rule matches when it
-is uploaded is ingestable, and while the rule's ``auto_ingest`` is on, Roboto runs that action on it. There is
-no client class yet: call the ``/v1/ingestion-rules`` endpoints with :py:class:`~roboto.http.RobotoClient`.
-
-Examples:
-    List the org's rules:
-
-    >>> from roboto.experimental.ingestion_rules import IngestionRuleRecord
-    >>> from roboto.http import RobotoClient
-    >>> rules = (
-    ...     RobotoClient.defaulted()
-    ...     .get("v1/ingestion-rules")
-    ...     .to_record_list(IngestionRuleRecord, json_path=["data", "items"])
-    ... )
+While a rule's ``auto_ingest`` is on, Roboto runs the rule's action on each upload of a file the rule matches.
+``IngestionRuleRecord`` holds a rule; ``CreateIngestionRuleRequest`` and ``UpdateIngestionRuleRequest`` create and
+update one, ``IngestFilesRequest`` ingests files already uploaded, and ``IngestionPathRule`` tests a path against a
+rule's patterns without a request to Roboto. Send the models to the routes under ``/v1/ingestion-rules`` with
+:py:class:`~roboto.http.RobotoClient`: for example,
+``RobotoClient.defaulted().get("v1/ingestion-rules").to_record_list(IngestionRuleRecord, json_path=["data", "items"])``
+lists the organization's rules. No SDK method sends or returns these models.
 """
 
 from ..ingestion_runs import IngestionRun, IngestionRunStatus

@@ -59,29 +59,26 @@ from .record import (
 )
 
 OnEvent = collections.abc.Callable[[AgentEvent], None]
+"""Function that handles one :py:const:`~roboto.ai.agent_thread.AgentEvent`, and returns nothing.
 
-# Backend-injected input-schema metadata, not real tool arguments. Kept on the
-# wire (the web UI and the server's compression engine read it), but filtered
-# out before a client-tool callback is invoked.
+Type of the ``on_event`` argument of :py:meth:`~roboto.ai.agent_thread.AgentThread.run`.
+"""
+
+# Fields Roboto adds to every tool's input schema, which the AI fills in with its reason for the call. They are not
+# the tool's arguments: they stay in the thread's messages, but a client tool's function never receives them.
 _BACKEND_INJECTED_INPUT_FIELDS = frozenset({"_compression_intent"})
 
 
 class RobotoAgentGoalsFailedException(RuntimeError):
-    """Raised by :meth:`AgentThread.run` when a goal-bearing turn exhausts
-    its corrective re-prompt budget without satisfying every declared goal.
+    """The AI used up its retries for a turn without achieving every goal declared for it.
 
-    Inherits :class:`RuntimeError` rather than ``RobotoException`` because this
-    is a strictly client-side condition — the session is paused, not errored
-    on the wire — and the project's ``Roboto*Exception`` hierarchy is reserved
-    for exceptions cast from HTTP status codes by the SDK's response layer.
-    The typed shape still lets callers distinguish "the agent gave up on
-    declared goals" from "I have a bug in my client state machine," which is
-    what motivated lifting it out of the opaque ``RuntimeError`` ``run()``
-    used to raise on unexpected statuses.
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.run` raises it when the thread reaches
+    :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.GOALS_FAILED`. The thread needs a person to act before it can
+    continue; its :py:attr:`~roboto.ai.agent_thread.AgentThread.goals` and ``messages`` show which goals failed and
+    why.
 
-    The session is in :attr:`AgentThreadStatus.GOALS_FAILED`; inspect
-    :attr:`AgentThread.messages` and :attr:`AgentThreadRecord.goals` for
-    detail about which goals failed and why.
+    It subclasses ``RuntimeError``, not a Roboto exception, because the SDK raises it from the thread's status rather
+    than from an error response from Roboto.
     """
 
     def __init__(self, thread_id: str) -> None:
@@ -91,37 +88,31 @@ class RobotoAgentGoalsFailedException(RuntimeError):
             "intervention before it can continue."
         )
         self.thread_id = thread_id
+        """ID of the thread whose goals failed."""
 
 
 class AgentThread:
-    """An interactive AI agent session within the Roboto platform.
+    """A thread: a persistent, multi-turn conversation with Roboto's AI.
 
-    An AgentThread is a conversational interface with Roboto's AI assistant,
-    enabling users to ask questions, request data analysis, and interact with
-    their robotics data through natural language. Sessions maintain conversation
-    history and support streaming responses for real-time interaction.
+    Get an ``AgentThread`` from ``start``, ``from_id``, ``fork`` or :py:meth:`~roboto.ai.agent.Agent.launch`. To wrap an
+    :py:class:`~roboto.ai.agent_thread.AgentThreadRecord` already fetched from Roboto, build an ``AgentThread`` from it
+    directly. Each instance holds a copy of the thread's record, which ``refresh``, ``events`` and ``run`` bring up to
+    date.
 
-    The primary control-flow primitives are :py:meth:`run` (drive the session
-    forward with auto-dispatch of client-side tools) and :py:meth:`events`
-    (observe events as the agent generates without taking any actions).
+    Each message you send starts a turn, in which the AI replies. ``events`` yields the AI's reply as it writes it, and
+    returns when the turn needs your code: for your next message, or for the results of client tools, which are tools
+    your code runs when the AI calls them. ``run`` also runs those tools, with the functions registered on this
+    instance, and returns when it is your turn to send a message.
 
-    Examples:
-        Fire-and-forget with client-side tools:
-
-        >>> from roboto.ai import AgentThread, client_tool
-        >>> @client_tool
-        ... def remember(fact: str) -> str:
-        ...     \"\"\"Store a fact in long-term memory.\"\"\"
-        ...     ...
-        >>> session = AgentThread.start("Remember my favorite color is blue.", client_tools=[remember])
-        >>> session.run()
-
-        Observing events as they happen:
-
-        >>> session = AgentThread.start("Explain machine learning.")
-        >>> for event in session.events():
-        ...     if isinstance(event, AgentTextDeltaEvent):
-        ...         print(event.text, end="", flush=True)
+    Args:
+        record: Record of the thread.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
+        client_tools: Client tools to register on this instance, without sending them to Roboto. ``run`` calls the
+            function of each :py:class:`~roboto.ai.agent_thread.ClientTool` when the AI calls it. A
+            :py:class:`~roboto.ai.agent_thread.ClientToolSpec` has no function, so ``run`` answers calls to it with an
+            error result; submit its results yourself with ``submit_client_tool_results`` after ``events`` returns.
+            ``None`` registers none.
     """
 
     @classmethod
@@ -131,38 +122,35 @@ class AgentThread:
         roboto_client: Optional[RobotoClient] = None,
         load_messages: bool = True,
     ) -> AgentThread:
-        """Retrieve an existing agent thread by its unique identifier.
+        """Fetch a thread by its ID.
 
-        Loads a previously created thread from the Roboto platform, allowing
-        users to resume conversations and access message history.
+        Fetches the messages of a long thread in several requests, and returns once it holds them all.
 
         Args:
-            thread_id: Unique identifier for the thread. Accepts current
-                ``ath_*`` identifiers as well as legacy ``ags_*`` and ``ch_*``
-                identifiers.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-            load_messages: Whether to load the thread's messages. If False, the
-                thread's messages will be empty.
-
-        Returns:
-            AgentThread instance representing the existing thread.
+            thread_id: ID of the thread, which begins with ``ath_``. Some older threads have IDs beginning with
+                ``ags_`` or ``ch_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
+            load_messages: Whether to fetch the thread's messages. When ``False``, ``messages`` is empty until the
+                next ``refresh``, ``events`` or ``run``, which fetches every message.
 
         Raises:
-            RobotoNotFoundException: If the thread does not exist.
-            RobotoUnauthorizedException: If the caller lacks permission to access the thread.
+            RobotoNotFoundException: No thread has this ID.
 
         Examples:
-            Resume an existing thread:
+            Fetch a thread to continue the conversation:
 
-            >>> thread = AgentThread.from_id("ath_abc123")
-            >>> print(f"Thread has {len(thread.messages)} messages")
-            Thread has 5 messages
+            >>> thread = AgentThread.from_id("ath_12345")
+            >>> print(len(thread.messages))
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        query_params = {"load_messages": load_messages}
+        query_params = {"load_messages": load_messages, "paged": True}
         record = roboto_client.get(f"v1/ai/threads/{thread_id}", query=query_params).to_record(AgentThreadRecord)
 
-        return cls(record=record, roboto_client=roboto_client)
+        thread = cls(record=record, roboto_client=roboto_client)
+        if record.has_more:
+            thread.refresh()
+        return thread
 
     @classmethod
     def start(
@@ -180,91 +168,68 @@ class AgentThread:
         available_skills: Optional[collections.abc.Sequence[AvailableSkillSpec]] = None,
         roboto_client: Optional[RobotoClient] = None,
     ) -> AgentThread:
-        """Start a new agent session with an initial message.
+        """Create a thread and start the AI's first turn in it.
 
-        Creates a new session and sends the initial message to begin the
-        conversation. The AI assistant will process the message and generate a
-        response, which can be driven to completion with :py:meth:`run` or
-        observed event-by-event with :py:meth:`events`.
+        The AI starts replying as soon as the thread exists; follow its reply with ``run`` or ``events``. The thread
+        needs at least one of ``message``, ``goals`` and ``invoke_skills``. It is
+        :py:attr:`~roboto.ai.agent_thread.ThreadVisibility.PRIVATE`; share it with ``set_visibility``.
 
         Args:
-            message: Initial message to start the conversation. Can be a text
-                string, a single AgentMessage, or a sequence of AgentMessage
-                objects for multi-turn initialization. Optional when at least
-                one entry is provided in ``goals`` or ``invoke_skills``; in
-                those cases the server synthesizes a minimal user message —
-                implicitly "achieve the goals" or "apply the invoked skills"
-                — and the agent will work the turn from there.
-            client_context: Optional :class:`ClientViewingContext` describing
-                what the calling client (e.g. the Web UI) is currently
-                displaying when this session is started. Lets the agent
-                resolve deictic references like "this dataset" without the
-                user spelling them out. Informational only; does not gate
-                authorization or scope tools — see ``analysis_scope`` for
-                that.
-            system_prompt: Optional system prompt to customize the AI assistant's
-                behavior for this conversation.
-            model_profile: Optional model profile ID (e.g. "standard",
-                "advanced"). Defaults to the deployment's default profile.
-            org_id: Organization ID to create the session in. If None, uses the
-                caller's default organization.
-            client_tools: Optional list of client-side tools to make available
-                to the agent. Accepts :class:`ClientTool` instances (which
-                include a callback for auto-dispatch) and bare
-                :class:`ClientToolSpec` objects (which describe the tool but
-                require the caller to submit results manually).
-            analysis_scope: Optional :class:`AnalysisScope` for the session
-                (e.g. a time window or topic-pattern filter). When provided,
-                the scope is persisted on the session and delivered to every
-                tool invocation on the server side. Individual tools opt in
-                to honoring the scope as they are adopted.
-            goals: Optional structured goals to declare for the first turn.
-                When provided, ``message`` may be omitted; the server will
-                synthesize a minimal user message and the agent runner will
-                enforce achievement of every declared goal before completing
-                the turn.
-            invoke_skills: Optional sequence of :class:`InvokeSkillSpec` to
-                invoke one or more stored skills at session start, in order.
-                For each entry the server fabricates a ``load_skill``
-                tool_use/tool_result pair after any seeded ``message``; with no
-                ``message`` and no ``goals``, the fabricated pairs alone seed
-                the conversation. Each skill must be visible to the caller (org
-                skill or own private skill); the version must exist on the
-                skill but is not required to be the latest one. Latest
-                (MAX(version)) is used when ``version`` is omitted on an entry.
-            available_skills: Optional explicit set of skills the AI may
-                auto-invoke during this session, replacing the registry it
-                would otherwise derive from the caller's skill subscriptions.
-                ``None`` (the default) keeps the subscription-derived behavior;
-                an empty list gives the AI no auto-invokable skills; a non-empty
-                list of :class:`AvailableSkillSpec` makes exactly those skill
-                versions auto-invokable and ignores subscriptions and per-user
-                ``ai_version`` pins. Each entry may reference any org skill or
-                the caller's own private skill (visibility only — no
-                subscription needed), at any version. This is session
-                configuration, not a turn trigger: it does not by itself
-                satisfy the "needs a message, goal, or invoked skill"
-                requirement. Distinct from ``invoke_skills``, which seeds skill
-                bodies into the opening transcript.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            message: Message or messages to start the thread with. A string becomes a user message. A sequence of
+                :py:class:`~roboto.ai.agent_thread.AgentMessage` objects may include assistant messages, to start from
+                an earlier conversation. ``None`` is allowed when ``goals`` or ``invoke_skills`` is set; when no user
+                message contains text, Roboto puts a short user message first that asks the AI to meet the goals or
+                apply the skills.
+            client_context: What the caller has open in their client as the thread starts, such as datasets or files.
+                Lets the AI resolve references like "this dataset". It does not limit what the AI's tools can reach.
+                ``None`` sends none.
+            system_prompt: Instructions Roboto adds to the AI's system prompt for the thread. ``None`` adds none.
+            model_profile: ID of the model profile to run the thread with, such as ``"standard"`` or ``"advanced"``.
+                ``None`` uses Roboto's default profile.
+            org_id: Organization to create the thread in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            client_tools: Client tools the AI may call in the thread, registered on the returned instance as the
+                class's ``client_tools`` argument describes. ``None`` offers none.
+            analysis_scope: Analysis scope for the thread. Roboto passes the scope to each tool the AI calls, and each
+                tool decides whether to apply it. ``None`` sets no scope.
+            goals: Goals the AI must meet in the first turn, at most 5
+                (:py:const:`~roboto.ai.agent_thread.record.MAX_GOALS_PER_TURN`). Roboto prompts the AI again until it
+                meets every goal or runs out of retries, which leaves the thread in
+                :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.GOALS_FAILED`. ``None`` declares none.
+            invoke_skills: Skills to apply in the first turn, in order. Roboto adds each skill's procedure to the
+                transcript after ``message``, as a call to the AI's skill-loading tool and its result. ``None`` applies
+                none.
+            available_skills: Skills the AI may apply on its own during the thread, at most 100, one per skill, in
+                place of the ones the caller subscribes to. ``None`` lets the AI apply the skills the caller subscribes
+                to, at the versions the caller pinned; an empty list lets it apply none. Unlike ``invoke_skills``, it
+                applies no skill and starts no turn, so setting it alone does not meet the need for ``message``,
+                ``goals`` or ``invoke_skills``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            AgentThread instance representing the newly created session.
+            The new thread.
 
         Raises:
-            RobotoInvalidRequestException: If the message format is invalid.
-            RobotoUnauthorizedException: If the caller lacks permission to create sessions.
+            ValueError: None of ``message``, ``goals`` and ``invoke_skills`` is set, or a message's role is neither
+                ``USER`` nor ``ASSISTANT``.
+            pydantic.ValidationError: The arguments break a rule of
+                :py:class:`~roboto.ai.agent_thread.StartAgentThreadRequest`, such as more than 5 goals.
+            RobotoNotFoundException: A skill in ``invoke_skills`` or ``available_skills`` does not exist, the caller
+                cannot see it, or it has no version with the number given.
+            RobotoUnauthorizedException: A skill in ``invoke_skills`` is one the caller neither wrote nor subscribes
+                to.
 
         Examples:
-            Start and drive a session with client-side tools:
+            Start a thread with a client tool, and run it until it is your turn:
 
             >>> from roboto.ai import client_tool
             >>> @client_tool
-            ... def recall(query: str) -> str:
+            ... def client_recall(query: str) -> str:
             ...     \"\"\"Search long-term memory for facts matching a query.\"\"\"
             ...     ...
-            >>> session = AgentThread.start("What do you remember?", client_tools=[recall])
-            >>> session.run()
+            >>> thread = AgentThread.start("What do you remember?", client_tools=[client_recall])
+            >>> thread.run()
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -280,11 +245,7 @@ class AgentThread:
         if not messages and not goals and not invoke_skills:
             raise ValueError("AgentThread.start requires at least one of 'message', 'goals', or 'invoke_skills'.")
 
-        # A conversation starts with user input (optionally preceded by a
-        # seeded ASSISTANT transcript). ROBOTO and SYSTEM are produced by the
-        # server, never passed in — reject them up front so callers get a
-        # clear client-side error instead of an opaque server rejection or a
-        # session that silently misbehaves.
+        # Roboto writes every ROBOTO message itself, so reject one here with an error that says so.
         for m in messages:
             if m.role not in (AgentRole.USER, AgentRole.ASSISTANT):
                 raise ValueError(
@@ -321,119 +282,76 @@ class AgentThread:
         roboto_client: Optional[RobotoClient] = None,
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
     ):
-        """Initialize an AgentThread with an underlying record.
-
-        Note:
-            This constructor is intended for internal use. Prefer
-            :py:meth:`AgentThread.start` or :py:meth:`AgentThread.from_id`.
-
-        Args:
-            record: AgentThreadRecord containing the session's persisted data.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-            client_tools: Pre-declared client tools. :class:`ClientTool` entries
-                are registered for auto-dispatch; :class:`ClientToolSpec` entries
-                are recorded as client-side (so the dispatcher doesn't mistake
-                them for server tools) but have no callback and require manual
-                submission via :py:meth:`submit_client_tool_results`.
-        """
-        # Every request about this thread passes caller_org_id=record.org_id: for a caller in several orgs,
-        # the service cannot tell which org is meant and refuses some thread routes when none is named.
+        # Every request about this thread passes caller_org_id=record.org_id, because Roboto refuses some thread
+        # requests that name no organization, or that name one other than the thread's.
         self.__record: AgentThreadRecord = record
         self.__roboto_client: RobotoClient = RobotoClient.defaulted(roboto_client)
-        # Tools with a registered callback — the set :py:meth:`run` will
-        # auto-dispatch.
+        # Tools with a function, which run calls.
         self.__client_tools: dict[str, ClientTool] = {}
-        # Every tool name the caller has declared as client-side, including
-        # ClientToolSpec entries with no callback. The dispatcher uses this
-        # set to distinguish client tools (which we answer) from server tools
-        # (which the server answers). Without this split, a mixed server+
-        # client tool turn where the server tool's result hasn't been mirrored
-        # into the ROBOTO message yet would race: we'd ship an error
-        # ClientToolResult for the server tool_use_id, then the server would
-        # post the real result, yielding two tool_results for the same id
-        # (which Bedrock rejects).
+        # Names of every tool declared client-side on this instance, with or without a function. run answers calls
+        # to these tools only; __dispatch_pending_client_tools says why.
         self.__declared_client_tool_names: set[str] = set()
-        # Tracks message indices for which we have emitted AgentStartTextEvent
-        # but not yet AgentTextEndEvent. In practice only one span is ever
-        # open at a time (the currently-generating assistant message), but
-        # modeling as a set keeps the bookkeeping correct if a future server
-        # behavior ever streams multiple messages concurrently. Must persist
-        # across events() polls so a message that is still GENERATING doesn't
-        # receive a premature End on one poll and a duplicate Start on the
-        # next when more text chunks arrive.
+        # Indexes of messages whose text span is open: events has yielded AgentStartTextEvent for them but not yet
+        # AgentTextEndEvent. Kept across events calls, so text a later poll brings for a message still generating
+        # continues its span instead of starting another.
         self.__open_text_idxs: set[int] = set()
-        # Cache for ``self.goals``. Keyed on the ``self.__record.goals`` object
-        # itself (compared with ``is``) so a ``refresh`` that installs a fresh
-        # goals list invalidates transparently while repeated reads against the
-        # same list reuse the wrappers. Holding the list rather than ``id(...)``
-        # is load-bearing: an id is only unique among live objects, and since
-        # the cache would not otherwise reference the list, a freed list's id
-        # could be reused by an unrelated object and yield a false hit. The key
-        # may also be ``None`` (the record's "goals not loaded" sentinel), which
-        # caches cleanly. The outer ``None`` means "not yet built".
+        # Cache for goals: the record's goals list and the views built over it. goals compares the stored list with
+        # the record's by identity (is), so a new list from Roboto rebuilds the views. Holding the list rather than
+        # its id() keeps the list alive, so its id cannot pass to a new object and match by accident. The list may
+        # be None, for a record without goals; the outer None means nothing is cached yet.
         self.__goals_cache: tuple[Optional[list[AgentThreadGoalRecord]], list[AgentThreadGoalView]] | None = None
         self.__register_tools(client_tools)
 
     @property
     def thread_id(self) -> str:
-        """Unique identifier for this thread."""
+        """Unique ID of the thread."""
         return self.__record.thread_id
 
     @property
     def latest_message(self) -> Optional[AgentMessage]:
-        """The most recent message in the conversation, or None if no messages exist."""
+        """Latest message in the thread, or ``None`` if this instance holds no messages."""
         if len(self.__record.messages) == 0:
             return None
         return self.__record.messages[-1]
 
     @property
     def messages(self) -> list[AgentMessage]:
-        """Complete list of messages in the conversation in chronological order."""
+        """Messages in the thread, oldest first.
+
+        :py:attr:`~roboto.ai.agent_thread.AgentThreadRecord.messages` says when it is empty.
+        """
         return self.__record.messages
 
     @property
     def status(self) -> AgentThreadStatus:
-        """Current status of the thread."""
+        """Status of the thread: whose turn it is, or why the thread stopped."""
         return self.__record.status
 
     @property
     def turn_notice(self) -> Optional[str]:
-        """A short note about the turn in progress, such as that its worker stopped and the turn is being retried.
+        """Short, human-readable note about the turn in progress.
 
-        ``None`` when there is nothing to report. Current as of the last :py:meth:`refresh` or event poll.
+        ``None`` when there is nothing to report. :py:attr:`~roboto.ai.agent_thread.AgentThreadRecord.turn_notice`
+        says what it reports and when Roboto sets it.
         """
         return self.__record.turn_notice
 
     @property
     def visibility(self) -> ThreadVisibility:
-        """Who can read this thread, its creator only (``PRIVATE``) or anyone in its org (``ORG``)."""
+        """Visibility of the thread: who can read it."""
         return self.__record.visibility
 
     @property
     def goals(self) -> list[AgentThreadGoalView]:
-        """Goals declared across this thread's turns, oldest first.
+        """Goals declared across the thread's turns, ordered by the turn that declared them.
 
-        Each entry is an :class:`AgentThreadGoalView` SDK wrapper that delegates
-        the goal-record fields and adds three resolved properties:
+        Each is an :py:class:`~roboto.ai.agent_thread.AgentThreadGoalView`, which adds to the goal's record the tool use
+        in which the AI submitted the goal's result (``achieve_tool_use``), that tool use's result
+        (``achieve_tool_result``), and the goal's parsed result (``result``). Empty when the thread declared no goals,
+        or when this instance's record was returned without its goals.
 
-        - :attr:`AgentThreadGoalView.achieve_tool_use` — the LLM's achieve-tool
-          invocation, located by ``achieve_tool_use_id``.
-        - :attr:`AgentThreadGoalView.achieve_tool_result` — the matching tool
-          result block, if one was persisted.
-        - :attr:`AgentThreadGoalView.result` — the typed, per-goal-type
-          :data:`GoalResult` (with the LLM's submitted payload parsed into
-          typed fields).
-
-        Returns an empty list when the thread declared no goals or when
-        the underlying record was fetched without loading them — call
-        :meth:`refresh` if you expect goals to be present but the list is
-        empty.
-
-        Wrappers are cached against the underlying goals-list identity:
-        repeated reads return the same list (and the same per-goal wrappers)
-        until a ``refresh`` installs a fresh goals list, at which point the
-        cache is invalidated transparently. Callers may rely on identity
-        comparison across reads against the same snapshot.
+        Repeated reads return the same list and the same views until this instance receives a new list of goals from
+        Roboto.
         """
         goals_list = self.__record.goals
         cached = self.__goals_cache
@@ -445,79 +363,85 @@ class AgentThread:
 
     @property
     def tasks(self) -> list[AgentTask]:
-        """The thread's task list, ordered by position.
+        """Task list of the thread, ordered by :py:attr:`~roboto.ai.agent_thread.AgentTask.position`.
 
-        Returns an empty list when the thread has no tasks or when the
-        underlying record was fetched without loading them — call
-        :meth:`refresh` if you expect tasks but the list is empty.
+        Empty when the thread has no tasks, or when this instance's record was returned without its tasks.
         """
         return list(self.__record.tasks or [])
 
     @property
     def client_tool_names(self) -> list[str]:
-        """Names of client-side tools registered on this session with callbacks."""
+        """Names of the client tools registered on this instance with a function."""
         return list(self.__client_tools.keys())
 
     @property
     def transcript(self) -> str:
-        """Human-readable transcript of the entire conversation.
-
-        Returns a formatted string containing all messages in the conversation,
-        with role indicators and message content clearly separated.
-        """
+        """Text of the conversation: a line with the thread's ID, then each message under a line naming its role."""
         return f"=== {self.__record.thread_id} ===\n" + "\n".join(str(message) for message in self.messages)
 
     def register_client_tool(self, tool: ClientTool) -> AgentThread:
-        """Register a client-side tool for auto-dispatch in subsequent turns.
+        """Register a client tool's function on this instance, for ``run`` to call when the AI calls the tool.
 
-        The tool's spec is not sent to the backend by this call; pass it via
-        the ``client_tools=`` argument on :py:meth:`send`,
-        :py:meth:`send_text`, or :py:meth:`submit_client_tool_results` on the
-        next outbound request.
+        This call does not send the tool to Roboto, so the AI cannot call it yet. Pass it in ``client_tools`` to the
+        next ``send``, ``send_text`` or ``submit_client_tool_results``.
 
         Args:
-            tool: The ClientTool to register.
+            tool: Client tool to register. It replaces a tool registered under the same name.
 
         Returns:
-            Self for method chaining.
+            This instance, with ``tool``'s function registered.
+
+        Examples:
+            Register a client tool and offer it to the AI with the next message:
+
+            >>> from roboto.ai import client_tool
+            >>> @client_tool
+            ... def client_remember(fact: str) -> str:
+            ...     \"\"\"Store a fact in long-term memory.\"\"\"
+            ...     ...
+            >>> thread.register_client_tool(client_remember)
+            >>> thread.send_text("Remember that the test rig is in bay 3.", client_tools=[client_remember])
+            >>> thread.run()
         """
         self.__client_tools[tool.name] = tool
         self.__declared_client_tool_names.add(tool.name)
         return self
 
     def unregister_client_tool(self, name: str) -> bool:
-        """Remove a previously registered client-tool callback.
+        """Remove a client tool's function from this instance.
 
-        This only removes the local callback. The backend was told about the
-        tool in :class:`StartAgentThreadRequest` ``client_tools`` (or via a
-        later :py:meth:`send`) and may still emit ``tool_use`` events for it;
-        once the callback is gone, :py:meth:`run` will submit an error result
-        for those invocations so the agent can recover. There is no
-        server-side deregistration API.
-
-        The tool name remains recorded as a declared client tool on this
-        session, so the dispatcher still treats it as client-side (and not as
-        a server tool whose result the server will post).
+        Roboto keeps offering the tool to the AI until a request replaces the thread's client tools. The tool still
+        counts as a client tool on this instance, so ``run`` answers later calls to it with an error result, which the
+        AI can recover from.
 
         Args:
-            name: Name of the client tool to unregister.
+            name: Name of the client tool.
 
         Returns:
-            ``True`` if a callback was removed, ``False`` if no callback was
-            registered under ``name``.
+            ``True`` if a function was removed, ``False`` if none was registered under ``name``.
+
+        Examples:
+            Stop running a client tool in this process:
+
+            >>> thread.unregister_client_tool("client_remember")
         """
         return self.__client_tools.pop(name, None) is not None
 
     def refresh(self) -> AgentThread:
-        """Update the session with the latest messages and status.
-
-        Fetches any new messages or status changes from the server and updates
-        the local session state.
+        """Fetch the thread's changes since this instance last fetched them, and apply them to its record.
 
         Returns:
-            Self for method chaining.
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            Check whether the AI has finished its turn:
+
+            >>> thread.refresh()
+            >>> print(thread.status)
         """
-        self.__get_delta_and_update()
+        # A delta that reports has_more carries only the first of the changes; the next request fetches what follows.
+        while self.__get_delta_and_update().has_more:
+            pass
         return self
 
     def send(
@@ -530,43 +454,56 @@ class AgentThread:
         goals: Optional[collections.abc.Sequence[AgentGoal]] = None,
         invoke_skills: Optional[collections.abc.Sequence[InvokeSkillSpec]] = None,
     ) -> AgentThread:
-        """Send a structured message to the session.
+        """Send a message to the thread, starting the AI's next turn.
+
+        The thread needs at least one of ``message``, ``goals`` and ``invoke_skills``. This instance appends
+        ``message`` to ``messages`` at once; the next ``refresh``, ``events`` or ``run`` brings the AI's reply, and,
+        when ``message`` is ``None``, the message Roboto writes in its place.
 
         Args:
-            message: AgentMessage object containing the message content and
-                metadata. Optional when at least one entry is provided in
-                ``goals`` or ``invoke_skills``; in that case the server
-                synthesizes a minimal user message for the turn.
-            client_context: Optional :class:`ClientViewingContext` describing
-                what the calling client is currently viewing when this
-                message was composed. Informational only; see
-                :meth:`AgentThread.start` for full semantics.
-            client_tools: Optional client-side tools to add or update for this
-                and subsequent turns. ClientTool callbacks are registered on
-                the session for auto-dispatch.
-            analysis_scope: Optional replacement :class:`AnalysisScope`. When
-                provided, overwrites the session's current scope for all
-                subsequent tool invocations. When ``None``, the session's
-                existing scope (if any) is left untouched.
-            goals: Optional structured goals to declare for this turn. The
-                agent runner enforces achievement of every declared goal
-                before completing the turn.
-            invoke_skills: Optional sequence of :class:`InvokeSkillSpec` to
-                invoke one or more stored skills as part of this turn. For each
-                entry the server fabricates a ``load_skill``
-                tool_use/tool_result pair after ``message`` (if any). When
-                ``message`` and ``goals`` are both omitted, the fabricated
-                pairs alone trigger the turn. Latest (MAX(version)) is used
-                when ``version`` is omitted on an entry.
+            message: User message that starts the turn, containing only text. ``None`` is allowed when ``goals`` or
+                ``invoke_skills`` is set. With goals, Roboto writes a short user message that asks the AI to meet them;
+                with only skills, the skills start the turn.
+            client_context: What the caller had open in their client when they wrote the message, such as datasets or
+                files. Lets the AI resolve references like "this dataset". It does not limit what the AI's tools can
+                reach. ``None`` sends none.
+            client_tools: Client tools the AI may call from this turn on, registered on this instance as the class's
+                ``client_tools`` argument describes. A non-empty list replaces the thread's client tools; ``None`` or
+                an empty list leaves them unchanged.
+            analysis_scope: Analysis scope that replaces the thread's own, from this turn on. Roboto passes the scope
+                to each tool the AI calls, and each tool decides whether to apply it. ``None`` leaves the thread's
+                scope unchanged.
+            goals: Goals the AI must meet in this turn, at most 5
+                (:py:const:`~roboto.ai.agent_thread.record.MAX_GOALS_PER_TURN`). Roboto prompts the AI again until it
+                meets every goal or runs out of retries, which leaves the thread in
+                :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.GOALS_FAILED`. ``None`` declares none.
+            invoke_skills: Skills to apply in this turn, in order. Roboto adds each skill's procedure to the transcript
+                after ``message``, as a call to the AI's skill-loading tool and its result. Only the thread's creator
+                may set it, and only while the thread's status is
+                :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.USER_TURN`. ``None`` applies none.
 
         Returns:
-            Self for method chaining.
+            This instance, with ``message`` appended to ``messages``.
 
         Raises:
-            RobotoInvalidRequestException: If the message format is invalid.
-            RobotoUnauthorizedException: If the caller lacks permission to send messages.
-            RobotoThreadReadOnlyException: If the thread was started on another surface
-                (see :attr:`AgentThreadRecord.origin`). Fork it to keep going.
+            ValueError: None of ``message``, ``goals`` and ``invoke_skills`` is set.
+            pydantic.ValidationError: The arguments break a rule of
+                :py:class:`~roboto.ai.agent_thread.SendMessageRequest`, such as a ``message`` that is not a user
+                message made only of text.
+            RobotoThreadReadOnlyException: The thread's origin is a surface outside Roboto, such as Slack. ``fork`` it
+                to continue in Roboto.
+            RobotoInvalidRequestException: ``invoke_skills`` is set and the thread's status is not ``USER_TURN``.
+            RobotoUnauthorizedException: ``invoke_skills`` is set and the caller did not create the thread, or it
+                names a skill the caller neither wrote nor subscribes to.
+            RobotoNotFoundException: A skill in ``invoke_skills`` does not exist, the caller cannot see it, or it has
+                no version with the number given.
+
+        Examples:
+            Send a message and run the thread until it is your turn again:
+
+            >>> from roboto.ai.agent_thread import AgentMessage, AgentRole
+            >>> thread.send(AgentMessage.text(text="Which topics have GPS data?", role=AgentRole.USER))
+            >>> thread.run()
         """
         if message is None and not goals and not invoke_skills:
             raise ValueError("AgentThread.send requires at least one of 'message', 'goals', or 'invoke_skills'.")
@@ -588,10 +525,7 @@ class AgentThread:
         )
 
         self.__register_tools(client_tools)
-        # When ``message`` is None the server synthesizes the user message (or
-        # writes the skill_invocation directly); the SDK has no way to know
-        # what landed, so leave the local transcript untouched and rely on the
-        # next ``events`` poll to surface it.
+        # With no message, Roboto writes the turn's opening itself, and only the next delta shows what it wrote.
         if message is not None:
             self.__record.messages.append(message)
         return self
@@ -605,29 +539,32 @@ class AgentThread:
         analysis_scope: Optional[AnalysisScope] = None,
         goals: Optional[collections.abc.Sequence[AgentGoal]] = None,
     ) -> AgentThread:
-        """Send a text message to the session.
+        """Send a text message to the thread, starting the AI's next turn.
 
-        Convenience method for sending a simple text message without needing to
-        construct an :class:`AgentMessage`.
+        Builds a user message from ``text`` and calls ``send``, whose failures also apply.
 
         Args:
-            text: Text content to send to the assistant.
-            client_context: Optional :class:`ClientViewingContext` describing
-                what the calling client is currently viewing.
-            client_tools: Optional client-side tools to add or update.
-            analysis_scope: Optional replacement :class:`AnalysisScope`; see
-                :py:meth:`send` for update semantics.
-            goals: Optional goals to declare for this turn. See :py:meth:`send`
-                for full semantics.
+            text: Text of the message.
+            client_context: What the caller had open in their client when they wrote the message, such as datasets or
+                files. Lets the AI resolve references like "this dataset". ``None`` sends none.
+            client_tools: Client tools the AI may call from this turn on, registered on this instance as the class's
+                ``client_tools`` argument describes. A non-empty list replaces the thread's client tools; ``None`` or
+                an empty list leaves them unchanged.
+            analysis_scope: Analysis scope that replaces the thread's own, from this turn on. ``None`` leaves the
+                thread's scope unchanged.
+            goals: Goals the AI must meet in this turn, as for ``send``. ``None`` declares none.
 
         Returns:
-            Self for method chaining.
+            This instance, with the message appended to ``messages``.
 
-        Raises:
-            RobotoInvalidRequestException: If the text is empty or invalid.
-            RobotoUnauthorizedException: If the caller lacks permission to send messages.
-            RobotoThreadReadOnlyException: If the thread was started on another surface
-                (see :attr:`AgentThreadRecord.origin`). Fork it to keep going.
+        Examples:
+            Ask a question and print the AI's reply as it writes it:
+
+            >>> from roboto.ai.agent_thread import AgentTextDeltaEvent
+            >>> thread.send_text("Which topics have GPS data?")
+            >>> for event in thread.events():
+            ...     if isinstance(event, AgentTextDeltaEvent):
+            ...         print(event.text, end="", flush=True)
         """
         return self.send(
             AgentMessage.text(text=text, role=AgentRole.USER),
@@ -642,21 +579,44 @@ class AgentThread:
         results: collections.abc.Sequence[ClientToolResult],
         client_tools: Optional[collections.abc.Sequence[Union[ClientTool, ClientToolSpec]]] = None,
     ) -> AgentThread:
-        """Submit results of client-side tool execution to resume the session.
+        """Submit the results of client tool calls, starting the AI's next turn.
 
-        On success the server has persisted every submitted ``tool_result``
-        and queued a new worker turn; the local ``record.status`` flips to
-        ``ROBOTO_TURN`` to match. See the inline comment for why the next
-        delta poll cannot communicate that transition on its own.
+        Use it when ``events`` returns with the thread's status at
+        :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.CLIENT_TOOL_TURN`; ``run`` calls it for you. Once Roboto
+        accepts the results, this instance's ``status`` is ``ROBOTO_TURN``.
 
         Args:
-            results: Tool results from client-side execution.
-            client_tools: Optional updated client-side tools for the next
-                invocation. ClientTool callbacks are registered on the session
-                for auto-dispatch.
+            results: Results of the client tool calls the AI is waiting on.
+            client_tools: Client tools the AI may call from the next turn on, registered on this instance as the
+                class's ``client_tools`` argument describes. A list replaces the thread's client tools, and an empty
+                list removes them. ``None`` leaves them unchanged.
 
         Returns:
-            Self for method chaining.
+            This instance, with its status set to ``ROBOTO_TURN``.
+
+        Raises:
+            RobotoInvalidRequestException: The thread's status is not ``CLIENT_TOOL_TURN``, or a result answers a tool
+                use that is not an unanswered call to one of the thread's client tools, such as one another client
+                already answered.
+            RobotoThreadReadOnlyException: The thread's origin is a surface outside Roboto, such as Slack.
+
+        Examples:
+            Answer the AI's calls to a client tool yourself:
+
+            >>> from roboto.ai.agent_thread import AgentToolUseEvent, ClientToolResult, ClientToolResultStatus
+            >>> calls = [e for e in thread.events() if isinstance(e, AgentToolUseEvent) and e.name == "client_remember"]
+            >>> thread.submit_client_tool_results(
+            ...     [
+            ...         ClientToolResult(
+            ...             tool_use_id=call.tool_use_id,
+            ...             tool_name=call.name,
+            ...             runtime_ms=0,
+            ...             status=ClientToolResultStatus.SUCCESS,
+            ...             output={"result": "stored"},
+            ...         )
+            ...         for call in calls
+            ...     ]
+            ... )
         """
         specs = _extract_specs(client_tools)
         request = SubmitToolResultsRequest(
@@ -669,33 +629,34 @@ class AgentThread:
             data=request,
         )
         self.__register_tools(client_tools)
-        # The server appends our results to the existing ROBOTO tool_result message, but the SDK's token has
-        # already advanced past that message on the prior CLIENT_TOOL_TURN poll — the next delta returns empty
-        # with status=None, so record.status stays CLIENT_TOOL_TURN. Without this flip, run() re-dispatches the
-        # same tool_uses and re-POSTs; the second POST hits ROBOTO_TURN and raises RobotoInvalidRequestException.
+        # Set the status here because the next delta may not report it. Roboto can append these results to a ROBOTO
+        # message this instance's continuation token has already passed, so that delta can come back empty with
+        # status None. With CLIENT_TOOL_TURN kept, run would run the same tools again and submit their results a
+        # second time, which Roboto rejects with RobotoInvalidRequestException because the status is ROBOTO_TURN.
         self.__record.status = AgentThreadStatus.ROBOTO_TURN
         return self
 
     def set_visibility(self, visibility: ThreadVisibility) -> AgentThread:
-        """Re-scope who may read this thread.
+        """Set who can read this thread.
 
-        Only the thread's creator may call this. Roboto admins can read every
-        thread but cannot re-scope one they did not create. Setting the
-        visibility a thread already has is accepted and leaves it unchanged.
+        Only the thread's creator may call this. Roboto administrators can read every thread but cannot change the
+        visibility of one they did not create. Setting the visibility the thread already has changes nothing.
 
         Args:
-            visibility: ``ThreadVisibility.ORG`` to open the thread to every
-                member of the thread's organization, or
-                ``ThreadVisibility.PRIVATE`` to restrict it back to its
-                creator.
+            visibility: :py:attr:`~roboto.ai.agent_thread.ThreadVisibility.ORG` to let every member of the thread's
+                organization read it, or ``PRIVATE`` to limit it to its creator.
 
         Returns:
-            Self for method chaining.
+            This instance, with ``visibility`` updated.
 
         Raises:
-            RobotoNotFoundException: If the thread does not exist.
-            RobotoUnauthorizedException: If the caller is not a member of the
-                thread's org, or is a member but did not create the thread.
+            RobotoUnauthorizedException: The caller did not create the thread.
+
+        Examples:
+            Share the thread with your organization:
+
+            >>> from roboto.ai.agent_thread import ThreadVisibility
+            >>> thread.set_visibility(ThreadVisibility.ORG)
         """
         self.__roboto_client.post(
             f"v1/ai/threads/{self.__record.thread_id}/visibility",
@@ -706,35 +667,22 @@ class AgentThread:
         return self
 
     def set_pinned(self, pinned: bool) -> AgentThread:
-        """Pin or unpin this thread for the calling user.
+        """Pin or unpin this thread for the caller.
 
-        A pin is a personal bookmark: it promotes the thread to the top of the
-        caller's chat sidebar and is invisible to everyone else. Anyone who may
-        read the thread may pin it, including teammates on a thread whose
-        visibility is ``ORG``.
-
-        Setting the state the thread already has is accepted and changes
-        nothing; re-pinning in particular does not move the thread back to the
-        top of the pinned block.
-
-        Leaves :py:attr:`~roboto.ai.agent_thread.AgentThreadRecord.pinned_at`
-        untouched on this instance's record: only the thread listing and search
-        endpoints populate that field.
+        A pin is a personal bookmark: it puts the thread at the top of the caller's threads in the Roboto web app, and
+        no one else sees it. Anyone who can read the thread can pin it, including members of its organization when its
+        visibility is ``ORG``. Setting the state the thread already has changes nothing; pinning a pinned thread does
+        not move it back to the top of the pinned threads.
 
         Args:
             pinned: ``True`` to pin, ``False`` to unpin.
 
         Returns:
-            Self for method chaining.
-
-        Raises:
-            RobotoNotFoundException: If the thread does not exist.
-            RobotoUnauthorizedException: If the caller is not a member of the
-                thread's org, or the thread is private and the caller did not
-                create it.
+            This instance. Its record keeps its
+            :py:attr:`~roboto.ai.agent_thread.AgentThreadRecord.pinned_at`, which a read of one thread never reports.
 
         Examples:
-            Pin a thread to the top of your sidebar:
+            Pin the thread:
 
             >>> thread.set_pinned(True)
 
@@ -750,29 +698,25 @@ class AgentThread:
         return self
 
     def invoke_skill(self, skill_id: str, version: Optional[int] = None) -> AgentThread:
-        """Manually invoke a skill into this thread.
+        """Apply a skill in a new turn of this thread, with no message.
 
-        Thin wrapper around :py:meth:`send` that builds a single-element
-        ``invoke_skills`` list and sends it with no user message — kept for
-        SDK ergonomics on the common "invoke exactly one skill" case.
+        Calls ``send`` with one ``invoke_skills`` entry, so the failures of ``send`` apply.
 
         Args:
-            skill_id: The skill to invoke.
-            version: Optional version number. Must exist on the skill (any
-                version is invokable). If omitted, the latest (MAX(version))
-                version is used.
+            skill_id: ID of the skill to apply.
+            version: Number of the skill version to apply. ``None`` applies the skill's latest version.
 
         Returns:
-            Self for method chaining.
+            This instance.
 
         Examples:
-            Apply a skill's latest version to the current turn:
+            Apply a skill's latest version:
 
-            >>> thread.invoke_skill("sk_qa_review")
+            >>> thread.invoke_skill("sk_12345")
 
-            Apply a specific version of the skill:
+            Apply version 2 of the skill:
 
-            >>> thread.invoke_skill("sk_qa_review", version=2)
+            >>> thread.invoke_skill("sk_12345", version=2)
         """
         return self.send(invoke_skills=[InvokeSkillSpec(skill_id=skill_id, version=version)])
 
@@ -781,35 +725,38 @@ class AgentThread:
         tick: float = 0.2,
         timeout: Optional[float] = None,
     ) -> collections.abc.Generator[AgentEvent, None, None]:
-        """Yield events from the agent as they are generated.
+        """Yield events for the thread's new content as the AI writes it, until the turn needs the caller.
 
-        Polls the session and yields :class:`AgentEvent` objects as new content
-        arrives. Does **not** auto-dispatch client-side tools — if the session
-        reaches :py:attr:`AgentThreadStatus.CLIENT_TOOL_TURN`, the generator
-        returns and the caller is expected to call
-        :py:meth:`submit_client_tool_results` (and then call :py:meth:`events`
-        again to continue). For automatic dispatch, use :py:meth:`run`.
+        Polls Roboto every ``tick`` seconds and returns once the thread's status is anything other than
+        :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.ROBOTO_TURN`. It runs no client tools: when it returns
+        with the status ``CLIENT_TOOL_TURN``, submit the results with ``submit_client_tool_results`` and call
+        ``events`` again, or use ``run``, which does both.
+
+        Each stretch of text in a message is yielded as an :py:class:`~roboto.ai.agent_thread.AgentStartTextEvent`,
+        then :py:class:`~roboto.ai.agent_thread.AgentTextDeltaEvent` events, then an
+        :py:class:`~roboto.ai.agent_thread.AgentTextEndEvent` once the message's generation ends or a block other than
+        text follows. Messages from the caller yield no events.
 
         Args:
-            tick: Polling interval in seconds between checks for new content.
-            timeout: Maximum time to wait in seconds. If None, waits indefinitely.
+            tick: Seconds between polls.
+            timeout: Seconds to keep polling while the AI is generating. ``None`` polls until the turn needs the
+                caller.
 
         Yields:
-            :class:`AgentEvent` objects (:class:`AgentStartTextEvent`,
-            :class:`AgentTextDeltaEvent`, :class:`AgentTextEndEvent`,
-            :class:`AgentToolUseEvent`, :class:`AgentToolResultEvent`,
-            :class:`AgentErrorEvent`) as they become available. Text events
-            are scoped to a single message: an :class:`AgentTextEndEvent` is
-            emitted at the end of each message that carried text, so adjacent
-            assistant messages produce separate start/end pairs.
+            Events for the thread's new content, in order: text events, tool uses and their results
+            (:py:class:`~roboto.ai.agent_thread.AgentToolUseEvent`,
+            :py:class:`~roboto.ai.agent_thread.AgentToolResultEvent`), and errors
+            (:py:class:`~roboto.ai.agent_thread.AgentErrorEvent`).
 
         Raises:
-            TimeoutError: If ``timeout`` elapses before the session pauses.
+            TimeoutError: ``timeout`` seconds pass while the thread's status is still ``ROBOTO_TURN``. It surfaces
+                during iteration, when the first poll after that time still finds the status ``ROBOTO_TURN``.
 
         Examples:
-            Stream text output as it arrives:
+            Print the AI's text as it writes it:
 
-            >>> for event in session.events():
+            >>> from roboto.ai.agent_thread import AgentTextDeltaEvent
+            >>> for event in thread.events():
             ...     if isinstance(event, AgentTextDeltaEvent):
             ...         print(event.text, end="", flush=True)
         """
@@ -823,10 +770,8 @@ class AgentThread:
                 if delta_message.role == AgentRole.USER:
                     continue
 
-                # Iterate only the *new* content chunks carried by this
-                # delta. __get_delta_and_update() has already appended them
-                # onto self.__record.messages[idx]; the delta_message is our
-                # incremental view.
+                # delta_message holds only the content blocks new in this delta, which __get_delta_and_update has
+                # already appended to the message this instance holds.
                 for content in delta_message.content:
                     if isinstance(content, AgentTextContent):
                         if idx not in self.__open_text_idxs:
@@ -834,9 +779,7 @@ class AgentThread:
                             self.__open_text_idxs.add(idx)
                         yield AgentTextDeltaEvent(text=content.text)
                     else:
-                        # Any non-text content block closes an open text span
-                        # for this message — text followed by a tool_use/
-                        # tool_result/error is a clean partition.
+                        # A block other than text ends the message's open text span.
                         if idx in self.__open_text_idxs:
                             yield AgentTextEndEvent()
                             self.__open_text_idxs.discard(idx)
@@ -862,24 +805,24 @@ class AgentThread:
                                 error_code=content.error_code,
                             )
 
-                # Close any still-open text span *only* if the message has
-                # reached a terminal status. While the message is still
-                # GENERATING, leave the span open so the next poll continues
-                # the same Start/Delta/End sequence instead of restarting it.
+                # End an open text span only once the message's generation has ended, so text a later poll brings for
+                # a message still generating continues the same span.
                 if idx in self.__open_text_idxs and self.__record.messages[idx].status.is_terminal():
                     yield AgentTextEndEvent()
                     self.__open_text_idxs.discard(idx)
+
+            # More changes follow this delta, yet its status describes the whole thread. Fetch them before acting on
+            # the status, without sleeping, so every event of a finished turn is yielded before returning.
+            if delta.has_more:
+                continue
 
             if self.__record.status != AgentThreadStatus.ROBOTO_TURN:
                 return
 
             if timeout is not None and time.time() - start_time > timeout:
                 raise TimeoutError("Timeout waiting for agent to finish generating")
-            # Cadence gate: each poll of the delta endpoint is at least
-            # ``tick`` seconds apart. Placed at the bottom of the loop (after
-            # the terminal-status and timeout checks) so the first poll fires
-            # immediately — no leading delay when the session has already
-            # reached USER_TURN / CLIENT_TOOL_TURN.
+            # Sleeping after the status check makes the first poll immediate, so a thread already waiting on the
+            # caller returns without delay.
             time.sleep(tick)
 
     def run(
@@ -889,60 +832,60 @@ class AgentThread:
         tick: float = 0.2,
         timeout: Optional[float] = None,
     ) -> AgentThread:
-        """Drive the session forward until it is the user's turn.
+        """Drive the thread until it is the caller's turn, running client tools as the AI calls them.
 
-        Polls the session, auto-dispatching any pending client-side tool
-        invocations against the callbacks registered with this session
-        (via :py:meth:`start`, :py:meth:`send`, or
-        :py:meth:`register_client_tool`). Returns once the session status is
-        :py:attr:`AgentThreadStatus.USER_TURN`.
+        Calls ``events`` and passes each event to ``on_event``. Whenever the thread waits on client tools, ``run`` calls
+        the function registered on this instance for each unanswered call, and submits the results with
+        ``submit_client_tool_results``:
 
-        If the agent requests a client-side tool that has no registered
-        callback, an ``error`` result is submitted automatically with a
-        descriptive message so the agent can recover, and execution continues.
-        If a registered callback raises, the exception is caught and also
-        submitted as an ``error`` result. A tool use flagged
-        :py:attr:`~roboto.ai.core.content.AgentToolUseContent.answered_by_server`,
-        or one for a tool this session did not declare, is left for the server
-        or another client to answer. When only such tool uses are unanswered,
-        nothing is submitted, and polling continues until the session leaves
-        ``CLIENT_TOOL_TURN``.
+        - A function's return value becomes the result's output: a dictionary as it is, ``None`` as an empty
+          dictionary, and any other value under the key ``"result"``.
+        - A function that raises an ``Exception`` gives an error result holding the exception's type and message.
+        - A call to a tool with no registered function gives an error result saying so, which the AI can recover from.
+        - A call Roboto answers itself
+          (:py:attr:`~roboto.ai.agent_thread.AgentToolUseContent.answered_by_server`), or a call to a tool not declared
+          client-side on this instance, is left unanswered. When only such calls remain, ``run`` polls again after
+          ``tick`` seconds.
+
+        Returns once the thread's status is :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.USER_TURN`.
 
         Args:
-            on_event: Optional callback invoked for each :class:`AgentEvent`
-                as the agent generates (text deltas, tool uses, tool results,
-                start/end markers). Use this for progress display or logging.
-            tick: Polling interval in seconds between status checks.
-            timeout: Total time budget in seconds across the whole loop. If
-                None, waits indefinitely.
+            on_event: Function called with each event ``events`` yields, such as for progress display or logging.
+                ``None`` calls nothing.
+            tick: Seconds between polls.
+            timeout: Seconds the whole call may take. ``None`` waits indefinitely.
 
         Returns:
-            Self for method chaining.
+            This instance, with its record updated from Roboto's responses.
 
         Raises:
-            TimeoutError: If the ``timeout`` budget is exhausted before the
-                session reaches ``USER_TURN``.
-            RuntimeError: If the session is in ``CLIENT_TOOL_TURN`` with no
-                messages (i.e. a server state that should not be reachable),
-                or if an unexpected :class:`AgentThreadStatus` value is
-                observed.
-            RobotoHttpException: Propagated from the underlying
-                :py:meth:`submit_client_tool_results` POST if the server
-                rejects the submission (for example, a concurrent caller
-                already answered the tool-use).
+            TimeoutError: ``timeout`` seconds pass before the thread's status is ``USER_TURN``.
+            RobotoAgentGoalsFailedException: The AI used up its retries without achieving every goal declared for the
+                turn.
+            RobotoInvalidRequestException: Roboto rejects the submitted results, such as when another client already
+                answered a call.
+            RuntimeError: The thread stops in a status other than ``USER_TURN``, ``CLIENT_TOOL_TURN`` or
+                ``GOALS_FAILED``, or waits on client tools while it has no messages or its latest message is neither
+                from the AI nor a ``ROBOTO`` message right after one from the AI.
 
         Examples:
-            Fire-and-forget:
+            Run a thread with a client tool until it is your turn:
 
-            >>> session = AgentThread.start("Remember my favorite color is blue.", client_tools=[remember])
-            >>> session.run()
+            >>> from roboto.ai import client_tool
+            >>> @client_tool
+            ... def client_remember(fact: str) -> str:
+            ...     \"\"\"Store a fact in long-term memory.\"\"\"
+            ...     ...
+            >>> thread = AgentThread.start("Remember my favorite color is blue.", client_tools=[client_remember])
+            >>> thread.run()
 
-            With progress logging:
+            Print each tool call as the AI makes it:
 
+            >>> from roboto.ai.agent_thread import AgentToolUseEvent
             >>> def log(event):
             ...     if isinstance(event, AgentToolUseEvent):
             ...         print(f"[tool-use] {event.name}({event.input})")
-            >>> session.run(on_event=log)
+            >>> thread.run(on_event=log)
         """
         start_time = time.time()
 
@@ -964,16 +907,12 @@ class AgentThread:
                 if len(results) > 0:
                     self.submit_client_tool_results(results)
                 else:
-                    # Every unanswered tool_use is the server's or another client's to answer. ``events`` returns
-                    # after one poll while the status is CLIENT_TOOL_TURN, so this loop waits between polls.
+                    # Roboto or another client answers every unanswered tool use. events returns after one poll while
+                    # the status is CLIENT_TOOL_TURN, so wait here between polls.
                     time.sleep(tick)
                 continue
 
             if status == AgentThreadStatus.GOALS_FAILED:
-                # Typed exception so callers can distinguish "agent gave up on
-                # declared goals" from generic RuntimeError. The session is
-                # now paused; inspect messages and AgentThreadRecord.goals
-                # for the failure detail.
                 raise RobotoAgentGoalsFailedException(self.thread_id)
 
             raise RuntimeError(
@@ -985,15 +924,15 @@ class AgentThread:
         delta = self.__roboto_client.get(
             f"v1/ai/threads/{self.__record.thread_id}/delta",
             caller_org_id=self.__record.org_id,
-            query={"next_token": self.__record.continuation_token},
+            query={"next_token": self.__record.continuation_token, "paged": True},
         ).to_record(AgentThreadDelta)
 
         self.__record.continuation_token = delta.continuation_token
+        self.__record.has_more = delta.has_more
 
-        # A rewind has to happen before the merge below, because that merge *extends* the message
-        # already held at an index. The server rewinds when a turn was abandoned partway and
-        # regenerated onto the same index, so what we hold there is text from an attempt that no
-        # longer exists — extending it would splice the real reply onto a discarded draft.
+        # Discard before merging. Roboto sets reset_from_message_sequence_num when it regenerated a turn onto the
+        # same index, and the merge below appends to the message held there, which would join the new reply onto
+        # text from the abandoned attempt.
         if delta.reset_from_message_sequence_num is not None:
             del self.__record.messages[delta.reset_from_message_sequence_num :]
 
@@ -1010,17 +949,14 @@ class AgentThread:
         # Copied even when None, unlike status and title: every delta carries the current activity, and None means
         # there is none.
         self.__record.activity = delta.activity
-        # Copied even when None, like activity: a recovery that ended leaves no notice behind.
+        # Copied even when None, like activity: None means there is nothing to report.
         self.__record.turn_notice = delta.turn_notice
 
         if delta.title is not None:
             self.__record.title = delta.title
 
-        # ``goals`` and ``tasks`` arrive as full snapshots with the same
-        # contract: ``None`` means unchanged since the last poll (retain what we
-        # hold), while any list — including an empty one — is authoritative and
-        # replaces the current value. Skipping these left a refreshed thread
-        # reporting only the goals/tasks captured at the original fetch.
+        # goals and tasks arrive as whole lists: None means unchanged, and any list, even an empty one, replaces the
+        # one held.
         if delta.goals is not None:
             self.__record.goals = delta.goals
 
@@ -1036,44 +972,37 @@ class AgentThread:
         if tools is None:
             return
         for tool in tools:
-            # Every declared tool (callback-backed or spec-only) goes into
-            # the declared-names set so the dispatcher treats it as client-
-            # side; only callback-backed tools are actually invocable.
             self.__declared_client_tool_names.add(tool.name)
             if isinstance(tool, ClientTool):
                 self.__client_tools[tool.name] = tool
 
     def __dispatch_pending_client_tools(self) -> list[ClientToolResult]:
-        """Collect ClientToolResults for every tool_use the server expects us to answer.
+        """Run the registered function for each client tool use the thread waits on, and return the results.
 
-        The server promotes the session to ``CLIENT_TOOL_TURN`` in two ways:
+        Roboto sets the status to ``CLIENT_TOOL_TURN`` in two cases:
 
-        1. The latest message is an assistant message ending in a client
-           ``tool_use`` block. All unanswered tool_uses live on
+        1. The latest message is an assistant message ending in a client tool use. Every unanswered tool use is on
            ``messages[-1]``.
-        2. The latest message is a ROBOTO ``tool_result`` message answering
-           server tool_uses, but the preceding assistant message also asked
-           for one or more client tools whose results are still outstanding.
-           In this mixed-tool case, the unanswered tool_uses live on
-           ``messages[-2]`` and the results written so far live on
-           ``messages[-1]``.
+        2. The latest message is a ``ROBOTO`` message holding the results of server tool uses, and the assistant
+           message before it also called client tools whose results are outstanding. The unanswered tool uses are on
+           ``messages[-2]``, and the results written so far on ``messages[-1]``.
 
-        Scanning only ``latest_message`` misses case 2: the method would
-        return ``[]``, and :py:meth:`run` would post nothing and wait for a
-        result that only it can submit, until ``run(timeout=...)`` ends it.
+        Reading only the latest message would miss case 2: ``run`` would submit nothing and wait, until its timeout,
+        for results only it can submit.
+
+        Raises:
+            RuntimeError: The thread has no messages, or neither case applies.
         """
         messages = self.__record.messages
         if len(messages) == 0:
             raise RuntimeError("Session is in CLIENT_TOOL_TURN but has no messages.")
 
         latest = messages[-1]
-        # Case 1: the latest message is the assistant message carrying the
-        # unanswered tool_uses.
+        # Case 1.
         if latest.role == AgentRole.ASSISTANT:
             tool_uses = [c for c in latest.content if isinstance(c, AgentToolUseContent)]
             answered_ids: set[str] = set()
-        # Case 2: latest is a ROBOTO tool_result; unanswered client tool_uses
-        # are on the preceding assistant message.
+        # Case 2.
         elif latest.role == AgentRole.ROBOTO and len(messages) >= 2 and messages[-2].role == AgentRole.ASSISTANT:
             tool_uses = [c for c in messages[-2].content if isinstance(c, AgentToolUseContent)]
             answered_ids = {c.tool_use_id for c in latest.content if isinstance(c, AgentToolResultContent)}
@@ -1085,18 +1014,13 @@ class AgentThread:
 
         results: list[ClientToolResult] = []
         for tool_use in tool_uses:
-            # A tool_use the server answers itself gets its result from the server, which may not have
-            # reached this copy of the thread yet.
+            # Roboto writes the result of a tool use it answers itself, which may not have reached this copy of the
+            # thread yet.
             if tool_use.tool_use_id in answered_ids or tool_use.answered_by_server:
                 continue
-            # Dispatch only tool_uses whose name was declared as client-side
-            # on this session. In case 2 (mixed server+client turn),
-            # messages[-2] may also carry server tool_uses; if the server
-            # hasn't yet written its own tool_result to messages[-1],
-            # those would appear unanswered from our perspective. Submitting
-            # an error result for a server tool_use_id would collide with
-            # the server's own tool_result once it lands, producing two
-            # tool_results for the same id (which Bedrock rejects).
+            # In case 2, messages[-2] can also hold server tool uses whose results Roboto has not yet written to
+            # messages[-1]. Roboto rejects a client result for a server tool use, so answer only tools declared
+            # client-side on this instance.
             if tool_use.tool_name not in self.__declared_client_tool_names:
                 continue
             results.append(self.__execute_single_client_tool(tool_use))
@@ -1104,11 +1028,9 @@ class AgentThread:
 
     def __execute_single_client_tool(self, tool_use: AgentToolUseContent) -> ClientToolResult:
         tool_name = tool_use.tool_name
-        # Deep-copy so a callback that mutates nested structures (pops from a
-        # list, sets keys on an inner dict) cannot corrupt the session's own
-        # in-memory copy of the message.
+        # Deep-copy so a function that changes nested values in its input cannot change this instance's copy of the
+        # message.
         tool_input = copy.deepcopy(tool_use.input) if tool_use.input else {}
-        # Backend-injected metadata must not reach the callback as kwargs.
         tool_input = {key: value for key, value in tool_input.items() if key not in _BACKEND_INJECTED_INPUT_FIELDS}
         tool = self.__client_tools.get(tool_name)
 
@@ -1130,6 +1052,8 @@ class AgentThread:
         t0 = time.monotonic()
         try:
             output = tool(**tool_input)
+        # Any Exception from the function becomes an error result the AI reads; a BaseException such as
+        # KeyboardInterrupt propagates.
         except Exception as exc:
             runtime_ms = int((time.monotonic() - t0) * 1000)
             return ClientToolResult(
@@ -1162,39 +1086,41 @@ class AgentThread:
         categories: Optional[list[FeedbackCategory]] = None,
         notes: Optional[str] = None,
     ) -> UserFeedbackRecord:
-        """Submit structured feedback on a specific assistant message in this session.
+        """Submit feedback on one of the AI's messages in this thread, for Roboto to review.
 
-        Persists categorized feedback so it can be reviewed by Roboto operators.
-        Re-submitting from the same user on the same message overwrites
-        ``sentiment``, ``categories``, and ``notes`` on the existing row
-        rather than creating a duplicate; the ``feedback_id`` and original
-        ``created``/``created_by`` are preserved.
+        Roboto keeps one piece of feedback per user and message. Submitting again replaces its ``sentiment``,
+        ``categories`` and ``notes``, and keeps its ID and its ``created`` and ``created_by``.
 
         Args:
-            message_sequence_num: Zero-indexed position of the assistant message being rated.
-            sentiment: Overall rating direction.
-            categories: Zero or more categories describing the feedback. Must match ``sentiment``.
-                ``FeedbackCategory.OTHER`` is always permitted but requires ``notes``.
-            notes: Free-text notes. Required when ``FeedbackCategory.OTHER`` is among the categories.
+            message_sequence_num: Index of the message in ``messages``. It must be a message from the AI whose
+                generation completed.
+            sentiment: Whether the feedback is positive or negative.
+            categories: Categories describing the feedback, each valid for ``sentiment`` as
+                :py:func:`~roboto.ai.agent_thread.category_is_valid_for_sentiment` decides.
+                :py:attr:`~roboto.ai.agent_thread.FeedbackCategory.OTHER` is valid for either sentiment and requires
+                ``notes``. ``None`` sets none.
+            notes: Free-text notes. Required when ``categories`` includes ``OTHER``; notes of only whitespace count as
+                none.
 
         Returns:
-            The persisted feedback as a :class:`UserFeedbackRecord`. Admin
-            triage columns (``admin_label``, ``admin_note``, ``resolved``,
-            ``resolved_by``, ``resolved_at``) are intentionally not part of
-            this shape — they are only visible through the admin API.
+            The feedback, as Roboto stored it.
 
         Raises:
-            RobotoInvalidRequestException: If the message is still generating, the
-                sentiment/category combination is invalid, or ``OTHER`` is used
-                without notes.
-            RobotoUnauthorizedException: If the caller cannot access this session.
-            RobotoNotFoundException: If ``message_sequence_num`` is out of range.
+            pydantic.ValidationError: A category is not valid for ``sentiment``, or ``categories`` includes ``OTHER``
+                without ``notes``.
+            RobotoNotFoundException: ``message_sequence_num`` matches no message in the thread.
+            RobotoInvalidRequestException: The message is not from the AI, or its generation has not completed.
+
+        Examples:
+            Rate a reply as incomplete:
+
+            >>> from roboto.ai.agent_thread import FeedbackCategory, FeedbackSentiment
+            >>> thread.submit_feedback(
+            ...     message_sequence_num=1,
+            ...     sentiment=FeedbackSentiment.NEGATIVE,
+            ...     categories=[FeedbackCategory.INCOMPLETE],
+            ... )
         """
-        # Default to ``[]`` only when the caller actually omitted categories.
-        # ``categories or []`` would also flatten an explicit ``[]`` through the
-        # truthiness check, which is the same value but it is worth making the
-        # distinction explicit so a future ``[None]`` or similar doesn't get
-        # silently swallowed.
         request = SubmitFeedbackRequest(
             sentiment=sentiment,
             categories=categories if categories is not None else [],
@@ -1207,31 +1133,28 @@ class AgentThread:
         ).to_record(UserFeedbackRecord)
 
     def fork(self, message_sequence_num: int) -> AgentThread:
-        """Fork this session's history up to a specific message into a new session owned by the caller.
+        """Create a thread owned by the caller that holds this thread's messages up to a given one.
 
-        Fork access mirrors read access: anyone who can read the source
-        session can fork it. A ``ThreadVisibility.ORG``-visible session can
-        be forked by any member of its org; a ``ThreadVisibility.PRIVATE``
-        session can be forked only by its creator or a Roboto admin. The new
-        session carries the source session's ``org_id`` so tool calls resolve
-        against the source org's data, and is always created with
-        ``ThreadVisibility.PRIVATE`` visibility, owned by the caller,
-        regardless of the source's visibility — so forks never appear in
-        another member's session list.
+        Anyone who can read this thread can fork it. The fork belongs to this thread's organization, so the AI's tools
+        reach that organization's data. It is :py:attr:`~roboto.ai.agent_thread.ThreadVisibility.PRIVATE` whatever
+        this thread's visibility, and it accepts new messages even when this thread does not.
 
         Args:
-            message_sequence_num: Highest message sequence number (inclusive) to copy.
+            message_sequence_num: Index of the last message to copy into the new thread; every earlier message is
+                copied too.
 
         Returns:
-            A new ``AgentThread`` instance for the forked session.
+            The new thread.
 
         Raises:
-            RobotoUnauthorizedException: If the caller is not a member of the
-                source session's org, or the source session is
-                ``ThreadVisibility.PRIVATE`` and the caller is neither its
-                creator nor a Roboto admin.
-            RobotoInvalidRequestException: If ``message_sequence_num`` is out
-                of range or points at a message still generating.
+            RobotoInvalidRequestException: ``message_sequence_num`` matches no message, or matches one whose
+                generation did not complete.
+
+        Examples:
+            Continue the conversation from its second message in a new thread:
+
+            >>> fork = thread.fork(message_sequence_num=1)
+            >>> fork.send_text("Try again with a narrower time range.")
         """
         request = ForkAgentThreadRequest(message_sequence_num=message_sequence_num)
         record = self.__roboto_client.post(

@@ -6,8 +6,8 @@
 
 """Device types: named kinds of device within an organization, such as one robot model.
 
-A device has at most one device type, whose ID is in
-:py:attr:`~roboto.domain.devices.DeviceRecord.device_type_id`.
+A device has at most one device type, whose ID is in :py:attr:`~roboto.domain.devices.DeviceRecord.device_type_id`.
+Use ``DeviceType`` to create, find and update device types, and to list the devices of each type.
 """
 
 from .device_type import DeviceType

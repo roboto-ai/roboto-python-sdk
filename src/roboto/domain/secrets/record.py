@@ -13,115 +13,119 @@ from ...compat import StrEnum
 
 
 class SecretStoreType(StrEnum):
-    """
-    Type of secret store.
-    """
+    """Kind of secret store that holds a secret's value."""
 
     AWS = "aws"
-    """
-    AWS Secrets Manager.
-    """
+    """AWS Secrets Manager."""
 
 
 class AwsSecretsManagerAccessCreds(pydantic.BaseModel):
-    """
-    Context required to update a secret in AWS Secrets Manager.
+    """Short-lived AWS credentials that reach one secret's value in AWS Secrets Manager.
+
+    Carried in ``GetSecretAccessCredsResponse.creds``. Building one with any other ``store_type`` raises
+    ``pydantic.ValidationError``.
     """
 
     access_key_id: str
-    """
-    AWS access key ID.
-    """
+    """AWS access key ID of the credentials."""
+
     secret_access_key: str
-    """
-    AWS secret access key.
-    """
+    """AWS secret access key of the credentials."""
+
     session_token: str
-    """
-    AWS session token.
-    """
+    """AWS session token of the credentials."""
+
     region: str
-    """
-    AWS region.
-    """
+    """AWS region the secret is stored in."""
+
     store_type: typing.Literal[SecretStoreType.AWS] = SecretStoreType.AWS
-    """Type of secret store. Referenced here explicitly to make deserialization work better."""
+    """Kind of secret store, always ``SecretStoreType.AWS``."""
 
 
 SecretAccessCreds = typing.Union[AwsSecretsManagerAccessCreds]
-"""Union type for all possible secret update contexts."""
+"""Secret access credentials of any kind: one of ``AwsSecretsManagerAccessCreds``."""
 
 
 class AwsSecretRetrievalLocation(pydantic.BaseModel):
-    """
-    Information required to retrieve a secret from AWS Secrets Manager.
+    """Location of a secret's value in AWS Secrets Manager.
+
+    Carried in ``SecretRecord.location``. Building one with any other ``store_type`` raises
+    ``pydantic.ValidationError``.
     """
 
     store_type: typing.Literal[SecretStoreType.AWS] = SecretStoreType.AWS
-    """Type of secret store. Referenced here explicitly to make deserialization work better."""
+    """Kind of secret store, always ``SecretStoreType.AWS``."""
 
     arn: str
-    """
-    ARN of the secret.
-    """
+    """Amazon Resource Name (ARN) of the secret in AWS Secrets Manager."""
 
 
 SecretRetrievalLocation = typing.Union[AwsSecretRetrievalLocation]
-"""Union type for all possible secret retrieval locations."""
+"""Secret value location of any kind: one of ``AwsSecretRetrievalLocation``."""
 
 
 class SecretRecord(pydantic.BaseModel):
-    """
-    A wire-transmissible representation of a secret.
+    """Data record of a secret, as the Roboto API returns it.
+
+    A secret is sensitive information, such as an API key or password, that actions can use while they run. Its value
+    is kept in a secret store and never passes through Roboto's APIs, so the record holds only where to find it.
+    :py:class:`~roboto.domain.secrets.Secret` wraps this record with methods that act on the secret, and exposes it
+    as :py:attr:`~roboto.domain.secrets.Secret.record`.
     """
 
     created: datetime.datetime
-    """Timestamp when the secret was created."""
+    """Time the secret was created."""
 
     created_by: str
-    """RobotoPrincipal which created the secret."""
+    """Principal that created the secret, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     last_used: typing.Optional[datetime.datetime] = None
-    """Timestamp when the secret was last used in an action, or None if the secret has never been used."""
+    """Time an action last used the secret, or ``None`` if none has."""
 
     location: SecretRetrievalLocation = pydantic.Field(discriminator="store_type")
-    """Information required to dereference the secret in its specific secret store. This is used in combination
-    with temporary hyper-downscoped access creds to update or retrieve the secret's value."""
+    """Location of the secret's value in its secret store.
+
+    Reading or updating the value takes this location together with the short-lived credentials in
+    ``GetSecretAccessCredsResponse``.
+    """
 
     modified: datetime.datetime
-    """Timestamp when the secret was last modified."""
+    """Time the secret was last modified."""
 
     modified_by: str
-    """RobotoPrincipal which last modified the secret."""
+    """Principal that last modified the secret, in the same ``<type>:<id>`` form as ``created_by``."""
 
     name: str
-    """Name of the secret. Secret names must be unique within an organization."""
+    """Name of the secret, unique within its organization."""
 
     org_id: str
-    """Organization ID that owns the secret."""
+    """ID of the organization that owns the secret."""
 
     store_type: SecretStoreType
-    """Type of secret store."""
+    """Type of secret store that holds the secret's value."""
 
 
 class CreateSecretRequest(pydantic.BaseModel):
-    """
-    Request payload for the Create Secret
-    """
+    """Request body for :py:meth:`~roboto.domain.secrets.Secret.create`."""
 
     name: str
-    """
-    Name of the secret.
-    """
+    """Name of the secret, unique within the organization it is created in."""
 
 
 class GetSecretAccessCredsResponse(pydantic.BaseModel):
-    """
-    Response payload for the Update Secret
+    """Response body of :py:meth:`~roboto.domain.secrets.Secret.read_value`.
+
+    :py:meth:`~roboto.domain.secrets.Secret.update_value` reads it too. Both send
+    ``GET /v1/secrets/name/{secret_name}/creds``, then use ``creds`` to reach the secret store directly, so the value
+    never passes through Roboto.
     """
 
     record: SecretRecord
-    """The secret whose value is going to be updated."""
+    """Record of the secret."""
 
     creds: SecretAccessCreds = pydantic.Field(discriminator="store_type")
-    """Creds required to update the secret in its underlying data store."""
+    """Short-lived credentials scoped to this one secret.
+
+    They can always read its value, and can also overwrite it only when the caller has permission to update the
+    secret.
+    """

@@ -4,6 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""Queries that find Roboto resources, such as datasets, files, topics, and events, by the values of their fields.
+
+Write a query as a RoboQL string or a :py:class:`~roboto.query.QuerySpecification` and run it with
+:py:class:`~roboto.query.QueryClient`, which yields each result as a dictionary, or with
+:py:class:`~roboto.roboto_search.RobotoSearch`, which has a method for each kind of resource and yields SDK objects
+such as :py:class:`~roboto.domain.datasets.Dataset`.
+"""
+
 from .api import (
     MAX_VALUE_COUNTS_LIMIT,
     QualifiedRoboqlQuery,

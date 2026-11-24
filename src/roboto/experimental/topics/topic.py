@@ -48,69 +48,70 @@ if typing.TYPE_CHECKING:
     import pyarrow  # pants: no-infer-dep
 
 FieldAddressLike = typing.Union[FieldAddress, collections.abc.Sequence[str]]
-"""A field-subtree address, as a :py:class:`~roboto.experimental.topics.FieldAddress`
-or explicit path components (``("pose", "position")`` for a nested field,
-``("angular_velocity",)`` for a top-level one).
+"""Address of a field subtree: a ``FieldAddress``, or the field's path components as a sequence of strings.
 
-Each component is one ``path_in_schema`` element; there is no string delimiter, so
-a component may itself contain a ``.``. A bare string is rejected even though it is
-structurally a ``Sequence[str]`` — splitting it on ``.`` would guess at component
-boundaries, and iterating it would address one field per character; pass the
-components explicitly instead."""
+Give ``("pose", "position")`` for a nested field and ``("angular_velocity",)`` for a top-level one. Each component is
+one element of the field's ``path_in_schema``, so a component may itself contain a ``.``. A bare string raises
+``TypeError``: it is a sequence of strings too, but splitting it on ``.`` would guess where components begin and end,
+and iterating it would address one field per character."""
 
 TOPIC_DATA_CACHE_SUBDIR = "topic-data"
-"""Subdirectory of the client's cache directory where fetched topic data files are cached."""
+"""Name of the subdirectory of the local cache directory that holds the topic data files reads download."""
 
 _MAX_SIGNED_URL_WORKERS = 32
-"""Upper bound on the thread pool that mints scan-task signed URLs concurrently.
+"""Maximum number of threads that fetch signed URLs for a read's files at once.
 
-Minting is a pure network wait, so the bound follows the stdlib's
-I/O-oriented executor default of 32 rather than scaling with core count."""
+Fetching a URL is a wait on the network, so the limit is 32, the most worker threads
+``concurrent.futures.ThreadPoolExecutor`` starts by default, rather than a number that grows with the CPU count."""
 
 
 class SessionContext(pydantic.BaseModel):
-    """The Session a Topic is scoped to: limits topic operations to the data the Session holds of its associated files.
+    """Scope of a ``Topic`` to one session: its data in the session's files, each over the part the session holds.
 
     A read that omits ``start_time`` or ``end_time`` takes this context's bound on that side, or has no limit there
-    when the context sets none. A Topic from :py:meth:`~roboto.experimental.sessions.Session.get_topic` or
-    :py:meth:`~roboto.experimental.sessions.Session.list_topics` sets neither bound."""
+    when the context sets none. The ``Topic`` that :py:meth:`~roboto.experimental.sessions.Session.get_topic` or
+    :py:meth:`~roboto.experimental.sessions.Session.list_topics` returns carries one that sets neither bound."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     session_id: str
+    """ID of the session, beginning with ``se_``."""
 
     start_time: typing.Optional[int] = None
-    """The ``start_time`` a ``get_data*`` call reads from when it omits one, in Unix-epoch ns. ``None`` sets no
-    default."""
+    """Inclusive start of the time range a read takes when it gives no ``start_time``.
+
+    The value is in nanoseconds since the Unix epoch; ``None`` puts no lower limit on the range."""
 
     end_time: typing.Optional[int] = None
-    """The ``end_time`` a ``get_data*`` call reads to when it omits one, in Unix-epoch ns. ``None`` sets no default."""
+    """Inclusive end of the time range a read takes when it gives no ``end_time``.
+
+    The value is in nanoseconds since the Unix epoch; ``None`` puts no upper limit on the range."""
 
 
 class EventContext(pydantic.BaseModel):
-    """The session event a Topic is scoped to: limits topic operations to the data the event's Session holds of its
-    files and supplies the event's time span as the default window for those operations.
+    """Scope of a ``Topic`` to one session event: the data of the event's session, by default over the event's span.
 
-    A Topic that :py:meth:`~roboto.experimental.events.Event.get_topic` or
-    :py:meth:`~roboto.experimental.events.Event.get_topics` returns carries one."""
+    A read is limited to the topic's data in the event's session, as in a ``SessionContext``, and a read that omits
+    ``start_time`` or ``end_time`` takes the event's start or end. The ``Topic`` that
+    ``roboto.experimental.events.Event.get_topic`` or ``Event.get_topics`` returns carries one."""
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     event_id: str
-    """ID of the event (``evt_*``) whose span supplies the default window."""
+    """ID of the event, beginning with ``evt_``."""
 
     session_id: str
-    """The Session the event belongs to; reads are limited to its files."""
+    """ID of the session the event belongs to."""
 
     start_time: int
-    """Start of the event (Unix-epoch ns, inclusive); the default start_time for get_data*."""
+    """Inclusive start of the event's time span, in nanoseconds since the Unix epoch."""
 
     end_time: int
-    """End of the event (Unix-epoch ns, inclusive); the default end_time for get_data*."""
+    """Inclusive end of the event's time span, in nanoseconds since the Unix epoch."""
 
 
 class FileContext(pydantic.BaseModel):
-    """The file a Topic is scoped to: limits topic operations to the topic's data in that file.
+    """Scope of a ``Topic`` to one file: the topic's data in that file.
 
     A read that omits ``start_time`` or ``end_time`` has no limit on that side."""
 
@@ -120,7 +121,7 @@ class FileContext(pydantic.BaseModel):
 
 
 class DatasetContext(pydantic.BaseModel):
-    """The dataset a Topic is scoped to: limits topic operations to the topic's data in the dataset's files.
+    """Scope of a ``Topic`` to one dataset: the topic's data in the dataset's files.
 
     A read that omits ``start_time`` or ``end_time`` has no limit on that side."""
 
@@ -130,7 +131,7 @@ class DatasetContext(pydantic.BaseModel):
 
 
 class DeviceContext(pydantic.BaseModel):
-    """The device a Topic is scoped to: limits topic operations to the topic's data in the device's files.
+    """Scope of a ``Topic`` to one device: the topic's data in the device's files.
 
     A file belongs to the device it names, or, when it names none, to the device its dataset names. A read that omits
     ``start_time`` or ``end_time`` has no limit on that side."""
@@ -141,35 +142,39 @@ class DeviceContext(pydantic.BaseModel):
 
 
 TopicContext = typing.Union[SessionContext, EventContext, FileContext, DatasetContext, DeviceContext]
-"""The scope a :py:class:`Topic` reads within: one Session, one session event, or one file, dataset or device."""
+"""Scope of any kind that a ``Topic`` reads within.
+
+One of ``SessionContext``, ``EventContext``, ``FileContext``, ``DatasetContext`` or ``DeviceContext``."""
 
 
 class Topic:
-    """A logical stream of robotics data, identified durably across the files that carry it.
+    """A topic: a sequence of structured time-series data, called messages, identified by name across files.
 
-    Within an organization, topic names are unique;
-    contributions from different files with the same topic name share a single topic identity.
-    By default a ``Topic`` reads org-wide and its data-returning methods require an explicit time window.
+    Topic names are unique within an organization, so data that different files log under one topic name belongs to
+    one topic, with one ID. Without a context, a ``Topic`` reads across the organization, and ``get_data``,
+    ``get_data_as_df`` and ``get_data_as_record_batches`` require both ``start_time`` and ``end_time``.
 
-    A ``Topic`` carrying a :py:data:`TopicContext` instead scopes topic operations like ``get_data*`` to the
-    topic's data in that context, and never reads the topic's data elsewhere.
+    A ``Topic`` built with a ``TopicContext`` limits those methods to the topic's data in that context, and never reads
+    the topic's data elsewhere:
 
-    * A :py:class:`SessionContext`, as on a Topic yielded by
-      :py:meth:`~roboto.experimental.sessions.Session.list_topics` or
-      :py:meth:`~roboto.experimental.sessions.Session.get_topic`,
-      scopes to the data that Session holds of its files.
-    * An :py:class:`EventContext`, as on a Topic returned by
-      :py:meth:`~roboto.experimental.events.Event.get_topic` or
-      :py:meth:`~roboto.experimental.events.Event.get_topics`,
-      scopes to the data the event's Session holds of its files.
-    * A :py:class:`FileContext`, :py:class:`DatasetContext` or :py:class:`DeviceContext` scopes to that file, to that
-      dataset's files, or to that device's files.
+    - A ``SessionContext``, as on the ``Topic`` that :py:meth:`~roboto.experimental.sessions.Session.get_topic` or
+      :py:meth:`~roboto.experimental.sessions.Session.list_topics` returns, limits them to the session's files, each
+      over the part of its time span the session holds.
+    - An ``EventContext``, as on the ``Topic`` that ``roboto.experimental.events.Event.get_topic`` or
+      ``Event.get_topics`` returns, limits them in the same way to the event's session.
+    - A ``FileContext``, ``DatasetContext`` or ``DeviceContext`` limits them to that file, or to that dataset's or
+      device's files.
 
-    A read in any of these contexts needs no time window. A bound the read omits puts no limit on that side, unless the
-    context sets a bound there: a :py:class:`SessionContext` may set either bound, and an :py:class:`EventContext` sets
-    both, to the event's span.
+    A read in a context needs no time range. A bound the read omits puts no limit on that side, unless the context
+    sets a bound there: a ``SessionContext`` may set either bound, and an ``EventContext`` sets both, to the event's
+    span. ``set_unix_offset`` and ``clear_unix_offset`` require a ``SessionContext``. A ``Topic``'s context is fixed
+    when it is built.
 
-    A Topic's context is fixed when it is built.
+    Args:
+        record: Record of the topic.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
+        context: Scope to limit the topic's reads to. ``None`` reads across the organization.
     """
 
     __context: typing.Optional[TopicContext]
@@ -183,28 +188,25 @@ class Topic:
         roboto_client: typing.Optional[RobotoClient] = None,
         context: typing.Optional[TopicContext] = None,
     ) -> Topic:
-        """Load an existing topic by its id.
+        """Fetch a topic by its ID.
 
         Args:
-            topic_id: Identifier of the topic (``ti_*``).
-            roboto_client: Roboto client instance. Uses the default if omitted.
-            context: Optional. When provided, limits topic operations to the topic's data in one Session, session
-                event, file, dataset or device, and makes the read window optional, as described on
-                :py:class:`Topic`.
-                ``None`` reads org-wide.
-
-        Returns:
-            The loaded topic.
+            topic_id: Unique ID of the topic, beginning with ``ti_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            context: Scope to limit the topic's reads to: its data in one session, session event, file, dataset or
+                device, as the class docstring describes. A read in a context needs no time range. ``None`` reads
+                across the organization.
 
         Raises:
-            RobotoNotFoundException: No topic with this id exists.
-            RobotoUnauthorizedException: The caller lacks topic view access in the org that owns the topic.
+            RobotoNotFoundException: No topic has this ID.
 
         Examples:
+            Fetch a topic and print its name:
+
             >>> from roboto.experimental.topics import Topic
             >>> topic = Topic.from_id("ti_abc123")
-            >>> topic.name
-            '/camera/image_raw'
+            >>> print(topic.name)
 
             Read all of the topic's data in one file:
 
@@ -225,21 +227,17 @@ class Topic:
         roboto_client: typing.Optional[RobotoClient] = None,
         context: typing.Optional[TopicContext] = None,
     ) -> Topic:
-        """Wrap an already-loaded topic identity record.
+        """Build a ``Topic`` from a record of the topic already fetched from Roboto, without making a request.
 
         Args:
-            record: The topic identity record to wrap.
-            roboto_client: Roboto client instance. Uses the default if omitted.
-            context: Optional scope; see :py:meth:`from_id`.
-
-        Returns:
-            A topic backed by ``record``, with no further service calls.
+            record: Record of the topic.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            context: Scope to limit the topic's reads to, as in ``from_id``. ``None`` reads across the organization.
 
         Examples:
-            >>> from roboto.experimental.topics import Topic
-            >>> topic = Topic.from_record(record)
-            >>> topic.topic_id  # doctest: +SKIP
-            'ti_abc123'
+            >>> from roboto.experimental.topics import FileContext, Topic
+            >>> topic = Topic.from_record(record, context=FileContext(file_id="fl_abc123"))  # doctest: +SKIP
         """
         return cls(record, RobotoClient.defaulted(roboto_client), context=context)
 
@@ -260,31 +258,32 @@ class Topic:
 
     @property
     def name(self) -> str:
-        """Human-readable topic name (e.g. ``"/camera/image_raw"``). Unique within an organization."""
+        """Name of the topic, such as ``"/camera/image_raw"``, unique within an organization."""
         return self.__record.name
 
     @property
     def org_id(self) -> str:
-        """Identifier of the organization that owns this topic."""
+        """ID of the organization that owns the topic."""
         return self.__record.org_id
 
     @property
     def record(self) -> TopicIdentityRecord:
-        """The underlying topic identity record."""
+        """Record of the topic that this instance holds."""
         return self.__record
 
     @property
     def topic_id(self) -> str:
-        """Durable identifier of this topic (``ti_*``)."""
+        """Unique ID of the topic identity.
+
+        It begins with ``ti_``, and is the same in every file that logs the topic."""
         return self.__record.topic_id
 
     def clear_unix_offset(self) -> list[TimelineExtentRecord]:
-        """Return this Topic's data in its Session to an offset of 0.
+        """Reset the offset of this topic's data in its session to 0.
 
-        Its stored timestamps are then read as nanoseconds since the Unix epoch with nothing added.
-        This call reaches the same data as :py:meth:`set_unix_offset`, and a file's declared time range in
-        the Session moves back under the same condition: only when everything that range covers moved by
-        the same distance.
+        The data's stored timestamps are then read as nanoseconds since the Unix epoch with nothing added. This call
+        reaches the same data as ``set_unix_offset``, and a file's declared time range in the session moves back under
+        the same condition: only when everything that range covers moved by the same distance.
 
         Returns:
             One :py:class:`~roboto.domain.topics.TimelineExtentRecord` per timeline extent whose offset
@@ -292,15 +291,14 @@ class Topic:
             an empty list means there was no anchor to clear.
 
         Raises:
-            ValueError: This Topic carries no Session context; see :py:meth:`set_unix_offset`.
-            RobotoInvalidRequestException: Some of this Topic's own timestamps are negative, so an offset of 0
+            ValueError: This topic carries no ``SessionContext``, as for ``set_unix_offset``. Raised before any
+                request is made.
+            RobotoInvalidRequestException: Some of this topic's stored timestamps are negative, so an offset of 0
                 would place that data before the Unix epoch; or a time range declared over the data would start
                 before the epoch once moved back with it.
-            RobotoConflictException: A concurrent writer added files to the Session while the offset
-                was being cleared; retry the call.
-            RobotoNotFoundException: The Session does not exist, or holds no data for this Topic.
-            RobotoUnauthorizedException: The caller cannot view the Session, or cannot edit some
-                file behind the data being written.
+            RobotoConflictException: Files were added to the session while the offset was being cleared; retry the
+                call.
+            RobotoNotFoundException: The session does not exist, or holds no data for this topic.
 
         Examples:
             >>> from roboto.experimental.sessions import Session
@@ -327,44 +325,33 @@ class Topic:
         cache_policy: CachePolicy = CachePolicy.ADAPTIVE,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
     ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
-        """Yield this topic's data within a time window, as ``(timestamp, record)`` pairs.
+        """Yield this topic's data within a time range, as ``(timestamp, record)`` pairs.
 
-        Convenience over :py:meth:`get_data_as_record_batches` that unpacks each
-        Arrow RecordBatch into one ``(timestamp, record)`` tuple per row.
-        ``timestamp`` is the row's absolute Unix-epoch nanosecond timestamp (an
-        ``int``); ``record`` is a ``dict`` of the projected fields, with
-        struct fields as nested dicts and list fields as lists, except that an array whose elements are named is a
-        :py:class:`~roboto.experimental.topics.NamedArray`, which also takes an element by its name.
-        A field the data omits for a row is absent from (or null within) that row's dict.
+        Reads through ``get_data_as_record_batches`` and unpacks each Arrow record batch into one pair per row:
 
-        Time windowing, field projection, representation selection, sort order,
-        and error behavior are all as documented on :py:meth:`get_data_as_record_batches`.
+        - ``timestamp`` is the row's time, an ``int`` of nanoseconds since the Unix epoch.
+        - ``record`` is a dictionary of the projected fields, with struct fields as nested dictionaries and list
+          fields as lists. An array whose elements are named is a ``NamedArray``, which also returns an element by
+          its name. A field the data omits for a row is absent from that row's dictionary, or ``None`` in it.
 
-        Requires the ``roboto[analytics]`` extra.
+        The time range, the fields read, the choice of stored representation, the order of rows, and the exceptions
+        raised are as ``get_data_as_record_batches`` describes.
 
         Args:
-            start_time: See :py:meth:`get_data_as_record_batches`.
-            end_time: See :py:meth:`get_data_as_record_batches`.
-            fields_include: See :py:meth:`get_data_as_record_batches`.
-            fields_exclude: See :py:meth:`get_data_as_record_batches`.
-            prefer: See :py:meth:`get_data_as_record_batches`.
-            schema_id: See :py:meth:`get_data_as_record_batches`.
-            schema_checksum: See :py:meth:`get_data_as_record_batches`.
-            timeline_source_id: See :py:meth:`get_data_as_record_batches`.
-            timeline_source_name: See :py:meth:`get_data_as_record_batches`.
-            cache_policy: See :py:meth:`get_data_as_record_batches`.
-            cache_dir: See :py:meth:`get_data_as_record_batches`.
+            start_time: See ``get_data_as_record_batches``.
+            end_time: See ``get_data_as_record_batches``.
+            fields_include: See ``get_data_as_record_batches``.
+            fields_exclude: See ``get_data_as_record_batches``.
+            prefer: See ``get_data_as_record_batches``.
+            schema_id: See ``get_data_as_record_batches``.
+            schema_checksum: See ``get_data_as_record_batches``.
+            timeline_source_id: See ``get_data_as_record_batches``.
+            timeline_source_name: See ``get_data_as_record_batches``.
+            cache_policy: See ``get_data_as_record_batches``.
+            cache_dir: See ``get_data_as_record_batches``.
 
         Yields:
-            ``(timestamp, record)`` tuples for the in-window rows, filtered and
-            projected per the arguments.
-
-        Raises:
-            RobotoNotFoundException: See :py:meth:`get_data_as_record_batches`.
-            RobotoInvalidRequestException: See :py:meth:`get_data_as_record_batches`.
-            RobotoReadPlanExecutionException: See :py:meth:`get_data_as_record_batches`.
-            RobotoInternalException: See :py:meth:`get_data_as_record_batches`.
-            RobotoUnauthorizedException: See :py:meth:`get_data_as_record_batches`.
+            ``(timestamp, record)`` pairs for the rows in the time range, with the fields the arguments select.
 
         Examples:
             >>> from roboto.experimental.topics import Topic
@@ -423,48 +410,38 @@ class Topic:
         cache_policy: CachePolicy = CachePolicy.ADAPTIVE,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
     ) -> pandas.DataFrame:
-        """Return this topic's data within a time window as a pandas DataFrame.
+        """Return this topic's data within a time range as a pandas DataFrame.
 
-        Same pipeline as :py:meth:`get_data_as_record_batches`, with the batches
-        packed into a DataFrame whose index is a timezone-aware ``DatetimeIndex``.
-
-        Rows return ordered by partition (each file's data in start order), not interleaved across partitions;
-        within a partition rows keep their stored order.
-        Call ``df.sort_index()`` for a strict row-level time-ordered view.
-
-        A struct field is returned as a single schema-shaped column of dicts unless ``flatten`` is set,
-        which expands every struct level into dot-delimited leaf columns (e.g. ``pose.position.x``).
-        List-typed fields stay whole under ``flatten``; an array whose elements are named also gets one
-        ``<array>.<element name>`` column per element after it.
-
-        Read parameters and error behavior are as documented on :py:meth:`get_data_as_record_batches`.
-
-        Requires the ``roboto[analytics]`` extra.
+        Reads every batch ``get_data_as_record_batches`` yields into one DataFrame. Rows are ordered by partition,
+        each file's data in the order it begins, and within a partition keep their stored order; call
+        ``df.sort_index()`` to order them by time. The arguments it shares with ``get_data_as_record_batches``, and the
+        exceptions that method raises, are as it describes.
 
         Args:
-            start_time: See :py:meth:`get_data_as_record_batches`.
-            end_time: See :py:meth:`get_data_as_record_batches`.
-            fields_include: See :py:meth:`get_data_as_record_batches`.
-            fields_exclude: See :py:meth:`get_data_as_record_batches`.
-            prefer: See :py:meth:`get_data_as_record_batches`.
-            schema_id: See :py:meth:`get_data_as_record_batches`.
-            schema_checksum: See :py:meth:`get_data_as_record_batches`.
-            timeline_source_id: See :py:meth:`get_data_as_record_batches`.
-            timeline_source_name: See :py:meth:`get_data_as_record_batches`.
-            flatten: Expand struct-typed fields into dot-delimited leaf columns.
-                When ``False``, each struct-typed field is a single object-dtype column of dicts.
-            cache_policy: See :py:meth:`get_data_as_record_batches`.
-            cache_dir: See :py:meth:`get_data_as_record_batches`.
+            start_time: See ``get_data_as_record_batches``.
+            end_time: See ``get_data_as_record_batches``.
+            fields_include: See ``get_data_as_record_batches``.
+            fields_exclude: See ``get_data_as_record_batches``.
+            prefer: See ``get_data_as_record_batches``.
+            schema_id: See ``get_data_as_record_batches``.
+            schema_checksum: See ``get_data_as_record_batches``.
+            timeline_source_id: See ``get_data_as_record_batches``.
+            timeline_source_name: See ``get_data_as_record_batches``.
+            flatten: Whether to expand every level of each struct field into dot-delimited leaf columns, such as
+                ``pose.position.x``. List fields stay whole, and an array whose elements are named also gets one
+                ``<array>.<element name>`` column per element after it. ``False`` keeps each struct field as one
+                column of dictionaries.
+            cache_policy: See ``get_data_as_record_batches``.
+            cache_dir: See ``get_data_as_record_batches``.
 
         Returns:
-            DataFrame of the in-window rows indexed by a timezone-aware ``DatetimeIndex``.
+            DataFrame of the rows in the time range, indexed by a ``DatetimeIndex`` in UTC named ``_index``. With no
+            rows, it has no columns.
 
         Raises:
-            RobotoNotFoundException: See :py:meth:`get_data_as_record_batches`.
-            RobotoInvalidRequestException: See :py:meth:`get_data_as_record_batches`.
-            RobotoReadPlanExecutionException: See :py:meth:`get_data_as_record_batches`.
-            RobotoInternalException: See :py:meth:`get_data_as_record_batches`.
-            RobotoUnauthorizedException: See :py:meth:`get_data_as_record_batches`.
+            ImportError: The ``roboto[analytics]`` extra is not installed.
+            RobotoInvalidRequestException: ``flatten`` is ``True`` and two columns flatten to the same name, such as
+                a top-level field named ``pose.x`` and the child ``x`` of a struct ``pose``.
 
         Examples:
             >>> from roboto.experimental.topics import Topic
@@ -491,15 +468,14 @@ class Topic:
         )
 
         if not batches:
-            # With no batches there is no schema to build columns from: the
-            # frame is empty and column-less, carrying only the index shape.
+            # With no batches there is no schema to build columns from, so the DataFrame has only an empty index.
             df = pd.DataFrame()
             df = df.set_index(pd.to_datetime([], unit="ns", utc=True))
             df.index.name = "_index"
             return df
 
-        # Batch schemas may differ across partitions and chunks (batch
-        # boundaries carry no meaning); permissive promotion unifies them.
+        # The batches' schemas can differ, between partitions or between batches of one partition;
+        # permissive promotion merges them into one schema.
         table = pa.concat_tables(
             (pa.Table.from_batches([batch]) for batch in batches),
             promote_options="permissive",
@@ -529,120 +505,114 @@ class Topic:
         cache_policy: CachePolicy = CachePolicy.ADAPTIVE,
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
     ) -> collections.abc.Generator["pyarrow.RecordBatch", None, None]:
-        """Yield this topic's data within a time window, as Arrow RecordBatches.
+        """Yield this topic's data within a time range, as Arrow record batches (``pyarrow.RecordBatch``).
 
-        Each batch carries one column per top-level projected field, with nested
-        struct and list types mirroring the topic's schema, pruned to the
-        projection, plus a dedicated ``int64`` column of Unix-epoch nanosecond
-        timestamps; locate that column with :py:func:`~roboto.experimental.topics.timestamp_column_index`.
-        An array whose elements are named carries their names as a JSON list in its field metadata, under
-        :py:data:`~roboto.experimental.topics.ELEMENT_NAMES_FIELD_METADATA_KEY`.
-        A field the data omits for a row surfaces as null at the deepest level that
-        represents the omission (a whole absent subtree is a single null).
+        Each batch has one column per projected top-level field, whose struct and list types follow the topic's schema,
+        pruned to the fields read, and one ``int64`` column of timestamps in nanoseconds since the Unix epoch, which
+        ``timestamp_column_index`` finds. An array whose elements are named lists their names as JSON in its field's
+        metadata, under the key ``ELEMENT_NAMES_FIELD_METADATA_KEY``. A field the data omits for a row is null at the
+        level where the data omits it, so a whole missing subtree is a single null.
 
-        Batch sizes and boundaries carry no meaning, and a window matching no rows yields no batches, as does a
-        context holding no data for the topic.
-        A topic's data can span several files ("topic partitions");
-        rows from different partitions are never mixed within a batch.
-        Partitions arrive ordered by when each file's data begins.
-        Within a partition, rows keep their stored order, and rows from different partitions are never interleaved.
-        So batches arrive as whole partitions in start order, not as a globally time-sorted row stream.
-        Sort downstream if a strict row-level time order is needed.
+        Batch sizes and boundaries carry no meaning. A time range with no rows yields no batches, and so does a context
+        that holds no data for the topic.
 
-        Requires the ``roboto[analytics]`` extra.
+        A topic's data is stored in partitions: a partition is the part of the data stored in one file, or in one slice
+        of a file several sessions share. Batches arrive partition by partition, ordered by where each partition's data
+        begins. A batch never mixes rows of two partitions, and within a partition rows keep their stored order, so
+        rows are in time order only within a partition; sort them yourself to order the whole read by time. When some
+        partitions have no stored representation this read can use, the read skips them, and one
+        ``UnreadableTopicPartitionsWarning`` names them before any batch is yielded.
+
+        Nothing is requested or raised until iteration begins. The exceptions below surface on the first iteration,
+        except that ``RobotoReadPlanExecutionException`` and ``RobotoInternalException`` can also surface during
+        iteration, when a file is read.
 
         Args:
-            start_time: Inclusive window lower bound, as nanoseconds since the
-                Unix epoch or anything convertible via :py:func:`~roboto.time.to_epoch_nanoseconds`.
-                With no context, ``start_time`` is required, and omitting it raises ``ValueError``.
-                When this topic carries a context (such as a topic obtained from
-                :py:meth:`~roboto.experimental.sessions.Session.list_topics` or
-                :py:meth:`~roboto.experimental.sessions.Session.get_topic`), ``None`` takes the event's start in an
-                :py:class:`EventContext` or the ``start_time`` of a :py:class:`SessionContext` that sets one, and
-                otherwise puts no lower limit on the read.
-                An explicit bound narrows the read within the context and never widens it. In an
-                :py:class:`EventContext`, the context is the event's Session rather than the event's span, so an
-                explicit bound may reach past the event, to read around it, but not past the Session's data.
-            end_time: Inclusive window upper bound, same forms as ``start_time``;
-                ``None`` takes the context's end on the same terms, and otherwise puts no upper limit on the read.
-            fields_include: Field subtrees to project. ``None`` projects every field. An address may also name one
+            start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts. Required when this topic has no context. In a
+                context, ``None`` takes the event's start in an ``EventContext``, or the ``start_time`` of a
+                ``SessionContext`` that sets one, and otherwise puts no lower limit on the read.
+                A bound given in a context narrows the read and never widens it. An ``EventContext`` limits the read
+                to the event's session rather than the event's span, so a bound may reach past the event, to read
+                around it, but not past the session's data.
+            end_time: Inclusive end of the time range, in the same form. ``None`` takes the context's end on the same
+                terms as ``start_time``, and otherwise puts no upper limit on the read.
+            fields_include: Field subtrees to read. ``None`` reads every field. An address may also name one
                 element of a named array, as the array's path plus the element's name; the array then holds only
                 the elements named, in element order and numbered from 0, unless the array itself is also included.
-            fields_exclude: Field subtrees to drop from the projection. ``None`` drops none. An element address
-                drops that element from its array.
-            prefer: Preferred representation per field subtree, selecting which
-                stored variant of a field to read. ``None`` applies the default
-                selection everywhere.
-            schema_id: Schema to read under, by id. Required only when the
-                window spans data with more than one schema.
-            schema_checksum: Schema to read under, by checksum. Mutually
-                exclusive with ``schema_id``.
-            timeline_source_id: Timeline source to resolve the window with, by
-                id. ``None`` uses each schema's default source.
-            timeline_source_name: Timeline source by name. Mutually exclusive
-                with ``timeline_source_id``.
-            cache_policy: Whether fetched Parquet files are cached to local
-                disk. MCAP data always streams.
-            cache_dir: Directory topic data files are cached under. Defaults
-                to a ``topic-data`` subdirectory of ``ROBOTO_CACHE_DIR``, or
-                the platform-conventional per-user cache directory when that is
-                unset.
+            fields_exclude: Field subtrees to leave out. ``None`` leaves out none. An address of one element of a
+                named array leaves that element out of its array.
+            prefer: Which stored representation of each field subtree to read, as ``RepresentationPreference``
+                describes. ``None`` admits every representation.
+            schema_id: ID of the topic schema to read under, beginning with ``ts_``. ``None``, with no
+                ``schema_checksum``, uses the one schema of the topic's data in the time range; name one when that
+                data has more than one.
+            schema_checksum: Checksum of the topic schema to read under, in place of ``schema_id``.
+            timeline_source_id: ID of the timeline source that places each partition's data in time. ``None``, with
+                no ``timeline_source_name``, uses the timeline source the schema marks as its default.
+            timeline_source_name: Name of the timeline source, in place of ``timeline_source_id``.
+            cache_policy: Whether each Parquet file is downloaded to the local cache before it is read, as
+                :py:class:`~roboto.storage.CachePolicy` describes. MCAP files are always read over HTTP.
+            cache_dir: Directory to cache downloaded files in. ``None`` uses the ``topic-data`` subdirectory of the
+                directory ``ROBOTO_CACHE_DIR`` names, or of the operating system's per-user cache directory for
+                ``roboto`` when ``ROBOTO_CACHE_DIR`` is unset.
 
         Yields:
-            :py:class:`pyarrow.RecordBatch` instances holding the in-window
-            rows, filtered and projected per the arguments.
-
-        Warns:
-            UnreadableTopicPartitionsWarning: Partitions with no scan tasks are
-                skipped. One warning names them before any rows are yielded.
+            Record batches of the rows in the time range, with the fields the arguments select.
 
         Raises:
-            RobotoNotFoundException: This topic's file or dataset context names a file or dataset that does not
-                exist.
-            RobotoInvalidRequestException: The window spans multiple schemas and
+            ImportError: The ``roboto[analytics]`` extra is not installed.
+            TypeError: An address in ``fields_include`` or ``fields_exclude`` is a string, which
+                ``FieldAddressLike`` explains, or ``start_time`` or ``end_time`` is not a :py:const:`~roboto.time.Time`.
+            ValueError: This topic has no context and ``start_time`` or ``end_time`` is omitted, or
+                :py:func:`~roboto.time.to_epoch_nanoseconds` rejects a bound. Building the request also raises
+                ``pydantic.ValidationError``, a subclass of ``ValueError``, when a bound is outside the range of
+                timestamps Roboto stores, when ``end_time`` is before ``start_time``, when both ``schema_id`` and
+                ``schema_checksum`` or both ``timeline_source_id`` and ``timeline_source_name`` are set, or when
+                ``fields_include`` or ``fields_exclude`` is empty.
+            RobotoNotFoundException: The session, file or dataset this topic's context names does not exist.
+            RobotoInvalidRequestException: The time range spans data with more than one schema and
                 none was chosen with ``schema_id`` or ``schema_checksum``, a named
-                schema or timeline source does not match the window's data, no
+                schema or timeline source does not match the data in the time range, no
                 stored representation satisfies a representation preference, or
                 ``fields_include`` and ``fields_exclude`` together select no field.
-                The error carries an actionable message.
-            RobotoReadPlanExecutionException: The topic's data cannot be read as the service's read plan describes
-                it; a ``RobotoInternalException`` whose ``kind`` says why:
+            RobotoReadPlanExecutionException: The topic's data cannot be read as its read plan, Roboto's description
+                of which files hold the data and how to decode them, describes it. It is a
+                ``RobotoInternalException`` whose ``kind`` says why:
 
+                * ``unsupported-format``: a scan task, the plan's instruction to read one stored file, names a
+                  format other than MCAP or Parquet.
                 * ``field-not-in-file``: a file backing this topic lacks a field the read takes from it, such as a
                   projected field or the field holding each row's timestamp. ``field_path`` runs from that field's
                   top-level field down to the first component the file lacks.
                 * ``unsupported-timestamp``: the read cannot take timestamps from where the data keeps them, such as
                   a message time on a Parquet file, or a Parquet timestamp field that is not a number.
                 * ``invalid-timestamp``: a stored timestamp is NaN or infinite, is a DECIMAL holding a fraction of a
-                  nanosecond, or leaves the signed 64-bit range once shifted to absolute time. ``row_number`` names
-                  the row by its 0-based position among the topic's rows in its file.
+                  nanosecond, or leaves the signed 64-bit range once shifted to time since the Unix epoch.
+                  ``row_number`` names the row by its 0-based position among the topic's rows in its file.
                 * ``scan-task-row-mismatch``: files that store different fields of the same rows hold different rows
-                  in the window.
+                  in the time range.
                 * ``field-split-inside-non-struct``: files that store different fields of the same rows split a field
                   that one of them stores as other than a struct, such as a list or a map.
-                * ``projected-field-in-no-scan-task``: a partition has scan tasks, but none reads the whole schema or a
-                  subtree containing one of the projected leaf-most paths. These are the nonempty projected paths with
-                  no other projected path beneath them.
+                * ``projected-field-in-no-scan-task``: a partition has scan tasks, but none reads the whole schema or
+                  a subtree containing one of the projected fields that has no other projected field beneath it.
                 * ``inconsistent-scan-tasks-on-file``: the plan reads one file two ways, with a different format,
                   transformations or topic name.
-                * ``partition-schema-mismatch``: a topic partition's files give the read a different schema than the
-                  first topic partition's files. It is raised when that partition's files open, before any of its
-                  rows, so even when it has no rows in the window.
-                * ``plan-without-schema``: the plan reads every field of its schema and has a topic partition with a
-                  scan task, but names no schema.
-                * ``data-range-not-in-file``: a topic partition's declared slice of its file (``data_range``) ends
-                  past the file's stored row count, so the slice does not match the file.
+                * ``partition-schema-mismatch``: a partition's files give the read a different schema than the first
+                  partition's files. It is raised when that partition's files open, before any of its rows, so even
+                  when it has no rows in the time range.
+                * ``plan-without-schema``: the plan reads every field of its schema and has a partition with a scan
+                  task, but names no schema.
+                * ``data-range-not-in-file``: a partition's declared slice of its file (``data_range``) ends past the
+                  file's stored row count, so the slice does not match the file.
                 * ``element-count-mismatch``: a named array holds a different number of elements than it has
                   names. Stored as a fixed-size list, it is refused before any row is read; stored as a list of
                   varying length, it is refused at the first such row, which ``row_number`` names.
             RobotoInternalException: An MCAP file backing this topic cannot be decoded, such as one with no chunk or
                 message index, or one whose messages are ``protobuf``-encoded.
-            RobotoUnauthorizedException: The caller lacks read access to at
-                least one in-window file backing this topic, or cannot view the file or dataset this topic's
-                context names.
 
         Examples:
-            Print every record in a window:
+            Print each batch's row count and columns for a time range:
 
             >>> from roboto.experimental.topics import Topic
             >>> topic = Topic.from_id("ti_abc123")
@@ -678,12 +648,13 @@ class Topic:
         resolved_cache_dir = (
             pathlib.Path(cache_dir)
             if cache_dir is not None
-            # A fresh RobotoEnv reads ROBOTO_CACHE_DIR as of this call, falling back to the
-            # platform-conventional per-user cache directory; ensure_exists=False never creates it.
+            # A RobotoEnv built here reads ROBOTO_CACHE_DIR as it is at this call, falling back to the operating
+            # system's per-user cache directory, which ensure_exists=False leaves uncreated.
             else resolve_cache_dir(RobotoEnv(), ensure_exists=False) / TOPIC_DATA_CACHE_SUBDIR
         )
 
-        # Mint every scan task's signed URL concurrently; each decode worker blocks only on its own URL's future.
+        # Fetch the signed URLs of the files this read downloads all at once; each decoder waits only for its own
+        # file's URL.
         url_executor, url_futures = self.__prefetch_signed_urls(plan, cache_policy, resolved_cache_dir)
         try:
 
@@ -702,41 +673,43 @@ class Topic:
             for batch in plan_execution.execute_read_plan(plan, projected, open_file_decoder):
                 yield batch_transforms.drop_row_number_column(batch)
         finally:
+            # Also runs when the caller stops iterating early or the read fails: URL fetches not yet started are
+            # cancelled, and the call does not wait for those in flight.
             if url_executor is not None:
                 url_executor.shutdown(wait=False, cancel_futures=True)
 
     def set_unix_offset(self, anchor: Time) -> list[TimelineExtentRecord]:
-        """Anchor this Topic's data in its Session to wall-clock time.
+        """Anchor this topic's data in its session to wall-clock time.
 
         ``anchor`` is the wall-clock instant at which stored time 0 of that data occurred. Converted to
-        nanoseconds since the Unix epoch, it is added to the stored timestamps of every part of this Topic
-        the Session holds, so each timestamp reads as wall-clock time. Use this call
-        for a Session whose data all starts from one time 0 but is stored apart: a topic chunked across
-        several files, or several Sessions packed into slices of one shared file where this Session
+        nanoseconds since the Unix epoch, it is added to the stored timestamps of every part of this topic
+        the session holds, so each timestamp reads as wall-clock time. Use this call
+        for a session whose data all starts from one time 0 but is stored apart: a topic chunked across
+        several files, or several sessions packed into slices of one shared file where this session
         holds one of the slices. Every part moves in one transaction, so a failure leaves every one
         of them at the offset it already had.
 
-        This call covers one Topic within one Session. To anchor everything in a Session, use
+        This call covers one topic within one session. To anchor everything in a session, use
         :py:meth:`~roboto.experimental.sessions.Session.set_unix_offset`; to anchor a whole file
-        regardless of Session, use :py:meth:`~roboto.domain.files.File.set_timeline_offset`; to
-        anchor exactly the slice a declaration names, supply that declaration's ``anchor_ns`` at
-        ingest.
+        regardless of session, use :py:meth:`~roboto.domain.files.File.set_timeline_offset`; to
+        anchor exactly the slice a declaration names, set the declaration's
+        :py:attr:`~roboto.experimental.sessions.FileDeclaration.anchor_ns` when the file is added.
 
         Two consequences:
 
-        1. The data written is shared, not copied. Any other Session holding the same data reads
+        1. The data written is shared, not copied. Any other session holding the same data reads
            the same anchor.
-        2. A file's declared time range in the Session moves only when everything that range covers
+        2. A file's declared time range in the session moves only when everything that range covers
            moved by the same distance. A file whose range also covers another topic's data, which
            this call leaves alone, keeps the range it has.
 
         Args:
             anchor: Wall-clock instant of stored time 0: an ``int`` of nanoseconds since the Unix epoch,
-                or any other :py:data:`~roboto.time.Time`, read as
+                or any other :py:const:`~roboto.time.Time`, read as
                 :py:func:`~roboto.time.to_epoch_nanoseconds` reads it (a ``datetime`` or ISO 8601 string
                 is that instant; a ``float``, ``Decimal``, or numeric string is seconds since the epoch).
-                Must fall after the Unix epoch: zero is not an anchor (use :py:meth:`clear_unix_offset` to
-                return this Topic's data in the Session to an offset of 0), and earlier instants are
+                Must fall after the Unix epoch: zero is not an anchor (use ``clear_unix_offset`` to
+                return this topic's data in the session to an offset of 0), and earlier instants are
                 rejected.
 
         Returns:
@@ -745,23 +718,21 @@ class Topic:
             so an empty list means the anchor was already in place.
 
         Raises:
-            ValueError: This Topic carries no Session context, so there is no way to tell which of
-                the Topic's data is meant; reach it through
-                :py:meth:`~roboto.experimental.sessions.Session.get_topic` or
-                :py:meth:`~roboto.experimental.sessions.Session.list_topics`.
-            TypeError: ``anchor`` is not one of the :py:data:`~roboto.time.Time` types.
-            ValueError: ``anchor`` is a boolean, a string that is neither seconds nor ISO 8601, zero, before
-                the Unix epoch, or too large for a signed 64-bit integer of nanoseconds; rejected
-                client-side, before any request is made. A range refusal is raised as
-                :py:exc:`pydantic.ValidationError`, a subclass of ``ValueError``.
-            RobotoInvalidRequestException: The anchor would move this Topic's data, or a time range declared over
+            TypeError: ``anchor`` is not one of the :py:const:`~roboto.time.Time` types.
+            ValueError: One of these, each raised before any request is made:
+
+                - This topic carries no ``SessionContext``, so there is no way to tell which of its data is meant;
+                  reach it through :py:meth:`~roboto.experimental.sessions.Session.get_topic` or
+                  :py:meth:`~roboto.experimental.sessions.Session.list_topics`.
+                - ``anchor`` is a boolean, a string that is neither seconds nor ISO 8601, zero, before the Unix
+                  epoch, or too large for a signed 64-bit integer of nanoseconds. A range refusal is raised as
+                  ``pydantic.ValidationError``, a subclass of ``ValueError``.
+            RobotoInvalidRequestException: The anchor would move this topic's data, or a time range declared over
                 it, before the Unix epoch or past the largest storable Unix-epoch nanosecond value; anchor the data
                 at the instant it was recorded.
-            RobotoConflictException: A concurrent writer added files to the Session while the anchor
-                was being applied; retry the call.
-            RobotoNotFoundException: The Session does not exist, or holds no data for this Topic.
-            RobotoUnauthorizedException: The caller cannot view the Session, or cannot edit some
-                file behind the data being written.
+            RobotoConflictException: Files were added to the session while the anchor was being applied; retry the
+                call.
+            RobotoNotFoundException: The session does not exist, or holds no data for this topic.
 
         Examples:
             >>> from roboto.experimental.sessions import Session
@@ -793,17 +764,19 @@ class Topic:
         typing.Optional[concurrent.futures.ThreadPoolExecutor],
         dict[ReadPlanObjectRef, concurrent.futures.Future[str]],
     ]:
-        """Start minting, concurrently, the signed URLs every scan task will need.
+        """Start fetching, at once, the signed URL of every file version the plan's scan tasks read.
 
-        Returns the minting executor (``None`` when nothing needs a URL) and one future per file version that needs a
-        URL; the caller blocks on individual futures as decode reaches each file, and owns shutting the executor down.
+        Returns the executor that fetches them (``None`` when no file needs a URL) and one future per file version
+        that needs one. The caller waits on each future as decoding reaches its file, and owns shutting the executor
+        down.
 
-        Decode reads a Parquet file from disk, without a URL, when the local cache holds a copy under the file's
-        ``cached_parquet_name`` at the plan's size, or at any size when the plan reports none. Such a file is skipped
-        here to avoid a wasted round trip. A cached copy of another size is stale and is fetched again, so that file's
-        URL is minted with the rest. Under ``CachePolicy.NEVER`` decode never reads the cache, so every Parquet file
-        gets a URL. MCAP always streams, so every MCAP file needs a URL. The decode-time resolver mints a URL directly
-        for any file missing from this map, so a skipped file that ends up streaming after all still gets one.
+        Decoding reads a Parquet file from disk, without a URL, when the local cache holds a copy under the file's
+        ``cached_parquet_name`` at the plan's size, or at any size when the plan reports none, so such a file gets no
+        URL here. A cached copy of another size is stale and is downloaded again, so that file's URL is fetched with
+        the rest. Under ``CachePolicy.NEVER`` decoding never reads the cache, so every Parquet file gets a URL. Every
+        MCAP file gets one, because MCAP files are always read over HTTP. The resolver decoding uses fetches a URL
+        itself for any file missing from the returned map, so a skipped file that is read over HTTP after all still
+        gets one.
         """
         files: set[ReadPlanObjectRef] = set()
         for partition in plan.partitions:
@@ -823,17 +796,12 @@ class Topic:
         return executor, {file: executor.submit(self.__signed_url_for_file, file) for file in files}
 
     def __require_session_id(self, operation: str) -> str:
-        """Return the id of the Session this Topic is scoped to.
+        """Return the ID of the session this topic is scoped to.
 
-        :py:meth:`set_unix_offset` and :py:meth:`clear_unix_offset` act on the data one Session
-        holds. Without a Session they would have nothing to act on but the Topic's data org-wide,
-        across every file that ever carried the topic name.
-
-        Args:
-            operation: Name of the calling method; it opens the error message.
-
-        Raises:
-            ValueError: This Topic carries no Session context.
+        Raise ``ValueError``, with an error message that opens with ``operation``, the calling method's name, when this
+        topic carries no ``SessionContext``. ``set_unix_offset`` and ``clear_unix_offset`` act on the data one session
+        holds. Without a session they would have nothing to act on but the topic's data across the organization, in
+        every file that ever logged the topic name.
         """
         context = self.__context
         if not isinstance(context, SessionContext):
@@ -865,9 +833,9 @@ class Topic:
             start_ns = start_ns if start_ns is not None else context.start_time
             end_ns = end_ns if end_ns is not None else context.end_time
 
-        # A read in a context may omit a bound, and the service then puts no limit on that side of the read.
-        # Checking here, ahead of ReadPlanRequest's own check, gives an error in terms of the Topic's contexts rather
-        # than the request's fields.
+        # A read in a context may omit a bound, and Roboto then puts no limit on that side of the read. Checking here,
+        # ahead of ReadPlanRequest's own check, gives an error in terms of the topic's contexts rather than the
+        # request's fields.
         if (start_ns is None or end_ns is None) and context is None:
             raise ValueError(
                 "start_time and end_time are required unless the topic is read in a session, session event, file, "
@@ -917,9 +885,8 @@ def _coerce_field_addresses(
         if isinstance(address, FieldAddress):
             coerced.append(address)
         elif isinstance(address, str):
-            # A str is structurally a Sequence[str], so it would coerce silently —
-            # splitting on "." would guess component boundaries, and tuple(address)
-            # would address one field per character. Reject it loudly instead.
+            # A str is a Sequence[str] too, so without this branch it would become one field per character; the
+            # FieldAddressLike docstring gives the reason it is rejected rather than split.
             raise TypeError(
                 "field address must be given as its path components, not a string; "
                 f"pass a tuple such as {tuple(address.split('.'))!r} (or a FieldAddress) instead of {address!r}"

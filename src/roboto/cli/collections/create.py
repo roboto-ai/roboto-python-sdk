@@ -18,17 +18,24 @@ from ..context import CLIContext
 
 
 def create(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Create a collection in the ``--org`` organization from the command's options, then print its record as JSON.
+
+    A collection holds one type of resource, chosen as follows:
+
+    1. Giving IDs of more than one type exits with an error.
+    2. ``--resource-type``, when given, sets the type, and exits with an error when it differs from the type of the
+       given IDs.
+    3. Otherwise the type is that of the given IDs, or files, with a warning, when no IDs are given.
+    """
     has_datasets = bool(args.dataset_id)
     has_events = bool(args.event_id)
     has_files = bool(args.file_id)
     has_sessions = bool(args.session_id)
 
-    # 1. Reject mixed resource types
     provided_resource_kinds = sum([has_datasets, has_events, has_files, has_sessions])
     if provided_resource_kinds > 1:
         parser.error("Cannot mix --dataset-id, --event-id, --file-id, and --session-id in a single collection.")
 
-    # 2. Infer resource_type from provided IDs
     if has_datasets:
         inferred_type: CollectionResourceType | None = CollectionResourceType.Dataset
     elif has_events:
@@ -40,7 +47,6 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
     else:
         inferred_type = None
 
-    # 3. Resolve explicit --resource-type
     if args.resource_type is not None:
         explicit_type = CollectionResourceType(args.resource_type)
         if inferred_type is not None and explicit_type != inferred_type:
@@ -59,7 +65,7 @@ def create(args, context: CLIContext, parser: argparse.ArgumentParser):
         )
         resource_type = CollectionResourceType.File
 
-    # 4. Build resource refs (only one type can be present at this point)
+    # At most one of these branches runs, since IDs of more than one type exit above.
     resources: list[CollectionResourceRef] = []
     if has_datasets:
         resources.extend(

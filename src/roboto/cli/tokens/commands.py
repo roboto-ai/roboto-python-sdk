@@ -16,6 +16,11 @@ from ..context import CLIContext
 
 
 def create(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Create a personal access token for the caller and print its secret, with instructions for saving it.
+
+    Roboto returns the secret only in this response; ``roboto tokens list`` and ``roboto tokens show`` cannot print it
+    later.
+    """
     token, secret = Token.create(
         expiry_days=args.expiry_days,
         name=args.name,
@@ -56,6 +61,7 @@ def create_setup_parser(parser):
 
 
 def list(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print the record of each of the caller's tokens, without its secret, as one JSON object per token."""
     tokens = Token.for_self(roboto_client=context.roboto_client)
     for token in tokens:
         print(json.dumps(token.to_dict(), indent=2))
@@ -76,6 +82,10 @@ def show_setup_parser(parser):
 
 
 def delete(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Delete the token ``--id`` names, and print a confirmation with its ID.
+
+    Fetches the token first, so an ID that matches no token raises ``RobotoNotFoundException`` instead of succeeding.
+    """
     Token.from_id(token_id=args.id, roboto_client=context.roboto_client).delete()
     print(f"Successfully deleted token '{args.id}'!")
 

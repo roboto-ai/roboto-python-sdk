@@ -10,24 +10,36 @@ from .record import AgentRecord, TemplateVariable
 
 
 class AgentResolutionError(ValueError):
-    """Base class for resolver-raised errors. Routes map subclasses to 4xx."""
+    """Base class of the exceptions the SDK raises when the values for a launch of an agent do not match its variables.
+
+    ``resolve_agent`` raises its two subclasses, ``UnknownAgentVariablesError`` and ``UnresolvedAgentVariablesError``.
+    :py:meth:`~roboto.ai.agent.Agent.launch` reports either one as ``RobotoInvalidRequestException``, with the same
+    message.
+    """
 
 
 class UnresolvedAgentVariablesError(AgentResolutionError):
-    """Required variables had no supplied value and no default. Mapped to 400
-    with the names so the invoke page can highlight the empty inputs."""
+    """A launch of an agent has no value for a required variable that has no default.
+
+    ``resolve_agent`` raises it, and its message names every such variable.
+    """
 
     def __init__(self, names: list[str]) -> None:
         self.names = sorted(names)
+        """Names of the required variables that have no value, sorted."""
         super().__init__("Missing required values for agent variables: " + ", ".join(self.names) + ".")
 
 
 class UnknownAgentVariablesError(AgentResolutionError):
-    """Caller supplied values for variables the agent no longer declares —
-    almost always a stale invoke form. Mapped to 400 so the UI can refetch."""
+    """A launch of an agent has a value for a name that is not one of the agent's variables.
+
+    ``resolve_agent`` raises it, and its message names every such name. A launch form loaded before someone removed a
+    variable from the agent sends one.
+    """
 
     def __init__(self, names: list[str]) -> None:
         self.names = sorted(names)
+        """Names in the launch's values that are not variables of the agent, sorted."""
         super().__init__("Received values for variables not declared by the agent: " + ", ".join(self.names) + ".")
 
 
@@ -35,21 +47,24 @@ def resolve_agent(
     agent: AgentRecord,
     values: dict[str, str],
 ) -> StartAgentThreadRequest:
-    """Substitute ``values`` into ``agent.request_template`` and return a
-    fully-validated :class:`StartAgentThreadRequest`.
+    """Build the request that starts a thread for one launch of an agent, with ``values`` in its placeholders.
 
-    Walks the body's JSON form swapping every ``{{name}}`` occurrence in a
-    string leaf. Embedded substitution is supported. Dict keys are never
-    touched — placeholder syntax in keys is rejected at save time.
+    Roboto calls this when :py:meth:`~roboto.ai.agent.Agent.launch` or a trigger with a
+    :py:class:`~roboto.domain.triggers.StartAgentTarget` launches an agent.
+
+    Each ``{{name}}`` placeholder in a string value of the agent's ``request_template`` becomes its variable's value,
+    including a placeholder within longer text. Dictionary keys are left unchanged.
+
+    Args:
+        agent: Record of the agent to launch.
+        values: Value of each variable, keyed by variable name. A variable left out uses its default.
 
     Raises:
-        UnknownAgentVariablesError: ``values`` contains keys not declared on
-            the agent (typically a stale invoke form).
-        UnresolvedAgentVariablesError: a required variable has neither a
-            supplied value nor a default; carries the offending names.
-        pydantic.ValidationError: the substituted body failed
-            :class:`StartAgentThreadRequest` validation — e.g. a resolved
-            value doesn't match a field-level regex or enum.
+        UnknownAgentVariablesError: A key in ``values`` names no variable of the agent.
+        UnresolvedAgentVariablesError: A required variable has no value in ``values`` and no default.
+        pydantic.ValidationError: The request with the values filled in is not a valid
+            :py:class:`~roboto.ai.agent_thread.StartAgentThreadRequest`, such as when a value does not match a
+            field's pattern.
     """
     merged = _merge_values_and_defaults(agent.variables, values)
     raw = agent.request_template.model_dump(mode="json")
@@ -75,10 +90,8 @@ def _merge_values_and_defaults(
         elif variable.default is not None:
             merged[variable.name] = variable.default
         else:
-            # Reaching this branch means required=True and the caller omitted
-            # a value: TemplateVariable._validate_resolvable rejects the
-            # (required=False, default=None) combination at record-save time,
-            # so an optional variable always has a default to fall back to.
+            # Only a required variable reaches this branch: TemplateVariable rejects an optional variable
+            # with no default.
             missing_required.append(variable.name)
 
     if missing_required:

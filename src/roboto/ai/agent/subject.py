@@ -37,20 +37,22 @@ def infer_agent_subject(
     request_template: StartAgentThreadRequest,
     variables: collections.abc.Sequence[TemplateVariable],
 ) -> Optional[AgentSubject]:
-    """Return the kind of entity an agent is launched on, from its goals and variables.
+    """Return the kind of resource an agent is launched on, worked out from its goals and variables.
 
-    When the agent has goals, its first goal decides: every goal acts on a dataset or on a session, and
-    :func:`validate_agent_subject` refuses an agent whose goals disagree. An agent without goals is
-    launched on a dataset when its variables take a dataset ID but no session ID, and on a session
-    when they take a session ID but no dataset ID.
+    Roboto calls this when it returns an agent, and sets :py:attr:`~roboto.ai.agent.AgentRecord.subject` to the result.
+
+    An agent with goals takes the subject of its first goal: every goal acts on a dataset or on a session, and
+    ``validate_agent_subject`` rejects an agent whose goals disagree. An agent without goals is launched on a dataset
+    when one of its variables has type :py:attr:`~roboto.ai.agent.TemplateVariableType.DATASET_ID` and none has type
+    ``SESSION_ID``, and on a session in the reverse case.
 
     Args:
-        request_template: The agent's request template.
-        variables: The agent's declared variables.
+        request_template: Request that starts each of the agent's threads.
+        variables: Variables of the agent.
 
     Returns:
-        The subject, or ``None`` when the agent has none: it declares no goals and its variables take
-        neither a dataset ID nor a session ID, or both.
+        Subject of the agent, or ``None`` when it has none: the agent has no goals, and its variables include both a
+        dataset ID and a session ID, or neither.
 
     Examples:
         >>> from roboto.ai.agent import TemplateVariable, TemplateVariableType, infer_agent_subject
@@ -76,26 +78,22 @@ def validate_agent_subject(
     request_template: StartAgentThreadRequest,
     variables: collections.abc.Sequence[TemplateVariable],
 ) -> None:
-    """Refuse an agent whose goals do not agree on one subject or bind it to the wrong kind of variable.
+    """Reject an agent whose goals mix datasets and sessions, or whose goal IDs name the wrong kind of variable.
 
-    Roboto applies this check when an agent is created or updated. Two shapes are refused:
-
-    - Goals that act on a dataset mixed with goals that act on a session. An agent is launched on
-      either a dataset or a session.
-    - A goal whose ``dataset_id`` or ``session_id`` is a ``{{name}}`` placeholder naming a variable
-      whose type is not ``dataset_id`` or ``session_id`` respectively, or that embeds a placeholder in
-      other text. A literal ID is accepted, which pins the agent to one dataset or session.
-
-    A placeholder that names no declared variable is left to :class:`AgentRecord`'s own check that
-    variables and placeholders match.
+    Roboto calls this when an agent is created or updated. An agent is launched on either a dataset or a session, so
+    all of its goals must act on the same kind of resource. A goal's ``dataset_id`` or ``session_id`` must be a
+    literal ID, which pins the agent to one dataset or session, or exactly one ``{{name}}`` placeholder naming a
+    variable of the matching type: :py:attr:`~roboto.ai.agent.TemplateVariableType.DATASET_ID` or ``SESSION_ID``. A
+    placeholder that names no variable of the agent passes this check; building
+    :py:class:`~roboto.ai.agent.AgentRecord` rejects it.
 
     Args:
-        request_template: The agent's request template.
-        variables: The agent's declared variables.
+        request_template: Request that starts each of the agent's threads.
+        variables: Variables of the agent.
 
     Raises:
-        RobotoInvalidRequestException: The goals mix subjects, or a goal binds its subject's ID to a
-            placeholder of the wrong kind.
+        RobotoInvalidRequestException: The goals act on both datasets and sessions, or a goal's ``dataset_id`` or
+            ``session_id`` embeds a placeholder in other text or names a variable of the wrong type.
     """
     variable_types = {variable.name: variable.type for variable in variables}
     first_subject: Optional[tuple[int, AgentGoal, AgentSubject]] = None
@@ -145,16 +143,18 @@ def _check_subject_id_binding(
 
 
 def goal_subject(goal: AgentGoal) -> tuple[AgentSubject, str]:
-    """Return the kind of entity ``goal`` acts on and the ID of that entity, as the goal names it.
+    """Return the kind of resource ``goal`` acts on and the ID of that resource, as the goal writes it.
 
-    The ID is the goal's ``dataset_id`` or ``session_id`` as written, so in an agent's request template
-    it may be a ``{{name}}`` placeholder.
+    Roboto calls this when a thread receives goals, to record the dataset or session each goal acts on. The ID is the
+    goal's ``dataset_id`` or ``session_id`` as written, so in an agent's request template it may be a ``{{name}}``
+    placeholder.
 
     Args:
-        goal: Any member of :data:`~roboto.ai.goals.AgentGoal`.
+        goal: Goal of any type in :py:const:`~roboto.ai.goals.AgentGoal`.
 
     Returns:
-        The subject and the goal's ``dataset_id`` or ``session_id``.
+        ``(subject, subject_id)``: the kind of resource the goal acts on and the goal's ``dataset_id`` or
+        ``session_id``.
     """
     match goal:
         case DatasetSummaryAgentGoal() | DatasetTriageGoal() | CreateEventsGoal():

@@ -4,16 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Codec seam for the GOP-aware stream decoder.
-
-Isolates the per-codec bitstream knowledge (keyframe detection) and the PyAV
-decoder name behind one small value type, so :py:func:`.decoder.decode_stream`
-stays codec-agnostic: it depends on a :py:class:`VideoCodec`, never on a
-specific codec's bitstream format. H.264, H.265, VP9, and AV1 are registered;
-a new codec adds a :py:class:`VideoCodec` here plus one :py:data:`_REGISTRY`
-entry, with no change to the decoder.
-"""
-
 from __future__ import annotations
 
 import collections.abc
@@ -27,28 +17,27 @@ from .vp9 import is_keyframe as _vp9_is_keyframe
 
 @dataclasses.dataclass(frozen=True)
 class VideoCodec:
-    """The per-codec hooks the generic stream decoder depends on.
+    """Codec of a compressed-video stream: the PyAV decoder for it, and how to find its keyframes from their bytes.
 
-    A codec is data plus one function: the PyAV decoder name and a predicate
-    that recognizes an independently decodable keyframe from an encoded frame's
-    bytes. Everything else about decoding (GOP skipping, log-time remapping,
-    error recovery) is codec-agnostic and lives in the decoder.
+    ``decode_stream`` and ``decode_frames_in_range`` read nothing else about a codec, so a ``VideoCodec`` you build for
+    another codec PyAV decodes works with them too. ``resolve_codec`` returns only ``H264``, ``H265``, ``VP9`` and
+    ``AV1``.
     """
 
     name: str
-    """Canonical codec name (matches the per-message ``format`` field, lowercase)."""
+    """Name of the codec in lowercase, such as ``"h265"``; warnings about frames that fail to decode name it."""
 
     formats: frozenset[str]
-    """Per-message ``format`` tokens that resolve to this codec (compared lowercase)."""
+    """Values of a message's ``format`` field that ``resolve_codec`` resolves to this codec, in lowercase."""
 
     pyav_codec_name: str
-    """Decoder name passed to PyAV's ``CodecContext.create``."""
+    """Name of the PyAV decoder to decode with, as ``av.CodecContext.create`` takes it."""
 
     is_keyframe: collections.abc.Callable[[bytes], bool]
-    """Whether an encoded frame is an independently decodable keyframe (clean entry point)."""
+    """Function that takes an encoded frame's bytes, and returns whether it is a keyframe, which decodes on its own."""
 
     decoder_thread_count: int | None = None
-    """Fixed ``thread_count`` for the decoder context, or ``None`` for FFmpeg's default."""
+    """Number of threads the decoder uses, or ``None`` to leave FFmpeg's default."""
 
 
 H264 = VideoCodec(
@@ -75,15 +64,12 @@ VP9 = VideoCodec(
 AV1 = VideoCodec(
     name="av1",
     formats=frozenset({"av1"}),
-    # dav1d is the software AV1 decoder bundled with PyAV's FFmpeg build;
-    # FFmpeg's native "av1" decoder historically required hardware support.
+    # libdav1d is the software AV1 decoder in PyAV's FFmpeg build; FFmpeg's own "av1" decoder needs hardware support.
     pyav_codec_name="libdav1d",
     is_keyframe=_av1_is_keyframe,
-    # dav1d's worker-thread teardown deadlocks (process hangs at 0% CPU) when
-    # threaded decoder contexts are repeatedly created and destroyed in one
-    # process (observed with PyAV 18.0.0); a single-threaded context sidesteps
-    # the race, and decode sessions here are short GOP walks where decoder
-    # parallelism buys little.
+    # With PyAV 18.0.0, a process that creates and closes many multithreaded libdav1d decoders deadlocks while one
+    # stops its threads, and hangs at 0% CPU. One thread avoids the deadlock and costs little, since each decoder
+    # decodes only a short run of frames that starts at a keyframe.
     decoder_thread_count=1,
 )
 
@@ -92,19 +78,17 @@ _REGISTRY: dict[str, VideoCodec] = {fmt: codec for codec in (H264, H265, VP9, AV
 
 
 def resolve_codec(format: str) -> VideoCodec | None:
-    """Return the codec registered for a per-message ``format`` token.
+    """Return the codec that decodes a compressed-video message's ``format`` value.
 
     Args:
-        format: The per-message ``format`` field of a compressed-video message
-            (e.g. ``"h264"``); matched case-insensitively.
+        format: Value of the message's ``format`` field, such as ``"h264"``, matched case-insensitively.
 
     Returns:
-        The matching :py:class:`VideoCodec`, or ``None`` when no registered
-        codec claims the token (the stream carries a codec with no decode path).
+        One of ``H264``, ``H265``, ``VP9`` and ``AV1``, or ``None`` when none of them decodes the format.
     """
     return _REGISTRY.get(format.lower())
 
 
 def supported_formats() -> frozenset[str]:
-    """The per-message ``format`` tokens that have a decode path, lowercase."""
+    """Return every ``format`` value that ``resolve_codec`` resolves to a codec, in lowercase."""
     return frozenset(_REGISTRY)

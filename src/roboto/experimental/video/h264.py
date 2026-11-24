@@ -4,18 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Minimal H.264 Annex B bitstream inspection.
-
-Implements only the byte-level parsing needed to drive a GOP-aware decoder:
-splitting a frame's data into NAL units and detecting keyframes (IDR slices).
-It neither decodes video nor parses variable-length (Exp-Golomb) fields —
-the decoder reads everything else (dimensions, reference frame count, ...)
-from the in-band parameter sets.
-
-The start-code scan shared with H.265 lives in :py:mod:`.annexb`; this module
-adds the H.264 specifics: a 1-byte NAL header carrying a 5-bit type.
-"""
-
 from __future__ import annotations
 
 import enum
@@ -28,10 +16,10 @@ _NAL_UNIT_TYPE_MASK = 0x1F
 
 
 class NalUnitType(enum.IntEnum):
-    """H.264 NAL unit types (ITU-T H.264 table 7-1) relevant to this module.
+    """Type of an H.264 NAL (network abstraction layer) unit, with members for five of the types.
 
-    NAL headers can carry any 5-bit type value, so :py:attr:`NalUnit.type` is a
-    plain ``int``; compare against these members for the types that matter here.
+    A NAL unit header can carry any 5-bit type, so ``NalUnit.type`` is an ``int``; compare it against these members.
+    The values are those of table 7-1 of ITU-T H.264.
     """
 
     NON_IDR_SLICE = 1
@@ -42,19 +30,23 @@ class NalUnitType(enum.IntEnum):
 
 
 def find_nal_units(data: bytes) -> list[NalUnit]:
-    """Split Annex B-framed H.264 data into its NAL units.
+    """Split H.264 data in Annex B framing into its NAL (network abstraction layer) units.
+
+    In Annex B framing, a start code (``00 00 01`` or ``00 00 00 01``) precedes each unit. A unit's type is the low 5
+    bits of its first byte.
 
     Args:
-        data: One frame's Annex B-framed bytes, using 3-byte or 4-byte start codes.
+        data: Bytes in Annex B framing, such as one encoded frame.
 
     Returns:
-        The frame's NAL units in bitstream order. Each unit's ``data`` is a copy
-        of the unit's bytes (header included, start code excluded).
+        The units in the order they appear, each holding a copy of its bytes, header included and start code excluded.
 
     Examples:
-        >>> from roboto.experimental.video import NalUnitType, find_nal_units
-        >>> units = find_nal_units(annex_b_frame_bytes)  # doctest: +SKIP
-        >>> [unit.type for unit in units]  # doctest: +SKIP
+        A sequence parameter set, a picture parameter set and an IDR slice, each one header byte long:
+
+        >>> from roboto.experimental.video import find_nal_units
+        >>> data = bytes.fromhex("00 00 00 01 67 00 00 01 68 00 00 01 65")
+        >>> [unit.type for unit in find_nal_units(data)]
         [7, 8, 5]
     """
     return [
@@ -64,16 +56,12 @@ def find_nal_units(data: bytes) -> list[NalUnit]:
 
 
 def is_keyframe(data: bytes) -> bool:
-    """Whether the Annex B-framed H.264 frame contains an IDR slice.
+    """Return whether an H.264 frame contains an IDR slice, which makes it a keyframe, a point decoding can start from.
 
-    An IDR slice is a clean decoder entry point: decoding may start at this
-    frame without any earlier GOP state. Frames without one are delta frames,
-    decodable only after the preceding keyframe has been fed to the decoder.
+    An IDR (instantaneous decoder refresh) slice is a NAL unit of type ``NalUnitType.IDR_SLICE``. A frame with one
+    decodes without any earlier frame; a frame without one decodes only after the frames back to the keyframe before it.
 
     Args:
-        data: One frame's Annex B-framed bytes.
-
-    Returns:
-        True when the frame contains an IDR slice.
+        data: Bytes of one encoded frame in Annex B framing.
     """
     return any(data[start] & _NAL_UNIT_TYPE_MASK == NalUnitType.IDR_SLICE for start, _ in nal_payload_bounds(data))

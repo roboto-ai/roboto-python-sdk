@@ -4,18 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Minimal H.265 (HEVC) Annex B bitstream inspection.
-
-Implements only the byte-level parsing needed to drive a GOP-aware decoder:
-splitting a frame's data into NAL units and detecting keyframes (IRAP
-pictures). It neither decodes video nor parses variable-length fields — the
-decoder reads everything else from the in-band parameter sets.
-
-The start-code scan shared with H.264 lives in :py:mod:`.annexb`; this module
-adds the H.265 specifics: a 2-byte NAL header whose first byte carries a
-6-bit type in bits 6..1 (ITU-T H.265 section 7.3.1.2).
-"""
-
 from __future__ import annotations
 
 import enum
@@ -27,18 +15,16 @@ __all__ = ["NalUnit", "NalUnitType", "find_nal_units", "is_keyframe"]
 _NAL_UNIT_TYPE_SHIFT = 1
 _NAL_UNIT_TYPE_MASK = 0x3F
 
-# IRAP (intra random access point) NAL unit types span BLA_W_LP (16) through
-# RSV_IRAP_VCL23 (23) — ITU-T H.265 table 7-1. Any VCL NAL in this range makes
-# the frame a clean decoder entry point.
+# Inclusive range of the IRAP (intra random access point) NAL unit types, BLA_W_LP (16) through RSV_IRAP_VCL23 (23).
 _IRAP_TYPE_MIN = 16
 _IRAP_TYPE_MAX = 23
 
 
 class NalUnitType(enum.IntEnum):
-    """H.265 NAL unit types (ITU-T H.265 table 7-1) relevant to this module.
+    """Type of an H.265 NAL (network abstraction layer) unit, with members for eight of the types.
 
-    NAL headers can carry any 6-bit type value, so :py:attr:`NalUnit.type` is a
-    plain ``int``; compare against these members for the types that matter here.
+    Values are those of table 7-1 of ITU-T H.265. A NAL unit header can carry any 6-bit type, so ``NalUnit.type``
+    is an ``int``; compare it against these members.
     """
 
     TRAIL_R = 1
@@ -56,20 +42,23 @@ def _nal_type(header_byte: int) -> int:
 
 
 def find_nal_units(data: bytes) -> list[NalUnit]:
-    """Split Annex B-framed H.265 data into its NAL units.
+    r"""Split H.265 data in Annex B framing into its NAL (network abstraction layer) units.
+
+    In Annex B framing, a start code (``00 00 01`` or ``00 00 00 01``) precedes each unit. Bytes before the first start
+    code are ignored.
 
     Args:
-        data: One frame's Annex B-framed bytes, using 3-byte or 4-byte start codes.
+        data: Bytes in Annex B framing, such as one encoded frame.
 
     Returns:
-        The frame's NAL units in bitstream order. Each unit's ``data`` is a copy
-        of the unit's bytes (header included, start code excluded).
+        The NAL units in the order they appear, each holding a copy of its bytes: its 2-byte header and payload,
+        without the start code.
 
     Examples:
-        >>> from roboto.experimental.video.h265 import NalUnitType, find_nal_units
-        >>> units = find_nal_units(annex_b_frame_bytes)  # doctest: +SKIP
-        >>> [unit.type for unit in units]  # doctest: +SKIP
-        [32, 33, 34, 19]
+        >>> from roboto.experimental.video.h265 import find_nal_units
+        >>> frame = b"\x00\x00\x00\x01\x40\x01\x00\x00\x01\x26\x01\xaf"
+        >>> [unit.type for unit in find_nal_units(frame)]
+        [32, 19]
     """
     return [
         NalUnit(type=_nal_type(data[start]), data=bytes(data[start:end])) for start, end in nal_payload_bounds(data)
@@ -77,17 +66,12 @@ def find_nal_units(data: bytes) -> list[NalUnit]:
 
 
 def is_keyframe(data: bytes) -> bool:
-    """Whether the Annex B-framed H.265 frame contains an IRAP picture.
+    """Return whether an H.265 frame in Annex B framing is a keyframe, a point decoding can start from.
 
-    An IRAP picture (IDR, CRA, or BLA) is a clean decoder entry point: decoding
-    may start at this frame without any earlier GOP state. Frames without one
-    are delta frames, decodable only after the preceding keyframe has been fed
-    to the decoder.
+    The frame is a keyframe when any of its NAL units has a type from 16 to 23: the IRAP (intra random access point)
+    types, which mark BLA, IDR and CRA pictures, plus two reserved IRAP types.
 
     Args:
-        data: One frame's Annex B-framed bytes.
-
-    Returns:
-        True when the frame contains an IRAP picture.
+        data: Bytes of one encoded frame in Annex B framing, as ``find_nal_units`` takes.
     """
     return any(_IRAP_TYPE_MIN <= _nal_type(data[start]) <= _IRAP_TYPE_MAX for start, _ in nal_payload_bounds(data))

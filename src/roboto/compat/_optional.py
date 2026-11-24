@@ -19,8 +19,10 @@ IMPORT_ERROR_MSG_TEMPLATE = (
     "Missing optional dependency '{module_name}'. "
     "Re-install roboto using pip or conda with 'roboto[{pip_extra}]' to install a compatible version."
 )
+"""Message ``import_optional_dependency`` gives for a missing module, with ``module_name`` and ``pip_extra`` fields."""
 
 KNOWN_PIP_EXTRAS: typing.TypeAlias = typing.Literal["analytics", "ingestion", "video"]
+"""Extras of the ``roboto`` package that install optional dependencies, as in ``pip install roboto[<extra>]``."""
 
 
 @typing.overload
@@ -47,31 +49,20 @@ def import_optional_dependency(
     *,
     errors: typing.Literal["raise", "warn", "ignore"] = "raise",
 ) -> typing.Union[types.ModuleType, None]:
-    """
-    Import an optional dependency.
+    """Import a module that one of the ``roboto`` package's extras installs.
 
-    By default, if a dependency is missing an ImportError with a nice
-    message will be raised.
+    Args:
+        pip_extra: Extra that installs the module, named in the message about a missing module.
+        errors: What to do when the module cannot be imported. ``"raise"`` raises ``ImportError``, ``"warn"`` issues
+            a ``UserWarning`` and returns ``None``, and ``"ignore"`` returns ``None``.
 
-    Parameters
-    ----------
-    module_name : str
-        The module name.
-    pip_extra : str
-        The pip extra to use in the ImportError message.
-    errors : str {'raise', 'warn', 'ignore'}
-        What to do when a dependency is not found or its version is too old.
+    Returns:
+        The imported module, or ``None`` when it cannot be imported and ``errors`` is ``"warn"`` or ``"ignore"``.
 
-        * raise : Raise an ImportError
-        * ignore: If the module is not installed, return None, otherwise,
-          return the module.
-    Returns
-    -------
-    maybe_module : Optional[ModuleType]
-        The imported module, when found.
-        None is returned when the package is not found and `errors`
-        is False, or when the package's version is too old and `errors`
-        is ``'warn'`` or ``'ignore'``.
+    Raises:
+        ImportError: The module cannot be imported and ``errors`` is ``"raise"``. Its message is
+            ``IMPORT_ERROR_MSG_TEMPLATE``, formatted with ``module_name`` and ``pip_extra``.
+        ValueError: The module cannot be imported and ``errors`` is not ``"raise"``, ``"warn"``, or ``"ignore"``.
     """
     try:
         module = importlib.import_module(module_name)

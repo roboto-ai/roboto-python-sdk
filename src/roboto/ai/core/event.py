@@ -11,67 +11,79 @@ import pydantic
 
 
 class AgentStartTextEvent(pydantic.BaseModel):
-    """Signals the beginning of text generation in a chat response."""
+    """Event marking the start of a run of text in a message.
+
+    ``AgentTextDeltaEvent`` events carry the run's text, and an ``AgentTextEndEvent`` ends it. A message yields one run
+    for each stretch of text that no other content interrupts.
+    """
 
 
 class AgentTextDeltaEvent(pydantic.BaseModel):
-    """Contains incremental text content as the AI generates its response."""
+    """Event carrying the next piece of a run of text, as Roboto's AI generates it."""
 
     text: str
-    """Text fragment from the streaming response."""
+    """Next piece of the run's text. Joining the pieces in order gives the run's full text."""
 
 
 class AgentTextEndEvent(pydantic.BaseModel):
-    """Signals the completion of text generation in a chat response."""
+    """Event marking the end of a run of text in a message.
+
+    Yielded when content other than text, such as a tool use, follows the run in the message, or when generation of
+    the message ends.
+    """
 
 
 class AgentToolUseEvent(pydantic.BaseModel):
-    """Signals that the AI is invoking a tool to gather information."""
+    """Event reporting that Roboto's AI asked to run a tool."""
 
     name: str
-    """Name of the tool being invoked."""
+    """Name of the tool the AI asked to run."""
 
     tool_use_id: str
-    """Unique identifier for this tool invocation."""
+    """Unique ID of the tool use. The ``AgentToolResultEvent`` reporting its result carries the same ID."""
 
     input: Optional[dict[str, Any]] = None
-    """Parsed tool input parameters chosen by the LLM."""
+    """Input the AI chose for the tool, or ``None`` if the tool use carries none."""
 
     answered_by_server: bool = False
-    """Whether the server answers this call to a client-side tool itself; a client must not run the tool when
-    ``True``. See :py:attr:`~roboto.ai.core.content.AgentToolUseContent.answered_by_server`."""
+    """Whether Roboto answers this call to a client tool itself, in which case the caller must not run the tool.
+
+    Always ``False`` for a tool Roboto runs. See :py:attr:`~roboto.ai.core.AgentToolUseContent.answered_by_server`.
+    """
 
 
 class AgentToolResultEvent(pydantic.BaseModel):
-    """Contains the result of a tool invocation."""
+    """Event reporting the result of a tool the AI asked to run."""
 
     name: str
-    """Name of the tool that was invoked."""
+    """Name of the tool the result is for."""
 
     tool_use_id: str
-    """Unique identifier for this tool invocation."""
+    """ID of the tool use this result answers, the same as on its ``AgentToolUseEvent``."""
 
     success: bool
-    """Whether the tool invocation succeeded."""
+    """Whether the tool succeeded."""
 
     output: Optional[dict[str, Any]] = None
-    """Raw tool output payload (from the underlying tool_result's
-    ``raw_response``). May be ``None`` for errored invocations or for tools
-    that return no data."""
+    """Unused. Always ``None``, since Roboto leaves the tool's raw result out of the threads it returns.
+
+    The SDK copies it from :py:attr:`~roboto.ai.core.AgentToolResultContent.raw_response`. Read what the tool returned
+    from ``payload`` on the matching :py:class:`~roboto.ai.core.AgentToolResultContent` in
+    :py:attr:`~roboto.ai.agent_thread.AgentThread.messages` instead.
+    """
 
     runtime_ms: Optional[int] = None
-    """Wall-clock execution time of the tool in milliseconds, as reported by
-    the tool-result content. ``None`` only if the underlying content omits it."""
+    """Wall-clock time the tool took to run, in milliseconds."""
 
 
 class AgentErrorEvent(pydantic.BaseModel):
-    """Signals that message generation failed or was cancelled."""
+    """Event reporting an error in a message, such as when its generation failed or was cancelled."""
 
     error_message: str
-    """User-friendly error message describing what went wrong."""
+    """Human-readable description of what went wrong."""
 
     error_code: Optional[str] = None
-    """Optional error code for programmatic handling."""
+    """Code identifying the kind of error, for a program to act on, or ``None`` if the error has none."""
 
 
 AgentEvent: typing.TypeAlias = typing.Union[
@@ -82,3 +94,10 @@ AgentEvent: typing.TypeAlias = typing.Union[
     AgentToolResultEvent,
     AgentErrorEvent,
 ]
+"""Event of any kind that :py:meth:`~roboto.ai.agent_thread.AgentThread.events` yields.
+
+One of ``AgentStartTextEvent``, ``AgentTextDeltaEvent``, ``AgentTextEndEvent``, ``AgentToolUseEvent``,
+``AgentToolResultEvent`` and ``AgentErrorEvent``. The SDK builds each event from the content Roboto adds to the
+thread's messages; the caller's own messages yield none. :py:meth:`~roboto.ai.agent_thread.AgentThread.run` passes each
+event to its ``on_event`` function.
+"""

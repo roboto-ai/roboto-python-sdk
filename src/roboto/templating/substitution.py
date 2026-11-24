@@ -8,45 +8,47 @@ import re
 import typing
 
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}")
-"""Recognizes ``{{name}}`` placeholders. Names start with a letter or underscore;
-dots are allowed so dotted names (``{{dataset.id}}``, ``{{action.name}}``) work as
-a namespace convention for entity-bound expansion by a :class:`VariableResolver`.
-The engine treats the full dotted string as one opaque key — the resolver decides
-what, if anything, it expands to."""
+"""Regular expression that matches a ``{{name}}`` placeholder and captures its name in group 1.
+
+Whitespace inside the braces is allowed. A name starts with a letter or underscore and continues with letters, digits,
+underscores and dots. A dotted name such as ``dataset.id`` is one name: the ``VariableResolver`` decides what it
+expands to.
+"""
 
 VARIABLE_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
-"""Mirrors :data:`PLACEHOLDER_RE` so every declared variable name is referenceable
-by ``{{name}}``."""
+"""Regular expression a template variable's name must match.
+
+It accepts the names ``PLACEHOLDER_RE`` captures, so every declared variable can be written as a ``{{name}}``
+placeholder. :py:class:`~roboto.ai.agent.TemplateVariable` checks its ``name`` against it.
+"""
 
 
 @typing.runtime_checkable
 class VariableResolver(typing.Protocol):
-    """Decides what each ``{{name}}`` placeholder expands to during substitution.
+    """Source of the text ``{{name}}`` placeholders expand to in ``substitute``.
 
-    Implementations bind placeholders to a source of values — a flat mapping for
-    agent launch, or a lazily-hydrated event namespace for triggers — keeping the
-    substitution engine itself agnostic to where values come from.
+    ``MappingResolver`` reads the text from a dictionary, and
+    :py:class:`~roboto.domain.triggers.EventNamespace` reads it from the records of a platform event.
     """
 
     def resolve(self, name: str) -> typing.Optional[str]:
-        """Return the substitution string for placeholder ``name``, or ``None``.
+        """Return the text a placeholder expands to, or ``None`` to leave the placeholder as written.
 
         Args:
-            name: The placeholder name written between ``{{`` and ``}}``, dots
-                included (e.g. ``dataset.id``).
-
-        Returns:
-            The string to splice in, or ``None`` to leave the literal ``{{name}}``
-            in place.
+            name: Name written between ``{{`` and ``}}``, dots included and surrounding whitespace removed, such as
+                ``dataset.id``.
         """
         ...
 
 
 class MappingResolver:
-    """A :class:`VariableResolver` backed by a flat ``name -> value`` mapping.
+    """Variable resolver that reads each placeholder's text from a dictionary keyed by name.
 
-    Values are coerced to ``str`` on access; a missing key or a ``None`` value
-    resolves to ``None`` (leaving the placeholder unexpanded).
+    It converts each value with ``str()``. A name missing from the dictionary, or whose value is ``None``, leaves the
+    placeholder as written.
+
+    Args:
+        values: Values keyed by placeholder name, dots included, such as ``{"dataset.id": "ds_12345"}``.
     """
 
     def __init__(self, values: typing.Mapping[str, typing.Any]) -> None:
@@ -58,14 +60,17 @@ class MappingResolver:
 
 
 def collect_placeholders(node: typing.Any) -> set[str]:
-    """Return every ``{{name}}`` placeholder found in the string leaves of ``node``.
+    """Return the name of every ``{{name}}`` placeholder in the strings of a JSON-compatible value.
 
-    ``node`` is the JSON form of a template (nested dicts, lists, scalars). Only
-    string *values* are scanned; placeholder syntax in dict keys is rejected so a
-    templated key can't silently collapse two entries into one.
+    A placeholder in a dictionary key raises instead of being collected, because expanding two keys to the same text
+    would merge their entries.
+
+    Args:
+        node: Value to scan: a string, or dictionaries and lists nested to any depth. Values of other types hold no
+            placeholders.
 
     Raises:
-        ValueError: A dict key contains ``{{...}}`` placeholder syntax.
+        ValueError: A dictionary key contains a ``{{name}}`` placeholder.
     """
     found: set[str] = set()
     _collect(node, found)
@@ -90,12 +95,23 @@ def _collect(node: typing.Any, sink: set[str]) -> None:
 
 
 def substitute(node: typing.Any, resolver: VariableResolver) -> typing.Any:
-    """Return a copy of ``node`` with each ``{{name}}`` in a string leaf expanded via ``resolver``.
+    """Return a copy of a JSON-compatible value with each ``{{name}}`` placeholder in its strings expanded.
 
-    Embedded and repeated placeholders within one string are supported. A name the
-    resolver returns ``None`` for is left as the literal ``{{name}}``; callers that
-    require full resolution validate the placeholder set up front with
-    :func:`collect_placeholders`.
+    A string may hold several placeholders, the same one more than once, and other text around them. A placeholder the
+    resolver returns ``None`` for stays as written, and dictionary keys are never expanded. Expanded text is not scanned
+    again, so a value that itself contains ``{{name}}`` appears as written. To require every placeholder to expand,
+    check the names ``collect_placeholders`` returns before calling this.
+
+    Args:
+        node: Value to expand: a string, or dictionaries and lists nested to any depth. Values of other types are
+            returned unchanged.
+        resolver: Resolver that supplies the text each placeholder expands to.
+
+    Examples:
+        >>> from roboto.templating import MappingResolver, substitute
+        >>> resolver = MappingResolver({"dataset.id": "ds_12345"})
+        >>> substitute({"prompt": "Summarize {{dataset.id}} for {{ team }}"}, resolver)
+        {'prompt': 'Summarize ds_12345 for {{ team }}'}
     """
     if isinstance(node, str):
         return PLACEHOLDER_RE.sub(lambda match: _expand(match, resolver), node)

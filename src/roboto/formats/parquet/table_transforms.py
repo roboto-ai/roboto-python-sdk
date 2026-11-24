@@ -25,9 +25,21 @@ def compute_time_filter_mask(
     start_time: typing.Optional[int] = None,
     end_time: typing.Optional[int] = None,
 ) -> typing.Optional["pyarrow.BooleanArray"]:
-    """
-    Compute a boolean mask indicating which rows fall within the specified time range.
-    Returns None if no time filtering is needed (both start_time and end_time are None).
+    """Build a mask that selects the rows whose timestamps fall in a time range.
+
+    Methods such as :py:meth:`~roboto.domain.topics.Topic.get_data` read a topic's data from Parquet files through
+    it, so most code never calls it.
+
+    Args:
+        timestamps: Each row's timestamp, in nanoseconds since the Unix epoch, as ``extract_timestamps`` returns them.
+        start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch. ``None`` leaves the range
+            unbounded below.
+        end_time: Exclusive end of the time range, in nanoseconds since the Unix epoch. ``None`` leaves the range
+            unbounded above.
+
+    Returns:
+        One entry per row: true when its timestamp is in the range, and null when its timestamp is null, which
+        ``pyarrow.compute.filter`` drops by default. ``None`` when both ``start_time`` and ``end_time`` are ``None``.
     """
     pc = import_optional_dependency("pyarrow.compute", "analytics")
 
@@ -36,17 +48,14 @@ def compute_time_filter_mask(
 
     masks: list["pyarrow.BooleanArray"] = []
     if start_time is not None:
-        # Temporal filtering is inclusive of start time
         masks.append(pc.greater_equal(timestamps, start_time))
 
     if end_time is not None:
-        # Temporal filtering is exclusive of end time
         masks.append(pc.less(timestamps, end_time))
 
     if len(masks) == 1:
         return masks[0]
 
-    # Combine masks using Kleene logic (a null value means “unknown”, and an unknown value ‘and’ false is always false)
     return pc.and_kleene(masks[0], masks[1])
 
 
@@ -54,11 +63,25 @@ def extract_timestamps(
     table: "pyarrow.Table",
     timestamp: Timestamp,
 ) -> "pyarrow.Int64Array":
-    """
-    Extract timestamps in nanoseconds since Unix epoch from the table's timestamp field.
+    """Return each row's timestamp from ``table``, converted to nanoseconds since the Unix epoch.
 
-    The field is found by walking ``timestamp.path`` through the table's struct columns.
-    A row whose enclosing struct is null has a null timestamp.
+    Methods such as :py:meth:`~roboto.domain.topics.Topic.get_data` read a topic's data from Parquet files through
+    it, so most code never calls it.
+
+    The field is found by walking ``timestamp.path`` through the table's struct columns, and a row whose enclosing
+    struct is null has a null timestamp. Integer, floating-point and decimal values are multiplied by the number of
+    nanoseconds in their unit, and floating-point results are truncated toward zero.
+
+    Args:
+        table: Table read from the Parquet file, holding the timestamp field's column.
+        timestamp: The file's timestamp field, as ``extract_timestamp_field`` returns it.
+
+    Raises:
+        TypeError: The timestamp field is not a timestamp, integer, floating-point or decimal field.
+        Exception: The timestamp field is an integer, floating-point or decimal field and ``timestamp.unit_hint`` is
+            ``None``.
+        NotImplementedError: ``timestamp.unit_hint`` names a unit this SDK version does not support.
+        pyarrow.ArrowInvalid: A timestamp, converted to nanoseconds, does not fit in a 64-bit integer.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
     pc = import_optional_dependency("pyarrow.compute", "analytics")
@@ -68,31 +91,26 @@ def extract_timestamps(
         timestamp_values = pc.struct_field(timestamp_values, list(timestamp.path[1:]))
     data_type = timestamp.field.type
 
-    # Short-circuit if the timestamp field column is already in target format/unit
     if pa.types.is_int64(data_type) and timestamp.unit() == TimeUnit.Nanoseconds:
         return typing.cast("pyarrow.Int64Array", timestamp_values)
 
-    # Derive nanoseconds since unix epoch as int64 from the timestamp field column
     timestamps_as_ns: "pyarrow.Int64Array"
     if pa.types.is_timestamp(data_type):
         timestamps_as_ns = pc.cast(timestamp_values, pa.timestamp("ns", "UTC"))
-        # timestamps are internally stored as 64-bit integers
+        # Arrow stores a timestamp as a 64-bit count of its unit, so viewing it as int64 reads that count.
         # https://arrow.apache.org/docs/python/timestamps.html#arrow-pandas-timestamps
         timestamps_as_ns = typing.cast("pyarrow.Int64Array", timestamps_as_ns.view(pa.int64()))
     elif pa.types.is_floating(data_type):
         multiplier = pa.scalar(timestamp.unit().nano_multiplier())
-        # Ensure double precision to avoid overflow
+        # PyArrow converts the integer multiplier to the values' type, and float32 cannot hold 1_000_000_000
+        # exactly, so PyArrow rejects the multiplication unless the values are float64.
         timestamps_as_doubles = pc.cast(timestamp_values, pa.float64())
         scaled = pc.multiply_checked(timestamps_as_doubles, multiplier)
         timestamps_as_ns = pc.trunc(scaled).cast(pa.int64())
     elif pa.types.is_decimal(data_type):
-        # Find narrowest precision decimal that multiplier will fit into.
-        # Result of scaling will be a decimal array with precision
-        # equal to `sum(timestamp_precision + multipier_precision) + 1`.
-        # Without casting multiplier to smallest possible decimal,
-        # pyarrow will cast it to the same type as the timestamp values,
-        # leading to an error like (e.g.):
-        #   > pyarrow.lib.ArrowInvalid: Decimal precision out of range [1, 38]: 39
+        # A decimal product's precision is the sum of its operands' precisions plus one, and PyArrow rejects a
+        # precision above 38. An int64 multiplier would be converted to decimal(19, 0), so give it the fewest
+        # digits that hold it.
         nano_multiplier = timestamp.unit().nano_multiplier()
         multiplier_precision = int(math.log10(nano_multiplier)) + 1
         multiplier = pa.scalar(nano_multiplier, pa.decimal64(multiplier_precision, 0))
@@ -116,18 +134,21 @@ def extract_timestamp_field(
     timestamp_field: FieldSelection,
     unit_hint: typing.Optional[str],
 ) -> Timestamp:
-    """Find a Parquet file's timestamp field and describe it as a :py:class:`Timestamp`.
+    """Find a Parquet file's timestamp field and describe it as a :py:class:`~roboto.formats.parquet.Timestamp`.
 
-    The field is found by walking ``timestamp_field.path_in_schema`` one component at a time,
-    first among the schema's top-level fields and then through struct children,
-    so a nested field and a top-level column whose name contains dots are never confused.
-    ``schema`` must be the file's ``ParquetFile.schema_arrow``:
-    the timestamp's column index is counted over the schema's leaves, which match the file's leaf columns one for one.
+    Methods such as :py:meth:`~roboto.domain.topics.Topic.get_data` read a topic's data from Parquet files through
+    it, so most code never calls it.
 
-    ``unit_hint`` is the unit of the stored values, used when the field's Arrow type does not carry one
-    (an integer, floating-point or decimal field). Callers take it from the ``Unit`` metadata
-    of the timestamp's :py:class:`~roboto.domain.topics.MessagePathRecord`,
-    or from :py:attr:`~roboto.experimental.topics.ReadPlanTimestamp.unit`.
+    The field is found by walking its path one component at a time, first among the schema's top-level fields and
+    then through struct children, so a field nested in a struct and a top-level column whose name contains dots are
+    never confused.
+
+    Args:
+        schema: The file's ``ParquetFile.schema_arrow``. The timestamp's column index is counted over this schema's
+            leaves, which match the file's leaf columns one for one.
+        timestamp_field: Path of the timestamp field.
+        unit_hint: Unit of the stored values, for a field whose Arrow type carries none; see
+            :py:attr:`~roboto.formats.parquet.Timestamp.unit_hint`.
 
     Raises:
         KeyError: A path component is not in the schema, or names a child of a field that is not a struct.
@@ -156,7 +177,7 @@ def extract_timestamp_field(
 
 
 def _leaf_column_count(arrow_type: "pyarrow.DataType") -> int:
-    """The number of Parquet leaf columns that store a field of ``arrow_type``."""
+    """Return the number of Parquet leaf columns that store a field of ``arrow_type``."""
     pa = import_optional_dependency("pyarrow", "analytics")
 
     if pa.types.is_struct(arrow_type):
@@ -169,7 +190,7 @@ def _leaf_column_count(arrow_type: "pyarrow.DataType") -> int:
         list_type = typing.cast("pyarrow.ListType", arrow_type)
         return _leaf_column_count(list_type.value_type)
     if isinstance(arrow_type, pa.BaseExtensionType):
-        # ``pa`` is typed as a module, so ``pa.BaseExtensionType`` is ``Any`` to a type checker and cannot narrow.
+        # pa is typed as a module, so pa.BaseExtensionType is Any to a type checker and cannot narrow.
         extension_type = typing.cast("pyarrow.BaseExtensionType", arrow_type)
         return _leaf_column_count(extension_type.storage_type)
     return 1
@@ -179,14 +200,23 @@ def timestamp_statistics(
     row_group_metadata: "pyarrow.parquet.RowGroupMetaData",
     timestamp: Timestamp,
 ) -> typing.Optional["pyarrow.parquet.Statistics"]:
-    """The statistics of the timestamp's column chunk in a row group, or ``None`` when there are none to use.
+    """Return the statistics of the timestamp's column chunk in a row group, or ``None`` when there are none to use.
 
-    A nested field and a top-level column whose name contains dots can share a column chunk's ``path_in_schema``
-    (``header.stamp`` names both a ``header`` struct's ``stamp`` field and a column of that name),
-    so the chunk is found by its position, ``timestamp.column_index``.
-    Returns ``None`` when the row group has no chunk at that index,
-    when that chunk's ``path_in_schema`` is not the timestamp's path joined with dots
-    (``timestamp`` was found in a schema other than this file's), or when the chunk has no statistics.
+    Methods such as :py:meth:`~roboto.domain.topics.Topic.get_data` read a topic's data from Parquet files through
+    it, so most code never calls it.
+
+    The chunk is found by its position, ``timestamp.column_index``, because a field nested in a struct and a
+    top-level column whose name contains dots can share a ``path_in_schema``: ``header.stamp`` names both a
+    ``header`` struct's ``stamp`` field and a column of that name. The result is ``None`` when:
+
+    - The row group has no chunk at that position.
+    - That chunk's ``path_in_schema`` is not the timestamp's path joined with dots, because ``timestamp`` was found
+      in another file's schema.
+    - The chunk has no statistics.
+
+    Args:
+        row_group_metadata: Metadata of the row group, from ``ParquetFile.metadata.row_group``.
+        timestamp: The file's timestamp field, as ``extract_timestamp_field`` returns it.
     """
     if timestamp.column_index >= row_group_metadata.num_columns:
         return None
@@ -204,24 +234,51 @@ def should_read_row_group(
     start_time: typing.Optional[int] = None,
     end_time: typing.Optional[int] = None,
 ) -> bool:
-    """
-    Determine whether a Parquet row group contains data within the requested time range.
-    Used to short-circuit requesting column chunks from the given row group if not relevant.
+    """Return whether a Parquet row group may hold rows in a time range, so a reader can skip one that cannot.
+
+    Methods such as :py:meth:`~roboto.domain.topics.Topic.get_data` read a topic's data from Parquet files through
+    it, so most code never calls it.
+
+    It returns ``False`` only when the statistics of the row group's timestamp column show that every row is before
+    ``start_time`` or after ``end_time``. Without statistics it returns ``True``, and a row group it returns ``True``
+    for may still hold no rows in the range.
+
+    Args:
+        row_group_metadata: Metadata of the row group, from ``ParquetFile.metadata.row_group``.
+        timestamp: The file's timestamp field, as ``extract_timestamp_field`` returns it.
+        start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch. ``None`` leaves the range
+            unbounded below.
+        end_time: Exclusive end of the time range, in nanoseconds since the Unix epoch. ``None`` leaves the range
+            unbounded above.
+
+    Raises:
+        Exception: The row group has timestamp statistics, the timestamp field's Arrow type is not a timestamp type,
+            and ``timestamp.unit_hint`` is ``None``.
+        NotImplementedError: The timestamp field's Arrow type is not a timestamp type and ``timestamp.unit_hint``
+            names a unit this SDK version does not support.
     """
     stats = timestamp_statistics(row_group_metadata, timestamp)
     if stats is None:
-        # The row group has no column chunk at the timestamp's index and path, or that chunk has no statistics,
-        # so only reading the row group can tell whether it holds rows in the window.
         return True
 
-    max_val = stats.max
-    if start_time is not None and max_val is not None and start_time > timestamp.to_epoch_nanoseconds(max_val):
-        # Target window of data starts "after" the data contained by this row group
+    pa = import_optional_dependency("pyarrow", "analytics")
+    min_ns: typing.Optional[int]
+    max_ns: typing.Optional[int]
+    if pa.types.is_timestamp(timestamp.field.type):
+        # A TIMESTAMP statistic is read as the stored integer, in the field's unit. With pandas installed, PyArrow
+        # returns stats.min and stats.max as pandas.Timestamp values, which to_epoch_nanoseconds floors to the
+        # microsecond; without pandas, PyArrow raises ValueError for a value that is not a whole microsecond.
+        multiplier = timestamp.unit().nano_multiplier()
+        min_ns = stats.min_raw * multiplier if stats.min_raw is not None else None
+        max_ns = stats.max_raw * multiplier if stats.max_raw is not None else None
+    else:
+        min_ns = timestamp.to_epoch_nanoseconds(stats.min) if stats.min is not None else None
+        max_ns = timestamp.to_epoch_nanoseconds(stats.max) if stats.max is not None else None
+
+    if start_time is not None and max_ns is not None and start_time > max_ns:
         return False
 
-    min_val = stats.min
-    if end_time is not None and min_val is not None and end_time < timestamp.to_epoch_nanoseconds(min_val):
-        # Target window of data ends "before" the data contained by this row group
+    if end_time is not None and min_ns is not None and end_time < min_ns:
         return False
 
     return True
@@ -231,27 +288,14 @@ def _list_ancestor_column(
     schema: "pyarrow.Schema",
     path_in_schema: collections.abc.Sequence[str],
 ) -> typing.Optional[str]:
-    """Return the column path of the nearest list ancestor, or ``None``.
+    """Return the dot-joined path of the first list ``path_in_schema`` passes through, or ``None`` when there is none.
 
-    Walks *path_in_schema* through the Arrow *schema*, checking each intermediate
-    field.  If any intermediate field is a list (or large or fixed-size list) type, returns the
-    dot-joined path up to and including that list field — which is the column name
-    that should be passed to ``read_row_group(columns=...)`` instead of the full
-    leaf path.
-
-    Top-level fields (single-element paths) are never considered nested inside a
-    list, so this always returns ``None`` for them.
-
-    Examples::
-
-        # points: list<item: struct<x: int64, y: int64>>
-        _list_ancestor_column(schema, ["points", "x"])  # → "points"
-
-        # outer: struct<inner: list<item: struct<x: int64>>>
-        _list_ancestor_column(schema, ["outer", "inner", "x"])  # → "outer.inner"
-
-        # position: struct<x: float64, y: float64>
-        _list_ancestor_column(schema, ["position", "x"])  # → None
+    That path is the column name to pass to ``read_row_group(columns=...)`` for a field inside a list. The walk
+    starts at the top-level field and follows structs; a list, large list or fixed-size list ends it with that list's
+    path, and the leaf or any other field type ends it with ``None``. So a top-level field, or a field that is itself
+    a list, returns ``None``. For example, with ``points: list<struct<x, y>>``, ``("points", "x")`` returns
+    ``"points"``; with ``outer: struct<inner: list<struct<x>>>``, ``("outer", "inner", "x")`` returns
+    ``"outer.inner"``; and with ``position: struct<x, y>``, ``("position", "x")`` returns ``None``.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
 
@@ -277,26 +321,30 @@ def resolve_columns(
     schema: "pyarrow.Schema",
     fields: collections.abc.Iterable[FieldSelection],
 ) -> list[str]:
-    """Build a deduplicated list of column names safe for ``read_row_group(columns=...)``.
+    """Build the column names to pass to ``ParquetFile.read_row_group`` to read ``fields``, without duplicates.
 
-    Children of list-type columns are replaced by their list ancestor's column name
-    because PyArrow's prefix-based nested column selection does not work through list
-    wrapper nodes in the physical Parquet schema.  Selecting the parent list column
-    already returns its full nested structure.
+    Methods such as :py:meth:`~roboto.domain.topics.Topic.get_data` read a topic's data from Parquet files through
+    it, so most code never calls it.
 
-    This is important because the projected fields contain only *leaf* paths.  For a
-    column like ``points: list<struct<x, y>>``, only ``points.x`` and ``points.y`` are
-    selected — the parent ``points`` field is absent.  This function derives the correct
-    parent column name from the child's ``path_in_schema``.
+    Each name is a field's path components joined with dots. PyArrow matches it as a prefix through structs, so
+    ``"position.x"`` reads only the ``x`` child of a ``position`` struct. It cannot match through a list, so a field
+    inside a list is read by the name of the first list its path passes through, which reads each element whole:
+    for ``points: list<struct<x, y>>``, the field ``("points", "x")`` becomes ``"points"``.
 
-    Children of struct-type columns are preserved because PyArrow can resolve them via
-    dot-separated prefix matching (e.g. ``"position.x"`` selects the ``x`` child of
-    the ``position`` struct).
+    A name can match more than one field: ``"header.stamp"`` reads both a ``stamp`` field nested in a ``header``
+    struct and a top-level column named ``header.stamp``. ``select_fields`` removes from the table read the fields
+    that were not requested, and ``narrow_list_nested_fields`` narrows each list's elements to the requested fields.
 
-    Each name joins path components with dots, the form in which ``read_row_group`` takes columns.
-    Two fields whose paths join to the same name are both selected by it:
-    ``"header.stamp"`` selects both a ``stamp`` field nested in a ``header`` struct and a top-level column of that name.
-    :py:func:`select_fields` removes the fields that were not projected.
+    Args:
+        schema: Arrow schema of the Parquet file, ``ParquetFile.schema_arrow``.
+        fields: Fields to read.
+
+    Returns:
+        Column names, in the order of the first field that needs each.
+
+    Raises:
+        KeyError: A field's path has more than one component and names a field ``schema`` lacks, before the path
+            reaches a list or a field that is not a struct.
     """
     columns: list[str] = []
     seen: set[str] = set()
@@ -312,11 +360,11 @@ def resolve_columns(
 def _build_subtree_trie(
     paths: collections.abc.Iterable[collections.abc.Sequence[str]],
 ) -> dict:
-    """Merge root-relative component sequences into a nested ``dict`` trie.
+    """Merge path component sequences into a tree of nested dictionaries keyed by component.
 
-    Each path's components become a chain of ``dict`` keys; a path that ends at a
-    node leaves it ``{}``, marking "keep this whole subtree", unless another path
-    continues past that node; see :py:func:`narrow_list_nested_fields`.
+    A node no path continues past is ``{}``, which ``_narrow_array`` reads as "keep the whole field". A path that
+    ends where another continues leaves no mark, so the field is narrowed to the longer path's children; this is why
+    ``narrow_list_nested_fields`` requires that no requested field lie inside another.
     """
     trie: dict = {}
     for path in paths:
@@ -327,19 +375,17 @@ def _build_subtree_trie(
 
 
 def _narrow_array(array: "pyarrow.Array", node: dict) -> "pyarrow.Array":
-    """Recursively narrow one Arrow array against a subtree trie *node*.
+    """Narrow ``array`` to the fields ``node`` names, recursively.
 
-    An empty *node* keeps the whole subtree (returns the array untouched).
-    For a struct, the array is rebuilt keeping only the children named in *node*, in the order the struct holds them
-    (reapplying the struct null mask); a name absent from the struct type is skipped.
-    A path has no component for a list level:
-    ``("points", "x")`` names the ``x`` field of every item in a ``points`` list.
-    So a list is narrowed by recursing into ``array.values`` with the same *node*,
-    then rebuilt with the original offsets (or, for a fixed-size list, its list size) and the list null mask.
-    Any other type is returned as-is.
+    - An empty ``node`` keeps the whole array.
+    - A struct keeps only the children ``node`` names, in the order the struct holds them, with its own null rows.
+      A struct that has none of them is kept whole.
+    - A path has no component for a list level: ``("points", "x")`` names the ``x`` field of every item in a
+      ``points`` list. So a list's items are narrowed with the same ``node``, and the list is rebuilt with its
+      offsets, or for a fixed-size list its size, and its null rows.
+    - Any other type is kept as read.
 
-    Callers MUST pass freshly-read, non-sliced arrays whose list offsets start at
-    zero, so ``ListArray.values`` aligns with ``ListArray.offsets``.
+    A list array must not be sliced, so that its offsets start at zero and match its ``values``.
     """
     if not node:
         return array
@@ -379,15 +425,22 @@ def should_narrow_list_nested_fields(
     schema: "pyarrow.Schema",
     fields: collections.abc.Iterable[FieldSelection],
 ) -> bool:
-    """Return whether :py:func:`narrow_list_nested_fields` would change the table.
+    """Return whether ``narrow_list_nested_fields`` would change a table read for ``fields``.
 
-    True iff at least one projected field addresses a leaf *inside* a list (its
-    path has a list ancestor). When False, every projected field resolves through
-    structs and scalars alone, so PyArrow's column selection already returns the
-    narrowed shape and the post-read prune is a no-op — callers can skip it.
+    Methods such as ``roboto.experimental.topics.Topic.get_data`` read a topic's data from Parquet files through it,
+    so most code never calls it.
 
-    Cheap enough to evaluate once per file and hoist the per-row-group narrowing
-    decision out of the decode loop.
+    It is ``True`` when some field's path passes through a list. Otherwise ``narrow_list_nested_fields`` returns
+    the table unchanged, so a reader can skip it. It reads only the schema, so a reader evaluates it once per file
+    rather than once per row group.
+
+    Args:
+        schema: Arrow schema of the Parquet file, ``ParquetFile.schema_arrow``.
+        fields: Fields that were requested.
+
+    Raises:
+        KeyError: A field's path has more than one component and names a field ``schema`` lacks, before the path
+            reaches a list or a field that is not a struct.
     """
     return any(_list_ancestor_column(schema, field.path_in_schema) is not None for field in fields)
 
@@ -397,23 +450,31 @@ def narrow_list_nested_fields(
     schema: "pyarrow.Schema",
     fields: collections.abc.Iterable[FieldSelection],
 ) -> "pyarrow.Table":
-    """Prune list-of-struct columns to the projected leaves inside each element.
+    """Narrow the structs inside list columns to the fields requested within them.
 
-    PyArrow's prefix-based nested column selection cannot reach through list
-    wrapper nodes, so :py:func:`resolve_columns` reads a list-nested leaf's whole
-    list ancestor column — every element keeps all of its struct fields. This
-    Arrow-native post-read pass narrows each such element down to the requested
-    leaves, leaving every other read path byte-identical.
+    Methods such as ``roboto.experimental.topics.Topic.get_data`` read a topic's data from Parquet files through it,
+    so most code never calls it.
 
-    A top-level root is narrowed iff at least one of its projected paths has a
-    list ancestor; otherwise the table is returned unchanged (pure struct, scalar,
-    and scalar-list reads never enter the rebuild). Per root, a trie is built from
-    its paths with the root component stripped so non-list-nested siblings the
-    projection also keeps are preserved. Every struct keeps its fields in the
-    order the file stores them.
+    PyArrow cannot read part of a list's elements, so ``resolve_columns`` reads a field inside a list by the list's
+    column, and every element keeps all its struct fields. Each top-level column that some field's path reaches
+    through a list is rebuilt without the struct fields, inside the list or not, that no requested path runs
+    through; every struct keeps its remaining fields in the order the file stores them. Other columns, and a
+    column the table lacks, are left as read.
 
-    No field of ``fields`` may lie inside another: the outer one would be
-    narrowed to the inner one rather than kept whole.
+    Args:
+        table: Table read with the columns ``resolve_columns`` returns for ``fields``. It must not be sliced: a
+            list is rebuilt from its offsets and its whole child array, which assumes the offsets start at zero.
+        schema: Arrow schema of the Parquet file, ``ParquetFile.schema_arrow``.
+        fields: Fields that were requested. No field may lie inside another: the outer one would be narrowed to
+            the inner one rather than kept whole.
+
+    Returns:
+        ``table`` itself when no field's path passes through a list, otherwise a new table with those columns
+        narrowed.
+
+    Raises:
+        KeyError: A field's path has more than one component and names a field ``schema`` lacks, before the path
+            reaches a list or a field that is not a struct.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
 
@@ -447,13 +508,19 @@ def narrow_list_nested_fields(
 
 
 _FieldTree = dict[str, typing.Optional["_FieldTree"]]
-"""Field paths merged by shared prefix: each key is a path component,
-and its value is ``None`` when a path ends there (the whole field is kept) or the tree of the paths below it."""
+"""Field paths merged by shared prefix, keyed by path component.
+
+A key's value is ``None`` when a path ends there, which keeps the whole field, and otherwise the tree of the paths
+below it.
+"""
 
 
 def _field_tree(paths: collections.abc.Iterable[collections.abc.Sequence[str]]) -> _FieldTree:
-    """Merge field paths into a :py:data:`_FieldTree`. A path that ends at a field keeps it whole,
-    so a longer path through that field adds nothing."""
+    """Merge field paths into a ``_FieldTree``.
+
+    A path that ends at a field keeps it whole, so a longer path through that field adds nothing, whichever comes
+    first.
+    """
     tree: _FieldTree = {}
     for path in paths:
         if not path:
@@ -473,7 +540,7 @@ def _selected_struct_type(
     struct_type: "pyarrow.StructType",
     children: _FieldTree,
 ) -> typing.Optional["pyarrow.StructType"]:
-    """The struct type holding only the children that ``children`` names, or ``None`` when it names none of them.
+    """Return the struct type holding only the children ``children`` keeps, or ``None`` when it keeps none.
 
     Returns ``struct_type`` itself when every child is kept.
     A child struct that ``children`` descends into is narrowed the same way;
@@ -540,7 +607,10 @@ def select_fields(
 ) -> "pyarrow.Table":
     """Keep only the fields ``fields`` names, found by walking their path components, in the table's order.
 
-    Reading columns by their dot-joined names (:py:func:`resolve_columns`) can bring in more than was projected,
+    Methods such as :py:meth:`~roboto.domain.topics.Topic.get_data` read a topic's data from Parquet files through
+    it, so most code never calls it.
+
+    Reading columns by their dot-joined names (``resolve_columns``) can bring in more than was requested,
     such as a top-level column named ``header.stamp`` read along with a ``header`` struct's ``stamp`` field,
     or a timestamp field read only to filter rows. This removes them:
 
@@ -548,11 +618,15 @@ def select_fields(
     - A field that names a column or struct keeps it whole, even when other fields name some of its children.
     - Otherwise a struct keeps only the children that some field's path runs through, with its own null rows.
     - Lists and maps, and everything below them, are kept as read
-      (:py:func:`narrow_list_nested_fields` narrows the structs inside a list).
+      (``narrow_list_nested_fields`` narrows the structs inside a list).
     - A field whose path the table lacks is skipped.
 
     A column from which nothing is removed is returned as read.
     With no fields at all, the result has no columns and keeps the table's row count.
+
+    Args:
+        table: Table read from the Parquet file.
+        fields: Fields to keep.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
 

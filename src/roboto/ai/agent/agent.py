@@ -4,14 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Public-surface wrapper around :class:`AgentRecord`.
-
-Mirrors the codebase's well-entrenched record-plus-wrapper pattern
-(:class:`~roboto.domain.actions.Action`,
-:class:`~roboto.domain.devices.Device`) so callers do not have to thread
-:class:`~roboto.http.RobotoClient` instances or remember route URLs.
-"""
-
 import collections.abc
 import datetime
 import typing
@@ -37,27 +29,21 @@ from .record import (
 
 
 class Agent:
-    """A reusable, parameterized factory for :class:`AgentThread`.
+    """An agent: an AI worker an organization defines and runs on its data.
 
-    An :class:`Agent` captures a :class:`StartAgentThreadRequest` body
-    with ``{{name}}`` placeholders alongside the
-    :class:`TemplateVariable` declarations that those placeholders bind
-    to. Invoking the agent substitutes caller-supplied values into the
-    body, runs invoke-time existence checks for typed values (dataset
-    ids, device ids), and starts a session via the same code path as
-    :meth:`AgentThread.start`.
+    An agent is a saved request to start a thread, with typed ``{{name}}`` placeholders, optionally paired with goals.
+    Each launch fills the placeholders with its own values and starts a
+    :py:class:`~roboto.ai.agent_thread.AgentThread`, so one agent, such as a triage agent with a fixed label
+    vocabulary and a dataset ID placeholder, can run on many datasets.
 
-    The wrapper is to :class:`AgentRecord` what
-    :class:`~roboto.domain.actions.Action` is to
-    :class:`~roboto.domain.actions.action_record.ActionRecord`: the
-    record carries the wire-shape data, this class carries the
-    behaviors.
+    Get an ``Agent`` from ``create``, ``from_id``, ``from_name``, or ``for_org``. To wrap an
+    :py:class:`~roboto.ai.agent.AgentRecord` already fetched from Roboto, build an ``Agent`` from it directly. Each
+    instance holds a copy of the agent's record, which ``update`` replaces with Roboto's response.
 
-    Note:
-        Agents cannot be instantiated directly through the constructor
-        when starting from a name or an id; use :py:meth:`create`,
-        :py:meth:`from_id`, or :py:meth:`from_name` to obtain
-        :class:`Agent` instances.
+    Args:
+        record: Record of the agent.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
     """
 
     __record: AgentRecord
@@ -73,49 +59,32 @@ class Agent:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Agent":
-        """Persist a new agent in the caller's organization.
-
-        The platform fills :attr:`agent_id`, :attr:`org_id`,
-        :attr:`created`, :attr:`created_by`, :attr:`modified`, and
-        :attr:`modified_by` from the caller's identity. Every other
-        field comes from this method's arguments.
+        """Create an agent.
 
         Args:
-            name: Human-readable display name. Unique per
-                ``(org_id, name)``; a second agent with the same name in
-                the same org is rejected with
-                :class:`RobotoConflictException`.
-            request_template: The :class:`StartAgentThreadRequest` to
-                clone at invoke time. Any string leaf may carry
-                ``{{name}}`` placeholders; every referenced placeholder
-                must appear in ``variables`` (and vice versa).
-            variables: :class:`TemplateVariable` declarations. The set
-                of names here must equal the set of placeholder names
-                referenced anywhere in ``request_template``; a mismatch
-                fails server-side validation with a 400.
-            description: Free-form text rendered on the agent's detail
-                and library pages.
-            caller_org_id: Organization to create the agent in. If
-                omitted and the caller belongs to exactly one
-                organization, that organization is used; required when
-                the caller belongs to multiple organizations.
-            roboto_client: Optional :class:`RobotoClient` instance. If
-                omitted, the default client configuration is used.
+            name: Human-readable name of the agent, unique within its organization.
+            request_template: Request that starts each of the agent's threads, with ``{{name}}`` placeholders where
+                launch values go. A placeholder can appear anywhere in a string value, but not in a dictionary key.
+            variables: Variables of the agent, exactly one for each placeholder name in ``request_template``.
+                ``None`` declares none.
+            description: Human-readable description of the agent. ``None`` sets none.
+            caller_org_id: Organization to create the agent in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The newly created :class:`Agent` instance.
+            The new agent.
 
         Raises:
-            RobotoConflictException: An agent with the same name
-                already exists in the org.
-            RobotoInvalidRequestException: ``request_template`` and
-                ``variables`` disagree about the placeholder set, or a
-                variable name is invalid.
-            RobotoUnauthorizedException: The caller lacks permission to
-                create agents in the target organization.
+            RobotoConflictException: The organization already has an agent with this name.
+            RobotoInvalidRequestException: ``variables`` and the placeholders in ``request_template`` do not name
+                the same set of variables; the template's goals mix dataset and session subjects, or a goal names a
+                resource that is missing or in another organization; or the template's ``available_skills`` names a
+                skill that is missing, private, in another organization, or pinned to a version it does not have.
 
         Examples:
-            Create an agent with one dataset-typed variable:
+            Create an agent with one dataset ID variable:
 
             >>> from roboto.ai.agent import Agent, TemplateVariable, TemplateVariableType
             >>> from roboto.ai.agent_thread import StartAgentThreadRequest, AgentMessage
@@ -151,27 +120,18 @@ class Agent:
         agent_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Agent":
-        """Load an :class:`Agent` by its canonical id.
-
-        ``agent_id`` is platform-unique, so the SDK does not need the
-        caller to declare which org the agent lives in — the route looks
-        up the record and authorizes the caller against the record's
-        ``org_id``.
+        """Fetch an agent by its ID.
 
         Args:
-            agent_id: The platform-issued ``agt_<short>`` identifier.
-            roboto_client: Optional :class:`RobotoClient`; defaults to
-                the ambient configuration.
-
-        Returns:
-            The :class:`Agent` instance.
+            agent_id: Unique ID of the agent, beginning with ``agt_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: The agent does not exist or
-                belongs to an organization the caller cannot read.
+            RobotoNotFoundException: No agent has this ID, or the caller cannot see it.
 
         Examples:
-            >>> agent = Agent.from_id("agt_abc123")
+            >>> agent = Agent.from_id("agt_12345")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         encoded_agent_id = urllib.parse.quote(agent_id, safe="")
@@ -187,31 +147,19 @@ class Agent:
         roboto_client: typing.Optional[RobotoClient] = None,
         owner_org_id: typing.Optional[str] = None,
     ) -> "Agent":
-        """Load an :class:`Agent` by its ``(org_id, name)`` handle.
+        """Fetch an agent by its name.
 
-        Mirrors :meth:`~roboto.domain.actions.Action.from_name`: name +
-        owning org are jointly unique, so this returns at most one
-        agent. Unlike :meth:`from_id` (which derives the org from the
-        looked-up record), name lookup needs the org up-front and goes
-        through the ``X-Roboto-Resource-Owner-Id`` header.
-        ``agent_id`` (the canonical handle) stays stable across renames,
-        so a script that pins by name follows renames; a script that
-        pins by id does not.
+        Agent names are unique within an organization, so a name and an organization identify one agent. Renaming an
+        agent leaves its ID unchanged; to keep finding the same agent after it is renamed, use ``from_id``.
 
         Args:
-            name: The agent's :attr:`name`.
-            roboto_client: Optional :class:`RobotoClient`; defaults to
-                the ambient configuration.
-            owner_org_id: Organization that owns the agent. If omitted
-                and the caller belongs to one organization, that
-                organization is used.
-
-        Returns:
-            The :class:`Agent` instance.
+            name: Human-readable name of the agent.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            owner_org_id: Organization that owns the agent. Defaults to the organization the caller acts in.
 
         Raises:
-            RobotoNotFoundException: No agent with that name exists in
-                the resolved organization.
+            RobotoNotFoundException: The organization has no agent with this name.
 
         Examples:
             >>> agent = Agent.from_name("triage")
@@ -230,22 +178,15 @@ class Agent:
         org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Agent", None, None]:
-        """Iterate every :class:`Agent` declared in an organization.
+        """List the agents of an organization, newest first.
 
-        Yields agents newest-first (by :attr:`created`) and paginates
-        transparently; callers consume the generator without worrying
-        about ``next_token``.
+        Fetches the agents a page at a time, as the generator is iterated.
 
         Args:
-            org_id: Organization to list agents for. If omitted and the
-                caller belongs to exactly one organization, that
-                organization is used.
-            roboto_client: Optional :class:`RobotoClient`; defaults to
-                the ambient configuration.
-
-        Yields:
-            :class:`Agent` instances, one per row, in newest-first
-            order.
+            org_id: Organization whose agents to list. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Examples:
             Print every agent's name:
@@ -253,9 +194,9 @@ class Agent:
             >>> for agent in Agent.for_org():
             ...     print(agent.name)
 
-            Count agents in a specific org:
+            Count the agents of one organization:
 
-            >>> count = sum(1 for _ in Agent.for_org(org_id="og_abc123"))
+            >>> count = sum(1 for _ in Agent.for_org(org_id="og_12345"))
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -268,9 +209,6 @@ class Agent:
             page = roboto_client.get(
                 "v1/ai/agents",
                 query=query_params,
-                # ``v1/ai/agents`` is org-scoped via the caller header,
-                # not a path parameter, so the caller's effective org is
-                # used unless ``org_id`` was supplied here.
                 caller_org_id=org_id,
             ).to_paginated_list(AgentRecord)
 
@@ -286,14 +224,6 @@ class Agent:
         record: AgentRecord,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> None:
-        """Wrap an existing :class:`AgentRecord` with the public surface.
-
-        Note:
-            Prefer :py:meth:`create`, :py:meth:`from_id`, or
-            :py:meth:`from_name`. The constructor is exposed for
-            hydrating records returned by other SDK calls (e.g. an
-            invoke response) into a wrapper without re-fetching.
-        """
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -302,73 +232,68 @@ class Agent:
 
     @property
     def agent_id(self) -> str:
-        """Platform-issued ``agt_<short>`` handle. Stable across renames."""
+        """Unique ID of the agent, beginning with ``agt_``. Renaming the agent leaves it unchanged."""
         return self.__record.agent_id
 
     @property
     def org_id(self) -> str:
-        """Organization that owns this agent."""
+        """ID of the organization that owns the agent."""
         return self.__record.org_id
 
     @property
     def name(self) -> str:
-        """Human-readable display name; unique within :attr:`org_id`."""
+        """Human-readable name of the agent, unique within its organization."""
         return self.__record.name
 
     @property
     def description(self) -> typing.Optional[str]:
-        """Free-form text rendered on the agent's detail and library pages."""
+        """Human-readable description of the agent, or ``None`` if it has none."""
         return self.__record.description
 
     @property
     def request_template(self) -> StartAgentThreadRequest:
-        """The :class:`StartAgentThreadRequest` cloned at invoke time."""
+        """Request that starts each of the agent's threads, with ``{{name}}`` placeholders where launch values go.
+
+        :py:attr:`~roboto.ai.agent.AgentRecord.request_template` says where a placeholder can appear.
+        """
         return self.__record.request_template
 
     @property
     def variables(self) -> list[TemplateVariable]:
-        """:class:`TemplateVariable` declarations. The set of names here
-        equals the set of placeholders referenced in :attr:`request_template`."""
+        """Variables of the agent, exactly one for each placeholder name in ``request_template``."""
         return self.__record.variables
 
     @property
     def subject(self) -> typing.Optional[AgentSubject]:
-        """Whether the agent is launched on a dataset or on a session; ``None`` when it has no subject.
+        """Kind of resource the agent is launched on, or ``None`` for an agent with no subject.
 
-        Roboto infers it from :attr:`request_template` and :attr:`variables`; see
-        :func:`~roboto.ai.agent.infer_agent_subject`.
+        Roboto computes it as :py:attr:`~roboto.ai.agent.AgentRecord.subject` describes.
         """
         return self.__record.subject
 
     @property
     def created(self) -> datetime.datetime:
-        """Wall-clock time the agent was first persisted."""
+        """Time the agent was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """User id of the original author."""
+        """ID of the user who created the agent."""
         return self.__record.created_by
 
     @property
     def modified(self) -> datetime.datetime:
-        """Wall-clock time of the most recent successful update."""
+        """Time the agent was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """User id who applied the most recent update; equals
-        :attr:`created_by` for records never edited since creation."""
+        """ID of the user who last modified the agent."""
         return self.__record.modified_by
 
     @property
     def record(self) -> AgentRecord:
-        """Underlying :class:`AgentRecord`.
-
-        Wire shape used in API requests; may evolve over time. Prefer
-        the public :class:`Agent` API unless you need direct record
-        access.
-        """
+        """Record of the agent that this instance holds."""
         return self.__record
 
     def launch(
@@ -377,54 +302,37 @@ class Agent:
         visibility: ThreadVisibility = ThreadVisibility.ORG,
         analysis_scope: typing.Optional[AnalysisScope] = None,
     ) -> AgentThread:
-        """Resolve placeholders and start an :class:`AgentThread`.
+        """Launch the agent: fill its placeholders with ``values`` and start a thread.
 
-        The platform substitutes ``values`` into :attr:`request_template`,
-        runs launch-time existence checks on typed values (``DATASET_ID``
-        / ``DEVICE_ID``), and creates a thread via the same code path
-        as a bare :meth:`AgentThread.start`. The resulting thread is
-        owned by this agent's :attr:`org_id` (not the caller's default
-        org), and its ``created_from_agent_id`` is stamped with this
-        agent's :attr:`agent_id` so the agent detail page can list
-        "threads launched from here".
+        Before it starts the thread, Roboto checks that each ID-typed value names a dataset, device, collection, or
+        session in the agent's organization. The thread belongs to the agent's organization, whichever organization
+        the caller acts in, and its :py:attr:`~roboto.ai.core.AgentThreadRecord.created_from_agent_id` names
+        this agent.
 
         Args:
-            values: Variable name to caller-supplied value. Keys must
-                match the names declared in :attr:`variables`; values
-                are coerced to ``str`` before splicing into placeholders.
-                Omit when every declared variable carries a ``default``.
-            visibility: :class:`ThreadVisibility` for the new thread.
-                Defaults to ``ORG`` because agents exist to share
-                workflows; the caller passes ``PRIVATE`` to opt out per
-                launch. Overrides whatever the authored
-                ``request_template`` carries.
-            analysis_scope: Optional :class:`~roboto.ai.core.AnalysisScope`
-                for the new thread. When provided, it is zipper-merged onto
-                whatever the authored ``request_template`` carries: each
-                dimension the caller set wins, and the rest inherit from the
-                template. When omitted, the template's scope (usually none)
-                is left untouched.
+            values: Value of each variable, keyed by variable name. A variable left out uses its default. ``None``
+                supplies no values.
+            visibility: Visibility of the new thread, which replaces the ``visibility`` in the agent's request
+                template. Defaults to :py:attr:`~roboto.ai.agent_thread.ThreadVisibility.ORG`, which lets every
+                member of the organization read the thread. ``PRIVATE`` limits it to the user who launches the agent.
+            analysis_scope: Data the new thread analyzes, combined with the ``analysis_scope`` in the agent's request
+                template. Each field set here replaces the template's, and each field left ``None`` keeps the
+                template's. ``None`` keeps the template's scope unchanged.
 
         Returns:
-            An :class:`AgentThread` wrapping the freshly created
-            thread. The thread is fully hydrated (messages, status,
-            continuation token) and ready for :meth:`AgentThread.run`
-            or :meth:`AgentThread.events`.
+            The new thread. Roboto has already started the AI's first reply, which
+            :py:meth:`~roboto.ai.agent_thread.AgentThread.run` waits for and
+            :py:meth:`~roboto.ai.agent_thread.AgentThread.events` follows.
 
         Raises:
-            RobotoInvalidRequestException: ``values`` is missing a
-                required variable, references an unknown variable, or
-                a typed value (``DATASET_ID`` / ``DEVICE_ID``) names a
-                resource that does not exist in the agent's org.
-            RobotoNotFoundException: This agent has been deleted since
-                the wrapper was loaded.
-            RobotoUnauthorizedException: The caller is not a member of
-                this agent's :attr:`org_id` or that org is not on a
-                premium plan.
+            RobotoInvalidRequestException: ``values`` names a variable the agent does not have, leaves out a
+                required variable that has no default, or gives an ID-typed variable an ID that names no resource
+                in the agent's organization.
+            RobotoNotFoundException: The agent has been deleted, or the caller cannot see it.
 
         Examples:
             >>> agent = Agent.from_name("triage")
-            >>> thread = agent.launch(values={"dataset_id": "ds_abc123"})
+            >>> thread = agent.launch(values={"dataset_id": "ds_12345"})
             >>> thread.run()
         """
         request = LaunchAgentRequest(
@@ -446,38 +354,31 @@ class Agent:
         request_template: typing.Union[StartAgentThreadRequest, NotSetType] = NotSet,
         variables: typing.Union[collections.abc.Sequence[TemplateVariable], NotSetType] = NotSet,
     ) -> "Agent":
-        """Apply a partial update.
+        """Update the agent's properties. Arguments left unset leave their property unchanged.
 
-        Each parameter defaults to :data:`NotSet` so omitting a field
-        leaves it untouched on the server, while passing ``None`` for
-        :attr:`description` clears it. ``request_template`` and
-        ``variables`` are co-validated server-side after the merge: the
-        post-update placeholder set must equal the post-update variable
-        set, even if only one of the two fields was supplied.
+        Roboto checks the agent's variables against its placeholders after applying the update, so a call that
+        changes the placeholders in ``request_template`` must also pass the matching ``variables``.
 
         Args:
-            name: Replace the display name. Subject to the same
-                ``(org_id, name)`` uniqueness as :meth:`create`.
-            description: Replace the description. Pass ``None`` to
-                clear; omit to leave unchanged.
-            request_template: Replace the :class:`StartAgentThreadRequest`.
-            variables: Replace the variable declarations.
+            name: Human-readable name of the agent, unique within its organization.
+            description: Human-readable description of the agent. ``None`` clears it.
+            request_template: Request that starts each of the agent's threads, with ``{{name}}`` placeholders where
+                launch values go.
+            variables: Variables of the agent, exactly one for each placeholder name in ``request_template``.
 
         Returns:
-            ``self``, with :attr:`record` refreshed to the persisted
-            state.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoConflictException: ``name`` collides with another
-                agent in the same org.
-            RobotoInvalidRequestException: The post-update placeholder
-                set disagrees with the post-update variable set.
-            RobotoNotFoundException: The agent has been deleted.
-            RobotoUnauthorizedException: The caller is not a member of
-                this agent's :attr:`org_id`.
+            RobotoConflictException: Another agent in the organization has the name ``name``.
+            RobotoInvalidRequestException: The updated agent fails a check that ``create`` applies.
+            RobotoNotFoundException: The agent has been deleted, or the caller cannot see it.
 
         Examples:
-            >>> agent.update(description="Triages a dataset against the v2 label vocab.")
+            Change the agent's description:
+
+            >>> agent = Agent.from_id("agt_12345")
+            >>> agent.update(description="Triage a dataset against the label vocabulary.")
 
             Clear the description:
 
@@ -503,18 +404,13 @@ class Agent:
         return self
 
     def delete(self) -> None:
-        """Permanently delete this agent.
+        """Delete the agent. This cannot be undone.
 
-        Sessions previously launched from this agent are unaffected —
-        their ``created_from_agent_id`` references this agent's id
-        independent of any foreign key, so they remain readable. Creating
-        a new agent with the same name in the same org is allowed after
-        deletion.
+        Threads launched from the agent remain readable, and their ``created_from_agent_id`` still holds the agent's
+        ID. The organization can then create another agent with the same name.
 
         Raises:
-            RobotoNotFoundException: The agent has already been deleted.
-            RobotoUnauthorizedException: The caller is not a member of
-                this agent's :attr:`org_id`.
+            RobotoNotFoundException: The agent has already been deleted, or the caller cannot see it.
 
         Examples:
             >>> agent = Agent.from_name("retired_triage")
@@ -526,5 +422,11 @@ class Agent:
         )
 
     def to_dict(self) -> dict[str, typing.Any]:
-        """Return the JSON-serializable form of the underlying record."""
+        """Return the record this instance holds, as a JSON-compatible dictionary.
+
+        Examples:
+            >>> agent = Agent.from_id("agt_12345")
+            >>> agent.to_dict()["agent_id"]
+            'agt_12345'
+        """
         return self.__record.model_dump(mode="json")

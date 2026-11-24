@@ -4,17 +4,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""
-Roboto APIs in active refinement.
+"""Experimental Roboto APIs, whose shape and behavior may change before they become stable.
 
-Importing from ``roboto.experimental`` is your acknowledgement that the
-imported API may change in shape, behavior, or semantics before it
-stabilizes. Use these APIs for evaluation and feedback, not for
-long-lived production code.
-
-When an API graduates to stable, it moves to its canonical ``roboto.*``
-location, and its ``roboto.experimental`` import path becomes a
-forwarding alias that emits a ``DeprecationWarning`` advising you to
-update the import. The CHANGELOG records each graduation and the
-alias's lifetime.
+This package exports nothing: import from its subpackages, such as :py:mod:`~roboto.experimental.sessions` and
+:py:mod:`~roboto.experimental.ingest`. Use these APIs to evaluate a feature and give feedback, not in long-lived
+production code. When an API becomes stable, it moves to its place elsewhere under ``roboto``, and its
+``roboto.experimental`` import path keeps working but issues a ``DeprecationWarning`` that names the new path. The
+SDK changelog records each move and how long the old path keeps working.
 """

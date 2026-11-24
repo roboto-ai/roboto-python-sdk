@@ -18,39 +18,38 @@ from .record import (
 
 
 class CreateBoardRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/boards/create``.
+    """Request body for ``Board.create``, which creates a board that is personal to the caller.
 
-    The board is personal: the caller owns it. :py:class:`UpdateBoardAccessRequest` shares it with the
-    organization.
+    ``UpdateBoardAccessRequest`` shares the board with its organization. Building it raises
+    ``pydantic.ValidationError`` when:
+
+    - ``name`` is empty or longer than 120 characters.
+    - ``BoardDefinition`` refuses the top level of ``board_definition``.
+    - ``name`` differs from the definition's ``title``, when the title is a non-empty string.
     """
 
     board_definition: Annotated[dict[str, Any], ValidatedAgainst(BoardDefinition)]
-    """The board definition as a JSON object, stored as
-    :py:attr:`~roboto.experimental.boards.BoardRecord.board_definition` describes. A top-level ``title`` that is a
-    non-empty string must equal ``name``, and a request in which they differ fails validation. A definition with
-    no title is stored without one.
+    """Board definition as a JSON object, stored as ``BoardRecord.board_definition`` describes.
 
-    A definition whose top level :py:class:`~roboto.experimental.boards.BoardDefinition` refuses fails validation:
-    for example, one with an unknown top-level key, a missing ``time_range`` or ``panels``, a ``panels`` that is not a
-    list, a ``stages`` that is neither a list nor null, a ``title`` that is neither a string nor null, or a malformed
-    section or selection. The panels and stages in it are not checked and are stored as given, so the web app can
-    show a broken one beside the rest of the board."""
+    A top-level ``title`` that is a non-empty string must equal ``name``. A definition with no title is stored
+    without one."""
 
     name: str = pydantic.Field(min_length=1, max_length=120)
-    """The name the board list and board page show. Must not be empty: an empty name shows nothing in the board
-    list, and the platform keeps a name equal to a definition ``title`` only while the title is a non-empty
-    string."""
+    """Human-readable name of the board, from 1 to 120 characters, which the board list and board page show.
+
+    Names are unique per owner within an organization, so a name the caller already uses for another of their
+    boards raises ``RobotoConflictException``."""
 
     @pydantic.field_validator("board_definition")
     @classmethod
     def validate_definition_top_level(cls, board_definition: dict[str, Any]) -> dict[str, Any]:
-        """Reject a definition whose top level :py:class:`~roboto.experimental.boards.BoardDefinition` refuses."""
+        """Reject a definition whose top level ``BoardDefinition`` refuses, without checking its panels and stages."""
         check_definition_top_level(board_definition)
         return board_definition
 
     @pydantic.model_validator(mode="after")
     def validate_name_and_title_agree(self) -> "CreateBoardRequest":
-        """Reject a ``name`` that differs from the definition's non-empty ``title``."""
+        """Reject a ``name`` that differs from the definition's ``title``, when the title is a non-empty string."""
         title = definition_title(self.board_definition)
         if title is not None and title != self.name:
             raise ValueError("The board name and its definition title must match")
@@ -58,41 +57,49 @@ class CreateBoardRequest(pydantic.BaseModel):
 
 
 class UpdateBoardRequest(pydantic.BaseModel):
-    """Request body for ``PUT /v1/boards/id/<board_id>``.
+    """Request body for ``Board.update``, which renames a board, replaces its definition, or both.
 
-    Carries a new name, new definition content, or both. :py:class:`UpdateBoardAccessRequest` changes who can
-    open a board.
+    A ``name`` or ``board_definition`` left unset (``NotSet``) is unchanged, except that a definition's ``title``
+    renames the board. Any member of the organization may send it for a shared board; only the owner and
+    organization administrators may send it for a personal board. ``UpdateBoardAccessRequest`` changes who can open
+    a board.
+
+    Building it raises ``pydantic.ValidationError`` when:
+
+    - Neither ``name`` nor ``board_definition`` is set.
+    - ``board_definition`` is set and ``base_revision`` is not.
+    - ``base_revision`` is negative.
+    - ``name`` is empty or longer than 120 characters.
+    - ``BoardDefinition`` refuses the top level of ``board_definition``.
+    - ``name`` differs from the definition's ``title``, when both are set and the title is a non-empty string.
     """
 
     board_definition: Union[Annotated[dict[str, Any], ValidatedAgainst(BoardDefinition)], NotSetType] = NotSet
-    """The board definition as a JSON object, replacing the stored one whole. A top-level ``title`` that is a
-    non-empty string is kept equal to the board's name: with no ``name`` in the request, the board takes the title
-    as its name. A definition with no title leaves the name alone, and the platform never adds a title.
+    """Board definition as a JSON object, which replaces the stored one whole.
 
-    A definition whose top level :py:class:`~roboto.experimental.boards.BoardDefinition` refuses fails validation:
-    for example, one with an unknown top-level key, a missing ``time_range`` or ``panels``, a ``panels`` that is not a
-    list, a ``stages`` that is neither a list nor null, a ``title`` that is neither a string nor null, or a malformed
-    section or selection. The panels and stages in it are not checked and are stored as given, so the web app can
-    show a broken one beside the rest of the board."""
+    The definition is stored as ``BoardRecord.board_definition`` describes.
+
+    A top-level ``title`` that is a non-empty string is kept equal to the board's name: with no ``name`` in the
+    request, the board takes the title as its name. A definition with no title leaves the name alone, and Roboto
+    never adds a title."""
 
     base_revision: Union[Annotated[int, pydantic.Field(ge=0)], NotSetType] = NotSet
-    """The revision you loaded (:py:attr:`~roboto.experimental.boards.BoardRecord.revision`), not the revision you want.
+    """Revision the change was built on: the ``BoardRecord.revision`` you loaded, not the revision you want.
 
-    Required whenever the request writes definition content: a ``board_definition`` replacement, or a ``name``
-    for a board whose stored definition has a ``title`` that is a non-empty string, since keeping the two equal
-    rewrites that title. The record you loaded shows which case applies.
+    Required whenever the request writes definition content: a ``board_definition``, or a ``name`` for a board whose
+    stored definition has a ``title`` that is a non-empty string, since keeping the two equal rewrites that title.
+    The record you loaded shows which case applies; a rename that rewrites a title and sends no base revision raises
+    ``RobotoInvalidRequestException``.
 
-    The server compares a supplied base revision with the stored revision, on a rename that writes no definition
-    content as well, and rejects a mismatch with
-    :py:class:`~roboto.exceptions.RobotoBoardRevisionConflictException`, so a save built on an outdated revision
-    cannot erase someone else's edit."""
+    Roboto compares a supplied base revision with the stored revision, on a rename that writes no definition content
+    as well. A mismatch raises :py:class:`~roboto.exceptions.RobotoBoardRevisionConflictException`, so a change built
+    on an outdated revision cannot replace someone else's edit."""
 
     name: Union[Annotated[str, pydantic.StringConstraints(min_length=1, max_length=120)], NotSetType] = NotSet
-    """The name of the board. Rewrites a ``title`` the stored definition already has, and never adds one.
+    """New human-readable name of the board, from 1 to 120 characters.
 
-    Must not be empty: the platform keeps the name equal to a definition ``title`` only while the title is a
-    non-empty string, so an empty name written into the title would leave the two unequal, and no later rename
-    could make them equal again. To keep the name, omit the field."""
+    Rewrites a ``title`` the stored definition already has, and never adds one. A name the board's owner already
+    uses for another board raises ``RobotoConflictException``."""
 
     model_config = pydantic.ConfigDict(extra="ignore", json_schema_extra=NotSetType.openapi_schema_modifier)
 
@@ -101,7 +108,7 @@ class UpdateBoardRequest(pydantic.BaseModel):
     def validate_definition_top_level(
         cls, board_definition: Union[dict[str, Any], NotSetType]
     ) -> Union[dict[str, Any], NotSetType]:
-        """Reject a definition whose top level :py:class:`~roboto.experimental.boards.BoardDefinition` refuses."""
+        """Reject a definition whose top level ``BoardDefinition`` refuses, without checking its panels and stages."""
         if isinstance(board_definition, NotSetType):
             return board_definition
         check_definition_top_level(board_definition)
@@ -116,10 +123,10 @@ class UpdateBoardRequest(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def validate_base_revision_with_definition(self) -> "UpdateBoardRequest":
-        """Require ``base_revision`` with a ``board_definition``.
+        """Reject a ``board_definition`` sent without ``base_revision``.
 
-        A rename of a board whose stored definition has a title needs one too. The server enforces that case,
-        since only the stored board shows whether the title is there.
+        Roboto rejects a rename that rewrites the stored definition's title without one, since only the stored board
+        shows whether it has a title.
         """
         if isinstance(self.board_definition, NotSetType):
             return self
@@ -129,9 +136,9 @@ class UpdateBoardRequest(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def validate_name_and_title_agree(self) -> "UpdateBoardRequest":
-        """Reject a request whose ``name`` differs from its definition's non-empty ``title``.
+        """Reject a ``name`` that differs from the definition's ``title``, when the title is a non-empty string.
 
-        The platform keeps the two equal, and such a request gives it no basis for choosing between them.
+        Roboto keeps the two equal, and such a request does not say which one to keep.
         """
         if isinstance(self.name, NotSetType) or isinstance(self.board_definition, NotSetType):
             return self
@@ -146,13 +153,13 @@ class UpdateBoardRequest(pydantic.BaseModel):
 
 
 class UpdateBoardAccessRequest(pydantic.BaseModel):
-    """Request body for ``PUT /v1/boards/id/<board_id>/access``.
+    """Request body for ``Board.share_with_org``, which shares a board with its organization permanently.
 
-    Shares a board with the organization, permanently: ownership moves to the org principal. The
-    definition and revision stay unchanged. No request makes a shared board personal again; to get
-    a personal board, create a new board from a copy of this board's definition.
+    The organization becomes the board's owner, and the definition and revision stay unchanged. No request makes a
+    shared board personal again; to get a personal board, create a new board from a copy of this board's definition.
+    Only the board's owner and organization administrators may share a personal board. Building it raises
+    ``pydantic.ValidationError`` when ``accessibility`` is anything but ``BoardAccessibility.Organization``.
     """
 
     accessibility: Literal[BoardAccessibility.Organization]
-    """Must be ``organization``, which moves ownership to the org principal. A request for ``user``
-    accessibility fails validation."""
+    """Accessibility to give the board, always ``BoardAccessibility.Organization``."""

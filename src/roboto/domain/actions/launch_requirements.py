@@ -14,21 +14,23 @@ from ...compat import StrEnum
 
 
 class InputKind(StrEnum):
-    """A kind of thing an action can be invoked over.
-
-    Only kinds the platform can actually deliver. A declaration is a promise the platform keeps, so
-    naming a kind nothing resolves would let an author declare it, let a form offer it, and fail at
-    launch. Widening this enum later is backward compatible: a stored declaration names the members
-    it named.
-    """
+    """Kind of input an action can be invoked over."""
 
     Dataset = "dataset"
-    """The invocation's data source. Expressed on the wire as ``data_source_id`` rather than as a
-    selector, unlike the three below."""
+    """Datasets (:py:class:`~roboto.domain.datasets.Dataset`).
+
+    An invocation names a dataset as its data source, by ``data_source_id``; it chooses files, sessions and topics
+    with selectors instead.
+    """
 
     Files = "files"
+    """Files (:py:class:`~roboto.domain.files.File`)."""
+
     Sessions = "sessions"
+    """Sessions (:py:class:`~roboto.experimental.sessions.Session`)."""
+
     Topics = "topics"
+    """Topics (:py:class:`~roboto.domain.topics.Topic`)."""
 
 
 class EgressPosture(StrEnum):
@@ -38,44 +40,47 @@ class EgressPosture(StrEnum):
     """
 
     DenyAll = "deny_all"
-    """No route to the public internet."""
+    """No access to the public internet."""
 
     Open = "open"
-    """The public internet, through a NAT gateway."""
+    """Access to the public internet."""
 
 
 class OutputChannel(StrEnum):
-    """Where an action's collected outputs can go.
+    """Where an invocation collects its action's outputs.
 
-    An enum rather than "uploads: yes/no", because the two destinations are different capabilities:
-    writing into a dataset touches data a person owns and needs a sidecar that can upload on a
-    credential user code never holds, while the invocation-scoped artifact store is available everywhere.
+    Every compute environment can collect into the invocation's artifacts; only some can upload into a dataset.
     """
 
     Dataset = "dataset"
+    """Upload of the outputs into a dataset."""
+
     Artifacts = "artifacts"
+    """Storage of the outputs as artifacts of the invocation."""
+
     NoneCollected = "none"
-    """Collects nothing. A declaration, not an absence — see :py:class:`LaunchRequirements`."""
+    """No collection of outputs."""
 
 
 class InputRequirement(pydantic.BaseModel):
-    """What an action can be invoked over."""
+    """Kinds of input an action's code can read, and whether an invocation must supply one.
+
+    Carried in ``LaunchRequirements.inputs``.
+
+    Constructing a requirement with ``required=True`` and an empty ``kinds`` raises ``pydantic.ValidationError``.
+    """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     kinds: frozenset[InputKind]
-    """The kinds this code can read. A launch selecting anything else is refused.
+    """Kinds of input the action's code can read.
 
-    Empty is a declaration rather than an absence: this action takes no inputs, and a launch
-    supplying any is refused. "No opinion" is :py:attr:`LaunchRequirements.inputs` being unset.
+    An empty set declares that the action takes no inputs. To declare nothing about inputs, leave
+    ``LaunchRequirements.inputs`` unset instead.
     """
 
     required: bool = True
-    """Whether a launch must supply at least one input of an accepted kind.
-
-    Defaults true because listing what you consume implies something to consume. Meaningless
-    alongside an empty ``kinds``, and that pairing is refused when the release is created.
-    """
+    """Whether an invocation must supply at least one input of a kind in ``kinds``. Defaults to ``True``."""
 
     @pydantic.model_validator(mode="after")
     def _required_needs_something_to_require(self) -> InputRequirement:
@@ -88,44 +93,42 @@ class InputRequirement(pydantic.BaseModel):
 
 
 class LaunchRequirements(pydantic.BaseModel):
-    """What an invocation of an action version needs in order to work.
+    """Requirements that a version of an action declares its code needs for an invocation to work.
 
-    Declared by the author, enforced by the platform: a launch contradicting one of these is
-    refused, at release creation and at submit alike, and a version-selection surface filters the
-    choices it offers down to what will run. Correcting a declaration is an ordinary new release.
+    Roboto checks every invocation against ``inputs``: one that supplies an input of a kind the version does not
+    accept, or supplies none when one is required, raises ``RobotoInvalidRequestException``. Roboto checks the other
+    requirements only for a version whose code is sent with each invocation or that runs on a compute environment
+    other than the default. For such a version, an invocation that contradicts a declared requirement, or that runs
+    on a compute environment that cannot meet one, raises ``RobotoInvalidRequestException``. Other versions run
+    without those checks.
 
-    **Every field is optional, and unset means the author said nothing** — never "off". An action
-    whose author declared nothing is unprotected, which is the deliberate cost of letting a
-    declaration be partial. This is the same convention ``LaunchDefaults`` uses on the compute side.
-
-    The fields are *requirements*, not a list of substrates: each one is checked against what a
-    substrate offers, and the set of substrates that can run the action falls out of the
-    intersection rather than being maintained by hand.
+    Every field except ``requires_gpu`` defaults to ``None``, which declares nothing; it never means "off". A
+    declaration that sets only some fields declares only those.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     inputs: typing.Optional[InputRequirement] = None
+    """Kinds of input the code can read, and whether an invocation must supply one."""
 
     staged_inputs: typing.Optional[bool] = None
-    """Whether the code needs its input files on local disk before it starts, as opposed to reading
-    them through the SDK. Only file-bearing inputs are ever staged — sessions and topics are
-    resolved to references and read live — so staging alongside a kind set carrying no file-bearing
-    kind is refused when the release is created."""
+    """Whether the code needs its input files downloaded to local disk before it starts.
+
+    ``True`` if it does; ``False`` if it reads them through the SDK instead. Only files are downloaded; the code reads
+    sessions and topics through the SDK either way.
+    """
 
     output: typing.Optional[OutputChannel] = None
+    """Where the code's outputs must be collected."""
 
     payload: typing.Optional[bool] = None
-    """Whether the code ships per-run rather than baked into a container image."""
+    """Whether the code is sent with each invocation (``True``) or built into a container image (``False``)."""
 
     egress: typing.Optional[EgressPosture] = None
-    """The network access the code needs: ``open`` when it reaches the public internet, ``deny_all``
-    when it must not. An invocation with the other posture is refused, and so is an invocation sent to a substrate
-    that cannot provide this one on this deployment."""
+    """Network access the code needs.
+
+    ``EgressPosture.Open`` when it reaches the public internet, ``EgressPosture.DenyAll`` when it must not.
+    """
 
     requires_gpu: bool = False
-    """Whether the code needs a GPU.
-
-    A plain boolean rather than the tri-state the fields above use, because here unspecified and
-    false say the same thing: "I did not say I need a GPU" and "I do not need one" are one claim.
-    """
+    """Whether the code needs a GPU. ``False`` declares nothing, as ``None`` does for the other fields."""

@@ -35,9 +35,18 @@ _MAX_DOWNLOAD_ATTEMPTS = 3
 
 
 class FileService:
-    """Application service for performing upload and download to the Roboto Platform.
+    """Service that uploads local files to Roboto and downloads files Roboto stores to local disk.
 
-    Agnostic to object store provider.
+    :py:meth:`~roboto.domain.datasets.Dataset.upload_files`, :py:meth:`~roboto.domain.files.File.download` and the
+    other upload and download methods transfer files through it, so most code never calls it. It moves file contents
+    directly to and from the object store that holds them, such as an S3 bucket, with temporary credentials Roboto
+    issues.
+
+    Args:
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
+        object_store_registry: Registry that picks the object store for a storage URI by its scheme. Defaults to
+            :py:class:`~roboto.storage.object_store.StoreRegistry`.
     """
 
     def __init__(
@@ -58,18 +67,35 @@ class FileService:
         caller_org_id: typing.Optional[str] = None,
         on_progress: typing.Optional[OnProgress] = None,
     ) -> dict[pathlib.Path, str]:
-        """Upload the given files and return which file record each one created.
+        """Upload local files to a dataset or another resource, and return the ID of the file each one created.
+
+        The files upload in batches of ``batch_size``. Each batch is one upload transaction, which Roboto completes
+        before the next batch begins.
+
+        Args:
+            files: Local files to upload.
+            association: Resource to upload the files to: a dataset, device, device type, organization, or topic.
+            destination_paths: Path within ``association`` to upload each local file to, keyed by local path. A file
+                not in the mapping is uploaded to the root under its own name.
+            batch_size: Maximum number of files per upload transaction.
+            device_id: ID of the device that produced the files, which must be in the organization the files are
+                uploaded to. ``None`` records the calling device when a device makes the request, and no device
+                otherwise.
+            caller_org_id: Organization to act in. Required when the caller belongs to more than one organization;
+                otherwise the caller's only organization.
+            on_progress: Function called with the number of bytes uploaded since its previous call. ``None`` reports
+                no progress.
 
         Returns:
-            Mapping from each uploaded local path to the ID of the file record it created.
+            ID of the file each local path was uploaded as, keyed by local path.
 
         Raises:
-            ValueError: If two of the given files resolve to the same destination path: their
-                uploads would overwrite each other and only one could appear in the returned
-                mapping. Files without a ``destination_paths`` entry are destined for their own
-                basename, so two like-named files from different directories collide unless given
-                distinct destinations.
-            OSError: If a given file cannot be read.
+            ValueError: Two local files would be uploaded to the same path, which includes two files of the same name
+                from different directories that ``destination_paths`` does not map. Raised before any upload starts.
+            OSError: A local file does not exist or cannot be accessed. Raised before any upload starts.
+            ExceptionGroup: One or more files in a batch failed to upload. It holds one exception per failed file.
+                Roboto does not complete that batch's transaction, earlier batches stay uploaded, and later batches
+                do not start.
         """
         items: list[TransactionFile] = []
         for local_path in files:
@@ -89,11 +115,8 @@ class FileService:
         if not items:
             return {}
 
-        # Destination collisions are checked over the full item list, before the loop below splits
-        # it into batch_size slices; each UploadTransaction receives one slice, so no transaction
-        # could see a collision that spans two batches. Two paths sharing one destination collapse
-        # to a single upload URI: their transfers race for the same object and only one can appear
-        # in the returned path -> file-ID mapping.
+        # Check every file before batching: each upload transaction sees only its own batch, so it could not detect
+        # two files from different batches sharing a destination.
         local_paths_by_destination: dict[str, list[pathlib.Path]] = collections.defaultdict(list)
         for item in items:
             local_paths_by_destination[item["destination_path"]].append(item["local_path"])
@@ -112,11 +135,8 @@ class FileService:
                 "Give each file a distinct destination via destination_paths."
             )
 
-        # GM(2025-11-19)
-        # For reasons related to OpenFGA scalability/throughput,
-        # upload transactions are currently limited to 500 files.
-        # Until that is fixed, implement batching by creating multiple transactions.
-        # When that is lifted, batching is already handled by the UploadTransaction.
+        # Each batch gets its own upload transaction, so no transaction registers more than batch_size files with
+        # Roboto. Passing the same batch_size to UploadTransaction makes it upload its whole slice as one batch.
         completed_uploads: dict[pathlib.Path, str] = {}
         for batch_start in range(0, len(items), batch_size):
             item_batch = items[batch_start : batch_start + batch_size]
@@ -129,8 +149,8 @@ class FileService:
                 roboto_client=self.__roboto_client,
                 caller_org_id=caller_org_id,
             ) as txn:
-                # Heuristic: all files in a transaction are located in the same object store.
-                # When this no longer holds, this is the place to change it.
+                # Assumes every file in a transaction uploads to the same object store, so the store for the first
+                # upload URI serves them all.
                 first_file_uri = list(txn.upload_mappings.values())[0]
 
                 object_store = self.__object_store_registry.get_store_for_uri(
@@ -152,13 +172,25 @@ class FileService:
         caller_org_id: typing.Optional[str] = None,
         on_progress: typing.Optional[OnProgress] = None,
     ) -> None:
-        """Download files from the Roboto Platform.
+        """Download files Roboto stores to local paths, retrying the files that fail.
+
+        Downloads the files one bucket at a time, with read credentials Roboto issues for ``association``. A file
+        that fails to download is tried again immediately, up to three attempts in all; files that succeeded are not
+        downloaded again.
 
         Args:
-            files: Sequence of files to download, each with source_uri and destination_path.
-            association: Association of the files to download.
-            caller_org_id: Optional organization ID for cross-org access.
-            on_progress: Optional callback to be periodically called with the number of bytes downloaded.
+            files: Files to download, each with its bucket, its storage URI, and the local path to save it to.
+            association: Resource the files belong to, which Roboto issues the read credentials for.
+            caller_org_id: Organization to act in. Required when the caller belongs to more than one organization;
+                otherwise the caller's only organization.
+            on_progress: Function called with the number of bytes downloaded since its previous call. ``None``
+                reports no progress.
+
+        Raises:
+            RobotoNotFoundException: Roboto issues no credentials for a file's bucket, such as a bucket not
+                registered with Roboto.
+            ExceptionGroup: One or more files still failed after three attempts. It holds the last exception of each
+                failed file. Files in buckets not yet reached are not downloaded.
         """
         if not files:
             return
@@ -174,7 +206,8 @@ class FileService:
                 roboto_client=self.__roboto_client,
                 caller_org_id=caller_org_id,
             )
-            # Heuristic: all files in the same bucket are located in the same object store
+            # Assumes every file in one bucket is in the same object store, so the store for the first file's URI
+            # serves them all.
             first_file_uri = bucket_files[0]["source_uri"]
             object_store = self.__object_store_registry.get_store_for_uri(
                 first_file_uri, download_session.make_credential_provider(bucket_name)

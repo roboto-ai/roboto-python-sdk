@@ -4,17 +4,16 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Video APIs in active refinement; see :py:mod:`roboto.experimental` for the stability contract.
+"""Decoding of compressed-video topic data into still frames, where each message holds one encoded frame.
 
-Decodes compressed-video topic data (one encoded frame per MCAP message, as
-written by Roboto ingestion for ``CompressedVideo`` and compatible
-schemas) into still frames on demand. Supported codecs are enumerated by
-:py:func:`supported_formats` (H.264, H.265, VP9, and AV1 today). Decoding
-requires the ``roboto[video]`` extra; the per-codec bitstream-inspection
-helpers (:py:mod:`~roboto.experimental.video.h264`,
-:py:mod:`~roboto.experimental.video.h265`,
-:py:mod:`~roboto.experimental.video.vp9`,
-:py:mod:`~roboto.experimental.video.av1`) are dependency-free.
+A frame other than a keyframe decodes only after the frames back to the keyframe before it. Use
+``decode_frames_in_range`` to decode a time range of a topic, which also loads and decodes those earlier frames, up to
+``keyframe_lookback_ns`` (10 seconds by default) before the range, without yielding them. Use ``decode_stream`` to
+decode frames you already hold in log-time order; it skips the frames before the first keyframe. Pass either one the
+``VideoCodec`` that ``resolve_codec`` returns for a message's ``format`` field, which is ``None`` when no codec decodes
+that format; ``supported_formats`` returns every format it accepts. The modules ``roboto.experimental.video.h264``,
+``h265``, ``vp9`` and ``av1`` tell whether an encoded frame is a keyframe from its bytes alone, and need no extra.
+Decoding requires the ``roboto[video]`` extra: ``pip install roboto[video]``.
 """
 
 from .codec import (

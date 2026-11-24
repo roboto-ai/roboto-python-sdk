@@ -23,33 +23,39 @@ ORG_ARG_HELP = (
 
 
 def add_org_arg(parser: argparse.ArgumentParser, arg_help: str = ORG_ARG_HELP) -> None:
-    """Add the ``--org`` option, which defaults to ``ROBOTO_ORG_ID``, then to the config file profile's ``org_id``.
+    """Add the flag that selects the organization a command acts in, ``--org``, to ``parser``.
 
-    The profile isn't known until the command line has been parsed,
-    so this records on the parsed arguments that ``--org`` takes the profile's ``org_id``,
-    and :py:func:`apply_profile_org_default` fills it in afterwards.
+    ``--org`` defaults to ``ROBOTO_ORG_ID``, then to the config file profile's ``org_id``. The profile is not known
+    until the command line is parsed, so this marks the parsed arguments as taking the profile's ``org_id``, and
+    ``apply_profile_org_default`` fills it in afterwards.
     """
-    # `ROBOTO_ORG_ID=` names no organization, so it counts as unset, as it does everywhere else the variable is read.
+    # An empty ROBOTO_ORG_ID names no organization, so it counts as unset.
     parser.add_argument("--org", required=False, type=str, help=arg_help, default=os.getenv(RobotoEnvKey.OrgId) or None)
     parser.set_defaults(org_defaults_to_profile=True)
 
 
 def apply_profile_org_default(args: argparse.Namespace, config: RobotoConfig) -> None:
-    """Fill in ``args.org`` from the config file profile's ``org_id`` when the command line and environment set none.
+    """Fill in ``--org`` from the config file profile's ``org_id`` when the command line and environment set none.
 
-    Only a command whose ``--org`` option came from :py:func:`add_org_arg` gets the default.
-    An ``--org`` defined any other way is left as the command line set it,
+    The CLI calls this after it loads the config, before it runs the command. Only a command whose ``--org`` option
+    came from ``add_org_arg`` gets the default. An ``--org`` defined any other way is left as the command line set it,
     such as the one naming the organization that ``roboto orgs remove-user`` removes a user from.
-
-    Args:
-        args: Parsed command line arguments.
-        config: The Roboto config the command runs with.
     """
     if getattr(args, "org_defaults_to_profile", False) and args.org is None:
         args.org = config.org_id
 
 
 def get_defaulted_org_id(org_id: typing.Optional[str]) -> str:
+    """Return ``org_id``, or the ID of the caller's only organization when ``org_id`` is ``None``.
+
+    Args:
+        org_id: ID of the organization the command names, usually from ``--org``. ``None`` fetches the caller's
+            organizations and uses the only one.
+
+    Raises:
+        RobotoNoOrgProvidedException: ``org_id`` is ``None`` and the caller belongs to no organization or to more
+            than one.
+    """
     if org_id is not None:
         return org_id
 

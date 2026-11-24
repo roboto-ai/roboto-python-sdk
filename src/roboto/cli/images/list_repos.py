@@ -14,6 +14,7 @@ from ..context import CLIContext
 
 
 def list_repos(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Print each repository the ``--org`` organization has in Roboto's private image registry as a JSON object."""
     image_registry = ImageRegistry(context.roboto_client)
     paginated_results = image_registry.list_repositories(org_id=args.org)
     while True:

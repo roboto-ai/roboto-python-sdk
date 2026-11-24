@@ -56,22 +56,24 @@ from .prompts import (
 TOKENS_PAGE_URL = "https://app.roboto.ai/settings/tokens"
 
 DEFAULT_SETUP_TOKEN_EXPIRY_DAYS = 180
-"""Number of days an access token from setup's sign-in stays valid, unless the caller asks for another number."""
+"""Number of days an access token from a sign-in during setup stays valid, unless ``--expiry-days`` sets another."""
 
 ClientFactory = collections.abc.Callable[[str, str], RobotoClient]
-"""Build a client for an ``(endpoint, access token)`` pair."""
+"""Function that takes a Roboto API endpoint and an access token, and returns a client that makes requests with them."""
 
 
 @dataclasses.dataclass(frozen=True)
 class AccessSetup:
-    """What :py:func:`set_up_credentials` found or set up."""
+    """Result of ``set_up_credentials``: what it found or set up for the access token and the organization."""
 
     token: StepOutcome
-    """Whether the CLI and SDK have an access token Roboto accepts."""
+    """Outcome of the access token step: whether the CLI and SDK have an access token Roboto accepts."""
 
     organization: typing.Optional[StepOutcome] = None
-    """Whether commands know which organization to act in. ``None`` when no token works, since the user's
-    organizations can't be listed without one."""
+    """Outcome of the organization step: whether commands know which organization to act in.
+
+    ``None`` when no token works, since the user's organizations cannot be listed without one.
+    """
 
     organization_name: typing.Optional[str] = None
     """Name of the organization commands act in by default, when there is one."""
@@ -84,47 +86,48 @@ def set_up_credentials(
     profile: typing.Optional[str] = None,
     report_token: collections.abc.Callable[[StepOutcome], None] = lambda outcome: None,
     token_expiry_days: int = DEFAULT_SETUP_TOKEN_EXPIRY_DAYS,
+    endpoint: typing.Optional[str] = None,
 ) -> AccessSetup:
-    """Make sure the CLI and SDK have a working access token and know which organization to act in.
+    """Make sure the CLI and SDK have an access token Roboto accepts, and know which organization to act in.
 
-    The token comes from the ``ROBOTO_API_KEY`` or ``ROBOTO_BEARER_TOKEN`` environment variable, or else from a
-    profile in the Roboto config file (``ROBOTO_CONFIG_FILE`` or ``~/.roboto/config.json``), and is checked against the
-    Roboto API. A token from the environment is only checked. Otherwise, when the file doesn't exist, lacks the
-    profile, or holds a token the API rejects, and ``prompts`` is given, the user is asked whether to sign in
-    through the browser, as ``roboto auth login`` does. Where no browser can be opened for the user, setup prints
-    the approval page's address for them to open on any device, and reads the authorization code that page shows.
-    The new token is checked, then saved to the profile: a rejected token is replaced, and the profile's other
-    settings are kept. A new file is readable only by the user. Nothing is sent to Roboto to sign in unless the user
-    agrees, and a token setup can't check or save is deleted.
+    The access token comes from ``ROBOTO_API_KEY`` or ``ROBOTO_BEARER_TOKEN``, or else from a profile in the Roboto
+    config file (``ROBOTO_CONFIG_FILE`` or ``~/.roboto/config.json``), and setup asks Roboto whether it accepts it. A
+    token from the environment is only checked, never replaced. When the config file does not exist, lacks the
+    profile, or holds a token Roboto rejects, and ``prompts`` is given, setup asks the user whether to sign in through
+    the browser, as ``roboto auth login`` does, and sends nothing to Roboto to sign in unless the user agrees. When no
+    browser can be opened, setup prints the address of the approval page for the user to open on any device, and reads
+    the authorization code that page shows. Setup checks the new token, then saves it to the profile, replacing a
+    rejected token and keeping the profile's other settings; the config file is left readable only by the user. A new
+    token that setup cannot check or save is deleted.
 
-    ``ROBOTO_ORG_ID``, when set, names the organization commands act in, and one that names none of the user's
-    organizations is reported for the user to fix. Without it, commands act in the ``org_id`` of the config file
-    profile the token came from. A user in one organization needs none, and a user in several needs one.
-    When the profile holds one the user isn't in, or a user in several has none, and ``prompts`` is given,
-    the user is asked for a replacement, and the answer is saved as the profile's ``org_id``.
-    Apart from a token from a sign-in, that is the only change setup makes to an existing config file. Either change
-    keeps everything else in the file as it was, except that a file in the format the SDK wrote before July 2024 is
-    converted to the current format, which is the only one that holds an organization, and a copy of the original is
-    kept next to it.
-    Where the answer couldn't be saved, because the token came from the environment and has no profile, or because
-    the file can't be converted, the user is told how to name an organization instead of being asked.
+    ``ROBOTO_ORG_ID``, when set, names the organization commands act in; one that is not among the user's
+    organizations is reported for the user to fix. Otherwise commands act in the ``org_id`` of the profile the token
+    came from, which a member of one organization does not need and a member of several does. When that ``org_id``
+    names an organization the user is not in, or a member of several has none, and ``prompts`` is given, setup asks the
+    user to choose one and saves the answer as the profile's ``org_id``. When setup could not save an answer, because
+    the token came from the environment and has no profile, or because the config file cannot be converted, it tells
+    the user how to name an organization instead of asking.
+
+    Saving a token and saving an ``org_id`` are the only changes setup makes to an existing config file. Both keep
+    everything else in the file, except that a file in the earlier format, with no ``version`` key, is converted to the
+    ``v1`` format, the only one that holds an organization, and a copy of the original is kept next to it.
 
     Args:
-        env: Roboto environment variables, read for the token, the config file location, the profile, the API
-            endpoint, and the organization.
-        prompts: Asks the user whether to sign in, and which organization to use. ``None`` when nobody is at the
-            keyboard, in which case a missing token or organization is reported with instructions instead.
-        make_client: Builds the client used to check a token.
+        prompts: Asks the user whether to sign in and which organization to use. ``None`` when nobody is at the
+            keyboard; a missing token or organization is then reported with instructions instead.
         profile: Config file profile to check, or to save a new token under. Defaults to ``ROBOTO_PROFILE``,
             then to the config file's default profile.
         report_token: Called once with the access token's outcome as soon as it is known, which is before the user
             is asked about an organization.
-        token_expiry_days: Number of days a token from a sign-in stays valid.
+        endpoint: Roboto API endpoint the user chose to sign in to, used ahead of ``ROBOTO_SERVICE_ENDPOINT``. A
+            profile saved with another endpoint is treated as one whose token Roboto rejected: the user is offered a
+            sign-in that replaces its token and endpoint. ``None`` signs a new profile in at
+            ``ROBOTO_SERVICE_ENDPOINT``, or else at ``https://api.roboto.ai``, and an existing profile at its own.
 
     Returns:
         The outcome for the access token and, once a token works, the outcome for the organization.
     """
-    token = _set_up_token(env, prompts, make_client, profile, token_expiry_days)
+    token = _set_up_token(env, prompts, make_client, profile, token_expiry_days, endpoint)
     report_token(token.outcome)
     if token.orgs is None:
         return AccessSetup(token=token.outcome)
@@ -143,6 +146,7 @@ def _set_up_token(
     make_client: ClientFactory,
     profile: typing.Optional[str],
     token_expiry_days: int,
+    endpoint: typing.Optional[str],
 ) -> _TokenSetup:
     if env.api_key:
         # RobotoEnv reads ROBOTO_API_KEY ahead of ROBOTO_BEARER_TOKEN.
@@ -169,7 +173,8 @@ def _set_up_token(
         prompts=prompts,
         make_client=make_client,
         expiry_days=token_expiry_days,
-        new_profile_endpoint=(env.roboto_service_endpoint or ROBOTO_API_ENDPOINT).rstrip("/"),
+        new_profile_endpoint=(endpoint or env.roboto_service_endpoint or ROBOTO_API_ENDPOINT).rstrip("/"),
+        setup_command="roboto setup --choose-endpoint" if endpoint is not None else "roboto setup",
     )
     if not sign_in.config_file.exists():
         return sign_in.offer(problem=None, endpoint=sign_in.new_profile_endpoint, org_id=None, replacing=False)
@@ -177,8 +182,8 @@ def _set_up_token(
     try:
         config = RobotoConfig.from_env(profile_override=profile, env=env)
     except (OSError, ValueError) as exc:
-        # from_env raises these for a file it can't read or use, which is a problem for the user to fix, and for a
-        # file that lacks the profile, which a sign-in adds.
+        # from_env raises these both for a file it cannot read or use, which the user must fix, and for a file that
+        # lacks the profile, which a sign-in adds.
         missing_profile = sign_in.missing_profile()
         if missing_profile is not None:
             return sign_in.offer(
@@ -194,6 +199,14 @@ def _set_up_token(
                 summary=f"Couldn't use the config file: {exc}",
                 next_steps=(f"Fix or remove '{sign_in.config_file}', then run `roboto setup` again.",),
             )
+        )
+
+    if endpoint is not None and config.endpoint.rstrip("/") != sign_in.new_profile_endpoint:
+        return sign_in.offer(
+            problem=f"The profile in '{sign_in.config_file}' signs in to {config.endpoint}, not {endpoint}.",
+            endpoint=sign_in.new_profile_endpoint,
+            org_id=config.org_id,
+            replacing=True,
         )
 
     profile_in_file = _Profile(config_file=sign_in.config_file, name=sign_in.profile_name, org_id=config.org_id)
@@ -224,7 +237,7 @@ class _Profile:
     """``None`` for the config file's default profile."""
 
     org_id: typing.Optional[str]
-    """The default organization the profile holds, if it holds one."""
+    """ID of the profile's default organization, or ``None`` when it holds none."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -232,11 +245,13 @@ class _TokenSetup:
     outcome: StepOutcome
 
     orgs: typing.Optional[collections.abc.Sequence[Org]] = None
-    """The organizations the token's user belongs to. ``None`` when no token works."""
+    """Organizations the token's user belongs to. ``None`` when no token works."""
 
     profile: typing.Optional[_Profile] = None
-    """The config file profile the token is saved in. ``None`` when no token works, and for a token from the
-    environment."""
+    """Config file profile the token is saved in.
+
+    ``None`` when no token works, and for a token from the environment.
+    """
 
 
 class _TokenRejected(Exception):
@@ -244,10 +259,10 @@ class _TokenRejected(Exception):
 
 
 def _identify(make_client: ClientFactory, endpoint: str, token: str) -> _Identity:
-    # Building the client raises RobotoDeprecatedException for a token in the format retired in March 2024. The API
-    # refuses any other bad token: its gateway answers with an explicit deny, which the SDK raises as
-    # RobotoAuthenticationFailureException, and a 401 or 403 without one is RobotoUnauthorizedException. Any other
-    # error propagates.
+    # Building the client raises RobotoDeprecatedException for a token beginning with robo_pat, a format Roboto
+    # retired in March 2024. Roboto refuses any other bad token, and the SDK raises the refusal as
+    # RobotoAuthenticationFailureException when Roboto rejected the token itself, or as RobotoUnauthorizedException
+    # for any other 401 or 403. Every other exception propagates.
     try:
         client = make_client(endpoint, token)
         return _Identity(user=User.for_self(roboto_client=client), orgs=Org.for_self(roboto_client=client))
@@ -260,8 +275,7 @@ def _check_existing_token(
 ) -> _TokenSetup:
     """Check the token in ``config``, which came from ``source``, and return its outcome when Roboto accepts it.
 
-    Raises:
-        _TokenRejected: Roboto rejected the token. Any other error from checking it propagates.
+    Raises ``_TokenRejected`` when Roboto rejects the token. Any other error from checking it propagates.
     """
     identity = _identify(make_client, config.endpoint, config.api_key)
     return _TokenSetup(
@@ -277,23 +291,35 @@ def _check_existing_token(
 
 @dataclasses.dataclass(frozen=True)
 class _SignIn:
-    """Signing in through the browser to save a new token to the config file profile setup reads."""
+    """Browser sign-in that saves a new access token to the config file profile setup reads."""
 
     config_file: pathlib.Path
 
     profile_name: typing.Optional[str]
-    """The profile named by ``--profile`` or ``ROBOTO_PROFILE``. ``None`` for the config file's default profile."""
+    """Profile named by ``--profile`` or ``ROBOTO_PROFILE``, or ``None`` for the config file's default profile."""
 
     prompts: typing.Optional[Prompts]
     make_client: ClientFactory
     expiry_days: int
 
     new_profile_endpoint: str
-    """Roboto API endpoint a new profile is saved with: ``ROBOTO_SERVICE_ENDPOINT``, or else Roboto's own. ``roboto
-    auth login`` signs in to it too, unless given ``--endpoint``."""
+    """Roboto API endpoint a new profile is saved with.
+
+    It is the one the user chose, or else ``ROBOTO_SERVICE_ENDPOINT``, or else ``https://api.roboto.ai``.
+    """
+
+    setup_command: str
+    """``roboto setup`` command the steps setup reports tell the user to run again.
+
+    It includes ``--choose-endpoint`` when the user chose the endpoint, since without it the next run signs in at
+    ``ROBOTO_SERVICE_ENDPOINT`` or ``https://api.roboto.ai`` instead.
+    """
 
     def missing_profile(self) -> typing.Optional[str]:
-        """Return the name of the profile setup reads when the config file lacks it and a sign-in could add it."""
+        """Return the name of the profile setup reads when the config file lacks it and a sign-in could add it.
+
+        Returns ``None`` when the file has the profile, and when a sign-in could not write it.
+        """
         try:
             profile = check_profile_writable(self.config_file, self.profile_name, overwrite=True)
         except (ConfigFileError, OSError):
@@ -305,26 +331,26 @@ class _SignIn:
     ) -> _TokenSetup:
         """Ask the user whether to sign in, and sign them in when they agree.
 
-        Asks nothing when nobody is at the keyboard, or when the profile can't take a new token, and returns a step
-        for the user instead.
+        Asks nothing when nobody is at the keyboard, or when the profile cannot take a new token, and instead returns
+        an outcome whose next step tells the user what to do.
 
-        Args:
-            problem: Why the config file gave setup no token Roboto accepts, printed before the question and used as
-                the outcome's summary when nothing is asked. ``None`` when there is no config file.
-            endpoint: Roboto API endpoint to sign in to, and to save in the profile.
-            org_id: The default organization the profile holds, which the organization step starts from.
-            replacing: The profile exists, and its token is replaced.
+        ``problem`` says why the config file gave setup no token Roboto accepts. It is printed before the question
+        and used as the outcome's summary when nothing is asked, and it is ``None`` when there is no config file.
+        ``endpoint`` is the Roboto API endpoint to sign in to, and to save in the profile. ``org_id`` is the ID of the
+        profile's default organization, which the organization step starts from. ``replacing`` says whether the
+        profile exists, so that signing in replaces its token.
         """
         summary = problem or "No access token found."
         try:
-            check_profile_writable(self.config_file, self.profile_name, overwrite=replacing)
+            writable = check_profile_writable(self.config_file, self.profile_name, overwrite=replacing)
         except (ConfigFileError, OSError) as exc:
-            # Raised for a profile a token can't be saved in, such as one in a config file in the older format with an
-            # entry that can't be converted. Signing in would then issue a token that setup couldn't keep.
+            # check_profile_writable raises these for a profile setup cannot save a token in, such as one in a config
+            # file of the earlier format with an entry that cannot be converted. Signing in would then issue a token
+            # that setup could not keep, so setup does not offer it.
             if replacing:
                 next_step = f"Replace the rejected token in '{self.config_file}' with a new one from {TOKENS_PAGE_URL}."
             else:
-                next_step = f"Fix the profile name or '{self.config_file}', then run `roboto setup` again."
+                next_step = f"Fix the profile name or '{self.config_file}', then run `{self.setup_command}` again."
             return _TokenSetup(
                 StepOutcome(
                     step="Access token",
@@ -334,14 +360,14 @@ class _SignIn:
                 )
             )
 
-        login_command = self.__login_command(endpoint, replacing)
+        login_command = self.__login_command(writable.name, endpoint, replacing)
         if self.prompts is None:
             return _TokenSetup(
                 StepOutcome(
                     step="Access token",
                     status=StepStatus.ActionNeeded,
                     summary=summary,
-                    next_steps=(f"Sign in with `{login_command}`, then run `roboto setup` again.",),
+                    next_steps=(f"Sign in with `{login_command}`, then run `{self.setup_command}` again.",),
                 )
             )
 
@@ -353,13 +379,13 @@ class _SignIn:
             else "  Sign in to Roboto through your browser?"
         )
         if not confirm(self.prompts, question):
-            # Any problem was printed on the line above the question, so the outcome doesn't repeat it.
+            # Any problem was printed on the line above the question, so the outcome does not repeat it.
             return _TokenSetup(
                 StepOutcome(
                     step="Access token",
                     status=StepStatus.ActionNeeded,
-                    summary="Kept the rejected token." if replacing else "No access token saved.",
-                    next_steps=(f"Run `roboto setup` again, or `{login_command}`, to sign in.",),
+                    summary="Kept the existing token." if replacing else "No access token saved.",
+                    next_steps=(f"Run `{self.setup_command}` again, or `{login_command}`, to sign in.",),
                 )
             )
 
@@ -389,7 +415,7 @@ class _SignIn:
                     step="Access token",
                     status=StepStatus.ActionNeeded,
                     summary="You denied the sign-in in the browser.",
-                    next_steps=("Run `roboto setup` again to sign in.",),
+                    next_steps=(f"Run `{self.setup_command}` again to sign in.",),
                 )
             )
         except BrowserSignInUnsupportedError:
@@ -400,7 +426,7 @@ class _SignIn:
                     summary=f"Roboto at {endpoint} doesn't support signing in through the browser.",
                     next_steps=(
                         "Create an access token in the Roboto web app under Settings > Tokens, save it in "
-                        + f"'{self.config_file}', then run `roboto setup` again.",
+                        + f"'{self.config_file}', then run `{self.setup_command}` again.",
                     ),
                 )
             )
@@ -410,12 +436,12 @@ class _SignIn:
                     step="Access token",
                     status=StepStatus.Failed,
                     summary=f"Couldn't sign in: {exc}",
-                    next_steps=("Run `roboto setup` again to sign in.",),
+                    next_steps=(f"Run `{self.setup_command}` again to sign in.",),
                 )
             )
 
-        # Leaving the block without saving the token deletes it, or tells the user how to when deleting fails, for a
-        # token Roboto rejects, one setup can't check, and one setup can't save.
+        # Leaving this block without saving the token deletes it, or tells the user how to delete it when that fails.
+        # That happens to a token Roboto rejects, one setup cannot check, and one setup cannot save.
         with token:
             try:
                 identity = _identify(self.make_client, endpoint, token.secret)
@@ -425,7 +451,7 @@ class _SignIn:
                         step="Access token",
                         status=StepStatus.Failed,
                         summary="Roboto rejected the new access token.",
-                        next_steps=("Run `roboto setup` again to sign in.",),
+                        next_steps=(f"Run `{self.setup_command}` again to sign in.",),
                     )
                 )
             except Exception as exc:
@@ -440,7 +466,7 @@ class _SignIn:
                         status=StepStatus.Failed,
                         summary=f"Signed in, but setup couldn't save the new access token: {exc}",
                         next_steps=(
-                            f"Make sure you can write to '{self.config_file}', then run `roboto setup` again.",
+                            f"Make sure you can write to '{self.config_file}', then run `{self.setup_command}` again.",
                         ),
                     )
                 )
@@ -456,20 +482,26 @@ class _SignIn:
             profile=_Profile(config_file=self.config_file, name=self.profile_name, org_id=org_id),
         )
 
-    def __login_command(self, endpoint: str, replacing: bool) -> str:
-        """Return the ``roboto auth login`` command that signs in to ``endpoint`` and saves the token where setup
-        would have saved it."""
+    def __login_command(self, profile_name: str, endpoint: str, replacing: bool) -> str:
+        """Render the ``roboto auth login`` command that saves a new token where setup would have saved it.
+
+        The command signs in to ``endpoint`` and saves the token to ``profile_name`` in this config file.
+        """
         config_file_option = (
             f"--config-file {self.config_file} " if self.config_file != DEFAULT_ROBOTO_CONFIG_DIR else ""
         )
-        profile_option = f"--profile {self.profile_name} " if self.profile_name is not None else ""
-        endpoint_option = f" --endpoint {endpoint}" if endpoint != self.new_profile_endpoint else ""
+        # Named even when it is the default, because without `--profile`, `roboto auth login` may pick the profile
+        # that already uses the endpoint.
+        profile_option = f"--profile {profile_name} "
+        # Named unless it is https://api.roboto.ai, because with `--profile`, `roboto auth login` otherwise signs in at
+        # the profile's saved endpoint, which may be the one setup is replacing.
+        endpoint_option = f" --endpoint {endpoint}" if endpoint != ROBOTO_API_ENDPOINT else ""
         overwrite_option = " --overwrite" if replacing else ""
         return f"roboto {config_file_option}{profile_option}auth login{endpoint_option}{overwrite_option}"
 
 
 class _IndentedLines:
-    """Write to ``stream``, starting each line that holds text with ``indent``."""
+    """Text stream that writes to ``stream``, starting each line that holds text with ``indent``."""
 
     def __init__(self, stream: typing.TextIO, indent: str) -> None:
         self.__stream = stream
@@ -494,12 +526,14 @@ def _set_up_organization(
     profile: typing.Optional[_Profile],
     prompts: typing.Optional[Prompts],
 ) -> tuple[StepOutcome, typing.Optional[Org]]:
-    """Work out which of ``orgs`` commands act in by default, asking a member of several with no default to choose.
+    """Find which of ``orgs`` commands act in by default, and ask the user to choose when the profile needs one.
 
-    ``profile`` is the config file profile the token is saved in, which is where the choice is saved.
-    It is ``None`` for a token from the environment, and then the user isn't asked.
+    The profile needs one when it names an organization the user is not in, or when the user belongs to several
+    organizations and it names none. ``profile`` is the config file profile the token is saved in, which is where the
+    choice is saved. It is ``None`` for a token from the environment, and then the user is not asked.
 
-    Returns the organization's outcome and, when there is one, the organization commands act in by default.
+    Return ``(outcome, org)``: the outcome of the organization step, and the organization commands act in by default,
+    or ``None`` when there is none.
     """
     if not orgs:
         return (
@@ -540,7 +574,7 @@ def _set_up_organization(
             named,
         )
 
-    # Commands send the profile's organization ahead of the user's only one, so one the user isn't in has to be
+    # Commands send the profile's organization ahead of the user's only one, so one the user is not in has to be
     # replaced even for a member of a single organization.
     saved_org_id = profile.org_id if profile is not None else None
     saved = next((org for org in orgs if org.org_id == saved_org_id), None)
@@ -588,8 +622,9 @@ def _set_up_organization(
     try:
         ensure_profile_org_id_settable(profile.config_file, profile.name)
     except (ConfigFileError, OSError) as exc:
-        # Raised for a config file a default organization can't be saved in, such as one in the older format with an
-        # entry that can't be converted. Asking the user to choose would then end in an answer setup can't keep.
+        # ensure_profile_org_id_settable raises these for a config file setup cannot save a default organization in,
+        # such as one in the earlier format with an entry that cannot be converted. Asking the user to choose would
+        # then end in an answer setup could not keep.
         return (
             StepOutcome(
                 step="Organization",
@@ -622,7 +657,7 @@ def _set_up_organization(
     else:
         chosen = _ask_for_default_org(orgs, prompts, say_how_many=not saved_is_not_theirs)
     if chosen is None:
-        # The user has just read what is wrong on the lines above the question, so the outcome doesn't repeat it.
+        # The user has just read what is wrong on the lines above the question, so the outcome does not repeat it.
         if saved_is_not_theirs:
             summary = f"Kept {saved_org_id} as your default."
             next_step = "Run `roboto setup` again to replace it."
@@ -642,7 +677,7 @@ def _set_up_organization(
     try:
         legacy_file_copy = set_profile_org_id(profile.config_file, chosen.org_id, profile_name=profile.name)
     except (ConfigFileError, OSError) as exc:
-        # set_profile_org_id raises these for a config file it won't or can't update, and leaves the file as it was.
+        # set_profile_org_id raises these for a config file it will not or cannot update, and leaves the file as it was.
         return (
             StepOutcome(
                 step="Organization",
@@ -670,9 +705,10 @@ def _set_up_organization(
 def _ask_for_default_org(
     orgs: collections.abc.Sequence[Org], prompts: Prompts, say_how_many: bool
 ) -> typing.Optional[Org]:
-    """Ask the user to choose one of ``orgs`` by number, and return it, or ``None`` when they give no answer.
+    """Ask for one of ``orgs`` by number, and return it, or ``None`` when the user gives no answer.
 
-    ``say_how_many`` opens the question with the number of organizations the user belongs to.
+    Asks again after any answer that is not one of the numbers. ``say_how_many`` opens the question with the number of
+    organizations the user belongs to.
     """
     how_many = f"You belong to {len(orgs)} organizations. " if say_how_many else ""
     print(f"  {how_many}Which one should Roboto use by default?")

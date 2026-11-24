@@ -8,15 +8,14 @@ import enum
 
 
 class Permissions(enum.Enum):
-    """
-    Enum for permission levels of a Roboto resource.
-    It is a best practice to only request/use the minimum permissions required for a given operation.
+    """Level of access that temporary credentials from Roboto grant: read only, or read and write.
 
-    For example:
-    - When listing files associated with a dataset or pulling a container image hosted in Roboto's registry,
-      use ``ReadOnly`` permissions.
-    - When adding files to a dataset or pushing a container image to Roboto's registry, use ``ReadWrite`` permissions.
+    Roboto issues such credentials for a repository in its container image registry and for the files of a dataset.
+    Request the least access the operation needs.
     """
 
     ReadOnly = "ReadOnly"
+    """Read access, enough to pull a container image or download files."""
+
     ReadWrite = "ReadWrite"
+    """Read and write access, enough to also push a container image or add and overwrite a dataset's files."""

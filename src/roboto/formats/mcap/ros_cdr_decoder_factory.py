@@ -4,35 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""MCAP decoder factory for the whole ROS / CDR message family.
-
-Exposes an :py:class:`mcap.decoder.DecoderFactory` that decodes every ROS-flavored
-binary message Roboto reads -- ``ros1msg`` (the unaligned ROS1 wire) and the CDR
-schema languages ``ros2msg`` / ``ros2idl`` / ``omgidl`` -- by delegating to the
-shared Rust decoder (the ``mcap_codec`` extension built from ``roboto-mcap-codec``,
-the same decoder the ingestion action uses). One factory backs them all because
-``RosCdrCodec`` dispatches internally on the schema encoding, so a decode fix lands
-once and benefits every encoding (and ingest stats) together.
-
-The decoder parses the schema once per schema id and decodes each payload into nested
-``dict`` / sequence / scalar values: numeric arrays and sequences -- including
-octet/``uint8`` sequences -- come back as the compact :py:class:`array.array` (one C
-buffer rather than a list of boxed Python objects); nested/heterogeneous sequences
-(arrays of structs, arrays of sequences, the outer dimension of a multidimensional
-array) are plain ``list``; enums are ``int``; unions are
-``{"$discriminator", <active arm>}``; ``Time`` / ``Duration`` members surface with
-their schema-verbatim names (ROS2 ``{"sec", "nanosec"}``, ROS1 ``{"sec", "nsec"}``); and
-absent ``@optional`` members are omitted. This ``dict`` representation is what
-:py:mod:`roboto.formats.mcap.accessor` walks, so the same projection machinery serves
-every encoding. Callers that need JSON-serializable output (``array.array`` is not
-JSON-native) should convert at the edge, e.g. via ``array.tolist()``.
-
-JSON channels are not handled here.
-They keep their own :py:class:`~roboto.formats.mcap.json_decoder_factory.JsonDecoderFactory`,
-which preserves ``json.loads`` semantics (``None`` for null fields, plain lists, arbitrary-precision ints)
-where this decoder's materialization is deliberately CDR-shaped.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -45,23 +16,15 @@ from mcap.well_known import MessageEncoding
 
 _logger = logging.getLogger(__name__)
 
-# CDR-framed schema encodings (message_encoding == "cdr"). "omgidl" is a real wire
-# value DDS files carry even though the mcap well-known SchemaEncoding enum omits it.
+# Schema encodings carried on channels whose message encoding is "cdr". DDS recordings carry "omgidl", although
+# the mcap package's well-known SchemaEncoding enum has no member for it.
 _CDR_SCHEMA_ENCODINGS = frozenset({"omgidl", "ros2idl", "ros2msg"})
-# The ROS1 wire (message_encoding == "ros1") carries a "ros1msg" schema.
+# Schema encoding carried on channels whose message encoding is "ros1".
 _ROS1_SCHEMA_ENCODING = "ros1msg"
 
 
 class _UndecodableMessage:
-    """Sentinel returned (instead of raising) for a message that cannot be decoded but should not
-    abort iteration over the rest of the file.
-
-    Used when a message's type involves a field with no well-defined CDR encoding
-    (implementation-dependent ``wstring`` / ``wchar``) or member ids the decoder cannot compute
-    (HASH autoid). Returning this keeps mcap's decode generator alive so
-    :py:class:`~roboto.formats.mcap.reader.McapReader` can skip the message and continue
-    reading every other topic.
-    """
+    """Type of ``UNDECODABLE_MESSAGE``, whose one instance no decoded message can equal."""
 
     __slots__ = ()
 
@@ -70,20 +33,48 @@ class _UndecodableMessage:
 
 
 UNDECODABLE_MESSAGE = _UndecodableMessage()
+"""Value a decoder returns in place of a message it cannot decode, so that reading continues with the next message.
+
+:py:class:`~roboto.formats.mcap.McapReader` skips every message that decodes to it. The ROS 1, CDR, and msgpack
+decoders return it for a message whose schema has a field they do not support, and for every message on a channel
+whose schema they cannot parse.
+"""
 
 
 class RosCdrCodecDecodeError(McapError):
-    """Raised when a ROS / CDR message cannot be decoded."""
+    """A ROS 1 or CDR message could not be decoded.
+
+    Raised by the decoders that ``RosCdrCodecDecoderFactory.decoder_for`` returns, for any failure other than a field
+    the decoder does not support, which skips the message instead. It surfaces from
+    :py:class:`~roboto.formats.mcap.McapReader` when the reader reaches the message.
+    """
 
 
 class RosCdrCodecDecoderFactory(McapDecoderFactory):
-    """Decode ROS / CDR messages (``ros1msg`` / ``ros2msg`` / ``ros2idl`` / ``omgidl``).
+    """Decoder factory that decodes ROS 1 and CDR messages in MCAP files.
 
-    Supply an instance to :py:func:`mcap.reader.make_reader`. The schema is parsed once per
-    schema id (by the shared Rust ``mcap_codec`` decoder); the returned callable then decodes
-    each message into nested ``dict`` / sequence / scalar values -- numeric arrays/sequences
-    (including octet/``uint8``) as :py:class:`array.array`, and nested/heterogeneous sequences as
-    ``list`` (see the module docstring).
+    It decodes channels whose message encoding is ``cdr`` and whose schema encoding is ``ros2msg``, ``ros2idl``, or
+    ``omgidl``, and channels whose message encoding is ``ros1`` and whose schema encoding is ``ros1msg``. Pass an
+    instance to ``mcap.reader.make_reader`` in its ``decoder_factories``. Decoding runs in the Rust ``mcap_codec``
+    extension, from the ``roboto-mcap-codec`` package, which parses each schema once.
+
+    Each message decodes to a ``dict`` keyed by member name, with values shaped as follows:
+
+    - Numeric arrays and sequences, ``uint8`` and octet sequences included: ``array.array``.
+    - Sequences of structs or of sequences, and the outer dimension of a multidimensional array: ``list``.
+    - Enums: ``int``.
+    - Unions: ``{"$discriminator": <discriminator>, <active member>: <value>}``.
+    - ``Time`` and ``Duration``: a ``dict`` with the schema's own member names, ``sec`` and ``nanosec`` in ROS 2 and
+      ``sec`` and ``nsec`` in ROS 1.
+    - An absent ``@optional`` member: left out of the ``dict``.
+
+    ``array.array`` is not JSON-serializable; convert one with its ``tolist()`` method before serializing. JSON
+    channels decode through :py:class:`~roboto.formats.mcap.json_decoder_factory.JsonDecoderFactory` instead, which
+    returns what ``json.loads`` does: ``None`` for null fields, plain lists, and integers of any size.
+
+    A message the decoder cannot decode because of its schema, such as a ``wstring`` member in a plain CDR struct or
+    a struct marked ``@autoid(HASH)``, decodes to ``UNDECODABLE_MESSAGE``, as does every message on a channel whose
+    schema cannot be parsed.
     """
 
     def __init__(self) -> None:
@@ -92,6 +83,23 @@ class RosCdrCodecDecoderFactory(McapDecoderFactory):
     def decoder_for(
         self, message_encoding: str, schema: typing.Optional[Schema]
     ) -> typing.Optional[typing.Callable[[bytes], typing.Any]]:
+        """Return the decoder for a channel's messages, or ``None`` if this factory does not decode them.
+
+        The ``mcap`` reader calls this for each channel it reads. A channel whose pair of message and schema encodings
+        this class does not decode returns ``None``, so that another factory can decode it. The decoder is built on
+        the first call for a schema ID and reused afterward.
+
+        Args:
+            message_encoding: Message encoding of the channel, such as ``cdr`` or ``ros1``.
+            schema: Schema of the channel. ``None`` returns ``None``.
+
+        Returns:
+            Function that decodes one message's bytes, and returns the decoded ``dict`` or ``UNDECODABLE_MESSAGE``.
+
+        Raises:
+            RosCdrCodecDecodeError: The message cannot be decoded for a reason other than a field the decoder does not
+                support. Raised when the returned function is called.
+        """
         if schema is None or not self._handles(message_encoding, schema.encoding):
             return None
         decoder = self._decoders.get(schema.id)
@@ -102,12 +110,10 @@ class RosCdrCodecDecoderFactory(McapDecoderFactory):
 
     @staticmethod
     def _handles(message_encoding: str, schema_encoding: str) -> bool:
-        """Whether this factory owns the given ``(message_encoding, schema_encoding)`` pair.
+        """Return whether this factory decodes channels with this pair of message and schema encodings.
 
-        CDR framing (``cdr``) carries ``omgidl`` / ``ros2idl`` / ``ros2msg``; the ROS1 wire
-        (``ros1``) carries ``ros1msg``. The two are paired so an unexpected combination (e.g. a
-        ``ros1msg`` schema on a ``cdr`` channel) is declined here and falls through to another
-        factory rather than being mis-decoded.
+        Checking the pair, not either encoding alone, leaves a mismatched channel, such as a ``ros1msg`` schema on a
+        ``cdr`` channel, to another factory instead of decoding it wrongly.
         """
         if message_encoding == MessageEncoding.CDR:
             return schema_encoding in _CDR_SCHEMA_ENCODINGS
@@ -116,33 +122,22 @@ class RosCdrCodecDecoderFactory(McapDecoderFactory):
         return False
 
     def _build_decoder(self, message_encoding: str, schema: Schema) -> typing.Callable[[bytes], typing.Any]:
-        """Build a per-schema decoder backed by the shared Rust ``mcap_codec`` decoder.
+        """Build the decoder for one schema.
 
-        ``message_encoding`` (the channel's wire framing, ``cdr`` or ``ros1``) selects how the
-        codec reads the payload bytes; it pairs with ``schema.encoding`` and cannot be inferred
-        from the schema alone (the same CDR framing carries several schema languages).
-
-        ``mcap_codec`` performs its own ``ros2idl`` framing strip and ``/``->``::`` name
-        normalization, so the raw schema bytes/name/encoding pass through unchanged. Its output
-        is nested ``dict`` / sequence / scalars: numeric arrays/sequences (including
-        octet/``uint8``) as ``array.array``, nested/heterogeneous sequences as ``list``, enums as
-        ints, unions as ``{"$discriminator", <active arm>}``, ``Time`` / ``Duration`` with their
-        schema-verbatim member names (ROS2 ``nanosec``, ROS1 ``nsec``), absent ``@optional``
-        members omitted.
+        The codec needs ``message_encoding`` as well as the schema, because a ``cdr`` channel can carry any of three
+        schema encodings. The codec strips ``ros2idl`` framing and converts ``/`` to ``::`` in type names itself, so
+        the schema passes to it unchanged.
         """
-        # Imported lazily (rather than at module top) so the Rust extension only loads when a
-        # ROS/CDR schema is actually decoded. roboto-mcap-codec is a hard dependency, so on any
-        # platform where `import roboto` succeeds this import does too; a bare ImportError here
-        # means a broken install, which its own message describes better than we could.
+        # Imported here so the Rust extension loads only when a ROS 1 or CDR schema is decoded. roboto-mcap-codec is a
+        # required dependency of the SDK, so this import fails only on a broken install, and the ImportError says why.
         from mcap_codec import RosCdrCodec, UnsupportedMessage
 
         try:
             codec = RosCdrCodec(schema.encoding, message_encoding, schema.data, schema.name)
         except Exception as exc:
-            # mcap calls decoder_for the first time it sees a schema; letting a parse failure
-            # propagate would abort iteration over the entire file, including every other channel
-            # that decodes fine. Instead, mirror the per-message UNDECODABLE_MESSAGE behavior: log
-            # once and return a decoder that skips every message on this (unparseable) schema.
+            # Catches every exception from parsing the schema. The mcap reader calls decoder_for as it reaches each
+            # schema, so a parse failure raised here would end the read of the whole file, every other channel
+            # included. Log once instead, and decode every message on this channel to UNDECODABLE_MESSAGE.
             _logger.warning(
                 "%s schema %r could not be parsed (%s); skipping every message on this channel",
                 schema.encoding,
@@ -155,17 +150,15 @@ class RosCdrCodecDecoderFactory(McapDecoderFactory):
 
             return decode_unparseable
 
-        # Log the first skip per schema (not per message) so a file full of undecodable
-        # messages doesn't flood the logs.
+        # Log only the first skipped message per schema, so a file full of them does not flood the log.
         skip_logged = [False]
 
         def decode(data: bytes) -> typing.Any:
             try:
                 return codec.decode(data)
             except UnsupportedMessage as exc:
-                # The message has a field with no well-defined CDR encoding (e.g. wstring) or
-                # member ids the decoder cannot compute (HASH autoid): skip this message, keep
-                # reading the file.
+                # The message has a field with no well-defined CDR encoding (wstring, wchar) that the codec cannot
+                # skip, or member IDs hashed from member names (@autoid(HASH)). Skip the message and keep reading.
                 if not skip_logged[0]:
                     skip_logged[0] = True
                     _logger.warning(
@@ -183,9 +176,8 @@ class RosCdrCodecDecoderFactory(McapDecoderFactory):
 
 
 def make_ros_cdr_codec_decoder_factory() -> RosCdrCodecDecoderFactory:
-    """Build a decoder factory for the ROS / CDR family, backed by the shared Rust ``mcap_codec`` decoder.
+    """Build a decoder factory for ROS 1 and CDR messages, as ``RosCdrCodecDecoderFactory`` describes.
 
-    Handles ``ros1msg`` / ``ros2msg`` / ``ros2idl`` / ``omgidl`` schemas; see
-    :py:class:`RosCdrCodecDecoderFactory`.
+    :py:class:`~roboto.formats.mcap.McapReader` decodes ROS 1 and CDR channels through it, so most code never calls it.
     """
     return RosCdrCodecDecoderFactory()

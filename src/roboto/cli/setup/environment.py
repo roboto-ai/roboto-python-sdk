@@ -17,9 +17,9 @@ import typing
 
 
 class AiTool(enum.Enum):
-    """An AI tool ``roboto setup`` can connect to Roboto.
+    """AI tool that ``roboto setup`` can connect to Roboto.
 
-    Each value is the tool's name as shown to the user, and setup lists the tools in the order they are declared here.
+    Each member's value is the tool's name as setup shows it, and setup lists the tools in the order they are declared.
     """
 
     ClaudeCode = "Claude Code"
@@ -31,29 +31,29 @@ class AiTool(enum.Enum):
 
 @dataclasses.dataclass(frozen=True)
 class SetupEnvironment:
-    """The user's machine as ``roboto setup`` sees it: home directory, environment variables, and platform.
+    """Home directory, environment variables, and platform of the machine ``roboto setup`` runs on.
 
     Setup finds each AI tool's configuration directory and command line program from these values alone, so a test can
     point it at a temporary home directory without touching the real one.
     """
 
     home: pathlib.Path
-    """The user's home directory."""
+    """User's home directory."""
 
     env: collections.abc.Mapping[str, str]
-    """Environment variables, including ``PATH`` for finding AI tools' command line programs."""
+    """Environment variables setup reads and passes to the programs it runs, including the ``PATH`` it searches."""
 
     platform: str
-    """The value of :py:data:`sys.platform` on the machine, e.g. ``linux``, ``darwin``, or ``win32``."""
+    """Value of ``sys.platform`` on the machine, such as ``"linux"``, ``"darwin"``, or ``"win32"``."""
 
     @classmethod
     def current(cls) -> SetupEnvironment:
-        """Describe the machine this process is running on."""
+        """Return the environment of the machine this process runs on."""
         return cls(home=pathlib.Path.home(), env=dict(os.environ), platform=sys.platform)
 
     @property
     def agent_skills_dir(self) -> pathlib.Path:
-        """Shared user skills directory, ``~/.agents/skills``.
+        """Skills directory that several AI tools share, ``~/.agents/skills``.
 
         Codex, Cursor, and VS Code read skills from it, and the ``skills`` command line tool (skills.sh) keeps its
         copies of global skills there.
@@ -62,10 +62,10 @@ class SetupEnvironment:
 
     @property
     def ai_tools(self) -> list[AiTool]:
-        """The AI tools installed on the machine, in the order setup lists them.
+        """AI tools installed on the machine, in the order ``AiTool`` declares them.
 
-        Claude Code and Codex count when their configuration directory exists or their command is on ``PATH``; Cursor,
-        VS Code, and Claude Desktop when their configuration directory exists.
+        Claude Code and Codex count as installed when their configuration directory exists or their command is on
+        ``PATH``; Cursor, VS Code, and Claude Desktop when their configuration directory exists.
         """
         claude_desktop_dir = self.claude_desktop_dir
         installed = {
@@ -84,12 +84,12 @@ class SetupEnvironment:
 
     @property
     def claude_code_skills_dir(self) -> pathlib.Path:
-        """The directory Claude Code reads the user's skills from, ``skills`` in its configuration directory."""
+        """Directory Claude Code reads the user's skills from, ``skills`` inside ``claude_code_dir``."""
         return self.claude_code_dir / "skills"
 
     @property
     def claude_desktop_dir(self) -> typing.Optional[pathlib.Path]:
-        """Claude Desktop's configuration directory, or ``None`` on platforms Claude Desktop doesn't support."""
+        """Claude Desktop's configuration directory, or ``None`` on platforms other than macOS and Windows."""
         if self.platform == "darwin":
             return self.home / "Library" / "Application Support" / "Claude"
         if self.platform == "win32":
@@ -103,7 +103,7 @@ class SetupEnvironment:
 
     @property
     def cursor_dir(self) -> pathlib.Path:
-        """The ``~/.cursor`` directory, where Cursor reads its global ``mcp.json`` and user skills."""
+        """Cursor's user directory, ``~/.cursor``, which holds its global ``mcp.json`` and the user's skills."""
         return self.home / ".cursor"
 
     @property
@@ -116,11 +116,11 @@ class SetupEnvironment:
         return self.__env_dir("XDG_CONFIG_HOME", default=self.home / ".config") / "Code" / "User"
 
     def which(self, program: str) -> typing.Optional[str]:
-        """Return the path of ``program`` on this environment's ``PATH``, or ``None`` if it isn't there."""
+        """Return the path of ``program`` on ``env``'s ``PATH``, or ``None`` if it is not there or ``PATH`` is unset."""
         return shutil.which(program, path=self.env.get("PATH", ""))
 
     def __env_dir(self, name: str, default: pathlib.Path) -> pathlib.Path:
-        """The directory named by environment variable ``name``, or ``default`` when it is unset or blank."""
+        """Return the directory environment variable ``name`` holds, or ``default`` when it is unset or blank."""
         value = self.env.get(name, "").strip()
         return pathlib.Path(value) if value else default
 

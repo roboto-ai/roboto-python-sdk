@@ -4,82 +4,53 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""
-Seekable read-only buffer backed by sparse in-memory byte regions.
-
-Provides a file-like interface (IO[bytes]) over non-contiguous byte data,
-allowing efficient representation of partially-fetched remote files.
-Only the regions that have been explicitly loaded are stored in memory.
-"""
-
 from __future__ import annotations
 
 
 class SparseBuffer:
-    """A seekable, read-only file-like object backed by sparse in-memory byte regions.
+    """A read-only, seekable file-like object over a file of which only some regions are held in memory.
 
-    Stores fetched byte regions and provides a standard IO[bytes] interface for
-    reading from them. Regions are automatically merged when they overlap or are
-    adjacent, keeping the internal representation compact.
+    :py:class:`~roboto.storage.HttpRangeReader` caches the byte ranges it fetches from a remote file through it, so
+    most code never builds one; reading those bytes again needs no new request. Each run of consecutive bytes held is
+    a region. Regions that overlap or touch merge into one, and a read returns only bytes that are in a region.
 
-    This is intended to be used as:
-    1. The cache backend for HttpRangeReader (sparse storage with smart fetching)
-    2. The stream for mcap.reader.SeekingReader after bulk-fetching byte ranges
-
-    Example:
-        >>> buf = SparseBuffer(file_size=1000)
-        >>> buf.add_region(0, b"MCAP_MAGIC")  # header
-        >>> buf.add_region(900, b"footer_data")  # footer
-        >>> buf.seek(0)
-        0
-        >>> buf.read(10)
-        b'MCAP_MAGIC'
+    Args:
+        file_size: Size of the whole file, in bytes. Reads stop at it, and ``seek`` with ``whence=2`` counts from it.
     """
 
     def __init__(self, file_size: int):
-        """Initialize the buffer.
-
-        Args:
-            file_size: Total size of the virtual file in bytes.
-                Used for seek(offset, SEEK_END) calculations.
-        """
         self.__size = file_size
         self.__pos = 0
-        # Sparse cache: list of (start_offset, data) tuples, kept sorted by start_offset.
-        # Regions are bytearrays so sequential appends can extend in place instead of
-        # re-copying the accumulated region on every merge.
+        # (start offset, bytes) pairs, sorted by start offset; no two overlap or touch. Each holds a bytearray so
+        # add_region can extend a region in place without copying the bytes it already holds.
         self.__regions: list[tuple[int, bytearray]] = []
 
     @property
     def regions(self) -> list[tuple[int, int]]:
-        """List of (start, end) byte ranges currently cached.
-
-        End is exclusive. Useful for fetch planning and debugging.
-        """
+        """Regions held, as ``(start, end)`` byte offsets with ``end`` exclusive, sorted by ``start``."""
         return [(start, start + len(data)) for start, data in self.__regions]
 
     @property
     def size(self) -> int:
-        """Total size of the virtual file."""
+        """Size of the whole file, in bytes."""
         return self.__size
 
     def add_region(self, offset: int, data: bytes) -> None:
-        """Store a byte region at the given file offset.
+        """Store bytes at an offset in the file, merging them with every region they overlap or touch.
 
-        Merges with any overlapping or adjacent existing regions.
+        Where the new bytes overlap bytes already held, the new bytes replace them.
 
         Args:
-            offset: Byte offset within the virtual file.
-            data: Raw bytes to store at that offset.
+            offset: Offset in the file of the first byte of ``data``.
+            data: Bytes to store. Empty ``data`` stores nothing.
         """
         if not data:
             return
 
         end = offset + len(data)
 
-        # Fast path: data appends exactly to the end of an existing region and
-        # touches no other region — extend in place (amortized O(len(data)))
-        # instead of re-copying the accumulated region.
+        # When the data starts exactly where a region ends and stops short of the next region, extend that region
+        # in place, which copies only the new bytes.
         for i, (region_start, region_data) in enumerate(self.__regions):
             if region_start + len(region_data) == offset:
                 next_start = self.__regions[i + 1][0] if i + 1 < len(self.__regions) else None
@@ -90,14 +61,13 @@ class SparseBuffer:
             if region_start > end:
                 break
 
-        # Find regions that overlap or are adjacent
         merged_start = offset
         merged_end = end
         regions_to_remove: list[int] = []
 
         for i, (region_start, region_data) in enumerate(self.__regions):
             region_end = region_start + len(region_data)
-            # Check if regions overlap or are adjacent
+            # The equalities admit a region that touches the new bytes without overlapping them.
             if region_end >= offset and region_start <= end:
                 regions_to_remove.append(i)
                 merged_start = min(merged_start, region_start)
@@ -106,11 +76,8 @@ class SparseBuffer:
         if regions_to_remove:
             first_start, first_data = self.__regions[regions_to_remove[0]]
             if first_start == merged_start:
-                # The lowest-start involved region anchors the merged span at
-                # its own start, so it already holds the head of the result.
-                # Grow it in place and overlay the other pieces, instead of
-                # allocating a fresh buffer and re-copying the (typically large)
-                # accumulated head region.
+                # The first merged region starts the merged span, so grow it in place and copy the later regions
+                # into it, rather than copying it, often the largest, into a new buffer.
                 merged_data = first_data
                 merged_data.extend(bytes(merged_end - merged_start - len(first_data)))
                 for i in regions_to_remove[1:]:
@@ -118,19 +85,17 @@ class SparseBuffer:
                     off = region_start - merged_start
                     merged_data[off : off + len(region_data)] = region_data
             else:
-                # The new data starts before the lowest-start region, so the
-                # anchor's bytes do not begin at merged_start; build a fresh
-                # buffer and copy the existing regions into place.
+                # The new bytes start before every region they merge with, so copy those regions into a new buffer.
                 merged_data = bytearray(merged_end - merged_start)
                 for i in regions_to_remove:
                     region_start, region_data = self.__regions[i]
                     off = region_start - merged_start
                     merged_data[off : off + len(region_data)] = region_data
-            # Then overlay new data (takes precedence)
+            # Copied last, so the new bytes replace the bytes held where they overlap.
             off = offset - merged_start
             merged_data[off : off + len(data)] = data
 
-            # Remove old regions in reverse order to preserve indices
+            # Delete from the highest index down so the indices still to delete stay valid.
             for i in reversed(regions_to_remove):
                 del self.__regions[i]
 
@@ -138,22 +103,23 @@ class SparseBuffer:
         else:
             self.__regions.append((offset, bytearray(data)))
 
-        # Keep sorted by start offset for efficient lookup
         self.__regions.sort(key=lambda r: r[0])
 
     def clear(self) -> None:
-        """Remove all cached regions."""
+        """Remove every region."""
         self.__regions.clear()
 
     def find_region(self, start: int, size: int) -> bytes | None:
-        """Check if [start, start+size) is fully contained in a cached region.
+        """Return ``size`` bytes starting at offset ``start`` if a region holds all of them.
+
+        Unlike ``read``, does not use or move the read position.
 
         Args:
-            start: Start byte offset.
+            start: Offset in the file of the first byte.
             size: Number of bytes.
 
         Returns:
-            The requested bytes if fully cached, None otherwise.
+            The bytes, or ``None`` if any of them is outside every region.
         """
         for region_start, region_data in self.__regions:
             region_end = region_start + len(region_data)
@@ -163,32 +129,23 @@ class SparseBuffer:
         return None
 
     def read(self, size: int = -1) -> bytes:
-        """Read up to size bytes from the current position.
+        """Read up to ``size`` bytes from the read position, and advance the position past them.
 
-        If the current position is within a cached region, returns available bytes
-        (may be fewer than requested if the region ends before size bytes).
-        If the current position is not in any cached region (a gap), returns b"".
-
-        This allows callers to detect partial hits and fetch missing data:
-        - len(result) == size: fully satisfied
-        - 0 < len(result) < size: partial hit, more data may be needed
-        - len(result) == 0: gap at current position, caller should fetch
+        Reading stops at the end of the region that holds the read position, or at the end of the file, so the
+        result can be shorter than ``size``. When no region holds the read position, or it is at or past the end of
+        the file, this returns ``b""`` and leaves the position unchanged. A caller fetches more bytes when the result
+        is shorter than it needs.
 
         Args:
-            size: Maximum number of bytes to read. -1 means read to end of file.
-
-        Returns:
-            Bytes read from cached regions, or b"" if at a gap or past EOF.
+            size: Maximum number of bytes to read. A negative value reads to the end of the file.
         """
         if self.__pos >= self.__size:
             return b""
         if size < 0:
             size = self.__size - self.__pos
 
-        # Clamp to file size
         size = min(size, self.__size - self.__pos)
 
-        # Find region containing current position
         for region_start, region_data in self.__regions:
             region_end = region_start + len(region_data)
             if region_start <= self.__pos < region_end:
@@ -199,23 +156,25 @@ class SparseBuffer:
                 self.__pos += len(result)
                 return result
 
-        # Position is not in any cached region (gap) - return empty bytes
-        # Caller can check len(result) == 0 to detect this and fetch data
         return b""
 
     def readable(self) -> bool:
-        """Return True - this buffer supports reading."""
+        """Return ``True``: the buffer can be read."""
         return True
 
     def seek(self, offset: int, whence: int = 0) -> int:
-        """Move the read position.
+        """Move the read position and return it.
+
+        The position is not checked against the bounds of the file. A ``whence`` other than ``0``, ``1`` or ``2``
+        leaves it unchanged.
 
         Args:
-            offset: Byte offset relative to the position indicated by whence.
-            whence: 0=SEEK_SET (start), 1=SEEK_CUR (current), 2=SEEK_END (end).
+            offset: Number of bytes to move from the point ``whence`` names.
+            whence: Point to count from: ``0`` (the default) for the start of the file, ``1`` for the read position,
+                ``2`` for the end of the file.
 
         Returns:
-            The new absolute position.
+            The new read position, as an offset from the start of the file.
         """
         if whence == 0:
             self.__pos = offset
@@ -226,7 +185,7 @@ class SparseBuffer:
         return self.__pos
 
     def seekable(self) -> bool:
-        """Return True - this buffer supports seeking."""
+        """Return ``True``: the buffer supports ``seek``."""
         return True
 
     def tell(self) -> int:
@@ -234,5 +193,5 @@ class SparseBuffer:
         return self.__pos
 
     def writable(self) -> bool:
-        """Return False - this buffer is read-only."""
+        """Return ``False``: the buffer is read-only."""
         return False

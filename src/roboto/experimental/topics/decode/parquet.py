@@ -47,22 +47,24 @@ if typing.TYPE_CHECKING:
     import pyarrow.parquet  # pants: no-infer-dep
 
 _DECIMAL_DIGITS = 100
-"""Significant digits for exact arithmetic on a stored DECIMAL timestamp: more than the 85 a 76-digit DECIMAL holds once
-scaled by 10^9."""
+"""Number of significant digits for exact arithmetic on a stored DECIMAL timestamp.
+
+More than the 85 digits a 76-digit DECIMAL has once scaled by 10^9."""
 
 _PathTree = dict[str, "_PathTree"]
 """Field paths merged by shared prefix: each key is a path component, mapped to the tree of the components after it.
+
 A path that ends at a component maps it to an empty tree."""
 
 
 def cached_parquet_name(file: ReadPlanObjectRef) -> str:
-    """The local cache's filename for the version of a Parquet file that a plan names.
+    """Return the name of the local cache's copy of the version of a Parquet file that a plan names.
 
     The name includes the version, so a read of a new version fetches that version instead of reusing an older
     version's cached bytes, even when both versions are the same size. Renaming or moving a file, or editing its tags,
     metadata, description or device, makes a new version with unchanged bytes, so a read fetches the file again. The
     copy cached under an earlier version's name stays on disk, where a read whose plan names that version finds it.
-    When the plan names no version, the name is the file's id alone.
+    When the plan names no version, the name is built from the file's ID alone.
     """
     if file.version is None:
         return f"{file.fs_node_id}.parquet"
@@ -70,7 +72,10 @@ def cached_parquet_name(file: ReadPlanObjectRef) -> str:
 
 
 class ParquetFileDecoder(FileDecoder):
-    """Decodes one Parquet file of a partition, reading only the columns that hold its supplied fields and timestamp.
+    """Decoder that reads one Parquet file of a partition, fetching only the columns its fields and timestamp need.
+
+    The opener that ``make_file_decoder_opener`` builds constructs one for each Parquet file a read opens; you do not
+    construct one directly.
 
     A field the group supplies with fields excluded is expanded into its other fields when it is a struct reached
     through structs only, and so is each struct inside it that holds an excluded field. Any other field that holds an
@@ -79,14 +84,38 @@ class ParquetFileDecoder(FileDecoder):
 
     A TIMESTAMP field counts in its own unit, and any other numeric field in the plan's unit, nanoseconds when the
     plan gives none. Row groups whose timestamp statistics, shifted by the partition's ``time_offset_ns``, rule the
-    window out are not read. Every timestamp of a row group that is read must have a signed 64-bit nanosecond value
-    once shifted, whether or not the window keeps its row.
+    window out are skipped without being read. In a row group that is read, every non-null timestamp must have a signed
+    64-bit nanosecond value once shifted, whether or not the window keeps its row; ``batches`` raises
+    :py:class:`~roboto.exceptions.RobotoReadPlanExecutionException` with kind
+    :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.INVALID_TIMESTAMP` at the first that does not. A row with a
+    null timestamp is left out.
 
-    A partition that declares a ``data_range`` owns only that half-open span of the file's stored rows, counted from 0.
-    Position in the file, not time, separates the partition's rows from the file's other slices, so the slice applies
-    before the window. Row groups entirely outside the slice are not read, a row group that straddles a boundary is
-    read and trimmed, and only the timestamps of rows inside the slice must have a signed 64-bit nanosecond value.
-    See :py:attr:`~roboto.experimental.topics.ReadPlanPartition.data_range` for the slice contract.
+    A partition that declares a ``data_range`` covers only that half-open span of the file's stored rows, counted from
+    0. Position in the file, not time, separates the partition's rows from the rows of the file's other slices, so the
+    slice applies before the window. Row groups entirely outside the slice are not read, a row group that straddles a
+    boundary is read and trimmed, and only the timestamps of rows inside the slice must have a signed 64-bit
+    nanosecond value. ``ReadPlanPartition.data_range`` states the slice contract.
+
+    Constructing the decoder opens the file and reads its schema.
+
+    Args:
+        group: Scan tasks that read the file, and the fields they supply.
+        window: Window the shifted timestamps of the kept rows lie in, in nanoseconds since the Unix epoch, both ends
+            included.
+        params: How to reach the file and whether to cache it.
+
+    Raises:
+        RobotoReadPlanExecutionException: The plan or the file fails one of these checks, made in this order, with the
+            :py:class:`~roboto.exceptions.ReadPlanExecutionErrorKind` kind given:
+
+            1. ``UNSUPPORTED_TIMESTAMP``: the timestamp is not a schema field, the timestamp field has no path, or the
+               plan's unit is other than s, ms, us or ns.
+            2. ``FIELD_NOT_IN_FILE``: the file lacks a supplied field or the timestamp field.
+            3. ``UNSUPPORTED_TIMESTAMP``: the timestamp field is inside a list or map, holds a nested value such as a
+               struct, holds a date or time of day, or is not a number.
+            4. ``DATA_RANGE_NOT_IN_FILE``: the partition's ``data_range`` ends past the file's stored row count. The
+               slice names rows the file does not have, and reading only the rows it has would drop rows the plan
+               promised.
     """
 
     def __init__(
@@ -96,24 +125,6 @@ class ParquetFileDecoder(FileDecoder):
         window: TimeWindow,
         params: FileDecodeParams,
     ) -> None:
-        """Open the file and read its schema.
-
-        Args:
-            group: The scan tasks that read the file, and the fields they supply.
-            partition: The partition the file belongs to.
-            window: The partition's absolute window, both ends included.
-            params: How to reach the file and whether to cache it.
-
-        Raises:
-            RobotoReadPlanExecutionException: With kind ``unsupported-timestamp`` for a timestamp that is not a schema
-                field, a timestamp field with no path, or a plan unit other than s, ms, us or ns;
-                then ``field-not-in-file`` for a supplied field or the timestamp field that the file lacks;
-                then ``unsupported-timestamp`` for a timestamp field inside a list or map, holding a date or time of
-                day, or not a number;
-                then ``data-range-not-in-file`` for a ``data_range`` that ends past the file's stored row count: the
-                declared slice names rows the file does not contain (wrong declaration, replaced file, or wrong file),
-                and truncating would silently drop rows the plan promised.
-        """
         self.__partition = partition
         self.__window = window
         timestamp_path = _timestamp_field_path(partition)
@@ -205,9 +216,9 @@ class ParquetFileDecoder(FileDecoder):
             start_in_row_group = first_row_number - row_group_start
             owned_row_count = end_row_number - first_row_number
             # Narrow first, trim second: narrow_list_nested_fields rebuilds a list column from its offsets plus its
-            # whole child array, which pyarrow refuses once that column is both cut to a sub-range and nullable ("Null
-            # bitmap with offsets slice not supported"). Neither step reorders or drops rows, so the surviving rows
-            # are the same whichever runs first.
+            # whole child array, which pyarrow refuses once that column is both cut to a sub-range and nullable
+            # (`Null bitmap with offsets slice not supported`). Neither step reorders or drops rows, so the surviving
+            # rows are the same whichever runs first.
             values = self.__value_table(table).select(value_names).slice(start_in_row_group, owned_row_count)
             # Timestamps come from the table as read, not the narrowed values: narrowing drops a timestamp nested in a
             # struct when no supplied field holds it.
@@ -239,7 +250,7 @@ class ParquetFileDecoder(FileDecoder):
         return None if struct_type is None else [field.name for field in struct_type]
 
     def __absolute_timestamp(self, stored: typing.Any, row_number: int) -> int:
-        """One stored timestamp in nanoseconds, shifted by the partition's ``time_offset_ns``.
+        """Return one stored timestamp in nanoseconds, shifted by the partition's ``time_offset_ns``.
 
         Computed exactly for an integer or DECIMAL value, and truncated toward zero for a floating-point value.
         """
@@ -275,11 +286,11 @@ class ParquetFileDecoder(FileDecoder):
         return nanoseconds + offset
 
     def __absolute_timestamps(self, table: "pyarrow.Table", first_row_number: int) -> "pyarrow.Int64Array":
-        """The row group's timestamps in nanoseconds, shifted by the partition's ``time_offset_ns``.
+        """Return the table's timestamps in nanoseconds, shifted by the partition's ``time_offset_ns``.
 
-        Raises:
-            RobotoReadPlanExecutionException: With kind ``invalid-timestamp`` for the first row whose timestamp is
-                NaN or infinite, a DECIMAL holding a fraction of a nanosecond, or outside signed 64 bits once shifted.
+        Raises :py:class:`~roboto.exceptions.RobotoReadPlanExecutionException` with kind
+        :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.INVALID_TIMESTAMP` for the first row whose timestamp
+        is NaN or infinite, a DECIMAL holding a fraction of a nanosecond, or outside signed 64 bits once shifted.
         """
         pa = import_optional_dependency("pyarrow", "analytics")
         pc = import_optional_dependency("pyarrow.compute", "analytics")
@@ -294,9 +305,11 @@ class ParquetFileDecoder(FileDecoder):
                 pa.scalar(self.__partition.time_offset_ns, pa.int64()),
             )
         except pa.ArrowInvalid:
-            # Some row's value has no signed 64-bit nanosecond value before the offset is added or after, or the column
-            # is a DECIMAL too wide to scale. Converting each row on its own decides whether its shifted value has one,
-            # and which row is the first that does not.
+            # Raised when some row's value is NaN, infinite, a fraction of a nanosecond, or outside signed 64 bits
+            # before or after the offset is added, or when the column is a DECIMAL too wide to scale. Converting each
+            # row with Python integers, which have no size limit, accepts a row whose shifted value fits in signed
+            # 64 bits and raises for the first row whose value does not.
+            # A TIMESTAMP is read as its stored integer, as _shifted_bounds reads its statistics.
             if pa.types.is_timestamp(stored.type):
                 stored = stored.view(pa.int64())
             return pa.array(
@@ -316,7 +329,7 @@ class ParquetFileDecoder(FileDecoder):
         )
 
     def __value_table(self, table: "pyarrow.Table") -> "pyarrow.Table":
-        """The table's columns narrowed to the fields the file supplies, in the table's order."""
+        """Return the table's columns narrowed to the fields the file supplies, in the table's order."""
         if self.__narrows_lists:
             table = narrow_list_nested_fields(table, self.__schema, self.__selections)
         return select_fields(table, self.__selections)
@@ -331,15 +344,9 @@ def _row_group_fully_in_window(
 ) -> bool:
     """Return whether the timestamp statistics prove every row's timestamp non-null and in the inclusive window.
 
-    Args:
-        row_group_metadata: The row group's metadata.
-        timestamp: The timestamp field, whose :py:meth:`~roboto.formats.parquet.Timestamp.unit` its values count in.
-        start: The window's first nanosecond.
-        end: The window's last nanosecond.
-        offset: Nanoseconds added to every stored timestamp before it is compared with the window.
-
-    Returns:
-        ``False`` when a statistic is absent, or its value shifted by ``offset`` is outside signed 64 bits.
+    ``start``, ``end`` and ``offset`` are in nanoseconds, and ``offset`` is added to every stored timestamp before it
+    is compared with the window. The result is ``False`` when a statistic is absent, or its value shifted by
+    ``offset`` is outside signed 64 bits.
     """
     statistics = timestamp_statistics(row_group_metadata, timestamp)
     if statistics is None:
@@ -361,11 +368,8 @@ def _row_group_may_hold_window(
 ) -> bool:
     """Return whether a row of the row group can have its timestamp in the inclusive window.
 
-    Takes the same arguments as :py:func:`_row_group_fully_in_window`.
-
-    Returns:
-        ``False`` only when the timestamp statistics, shifted by ``offset``, lie in signed 64 bits and rule the window
-        out.
+    Takes the same arguments as ``_row_group_fully_in_window``. The result is ``False`` only when the timestamp
+    statistics, shifted by ``offset``, lie in signed 64 bits and rule the window out.
     """
     statistics = timestamp_statistics(row_group_metadata, timestamp)
     if statistics is None:
@@ -381,7 +385,7 @@ def _shifted_bounds(
     timestamp: ParquetTimestamp,
     offset: int,
 ) -> tuple[typing.Optional[int], typing.Optional[int]]:
-    """The minimum and maximum statistics in nanoseconds, shifted by ``offset``.
+    """Return the minimum and maximum statistics in nanoseconds, shifted by ``offset``.
 
     A bound is ``None`` when the statistic is absent or not a number, or when its shifted value is outside signed
     64 bits. A floating-point or DECIMAL bound is truncated toward zero, and the truncated bounds still bound the row
@@ -419,11 +423,10 @@ def _shifted_bounds(
 
 
 def _stored_nanoseconds(stored: "pyarrow.Array", timestamp: ParquetTimestamp) -> "pyarrow.Int64Array":
-    """The stored timestamps in nanoseconds, before any offset.
+    """Return the stored timestamps in nanoseconds, before any offset.
 
-    Raises:
-        pyarrow.ArrowInvalid: A value is NaN or infinite, is a DECIMAL holding a fraction of a nanosecond, or is
-            outside signed 64 bits once in nanoseconds; or the column is a DECIMAL too wide to scale.
+    Raises ``pyarrow.ArrowInvalid`` when a value is NaN or infinite, is a DECIMAL holding a fraction of a nanosecond,
+    or is outside signed 64 bits once in nanoseconds, or when the column is a DECIMAL too wide to scale.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
     pc = import_optional_dependency("pyarrow.compute", "analytics")
@@ -445,11 +448,11 @@ def _stored_nanoseconds(stored: "pyarrow.Array", timestamp: ParquetTimestamp) ->
 
 
 def _timestamp_field_path(partition: ReadPlanPartition) -> FieldPath:
-    """The path of the partition's timestamp field.
+    """Return the path of the partition's timestamp field.
 
-    Raises:
-        RobotoReadPlanExecutionException: With kind ``unsupported-timestamp`` for a kind other than a schema field,
-            such as a message time, which a Parquet file does not store, or for a field without a path.
+    Raises :py:class:`~roboto.exceptions.RobotoReadPlanExecutionException` with kind
+    :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.UNSUPPORTED_TIMESTAMP` for a timestamp kind other than a
+    schema field, such as a message time, which a Parquet file does not store, or for a field without a path.
     """
     timestamp = partition.timestamp
 
@@ -472,12 +475,12 @@ def _timestamp_field(
     unit: TimeUnit,
     partition: ReadPlanPartition,
 ) -> ParquetTimestamp:
-    """The timestamp field at ``path``, which the file has, counting in its own unit when it is a TIMESTAMP and in
-    ``unit`` otherwise.
+    """Return the timestamp field at ``path``, which the file has.
 
-    Raises:
-        RobotoReadPlanExecutionException: With kind ``unsupported-timestamp`` for a field inside a list or map,
-            one that is not a single value, one holding a date or time of day, or one that is not a number.
+    The field counts in its own unit when it is a TIMESTAMP, and in ``unit`` otherwise. Raises
+    :py:class:`~roboto.exceptions.RobotoReadPlanExecutionException` with kind
+    :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.UNSUPPORTED_TIMESTAMP` for a field inside a list or map,
+    one holding a nested value such as a struct, one holding a date or time of day, or one that is not a number.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
 
@@ -510,7 +513,7 @@ def _timestamp_field(
 
 
 def _included_paths(schema: "pyarrow.Schema", supplies: collections.abc.Sequence[SuppliedField]) -> list[FieldPath]:
-    """The paths of the fields the file reads for ``supplies``, none inside another, sorted.
+    """Return the sorted paths of the fields the file reads for ``supplies``, none inside another.
 
     A supplied field with fields excluded is replaced by its other fields, found through structs only.
     """
@@ -525,7 +528,7 @@ def _included_paths(schema: "pyarrow.Schema", supplies: collections.abc.Sequence
 
 
 def _supplied_paths(schema: "pyarrow.Schema", supplied: SuppliedField) -> list[FieldPath]:
-    """The paths that together hold the supplied field less its excluded fields."""
+    """Return the paths that together hold the supplied field less its excluded fields."""
     struct_type = _struct_at(schema, supplied.path) if supplied.excluded else None
     if struct_type is None:
         return [supplied.path]
@@ -537,9 +540,10 @@ def _fields_less_excluded(
     path: FieldPath,
     excluded: collections.abc.Sequence[FieldPath],
 ) -> list[FieldPath]:
-    """The paths of the fields of the struct at ``path`` less those at ``excluded``, each strictly inside ``path``.
+    """Return the paths of the fields of the struct at ``path``, less those at ``excluded``.
 
-    A field holding an excluded field is expanded the same way when it is a struct, and kept whole otherwise.
+    Each path in ``excluded`` is strictly inside ``path``. A field holding an excluded field is expanded the same way
+    when it is a struct, and kept whole otherwise.
     A struct left with no field contributes no path.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
@@ -559,7 +563,7 @@ def _fields_less_excluded(
 
 
 def _struct_at(schema: "pyarrow.Schema", path: FieldPath) -> typing.Optional["pyarrow.StructType"]:
-    """The struct type at ``path``, reached through structs from a top-level field; ``None`` when there is none."""
+    """Return the struct type at ``path``, reached through structs from a top-level field, or ``None`` if none is."""
     pa = import_optional_dependency("pyarrow", "analytics")
 
     fields: typing.Union["pyarrow.Schema", "pyarrow.StructType"] = schema
@@ -581,14 +585,13 @@ def _first_missing_field(
     value_paths: collections.abc.Sequence[FieldPath],
     timestamp_path: FieldPath,
 ) -> typing.Optional[FieldPath]:
-    """The first of ``value_paths`` and ``timestamp_path`` that a file with Arrow schema ``schema`` lacks,
-    cut after its first component the file lacks. ``None`` when the file holds them all.
+    """Return the first of ``value_paths`` and ``timestamp_path`` that the file lacks, or ``None`` if it has them all.
 
+    ``schema`` is the file's Arrow schema, and the path returned is cut after its first component the file lacks.
     Each path's first component names a top-level field. The fields are checked in this order:
 
     1. The top-level fields: those of ``value_paths`` in order, then the timestamp's.
-    2. The fields below each top-level field of ``value_paths``, in order, as :py:func:`_first_missing_below` orders
-       them.
+    2. The fields below each top-level field of ``value_paths``, in order, as ``_first_missing_below`` orders them.
     3. The fields below the timestamp's top-level field.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
@@ -613,15 +616,15 @@ def _first_missing_below(
     *,
     crosses_lists: bool,
 ) -> typing.Optional[FieldPath]:
-    """The first path of ``tree`` that the field at ``path``, of Arrow type ``data_type``, lacks below it,
-    cut after its first missing component. ``None`` when the field holds them all.
+    """Return the first path of ``tree`` that the field at ``path`` lacks below it, or ``None`` if it has them all.
 
+    ``data_type`` is the field's Arrow type, and the path returned is cut after its first missing component.
     Each component names a field of the struct reached so far. At a struct, every field ``tree`` names is checked
     before anything below them, then the fields below each, in the order the file stores the struct's fields.
     With ``crosses_lists``, a list is crossed to its items without using a component, as a read plan names the fields
     of a list's items. Nothing below a map is checked, since the read keeps a map whole, nor below a list that is not
-    crossed. A timestamp path that runs through a list or map therefore passes this check, and is refused as a
-    timestamp field inside a list or map.
+    crossed. A timestamp path that runs through a list or map therefore passes this check, and ``_timestamp_field``
+    refuses it as a timestamp field inside a list or map.
     Below a field of any other type, the first component ``tree`` names is one the file lacks.
     """
     pa = import_optional_dependency("pyarrow", "analytics")

@@ -26,107 +26,162 @@ from .action_record import (
 
 
 class CreateActionRequest(pydantic.BaseModel):
-    """Request payload to create a new action.
+    """Request body for :py:meth:`~roboto.domain.actions.Action.create`."""
 
-    Contains all the configuration needed to create a new action in the Roboto
-    platform, including container settings, compute requirements, parameters,
-    and metadata.
+    name: str
+    """Human-readable name of the action, unique within its organization.
+
+    Letters, digits, underscores, and dashes only.
     """
 
-    # Required
-    name: str
-    """Unique name for the action within the organization."""
-
-    # Optional
     compute_requirements: Optional[ComputeRequirements] = None
-    """CPU, memory, and other compute specifications."""
+    """CPU, memory, and storage for the action's container.
+
+    ``None`` uses the defaults of :py:class:`~roboto.domain.actions.ComputeRequirements`.
+    """
 
     container_parameters: Optional[ContainerParameters] = None
-    """Container image URI, entrypoint, and environment variables."""
+    """Command, entry point, environment variables, and working directory for the action's container.
+
+    ``None`` sets none of them.
+    """
 
     description: Optional[str] = None
-    """Detailed description of what the action does."""
+    """Human-readable description of the action."""
 
     inherits: Optional[ActionReference] = None
-    """Reference to another action to inherit configuration from."""
+    """Deprecated. Action this action would inherit its configuration from.
+
+    Set the configuration on the action itself instead. A request that sets this field fails with
+    ``RobotoInvalidRequestException``.
+    """
 
     metadata: dict[str, Any] = pydantic.Field(default_factory=dict)
-    """Custom key-value metadata to associate with the action."""
+    """Key-value metadata to set on the action."""
 
     parameters: list[ActionParameter] = pydantic.Field(default_factory=list)
-    """List of parameters that can be provided at invocation time."""
+    """Parameters a caller can set when invoking the action. Defaults to none.
+
+    Names must be unique, and a required parameter cannot have a default. Otherwise the request fails with
+    ``RobotoInvalidRequestException``.
+    """
 
     requires_downloaded_inputs: Optional[bool] = None
-    """Whether input files should be downloaded before execution."""
+    """Whether an invocation's input files are downloaded into the action's container before it runs.
+
+    ``None`` means ``True``.
+    """
 
     short_description: Optional[str] = None
-    """Brief description (max 140 characters) for display purposes."""
+    """Brief human-readable description of the action.
+
+    :py:meth:`~roboto.domain.actions.Action.create` rejects one longer than 140 characters
+    (:py:const:`~roboto.domain.actions.action.SHORT_DESCRIPTION_LENGTH`).
+    """
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """List of tags for categorizing and searching actions."""
+    """Tags to set on the action. Defaults to none."""
 
     timeout: Optional[int] = None
-    """Maximum execution time in minutes before the action is terminated."""
+    """Maximum time, in minutes, an invocation of the action may run before Roboto stops it.
+
+    ``None`` uses Roboto's default. A value above the organization's limit fails the request with
+    ``RobotoLimitExceededException``.
+    """
 
     uri: Optional[str] = None
-    """Container image URI if not inheriting from another action."""
+    """URI of the container image the action runs, such as ``"ubuntu:latest"``."""
 
 
 class SetActionAccessibilityRequest(pydantic.BaseModel):
-    """Request payload to set action accessibility.
+    """Request body for :py:meth:`~roboto.domain.actions.Action.set_accessibility`.
 
-    Used to change whether an action is private to the organization or
-    published publicly in the Action Hub.
+    Only Roboto administrators may send it.
+
+    A ``digest`` that matches no version of the action raises ``RobotoNotFoundException``.
     """
 
     accessibility: Accessibility
-    """The new accessibility level (Organization or ActionHub)."""
+    """Who can find and invoke the action: members of its organization, or every Roboto user through the Action Hub."""
 
     digest: Optional[str] = None
-    """Specific version of Action. If not specified, the latest version's accessibility will be updated."""
+    """Digest of the version of the action to return in the response. ``None`` returns the latest version.
+
+    Accessibility applies to every version of the action, whatever the digest.
+    """
     model_config = ConfigDict(extra="ignore")
 
 
 class UpdateActionRequest(pydantic.BaseModel):
-    """Request payload to update an action.
+    """Request body for :py:meth:`~roboto.domain.actions.Action.update`.
 
-    Contains the changes to apply to an existing action. Only specified fields
-    will be updated; others remain unchanged. Uses NotSet sentinel values to
-    distinguish between explicit None values and unspecified fields.
+    Each field left unset (``NotSet``) leaves that property of the action unchanged. A change to what the action runs
+    (its image, container, compute, parameters, timeout, or input downloading) creates a new version of the action,
+    with a new digest. A change to only its descriptions, tags, or metadata does not.
+
+    Building the request raises ``pydantic.ValidationError`` when ``uri`` is empty after surrounding whitespace is
+    stripped.
     """
 
     compute_requirements: Optional[Union[ComputeRequirements, NotSetType]] = NotSet
-    """New compute requirements (CPU, memory)."""
+    """CPU, memory, and storage for the action's container.
+
+    ``None`` resets them to the defaults of :py:class:`~roboto.domain.actions.ComputeRequirements`. A value above the
+    organization's limits fails the request with ``RobotoLimitExceededException``.
+    """
 
     container_parameters: Optional[Union[ContainerParameters, NotSetType]] = NotSet
-    """New container parameters (image, entrypoint, etc.)."""
+    """Command, entry point, environment variables, and working directory for the action's container.
+
+    ``None`` clears them.
+    """
 
     description: Optional[Union[str, NotSetType]] = NotSet
-    """New detailed description."""
+    """Human-readable description of the action. ``None`` or ``""`` clears it."""
 
     inherits: Optional[Union[ActionReference, NotSetType]] = NotSet
-    """New action reference to inherit from."""
+    """Deprecated. Action this action would inherit its configuration from.
+
+    Set the configuration on the action itself instead. A request that sets this field to an action reference fails
+    with ``RobotoInvalidRequestException``.
+    """
 
     metadata_changeset: Union[MetadataChangeset, NotSetType] = NotSet
-    """Changes to apply to metadata (add, remove, update keys)."""
+    """Changes to the action's tags and metadata."""
 
     parameter_changeset: Union[ActionParameterChangeset, NotSetType] = NotSet
-    """Changes to apply to parameters (add, remove, update)."""
+    """Parameters to add, replace, or remove, matched by name.
+
+    The added parameters must have unique names, and a required parameter cannot have a default. Otherwise the request
+    fails with ``RobotoInvalidRequestException``.
+    """
 
     uri: Optional[Union[str, NotSetType]] = NotSet
-    """New container image URI."""
+    """URI of the container image the action runs. ``None`` clears it.
+
+    Surrounding whitespace is stripped, and a URI that is empty after stripping is rejected.
+    """
 
     short_description: Optional[Union[str, NotSetType]] = NotSet
-    """New brief description (max 140 characters)."""
+    """Brief human-readable description of the action. ``None`` or ``""`` clears it.
+
+    :py:meth:`~roboto.domain.actions.Action.update` rejects one longer than 140 characters
+    (:py:const:`~roboto.domain.actions.action.SHORT_DESCRIPTION_LENGTH`).
+    """
 
     timeout: Optional[Union[int, NotSetType]] = NotSet
-    """New maximum execution time in minutes."""
+    """Maximum time, in minutes, an invocation of the action may run before Roboto stops it.
+
+    ``None`` clears it, so invocations use Roboto's default. A value above the organization's limit fails the request
+    with ``RobotoLimitExceededException``.
+    """
 
     requires_downloaded_inputs: Union[bool, NotSetType] = NotSet
-    """Whether to download input files before execution."""
+    """Whether an invocation's input files are downloaded into the action's container before it runs."""
 
     @pydantic.field_validator("uri")
     def validate_uri(cls, v):
+        """Reject a ``uri`` that is empty after surrounding whitespace is stripped, and return it stripped otherwise."""
         if v is None or is_not_set(v):
             return v
 

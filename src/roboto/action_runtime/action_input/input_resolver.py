@@ -30,14 +30,27 @@ from .topic_resolver import InputTopicResolver
 log = default_logger()
 
 OptionallyDownloadedFile: typing.TypeAlias = tuple[File, pathlib.Path | None]
+"""A file paired with the local path it was downloaded to, or with ``None`` when it was not downloaded."""
 
 
 class ActionInputResolver:
-    """
-    Resolves the action invocation input spec to concrete Roboto entities.
+    """Service that resolves an invocation's input selectors to the files, sessions, and topics they match.
 
-    The entities are packaged together in an `ActionInput` instance,
-    which is available to action code via `ActionRuntime`.
+    Roboto runs it while it prepares an invocation, before the action's code starts, and the action reads the result
+    as :py:class:`~roboto.action_runtime.action_input.ActionInput`, from
+    :py:meth:`~roboto.action_runtime.InvocationContext.get_input`. You can also run it yourself, to see what an
+    :py:class:`~roboto.domain.actions.InvocationInput` resolves to while you test an action outside Roboto. Build one
+    with ``from_env``.
+
+    Args:
+        file_resolver: :py:class:`~roboto.action_runtime.action_input.InputFileResolver` that resolves the input's
+            file selectors.
+        session_resolver: :py:class:`~roboto.action_runtime.action_input.InputSessionResolver` that resolves the
+            input's session selectors.
+        topic_resolver: :py:class:`~roboto.action_runtime.action_input.InputTopicResolver` that resolves the input's
+            topic selectors.
+        file_service: Service that downloads the resolved files when ``resolve_input_spec`` is called with
+            ``download=True``.
     """
 
     @classmethod
@@ -46,6 +59,15 @@ class ActionInputResolver:
         roboto_client: typing.Optional[RobotoClient] = None,
         roboto_search: typing.Optional[RobotoSearch] = None,
     ) -> ActionInputResolver:
+        """Build a resolver whose lookups and downloads go through ``roboto_client``.
+
+        Args:
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
+            roboto_search: :py:class:`~roboto.roboto_search.RobotoSearch` that runs the selectors' RoboQL queries,
+                including the queries that look inputs up by name. Defaults to one that sends its queries through
+                ``roboto_client``.
+        """
         roboto_client = RobotoClient.defaulted(roboto_client)
         roboto_search = roboto_search if roboto_search is not None else RobotoSearch.for_roboto_client(roboto_client)
 
@@ -63,14 +85,6 @@ class ActionInputResolver:
         topic_resolver: InputTopicResolver,
         file_service: FileService,
     ):
-        """
-        Args:
-            file_resolver: Resolves the input spec's file selectors.
-            session_resolver: Resolves the input spec's session selectors.
-            topic_resolver: Resolves the input spec's topic selectors.
-            file_service: Downloads resolved files; used only when ``resolve_input_spec`` is called with
-                ``download=True``.
-        """
         self.__file_resolver = file_resolver
         self.__session_resolver = session_resolver
         self.__topic_resolver = topic_resolver
@@ -82,49 +96,57 @@ class ActionInputResolver:
         download: bool = False,
         download_path: typing.Optional[pathlib.Path] = None,
     ) -> ActionInputRecord:
-        """Resolve the input spec's file, session, and topic selectors to the entities they match.
+        """Fetch the records that an input's file, session, and topic selectors match.
 
-        When the spec asks for files, sessions, or topics and none match, that category comes back empty
-        with a logged warning rather than an error.
+        Each file, session, and topic appears once, even when several selectors match it. When the input selects
+        files, sessions, or topics and none match, that kind comes back empty, with a logged warning rather than an
+        exception.
+
+        With ``download=True``, each file is saved to ``<download_path>/<file_id>/<version>/<file_name>``, and a file
+        already at that path with the stored file's size is not downloaded again. A link is saved under its own ID and
+        version, with the contents of its target. Only files are downloaded: when topics or sessions also match, a
+        warning says to read their data from the action's code.
 
         Args:
-            input_spec: Input specification containing data selectors.
-                See :py:class:`~roboto.domain.actions.InvocationInput` for more detail.
-            download: If True, download all resolved files to local disk. Defaults to False.
-            download_path: Directory path where files should be downloaded.
-                If not provided and download=True, a temporary directory will be created.
-                Ignored if download=False.
+            input_spec: Input whose selectors to resolve.
+            download: Whether to download the resolved files.
+            download_path: Directory to download the files to. ``None`` creates a temporary directory. Ignored when
+                ``download`` is ``False``.
 
         Returns:
-            ActionInputRecord containing:
-            - files: List of (FileRecord, Optional[Path]) tuples. Path is None if download=False,
-              otherwise contains the local path where the file was downloaded.
-            - sessions: List of SessionRecord instances.
-            - topics: List of TopicRecord instances.
+            :py:class:`~roboto.action_runtime.action_input.ActionInputRecord` of the matched records. Each entry of
+            its ``files`` pairs a file's record with the local path it was downloaded to, or with ``None`` when
+            ``download`` is ``False``.
+
+        Raises:
+            RobotoNotFoundException: A selector names a dataset, file, session, or topic by an ID that matches
+                nothing, or, with ``download=True``, a resolved file is a link whose target no longer exists.
+            ExceptionGroup: With ``download=True``, one or more files still failed to download after three attempts.
 
         Examples:
-            Resolve files using a RoboQL query without downloading:
+            Resolve the files a RoboQL query matches, without downloading them:
 
-            >>> input_spec = InvocationInput.file_query('dataset_id = "ds_abc123" AND path LIKE "%.mcap"')
+            >>> from roboto.action_runtime import ActionInputResolver
+            >>> from roboto.domain.actions import InvocationInput
+            >>> resolver = ActionInputResolver.from_env()
+            >>> input_spec = InvocationInput.file_query('dataset_id = "ds_12345" AND path LIKE "%.mcap"')
             >>> result = resolver.resolve_input_spec(input_spec)
-            >>> # result.files contains (FileRecord, None) tuples
-            >>> # result.topics is empty
+            >>> for file_record, local_path in result.files:
+            ...     print(file_record.relative_path, local_path)
 
-            Resolve and download files to a specific directory:
+            Resolve the same files and download them to a directory:
 
-            >>> input_spec = InvocationInput.file_query('dataset_id = "ds_abc123" AND path LIKE "%.mcap"')
-            >>> result = resolver.resolve_input_spec(input_spec, download=True, download_path=Path("/tmp/data"))
-            >>> # result.files contains (FileRecord, Path) tuples with local paths
+            >>> import pathlib
+            >>> result = resolver.resolve_input_spec(input_spec, download=True, download_path=pathlib.Path("/tmp/data"))
 
-            Resolve both files and topics:
+            Resolve files and topics together:
 
+            >>> from roboto.domain.actions import DataSelector, FileSelector
             >>> input_spec = InvocationInput(
-            ...     files=FileSelector(query='dataset_id = "ds_abc123" AND path LIKE "%.mcap"'),
+            ...     files=FileSelector(query='dataset_id = "ds_12345" AND path LIKE "%.mcap"'),
             ...     topics=DataSelector(names=["battery_status", "gps"]),
             ... )
             >>> result = resolver.resolve_input_spec(input_spec)
-            >>> # result.files contains file records
-            >>> # result.topics contains topic records
         """
         files: list[File] = []
         topics: list[Topic] = []
@@ -179,33 +201,28 @@ class ActionInputResolver:
         out_path: pathlib.Path,
         files: collections.abc.Iterable[File],
     ) -> list[tuple[File, pathlib.Path]]:
-        """
-        Downloads the specified files to the provided local directory.
-
-        Files already present locally with matching size are skipped.
-
-        Args:
-            out_path: Destination directory for the downloaded files.
-            files: Files to download.
+        """Download ``files`` under ``out_path``, skipping each one already saved there at the stored file's size.
 
         Returns:
-            A list of (File, Path) tuples, relating each provided file to its download path.
+            Each file paired with its local path, including the files that were skipped.
         """
 
         class DownloadCandidate(typing.NamedTuple):
             file: File
             source: File
-            """The file whose object is fetched: ``file`` itself, or for a link, its target at the pinned version."""
+            """File whose contents are downloaded: ``file`` itself, or for a link, its target at the pinned version."""
             path: pathlib.Path
             requires_download: bool
 
+        # Grouped by the resource that owns the downloaded contents, since a link's target can belong to a different
+        # dataset, device, or organization than the link, and each FileService.download call reads with credentials
+        # for one resource.
         download_candidates_by_association: dict[str, list[DownloadCandidate]] = collections.defaultdict(list)
 
         for file in files:
             local_path = out_path / file.file_id / str(file.version) / pathlib.Path(file.relative_path).name
             source = file._resolve_link()
 
-            # Skip download if file already exists locally with matching size
             requires_download = True
             if local_path.exists():
                 local_file_size_matches_remote = local_path.stat().st_size == source.record.size
@@ -222,7 +239,6 @@ class ActionInputResolver:
                 DownloadCandidate(file=file, source=source, path=local_path, requires_download=requires_download)
             )
 
-        # Calculate total size of files that need downloading
         total_size = sum(
             candidate.source.record.size
             for candidates in download_candidates_by_association.values()

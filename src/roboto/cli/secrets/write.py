@@ -17,6 +17,7 @@ from roboto.exceptions import (
 
 
 def write_logic(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Set the ``--org`` organization's ``secret_name`` secret to ``secret_value``, and print a confirmation."""
     org_id = args.org
     secret_name = args.secret_name
 

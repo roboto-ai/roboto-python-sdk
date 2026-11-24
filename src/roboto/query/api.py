@@ -16,99 +16,99 @@ from .specification import QuerySpecification
 
 
 class QueryTarget(StrEnum):
-    """
-    The type of resource a specific query is requesting.
-    """
+    """Kind of resource a query searches."""
 
     Collections = "collections"
+    """Collections (:py:class:`~roboto.domain.collections.Collection`)."""
+
     Datasets = "datasets"
+    """Datasets (:py:class:`~roboto.domain.datasets.Dataset`)."""
+
     Devices = "devices"
+    """Devices (:py:class:`~roboto.domain.devices.Device`)."""
+
     Files = "files"
+    """Files (:py:class:`~roboto.domain.files.File`)."""
+
     Sessions = "sessions"
+    """Sessions (:py:class:`~roboto.experimental.sessions.Session`)."""
+
     Topics = "topics"
+    """Topics (:py:class:`~roboto.domain.topics.Topic`)."""
+
     TopicMessagePaths = "topic_message_paths"
+    """Message paths of topics (:py:class:`~roboto.domain.topics.MessagePath`)."""
+
     Events = "events"
+    """Events (:py:class:`~roboto.domain.events.Event`)."""
 
 
 class QueryStatus(enum.Enum):
-    """
-    The query lifecycle state of a given query.
+    """Status of a query: whether its results are ready to fetch.
+
+    Fetching the results of a query in any status but ``ResultsAvailable`` raises ``RobotoNotReadyException``.
     """
 
     Failed = "failed"
-    """
-    Indicates the query failed to execute.
+    """Unused. Roboto sets no query to this status.
+
+    A query that cannot run instead raises an error when it is submitted or when its results are fetched.
     """
 
     ResultsAvailable = "results_available"
-    """
-    Indicates that query results are available for clients to retrieve.
+    """Results are ready to fetch.
 
-    Results might be available immediately, such as in paginated database search, or once a
-    (potentially expensive) calculation completes for more advanced search modalities.
+    Roboto sets a query to this status when it is submitted, and runs the query each time a page of its results is
+    fetched.
     """
 
     Scheduled = "scheduled"
-    """
-    Indicates the query is scheduled for execution.
-    """
+    """Query is stored, and its results are not yet ready to fetch."""
 
 
 class QueryContentMode(StrEnum):
-    """
-    Hint to query APIs on whether to return Roboto entities with custom metadata.
+    """Content mode of query results: whether each result includes its key-value metadata.
 
-    In ``RecordOnly`` mode, Roboto entities are returned without custom metadata,
-    ensuring a smaller and more predictable response size. Use this mode when you
-    need lower query latency, larger result page sizes, or both.
-
-    In ``RecordWithMeta`` mode, Roboto entities are returned with all available
-    custom metadata. Use this mode if you need immediate access to metadata fields.
-
-    Note: content mode support is initially available for dataset queries, and will
-    be added incrementally for other entity types.
+    Only dataset queries honor it. Queries of every other target return the same results in either mode.
     """
 
     RecordOnly = "record_only"
-    """Query results are returned with core Roboto data attributes only.
+    """Results without their key-value metadata.
 
-    Those attributes establish the identity and function of Roboto entities.
+    Each dataset keeps its tags and custom fields. Leaving out metadata, which can be large, keeps responses small, so
+    a page of results returns sooner and can hold more results. Use this mode unless you need each result's metadata
+    at once.
     """
 
     RecordWithMeta = "record_with_meta"
-    """Query results are returned with all available entity attributes.
-
-    This includes core Roboto data attributes as well as custom metadata.
-    """
+    """Results with their key-value metadata."""
 
 
 class QueryScheme(StrEnum):
-    """
-    A specific query format/schema which can be used in combination with some context JSON to provide all information
-    required to execute a query.
-    """
+    """Format of a stored query, as ``QueryContext.query_scheme`` holds it."""
 
     QuerySpecV1 = "query_spec_v1"
-    """
-    The initial variant of roboto.query.QuerySpecification which powered search since mid 2023.
+    """Query stored as a serialized :py:class:`~roboto.query.QuerySpecification`.
+
+    Roboto stores every query this way.
     """
 
 
 MAX_VALUE_COUNTS_LIMIT: int = 1_000
-"""The largest and the default :py:attr:`ValueCountsSpec.limit`: the most values one :py:class:`ValueCounts` lists."""
+"""Maximum number of values one query's value counts list, and the number they list when the request sets no limit."""
 
 
 @experimental
 class ValueCountsSpec(pydantic.BaseModel):
-    """
-    A request to count how many of the records a query matches hold each value of one field. Submit it as
-    :py:attr:`SubmitStructuredQueryRequest.value_counts`, then read the :py:class:`ValueCounts` with
-    ``GET /v1/query/id/<query_id>/value-counts``. The endpoint is enabled per caller; a caller it is not enabled for
-    gets :py:exc:`~roboto.exceptions.RobotoFeatureNotAvailableException`.
+    """Request to count how many of the records a query matches hold each value of one field.
 
-    Supported for the ``events``, ``sessions``, ``datasets``, ``devices``, ``collections``, and ``files`` query
-    targets. Every record the query's ``condition`` matches is counted: the query's ``sort_by``, ``sort_direction``,
-    ``limit``, ``after`` and ``max_results`` do not apply.
+    Submit it as ``SubmitStructuredQueryRequest.value_counts``, then read the ``ValueCounts`` with
+    ``GET /v1/query/id/{query_id}/value-counts``. Only some callers may read value counts; any other caller gets
+    ``RobotoFeatureNotAvailableException``.
+
+    Supported for the ``Events``, ``Sessions``, ``Datasets``, ``Devices``, ``Collections``, and ``Files`` members of
+    ``QueryTarget``. Every record the query's ``condition`` matches is counted: the query's ``sort_by``,
+    ``sort_direction``, ``limit``, ``after`` and ``max_results`` do not apply.
     """
 
     field: str = pydantic.Field(
@@ -137,9 +137,7 @@ class ValueCountsSpec(pydantic.BaseModel):
 
 @experimental
 class ValueCount(pydantic.BaseModel):
-    """
-    One value of the counted field, and how many of the matched records hold it.
-    """
+    """One value of the counted field, and how many of the matched records hold it."""
 
     value: typing.Any = pydantic.Field(
         description=(
@@ -165,9 +163,9 @@ class ValueCount(pydantic.BaseModel):
 
 @experimental
 class ValueCounts(pydantic.BaseModel):
-    """
-    Response of ``GET /v1/query/id/<query_id>/value-counts``: the values of the field the query's
-    :py:class:`ValueCountsSpec` names, over the records the query matches.
+    """Response body of ``GET /v1/query/id/{query_id}/value-counts``.
+
+    Counts the values of the field the query's ``ValueCountsSpec`` names, over the records the query matches.
     """
 
     field: str = pydantic.Field(description="The counted field, as ValueCountsSpec.field spelled it.")
@@ -185,80 +183,124 @@ class ValueCounts(pydantic.BaseModel):
     @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def truncated(self) -> bool:
-        """True when the matched records hold more distinct values than ``values`` lists."""
+        """Whether the matched records hold more distinct values than ``values`` lists."""
         return self.distinct_values > len(self.values)
 
 
 class QueryContext(pydantic.BaseModel):
-    """
-    Context for a query
+    """Stored form of a query: the format it is stored in, and its contents.
+
+    Carried in ``QueryRecord.query_ctx``.
     """
 
     query_scheme: QueryScheme
+    """Format of ``query``."""
+
     query: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    """Contents of the query, in the format ``query_scheme`` names.
+
+    Under ``QueryScheme.QuerySpecV1``, ``spec`` holds the serialized :py:class:`~roboto.query.QuerySpecification` and
+    ``content_mode`` the ``QueryContentMode``. A query submitted as RoboQL also holds the RoboQL string under
+    ``roboql``, and one submitted as a search term holds the term under ``term``.
+    """
 
 
 class QueryStorageScheme(StrEnum):
-    """
-    A specific query result storage format/schema which can be used in combination with some context JSON to provide all
-    information required to vend query results
+    """Format of a query's stored results, as ``QueryStorageContext.storage_scheme`` holds it.
+
+    No Roboto API returns or accepts it.
     """
 
     S3ManifestV1 = "s3_manifest_v1"
-    """
-    Query results are in S3, and a manifest file enumerates the result parts and how to resolve them into rows.
-    """
+    """Results stored as files, with a manifest file that lists the result parts and how to read them into rows."""
 
 
 class QueryStorageContext(pydantic.BaseModel):
-    """
-    Context for query storage
+    """Location and format of a query's stored results.
+
+    No SDK method or Roboto route uses this model.
     """
 
     storage_scheme: QueryStorageScheme
+    """Format of the stored results."""
+
     storage_ctx: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
+    """Location of the stored results, in the form ``storage_scheme`` names."""
 
 
 class QueryRecord(pydantic.BaseModel):
-    """
-    A wire-transmissible representation of a query.
+    """Data record of a query, as the Roboto API returns it.
+
+    A query is a search of one kind of resource in an organization, stored so that its results can be fetched a page
+    at a time. :py:meth:`~roboto.query.QueryClient.get_query_record` and the ``submit_*`` methods of
+    :py:class:`~roboto.query.QueryClient` return it.
     """
 
     modified: datetime.datetime = pydantic.Field(
         description="The last time the database record for a query was modified."
     )
+    """Time the query was last modified."""
+
     org_id: str = pydantic.Field(description="The org on behalf of whom a query was run.")
+    """ID of the organization the query searches."""
+
     query_id: str = pydantic.Field(description="Unique identifier for an individual query.")
+    """Unique ID of the query, beginning with ``q_``."""
+
     query_ctx: QueryContext = pydantic.Field(description="The actual query being run and resolved.")
+    """Stored form of the query."""
+
     result_count: int = pydantic.Field(
         description="The number of records matched by this query. Defaults to 0 for incomplete queries.",
         default=0,
     )
+    """Unused. Roboto always returns ``0``, since it does not count a query's results when it stores the query.
+
+    ``GET /v1/query/id/{query_id}/count`` returns the number of results.
+    """
+
     status: QueryStatus = pydantic.Field(description="The query lifecycle status of this query.")
+    """Status of the query: whether its results are ready to fetch."""
+
     submitted: datetime.datetime = pydantic.Field(description="The time at which this query was first created.")
+    """Time the query was submitted."""
+
     submitted_by: str = pydantic.Field(description="The user who scheduled this query.")
+    """ID of the user who submitted the query."""
+
     target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
+    """Kind of resource the query searches."""
 
 
 class QualifiedRoboqlQuery(pydantic.BaseModel):
-    """
-    A RoboQL query which has been qualified with a target.
+    """Response body of ``POST /v1/query/convert/nlp-to-roboql``.
+
+    Holds the RoboQL query Roboto's AI writes from a natural-language prompt, and the kind of resource it searches.
     """
 
     query: str = pydantic.Field(description="The conditions, sorting behavior, and limit of this query.")
+    """RoboQL query: its conditions, and any sort order and limit."""
+
     target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
+    """Kind of resource the query searches."""
 
 
 class SubmitStructuredQueryRequest(pydantic.BaseModel):
-    """
-    Request payload to submit a structured query
-    """
+    """Request body for :py:meth:`~roboto.query.QueryClient.submit_structured`."""
 
     content_mode: QueryContentMode = pydantic.Field(
         default=QueryContentMode.RecordWithMeta, description="The content mode for query results."
     )
+    """Whether each result includes its key-value metadata (``QueryContentMode``)."""
+
     query: QuerySpecification = pydantic.Field(description="The conditions, sorting behavior, and limit of this query.")
+    """Condition, sort order, and maximum number of results of the query.
+
+    When it sets no ``sort_by``, Roboto sorts the results by the target's default sort field, if the target has one.
+    """
+
     target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
+    """Kind of resource the query searches."""
     value_counts: typing.Optional[ValueCountsSpec] = pydantic.Field(
         default=None,
         description=(
@@ -268,32 +310,49 @@ class SubmitStructuredQueryRequest(pydantic.BaseModel):
             "events, sessions, datasets, devices, collections, and files targets."
         ),
     )
+    """Experimental, and may change or be removed without notice.
+
+    Field whose values to count over the records the query matches, or ``None`` to count none. Read the counts with
+    ``GET /v1/query/id/{query_id}/value-counts``. Only some callers may read them; any other caller gets
+    ``RobotoFeatureNotAvailableException``. Supported for the ``Events``, ``Sessions``, ``Datasets``, ``Devices``,
+    ``Collections``, and ``Files`` members of ``QueryTarget``.
+    """
 
 
 class SubmitRoboqlQueryRequest(pydantic.BaseModel):
-    """
-    Request payload to submit a RoboQL query
-    """
+    """Request body for :py:meth:`~roboto.query.QueryClient.submit_roboql`."""
 
     content_mode: QueryContentMode = pydantic.Field(
         default=QueryContentMode.RecordWithMeta, description="The content mode for query results."
     )
+    """Whether each result includes its key-value metadata (``QueryContentMode``)."""
+
     query: typing.Optional[str] = pydantic.Field(
         description="The conditions, sorting behavior, and limit of this query."
     )
+    """RoboQL query: its conditions, and any sort order and ``LIMIT`` on the total number of results.
+
+    ``None`` matches every resource of ``target``. A string that is not valid RoboQL raises
+    ``RobotoIllegalArgumentException``.
+    """
+
     target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
+    """Kind of resource the query searches."""
 
 
 class SubmitTermQueryRequest(pydantic.BaseModel):
-    """
-    Request payload to submit a simple term query
-    """
+    """Request body for :py:meth:`~roboto.query.QueryClient.submit_term`."""
 
     content_mode: QueryContentMode = pydantic.Field(
         default=QueryContentMode.RecordWithMeta, description="The content mode for query results."
     )
+    """Whether each result includes its key-value metadata (``QueryContentMode``)."""
+
     term: str = pydantic.Field(
         default="",
         description="A string search term which this query will attempt to match across any appropriate fields.",
     )
+    """Text to search for in the target's ID and text fields, such as a dataset's ID, name, description, and tags."""
+
     target: QueryTarget = pydantic.Field(description="The type of data being requested, e.g. 'Datasets' or 'Topics'.")
+    """Kind of resource the query searches."""

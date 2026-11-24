@@ -13,54 +13,54 @@ from ...pydantic.serializers import field_serializer_custom_field_values
 
 
 class DeviceRecord(pydantic.BaseModel):
-    """A wire-transmissible representation of a device.
+    """Data record of a device, as the Roboto API returns it.
 
-    This record contains all the essential information about a device that can be
-    transmitted over the network. It includes metadata about when the device was
-    created and modified, along with its organizational association.
+    A device is a robot, upload station, or other non-human entity that interacts with Roboto on behalf of an
+    organization. :py:class:`~roboto.domain.devices.Device` wraps this record with methods that act on the device, and
+    exposes it as :py:attr:`~roboto.domain.devices.Device.record`.
     """
 
     created: datetime.datetime
-    """Date/time when this device was registered."""
+    """Time the device was created."""
 
     created_by: str
-    """The user who registered this device."""
+    """Principal that created the device, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     device_id: str
-    """A user-provided identifier for a device, which is unique within that device's org."""
+    """ID the organization gave the device, such as a serial number, unique within the organization."""
 
     universal_device_id: typing.Optional[str] = None
-    """A Roboto-assigned identifier for a device (``dv_...``), unique across all orgs and never changed.
+    """Unique ID of the device across all organizations, beginning with ``dv_``.
 
-    Use this ID, not ``device_id``, with :py:meth:`~roboto.association.Association.device`.
-    ``None`` only when talking to a Roboto deployment that predates it.
+    Fixed when the device is created. Roboto sets it; no request does. Pass this ID, not ``device_id``, to
+    :py:meth:`~roboto.association.Association.device`.
     """
 
     modified: datetime.datetime
-    """Date/time when this device record was last modified."""
+    """Time the device was last modified."""
 
     modified_by: str
-    """The user who last modified this device record."""
+    """Principal that last modified the device, in the same ``<type>:<id>`` form as ``created_by``."""
 
     org_id: str
-    """The org to which this device belongs."""
+    """ID of the organization that owns the device."""
 
     device_type_id: typing.Optional[str] = None
-    """ID (``dt_...``) of the device type assigned to this device, or ``None`` when it has no type."""
+    """ID of the device type assigned to the device, beginning with ``dt_``, or ``None`` if it has none."""
 
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Key-value metadata pairs associated with this device."""
+    """Key-value metadata on the device."""
 
     custom_fields: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Values for the custom fields defined on Devices in this org.
+    """Values of the custom fields the organization defines for devices, keyed by field name.
 
-    Every ``Ready`` custom field defined for ``(org_id, Device)`` appears as a
-    key; values that have not been set surface as ``None`` rather than being
-    absent. Empty when no custom fields are defined for the org.
+    Every device custom field in the :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` state appears
+    as a key, mapped to ``None`` when the device has no value for it. Fields in any other state are absent, so the
+    map is empty when no device custom field is in that state.
     """
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """List of tags associated with this device."""
+    """Tags on the device."""
 
     @pydantic.field_serializer("custom_fields", when_used="json")
     def _serialize_custom_fields(self, custom_fields: dict[str, typing.Any]) -> dict[str, typing.Any]:

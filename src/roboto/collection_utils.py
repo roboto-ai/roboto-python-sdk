@@ -9,15 +9,29 @@ import functools
 import typing
 
 T = typing.TypeVar("T")
+"""Type of the values a ``defaultlist`` holds."""
 
 
 def get_by_path(
     target: collections.abc.Mapping[typing.Any, typing.Any],
     key_path: collections.abc.Sequence[typing.Any],
 ) -> typing.Any:
-    """
-    Access a key path in a mapping.
-    Returns ``None`` if any part of the path is not found or traverses through an object that is not a mapping.
+    """Return the value at the end of a path of keys through nested mappings.
+
+    Args:
+        target: Mapping to read from.
+        key_path: Keys to follow, outermost first. An empty sequence returns ``target`` itself.
+
+    Returns:
+        The value at the end of the path, or ``None`` when a key along it is missing, unhashable, or reached through a
+        value that is not a mapping. A ``None`` stored at the end of the path is returned the same way, so the result
+        does not tell a missing key from a stored ``None``.
+
+    Examples:
+        >>> get_by_path({"error": {"error_code": "NOT_FOUND"}}, ["error", "error_code"])
+        'NOT_FOUND'
+        >>> get_by_path({"error": "Not found"}, ["error", "error_code"]) is None
+        True
     """
     try:
         return functools.reduce(lambda d, key: d.get(key, None), key_path, target)
@@ -26,19 +40,23 @@ def get_by_path(
 
 
 class defaultlist(list[T], typing.Generic[T]):
-    """Like collections.defaultdict, but for list.
+    """List that extends itself to any non-negative index read or written, filling new positions from a factory.
 
-    Automatically supplies a default value when you access an index that hasn't been set or is out of bounds,
-    without raising an IndexError.
+    It works as ``collections.defaultdict`` does for keys: reading or writing an index past the end appends a value
+    from ``factory`` for each missing position, then reads or writes that index, instead of raising ``IndexError``.
+    ``factory`` is called once per new position, so mutable values such as dictionaries are not shared between
+    positions. Negative indexes and slices behave as they do on a ``list``.
 
     Examples:
         >>> dl = defaultlist[int](factory=lambda: 0)
-        >>> dl[5] += 1  # Automatically extends list with 0s up to index 5
-        >>> print(dl)  # [0, 0, 0, 0, 0, 1]
+        >>> dl[5] += 1
+        >>> print(dl)
+        [0, 0, 0, 0, 0, 1]
     """
 
     def __init__(self, factory: typing.Callable[[], T]):
         self.factory = factory
+        """Function that takes no arguments and returns the value for a new position."""
         super().__init__()
 
     @typing.overload
@@ -50,7 +68,6 @@ class defaultlist(list[T], typing.Generic[T]):
     def __getitem__(self, idx: typing.Union[typing.SupportsIndex, slice]) -> typing.Union[T, list[T]]:
         if isinstance(idx, slice):
             return super().__getitem__(idx)
-        # Convert SupportsIndex to int for comparison
         index = idx.__index__()
         while index >= len(self):
             self.append(self.factory())
@@ -70,7 +87,6 @@ class defaultlist(list[T], typing.Generic[T]):
         if isinstance(idx, slice):
             super().__setitem__(idx, typing.cast(typing.Iterable[T], value))
         else:
-            # Convert SupportsIndex to int for comparison
             index = idx.__index__()
             while index >= len(self):
                 self.append(self.factory())

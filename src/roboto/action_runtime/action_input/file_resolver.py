@@ -19,11 +19,11 @@ log = default_logger()
 
 
 class InputFileResolver:
-    """Looks up the files an action invocation runs on, from the file selectors declared as its inputs.
+    """Resolver that fetches the files an action invocation's file selectors choose.
 
-    A selector names files by ID, by name, by path within a dataset, or with a RoboQL query; every field it
-    populates is looked up and the matches are returned together. ``resolve_all`` returns each file once, while
-    ``resolve`` repeats a file that matches on more than one field.
+    :py:meth:`~roboto.action_runtime.ActionInputResolver.resolve_input_spec` resolves an invocation's file selectors
+    through it, so most code never calls it. Action code reads the resolved files from
+    :py:meth:`~roboto.action_runtime.InvocationContext.get_input` instead.
     """
 
     def __init__(
@@ -32,11 +32,32 @@ class InputFileResolver:
         roboto_search: typing.Optional[RobotoSearch] = None,
     ):
         self.roboto_client = RobotoClient.defaulted(roboto_client)
+        """Client this resolver makes requests to Roboto with.
+
+        Defaults to one configured from the environment, by :py:meth:`~roboto.http.RobotoClient.from_env`.
+        """
         self.roboto_search = (
             roboto_search if roboto_search is not None else RobotoSearch.for_roboto_client(self.roboto_client)
         )
+        """Search client that runs the RoboQL lookups for a selector's ``query`` and ``names``.
+
+        Defaults to one that sends its queries through ``roboto_client``.
+        """
 
     def resolve_all(self, file_selectors: collections.abc.Sequence[FileSelector]) -> list[File]:
+        """Fetch the files that any of the selectors choose, each file once.
+
+        Files come back in the order they are first found: selector by selector, and within one selector in the
+        order ``resolve`` gives.
+
+        Args:
+            file_selectors: Selectors of the files to fetch.
+
+        Raises:
+            RobotoNotFoundException: No file has one of the IDs in a selector's ``ids``, or no dataset has a
+                selector's ``dataset_id``.
+            RobotoIllegalArgumentException: A selector's ``query`` is not valid RoboQL.
+        """
         file_ids: set[str] = set()
         all_files: list[File] = []
 
@@ -51,9 +72,26 @@ class InputFileResolver:
         return all_files
 
     def resolve(self, selector: FileSelector) -> list[File]:
-        """Looks up the files one selector names.
+        """Fetch the files one selector chooses.
 
-        A ``dataset_id`` narrows the lookup only alongside ``paths``; every other field ignores it, with a warning.
+        Files come back with those ``paths`` match first, then those ``query`` matches, then those named by ``ids``,
+        then those named by ``names``. A file that more than one of these fields matches appears once for each.
+
+        - ``paths`` select files from the dataset ``dataset_id`` names, leaving out files beneath a top-level
+          directory whose name starts with a dot. Without ``dataset_id``, ``paths`` select nothing.
+        - A name in ``names`` matches a file whose whole path, not only its name, equals it: ``"drive1.mcap"``
+          matches ``drive1.mcap`` at the top of a dataset but not ``logs/drive1.mcap``. A ``%`` or ``_`` in a name
+          matches as a wildcard.
+        - ``dataset_id`` narrows only ``paths``. When ``query``, ``ids`` or ``names`` is also set, a warning is
+          logged that it does not narrow them.
+
+        Args:
+            selector: Selector of the files to fetch.
+
+        Raises:
+            RobotoNotFoundException: No file has one of the IDs in the selector's ``ids``, or no dataset has the
+                selector's ``dataset_id``.
+            RobotoIllegalArgumentException: The selector's ``query`` is not valid RoboQL.
         """
         files: list[File] = []
 
@@ -89,9 +127,8 @@ class InputFileResolver:
         return list(
             dataset.list_files(
                 include_patterns=paths,
-                # Don't include "hidden"/"system" files
-                # This is currently heuristic based,
-                # and must be updated once https://roboto.atlassian.net/browse/ROBO-1105 is addressed.
+                # Leave out files beneath a top-level dot-named directory, such as ".cache/run.bag". A dot-named
+                # file, or a dot-named directory below the top level, is still listed.
                 exclude_patterns=[".*/**/*"],
             )
         )
@@ -103,8 +140,8 @@ class InputFileResolver:
         return list(self.roboto_search.find_files(query))
 
     def _resolve_from_names(self, file_names: list[str]) -> list[File]:
-        # as_roboql_string_literal escapes only backslashes and double quotes,
-        # so a `%` or `_` in a name reaches the query intact and LIKE matches it as a wildcard.
+        # as_roboql_string_literal escapes only backslashes and double quotes, so LIKE treats a % or _ in a name
+        # as a wildcard.
         query = " OR ".join(f"path LIKE {as_roboql_string_literal(file_name)}" for file_name in file_names)
         return self._resolve_from_query(query)
 

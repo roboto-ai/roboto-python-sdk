@@ -27,47 +27,56 @@ from ..logging import default_logger
 logger = default_logger()
 
 Model = typing.TypeVar("Model")
+"""Type of the values a ``BatchResponse``, ``BatchResponseElement``, ``PaginatedList`` or ``StreamedList`` holds."""
+
 MappedModel = typing.TypeVar("MappedModel")
+"""Type of the results a ``BatchResponse`` that ``BatchResponse.map_data`` returns holds."""
+
 PydanticModel = typing.TypeVar("PydanticModel", bound=pydantic.BaseModel)
+"""Type of the pydantic model an ``HttpResponse`` method parses the body as."""
 
 DEFAULT_RESPONSE_JSONPATH = ("data",)
+"""Path to the result within a Roboto response body: its top-level ``data`` field."""
 
 
 class BatchResponseElement(pydantic.BaseModel, typing.Generic[Model]):
-    """
-    One element of a response to a batch request, holding ``data`` when the operation succeeded and ``error`` when
-    it failed, never both. An element holding neither reports an operation that returns no content, the batch
-    equivalent of a 204 answer to a singular call.
+    """Outcome of one element of a batch request: its result if Roboto applied it, or its exception if refused.
+
+    An element never holds both. One that holds neither was applied with no content to return, as a single request
+    answered with HTTP 204 would be.
     """
 
-    # ``Model`` is parametrized over domain classes such as Session (see :py:meth:`BatchResponse.map_data`), and those
-    # are plain classes rather than pydantic models. Pydantic cannot derive a schema for one, so without this it
-    # refuses the parametrization itself, before any response is parsed.
+    # Model can be a class that is not a pydantic model, such as Session (see BatchResponse.map_data). Pydantic cannot
+    # build a schema for such a class, so without this setting it rejects BatchResponseElement[Session] itself, before
+    # any response is parsed.
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
     data: typing.Optional[Model] = None
+    """Result of the element, or ``None`` if Roboto refused it or applied it with no content to return."""
+
     error: typing.Optional[RobotoDomainException] = None
+    """Exception Roboto refused the element with, or ``None`` if Roboto applied it."""
 
     @pydantic.field_validator("error", mode="plain")
     def validate_error(cls, value: typing.Any) -> typing.Optional[RobotoDomainException]:
-        """Build the exception an element was refused with, in whichever form the failure arrived.
+        """Build the exception an element was refused with, from whichever form the refusal arrived in.
 
-        Three forms reach this: an exception object, which is what an element copied from another batch
-        carries; the envelope :py:meth:`RobotoDomainException.to_dict` produces; and that envelope as JSON
-        text, which is what :py:class:`~roboto.exceptions.RobotoDomainException` declares to pydantic. Only a
-        literal ``None`` yields ``None``, which is how an element the platform applied or answered with no
-        content arrives.
+        Pydantic calls this whenever an element is built or parsed. It accepts three forms:
 
-        Any other value is a refusal, whatever shape it has. An envelope naming an exception class this
-        release does not define, one missing its code or message, JSON that is not an envelope, and text
-        that is not JSON all read as a :py:class:`~roboto.exceptions.RobotoUnrecognizedErrorException`
-        carrying whatever code and message could be recovered, with the value's own text as the message when
-        no message could be. That way a refused element is always in :py:attr:`BatchResponse.failed`, so a
-        caller checking ``failed`` before treating a batch as done cannot mistake a garbled refusal for
-        success.
+        - An exception object, as an element copied from another batch carries.
+        - The envelope :py:meth:`~roboto.exceptions.RobotoDomainException.to_dict` produces.
+        - That envelope as JSON text, the form :py:class:`~roboto.exceptions.RobotoDomainException` declares to
+          pydantic.
 
-        ``plain`` mode replaces the validation the ``error`` annotation would otherwise apply. That
-        annotation reads JSON text, so it would reject the exception object returned here.
+        Only ``None`` yields ``None``. Any other value is a refusal, whatever its shape: an envelope whose error code
+        names no exception class in this SDK version, one missing its code or message, JSON that is not an envelope,
+        and text that is not JSON all become a :py:class:`~roboto.exceptions.RobotoUnrecognizedErrorException`. It
+        carries whatever code and message could be read, and the value's own text as its message when no message
+        could be. A refused element therefore always appears in ``BatchResponse.failed``, so a caller that checks
+        ``failed`` cannot mistake a malformed refusal for success.
+
+        ``plain`` mode replaces the validation the ``error`` annotation would apply, which reads JSON text and would
+        reject the exception object this returns.
         """
         if value is None or isinstance(value, RobotoDomainException):
             return value
@@ -85,10 +94,10 @@ class BatchResponseElement(pydantic.BaseModel, typing.Generic[Model]):
         if not isinstance(envelope, dict):
             return RobotoUnrecognizedErrorException(message=raw_text)
 
-        # from_json raises ValueError on a code no class in this release matches or an envelope missing its
-        # code or message, and TypeError on an envelope field the matched class's constructor rejects. Every
-        # exception is swallowed: letting one escape a validator fails the parse of the whole batch, hiding
-        # the platform's refusal of this one element behind a pydantic error.
+        # from_json raises ValueError when no class in this SDK version matches the code or the envelope lacks its code
+        # or message, and TypeError when the matched class's constructor rejects an envelope field. Every exception is
+        # suppressed: one escaping a validator fails the parse of the whole batch, hiding Roboto's refusal of this one
+        # element behind a pydantic error.
         try:
             return RobotoDomainException.from_json(envelope)
         except Exception:
@@ -110,42 +119,49 @@ class BatchResponseElement(pydantic.BaseModel, typing.Generic[Model]):
         value: typing.Optional[RobotoDomainException],
         info: pydantic.SerializationInfo,
     ) -> typing.Optional[dict[str, typing.Any]]:
+        """Serialize ``error`` as the envelope :py:meth:`~roboto.exceptions.RobotoDomainException.to_dict` produces.
+
+        Pydantic calls this whenever an element is dumped, and ``validate_error`` reads the envelope back.
+        """
         return None if value is None else value.to_dict()
 
 
 class BatchResponse(pydantic.BaseModel, typing.Generic[Model]):
-    """
-    The response to a batch request, holding one element per request element, in the order the request sent them.
+    """Response to a batch request: the outcome of each request element, in the order the request sent them.
 
-    Every element of a batch is applied or refused on its own, so a batch can come back partly applied.
-    :py:attr:`succeeded` and :py:attr:`failed` split the outcomes for a caller that does not care which request
-    element produced which; read ``responses`` to trace an outcome back to the request element at its position.
+    Roboto applies or refuses each element on its own, so a batch can come back partly applied. ``succeeded`` and
+    ``failed`` split the outcomes for a caller that does not need to know which request element produced which;
+    ``responses`` traces each outcome back to the request element at the same position.
     """
 
     responses: list[BatchResponseElement[Model]]
+    """Outcome of each request element, at the same position as that element in the request."""
 
     @property
     def failed(self) -> list[RobotoDomainException]:
-        """The exception the platform reported for each element it refused, in request order."""
+        """Exception Roboto refused each refused element with, in request order."""
         return [element.error for element in self.responses if element.error is not None]
 
     @property
     def succeeded(self) -> list[Model]:
-        """The result the platform returned for each element it applied, in request order."""
+        """Result of each applied element, in request order.
+
+        Elements applied with no content to return appear in neither ``succeeded`` nor ``failed``.
+        """
         return [element.data for element in self.responses if element.data is not None]
 
     def map_data(self, transform: collections.abc.Callable[[Model], MappedModel]) -> "BatchResponse[MappedModel]":
-        """Convert what each applied element carries, leaving positions and failures untouched.
+        """Return a batch whose results are this batch's results passed through ``transform``.
 
-        A batch call parses the platform's answer into records and uses this to hand the caller domain objects
-        instead: a ``SessionRecord`` becomes a ``Session``. ``transform`` runs only on elements carrying data; a
-        refused element keeps its exception, and every element keeps its position.
+        ``Device.create_sessions`` turns each ``SessionRecord`` in Roboto's response into a ``Session`` through it, so
+        most code never calls it. ``transform`` runs only on elements that hold a result; a refused element keeps its
+        exception, and every element keeps its position.
 
         Args:
-            transform: Builds the domain object an applied element's record stands for.
+            transform: Function that builds the new result from an element's result.
 
         Returns:
-            A batch holding one element per element of this one, in the same order.
+            A new batch with one element per element of this one, in the same order. This batch is unchanged.
         """
         return BatchResponse[MappedModel](
             responses=[
@@ -158,16 +174,15 @@ class BatchResponse(pydantic.BaseModel, typing.Generic[Model]):
         )
 
     def single(self) -> Model:
-        """The result carried by the only element of a one-element batch.
+        """Return the result of the only element of a one-element batch.
 
-        A singular call such as :py:meth:`~roboto.domain.devices.Device.create_session` sends its one element
-        through the plural counterpart and unwraps the answer with this, so its caller gets a raised exception
-        rather than a batch to inspect.
+        ``Device.create_session`` returns the result of its one-element batch through it, so most code never calls it.
+        A refusal raises its exception instead of coming back inside a batch.
 
         Raises:
-            RobotoDomainException: Whatever the platform refused the element with.
-            RobotoInternalException: The batch does not hold exactly one element, or holds one carrying
-                neither a result nor an error.
+            RobotoDomainException: Roboto refused the element. The exception raised is the one Roboto reported.
+            RobotoInternalException: The batch does not hold exactly one element, or its element holds neither a
+                result nor an exception.
         """
         if len(self.responses) != 1:
             raise RobotoInternalException(f"Expected one response to a single-element batch, got {len(self.responses)}")
@@ -180,71 +195,85 @@ class BatchResponse(pydantic.BaseModel, typing.Generic[Model]):
 
 
 class PaginatedList(pydantic.BaseModel, typing.Generic[Model]):
-    """
-    A list of records pulled from a paginated result set.
-    It may be a subset of that result set,
-    in which case ``next_token`` will be set and can be used to fetch the next page.
-    """
+    """One page of a listing: the items on it, and a token that fetches the next page if there is one."""
 
     items: list[Model]
-    """Roboto entities in this page of results."""
+    """Items on this page."""
 
     next_token: typing.Optional[str] = None
-    """Opaque token to fetch the next page of results.
-
-    If ``None``, then this is the last page of results.
-    """
+    """Token that fetches the next page, or ``None`` if this is the last page. Pass it back unchanged."""
 
     total_count: typing.Optional[int] = None
-    """Total result set size, if available."""
+    """Number of items across every page, or ``None`` if the listing does not report it."""
 
 
 class StreamedList(pydantic.BaseModel, typing.Generic[Model]):
-    """
-    A StreamedList differs from a PaginatedList in that it represents a stream of data that is
-    in process of being written to. Unlike a result set, which is finite and complete,
-    a stream may be infinite, and it is unknown when or if it will complete.
+    """One read from a stream that may still be growing, such as the logs of an invocation that is running.
+
+    A ``PaginatedList`` pages through a fixed set of items. A stream can gain items between reads
+    and may never end, so a read that finds nothing more does not mean the stream is complete.
     """
 
     items: list[Model]
-    # Opaque token that can be used to fetch the next page of results.
+    """Items read from the stream."""
+
     last_read: typing.Optional[str]
-    # If True, it is known that there are more items to be fetched;
-    # use `last_read` as a pagination token to fetch those additional records.
-    # If False, it is not known if there are more items to be fetched.
+    """Token that marks the position after the last item read, to pass back to read the items that follow it.
+
+    ``None`` if Roboto returned no position to resume from.
+    """
+
     has_next: bool
+    """Whether more items are known to be available now, readable from ``last_read``.
+
+    ``False`` does not mean the stream has ended: more items may be written later.
+    """
 
 
 class PaginationTokenEncoding(enum.Enum):
-    """Pagination token encoding enum"""
+    """Encoding of the data a ``PaginationToken`` carries.
+
+    Roboto uses it when it builds and parses page tokens.
+    """
 
     Json = "json"
+    """Data serialized as JSON."""
+
     Raw = "raw"
+    """Data stored as a string, unchanged."""
 
 
 class PaginationTokenScheme(enum.Enum):
-    """Pagination token scheme enum"""
+    """Version of the ``PaginationToken`` format.
+
+    Roboto uses it when it builds and parses page tokens.
+    """
 
     V1 = "v1"
 
 
 class InvalidPaginationTokenError(ValueError):
-    """Raised when a pagination token cannot be parsed.
+    """The pagination token does not parse.
 
-    A pagination token is opaque to clients, so one that fails to decode or carries
-    an unsupported scheme reflects bad caller input — a fabricated, truncated, or
-    stale token — rather than a server fault. Subclasses ``ValueError`` so existing
-    callers that catch ``ValueError`` around :meth:`PaginationToken.from_token` keep
-    working unchanged, while callers that want to distinguish this recoverable
-    input error (e.g. to surface an actionable message instead of a generic 500 or
-    runtime exception) can catch it specifically.
+    ``PaginationToken.from_token`` raises it. Pagination tokens are opaque to callers, so one that does not decode or
+    names an unsupported scheme, such as a fabricated or truncated token, is an error in the caller's input rather than
+    a failure in Roboto. Subclasses ``ValueError``, so code that catches ``ValueError`` around ``from_token`` catches it
+    too.
     """
 
 
 class PaginationToken:
-    """
-    A pagination token that can be treated as a truly opaque token by clients,
-    with support for evolving the token format over time.
+    """Pagination token whose contents callers treat as opaque, with a version that lets its format change.
+
+    Roboto uses it to build and parse the page tokens some of its listings return; callers pass those tokens back
+    unchanged and have no reason to build one. ``to_token`` writes the scheme, the encoding and the data as
+    ``<scheme>:<encoding>:<data>``, in URL-safe Base64 without ``=`` padding.
+
+    Args:
+        scheme: Version of the token format.
+        encoding: How ``data`` is written into the token.
+        data: Data the token carries: a string for ``PaginationTokenEncoding.Raw``, or any JSON-serializable value
+            for ``Json``.
     """
 
     __scheme: PaginationTokenScheme
@@ -253,22 +282,32 @@ class PaginationToken:
 
     @staticmethod
     def empty() -> "PaginationToken":
+        """Return a token that carries no data."""
         return PaginationToken(PaginationTokenScheme.V1, PaginationTokenEncoding.Raw, None)
 
     @staticmethod
     def encode(data: str) -> str:
-        """Base64 encode the data and strip all trailing padding ("=")."""
+        """Return ``data`` in URL-safe Base64, with the trailing ``=`` padding removed."""
         return base64.urlsafe_b64encode(data.encode("utf-8")).decode("utf-8").rstrip("=")
 
     @staticmethod
     def decode(data: str) -> str:
-        """Base64 decode the data, adding back any trailing padding ("=") as necessary to make data properly Base64."""
+        """Return the text that URL-safe Base64 ``data`` encodes, restoring any trailing ``=`` padding it lacks."""
         while len(data) % 4 != 0:
             data += "="
         return base64.urlsafe_b64decode(data).decode("utf-8")
 
     @classmethod
     def from_token(cls, token: typing.Optional[str]) -> "PaginationToken":
+        """Parse a token string that ``to_token`` produced.
+
+        Args:
+            token: Token string to parse. ``None`` returns a token that carries no data.
+
+        Raises:
+            InvalidPaginationTokenError: ``token`` does not decode, does not name the ``v1`` scheme and a known
+                encoding, or carries JSON data that does not parse.
+        """
         if token is None:
             return PaginationToken.empty()
         try:
@@ -284,12 +323,19 @@ class PaginationToken:
                 pagination_token_encoding,
                 (json.loads(data) if pagination_token_encoding == PaginationTokenEncoding.Json else data),
             )
+        # Every failure above, the scheme check's own InvalidPaginationTokenError included, is re-raised as one
+        # InvalidPaginationTokenError without its cause; the warning logs the cause instead.
         except Exception as e:
             logger.warning(f"Invalid pagination token {token}", exc_info=e)
             raise InvalidPaginationTokenError("Invalid pagination token format") from None
 
     @classmethod
     def json_token(cls, data: typing.Any) -> "PaginationToken":
+        """Build a token that carries ``data`` serialized as JSON.
+
+        Args:
+            data: JSON-serializable data to carry.
+        """
         return cls(
             scheme=PaginationTokenScheme.V1,
             encoding=PaginationTokenEncoding.Json,
@@ -307,6 +353,7 @@ class PaginationToken:
         self.__data = data
 
     def __len__(self):
+        """Return the length of the token string, or 0 if the token carries no data, so such a token is falsy."""
         return len(str(self)) if self.__data else 0
 
     def __str__(self):
@@ -314,14 +361,26 @@ class PaginationToken:
 
     @property
     def data(self) -> typing.Any:
+        """Data the token carries, already deserialized when the encoding is ``Json``."""
         return self.__data
 
     def to_token(self) -> str:
+        """Render the token as the string ``from_token`` parses."""
         data = json.dumps(self.__data) if self.__encoding == PaginationTokenEncoding.Json else self.__data
         return PaginationToken.encode(f"{self.__scheme.value}:{self.__encoding.value}:{data}")
 
 
 class HttpResponse:
+    """Response to an HTTP request, with methods that parse its body.
+
+    Returned by the request methods of :py:class:`~roboto.http.RobotoClient` and :py:class:`~roboto.http.HttpClient`.
+    Each ``to_*`` method reads the body and closes the response, so call at most one of them per response. The
+    methods that build records raise ``pydantic.ValidationError`` when the body does not match the record type.
+
+    Args:
+        response: Response ``urllib`` returned, with its body not yet read.
+    """
+
     __response: urllib.response.addinfourl
 
     def __init__(self, response: urllib.response.addinfourl) -> None:
@@ -330,10 +389,12 @@ class HttpResponse:
 
     @property
     def readable_response(self) -> urllib.response.addinfourl:
+        """Response ``urllib`` returned, for reading the body directly."""
         return self.__response
 
     @property
     def status(self) -> http.HTTPStatus:
+        """HTTP status of the response. Reading it raises ``RuntimeError`` if the response has no status code."""
         status_code = self.__response.status
         if status_code is None:
             raise RuntimeError("Response has no status code")
@@ -341,9 +402,17 @@ class HttpResponse:
 
     @property
     def headers(self) -> typing.Optional[dict[str, str]]:
+        """Headers of the response, keyed by name. Of several headers with one name, the last is kept."""
         return dict(self.__response.headers.items())
 
     def to_paginated_list(self, record_type: typing.Type[PydanticModel]) -> PaginatedList[PydanticModel]:
+        """Parse the page in the body's ``data`` field, validating each of its items as ``record_type``.
+
+        The page's ``total_count`` is left ``None``, even when the body reports one.
+
+        Args:
+            record_type: Pydantic model to validate each item as.
+        """
         unmarshalled = self.to_dict(json_path=["data"])
         return PaginatedList(
             items=[record_type.model_validate(item) for item in unmarshalled["items"]],
@@ -355,6 +424,13 @@ class HttpResponse:
         record_type: typing.Type[PydanticModel],
         json_path: typing.Optional[collections.abc.Sequence[str]] = DEFAULT_RESPONSE_JSONPATH,
     ) -> PydanticModel:
+        """Parse the value at ``json_path`` in the body as one ``record_type``.
+
+        Args:
+            record_type: Pydantic model to validate the value as.
+            json_path: Keys leading from the top of the body to the value, outermost first. Defaults to the body's
+                ``data`` field. ``None`` parses the whole body.
+        """
         return record_type.model_validate(self.to_dict(json_path=json_path))
 
     def to_record_list(
@@ -362,12 +438,31 @@ class HttpResponse:
         record_type: typing.Type[PydanticModel],
         json_path: typing.Optional[collections.abc.Sequence[str]] = DEFAULT_RESPONSE_JSONPATH,
     ) -> list[PydanticModel]:
+        """Parse the list at ``json_path`` in the body, validating each of its items as ``record_type``.
+
+        Args:
+            record_type: Pydantic model to validate each item as.
+            json_path: Keys leading from the top of the body to the list, outermost first. Defaults to the body's
+                ``data`` field. ``None`` parses the whole body.
+        """
         return [record_type.model_validate(item) for item in self.to_dict(json_path=json_path)]
 
     def to_string_list(self) -> list[str]:
+        """Return the items of the list in the body's ``data`` field, each converted to a string."""
         return [str(item) for item in self.to_dict(json_path=["data"])]
 
     def to_dict(self, json_path: typing.Optional[collections.abc.Sequence[str]] = None) -> typing.Any:
+        """Parse the body as JSON and return it, or the value at ``json_path`` in it.
+
+        The value can be any JSON value, not only an object.
+
+        Args:
+            json_path: Keys leading from the top of the body to the value, outermost first. ``None`` returns the
+                whole body.
+
+        Returns:
+            The value at ``json_path``, or ``None`` if the path does not lead to a value.
+        """
         with self.__response:
             unmarshalled = json.loads(self.__response.read().decode("utf-8"))
             if json_path is None:
@@ -376,8 +471,14 @@ class HttpResponse:
             return get_by_path(unmarshalled, json_path)
 
     def to_string(self):
+        """Return the body decoded as UTF-8 text."""
         with self.__response:
             return self.__response.read().decode("utf-8")
 
     def to_int(self) -> int:
+        """Return the body parsed as an integer.
+
+        Raises:
+            ValueError: The body is not an integer.
+        """
         return int(self.to_string())

@@ -14,6 +14,7 @@ from ..context import CLIContext
 
 
 def get_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Print the logs the invocation has written so far, under a header naming each container that wrote them."""
     invocation = actions.Invocation.from_id(
         args.invocation_id,
         roboto_client=context.roboto_client,
@@ -26,11 +27,12 @@ def get_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.Arg
             print(f"{process_decorator} {log_record.process.value} {process_decorator}")
         else:
             if last_log.partial_id is not None and log_record.partial_id != last_log.partial_id:
-                # `last_record` was the last partial message from its group--print it
+                # last_log was the final part of a line split into several records. Only that part is
+                # printed, and only once a record from another group arrives.
                 print(last_log.log)
 
             if last_log.process != log_record.process:
-                print()  # Newline separate process output
+                print()  # Blank line between one container's output and the next.
                 print(f"{process_decorator} {log_record.process.value} {process_decorator}")
 
         if log_record.partial_id is None:
@@ -40,6 +42,10 @@ def get_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.Arg
 
 
 def stream_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Print the invocation's logs as it writes them, checking for new lines every 2 seconds until it ends.
+
+    Logs are grouped under container headers as ``get_logs`` prints them. Pressing Ctrl-C stops following early.
+    """
     invocation = actions.Invocation.from_id(
         args.invocation_id,
         roboto_client=context.roboto_client,
@@ -56,7 +62,7 @@ def stream_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.
                 while True:
                     log_record = next(log_record_generator)
                     if wait_msg:
-                        # Clear wait message
+                        # Overwrite the `Waiting for logs...` line with spaces.
                         print("\r", " " * len(wait_msg), end="\r", flush=True)
                         wait_msg = ""
 
@@ -64,11 +70,12 @@ def stream_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.
                         print(f"{process_decorator} {log_record.process.value} {process_decorator}")
                     else:
                         if last_log.partial_id is not None and log_record.partial_id != last_log.partial_id:
-                            # `last_record` was the last partial message from its group--print it
+                            # last_log was the final part of a line split into several records. Only that part is
+                            # printed, and only once a record from another group arrives.
                             print(last_log.log)
 
                         if last_log.process != log_record.process:
-                            print()  # Newline separate process output
+                            print()  # Blank line between one container's output and the next.
                             print(f"{process_decorator} {log_record.process.value} {process_decorator}")
 
                     if log_record.partial_id is None:
@@ -76,6 +83,7 @@ def stream_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.
 
                     last_log = log_record
             except StopIteration as stop:
+                # The generator has yielded every line written so far; its return value resumes after them.
                 if invocation.reached_terminal_status:
                     break
 
@@ -87,7 +95,7 @@ def stream_logs(args: argparse.Namespace, context: CLIContext, parser: argparse.
                 time.sleep(2)
                 invocation.refresh()
     except KeyboardInterrupt:
-        pass  # Swallow
+        pass  # Exit without printing a traceback.
 
     if wait_msg:
         print("\r", " " * len(wait_msg), end="\r", flush=True)

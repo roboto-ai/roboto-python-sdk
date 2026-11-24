@@ -12,7 +12,12 @@ if sys.version_info >= (3, 11):
 else:
 
     class StrEnum(str, enum.Enum):
-        """Compatibility StrEnum for Python < 3.11"""
+        """Base class of enums whose members are strings, for Python 3.10, which lacks ``enum.StrEnum``.
+
+        ``str()`` of a member returns its value, as with ``enum.StrEnum``. Unlike ``enum.StrEnum``, ``enum.auto()``
+        gives a member a number as a string (``"1"``) rather than its lowercased name, so give each member an explicit
+        value.
+        """
 
         def __str__(self) -> str:
             return self.value

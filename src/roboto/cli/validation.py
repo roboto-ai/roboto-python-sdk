@@ -13,8 +13,14 @@ from .terminal import print_error_and_exit
 
 
 class pydantic_validation_handler(contextlib.AbstractContextManager):
-    """
-    Context manager to catch Pydantic validation errors and print the first error neatly to stderr.
+    """Context manager that turns a ``pydantic.ValidationError`` into an error message on stderr and exit status 1.
+
+    When the body raises ``pydantic.ValidationError``, it prints ``Error parsing <parseable_name>`` and the first
+    validation error, prefixed with the dot-delimited path to the invalid field. Any other exception propagates.
+
+    Args:
+        parseable_name: Name of the value the body parses, shown in the error message. ``None`` shows
+            ``Roboto model``.
     """
 
     __parseable_name: str = "Roboto model"

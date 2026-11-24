@@ -32,6 +32,15 @@ from ..validation import (
 
 
 def update(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Update the ``--org`` organization's action with the given name, then print its record as JSON.
+
+    Only the properties the options name change. A compute requirement or container parameter left out keeps the
+    action's current value. An empty ``--description`` or ``--short-description`` clears it, as ``null`` does. Exits
+    with status 1 when the options request no change.
+
+    Raises:
+        ValueError: ``--image`` is empty or only whitespace.
+    """
     action = actions.Action.from_name(
         name=args.action,
         owner_org_id=args.org,
@@ -156,13 +165,13 @@ def update_parser(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--put-tags",
         help="Add each tag in this sequence if it doesn't exist",
-        nargs="*",  # 0 or more
+        nargs="*",
     )
 
     parser.add_argument(
         "--remove-tags",
         help="Remove each tag in this sequence if it exists",
-        nargs="*",  # 0 or more
+        nargs="*",
     )
 
     parser.add_argument(

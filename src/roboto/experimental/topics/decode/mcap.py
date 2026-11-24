@@ -38,20 +38,40 @@ if typing.TYPE_CHECKING:
 
 
 class McapFileDecoder(FileDecoder):
-    """Decodes one MCAP file of a partition through a cursor of the ``mcap_codec`` Rust extension.
+    """Decoder that reads one MCAP file of a partition through a cursor of the ``mcap_codec`` package.
 
-    The cursor reads the MCAP channel on the group's topic, or the file's only channel when the group names no topic.
-    The codec reads the fields the group supplies, keeps only the rows at the positions of the partition's
-    ``data_range`` when it has one, shifts each timestamp by the partition's ``time_offset_ns``, and keeps the rows in
-    the window.
-    The cursor reads the file's summary when it opens, then only the chunks that hold the topic's messages
-    (for a log-time timestamp, only those whose log times can fall in the window), all downloaded before the first
-    batch is decoded.
+    ``make_file_decoder_opener`` builds one for each MCAP file a read takes.
 
-    Iterating :py:meth:`batches` raises :py:class:`~roboto.exceptions.RobotoReadPlanExecutionException` with kind
-    ``invalid-timestamp`` at the first row whose timestamp the codec cannot read as signed 64-bit nanoseconds once
-    shifted (a value of the wrong type, NaN or infinite, or out of range), and
-    :py:class:`~roboto.exceptions.RobotoInternalException` when the codec cannot read a message.
+    The cursor reads the channel on the group's topic, or the file's only channel when the group names no topic. It
+    reads the fields the group supplies, keeps only the rows at the positions of the partition's ``data_range`` when it
+    has one, adds the partition's ``time_offset_ns`` to each timestamp, and keeps the rows in the window.
+
+    Opening the decoder reads the file's summary. The first batch then waits until every chunk that holds the topic's
+    messages is downloaded; for a log-time timestamp, only the chunks whose log times can fall in the window.
+
+    Iterating ``batches`` raises :py:class:`~roboto.exceptions.RobotoReadPlanExecutionException` with kind
+    :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.INVALID_TIMESTAMP` at the first row whose timestamp has no
+    signed 64-bit nanosecond value once shifted: a value of the wrong type, NaN or infinite, or out of range. It raises
+    :py:class:`~roboto.exceptions.RobotoInternalException` when the codec cannot read a message. Either exception has
+    the ``mcap_codec.CodecError`` as its ``__cause__``.
+
+    Args:
+        group: Scan tasks that read the file, and the fields they supply.
+        partition: Partition the file belongs to.
+        window: Window of the partition's rows to keep, in nanoseconds since the Unix epoch, both ends included.
+        params: How to reach the file.
+
+    Raises:
+        ImportError: The ``roboto[analytics]`` extra is not installed.
+        RobotoReadPlanExecutionException: With kind ``UNSUPPORTED_TIMESTAMP``, before the file is opened, when the
+            partition's timestamp is not a message log time, a message publish time or a schema field, is a schema
+            field with no path, or has a unit other than s, ms, us or ns. With kind ``FIELD_NOT_IN_FILE``, when the
+            file lacks a supplied field or the timestamp field. With kind ``DATA_RANGE_NOT_IN_FILE``, when the
+            partition's ``data_range`` ends past the topic's messages in the file. The last two have the
+            ``mcap_codec.CodecError`` as their ``__cause__``.
+        RobotoInternalException: The codec cannot open the file for another reason. Its ``__cause__`` is the
+            ``mcap_codec.CodecError``, whose ``code`` is an ``mcap_codec.ErrorCode`` such as ``UNKNOWN_CHANNEL``,
+            ``AMBIGUOUS_CHANNEL``, ``UNSUPPORTED_MCAP_LAYOUT`` or ``UNSUPPORTED_ENCODING``.
     """
 
     def __init__(
@@ -61,27 +81,10 @@ class McapFileDecoder(FileDecoder):
         window: TimeWindow,
         params: FileDecodeParams,
     ) -> None:
-        """Open the file's cursor.
-
-        Args:
-            group: The scan tasks that read the file, and the fields they supply.
-            partition: The partition the file belongs to.
-            window: The partition's absolute window, both ends included.
-            params: How to reach the file.
-
-        Raises:
-            RobotoReadPlanExecutionException: With kind ``unsupported-timestamp`` for a timestamp kind other than a
-                message log time, message publish time or schema field, a schema field with no path, or a plan unit
-                other than s, ms, us or ns; then with kind ``field-not-in-file`` for a supplied field or the timestamp
-                field that the file lacks; then with kind ``data-range-not-in-file`` for a ``data_range`` that ends
-                past the topic's messages in the file, with the :py:class:`mcap_codec.CodecError` as its ``__cause__``.
-            RobotoInternalException: The codec cannot open the file. Its ``__cause__`` is the
-                :py:class:`mcap_codec.CodecError`, whose ``code`` is for example ``unknown_channel``,
-                ``ambiguous_channel``, ``unsupported_mcap_layout`` or ``unsupported_encoding``.
-        """
-        # The codec needs PyArrow to read a file; this raises an ImportError naming the SDK extra that installs it.
+        # The codec yields PyArrow batches. Checking here makes a missing PyArrow name the roboto[analytics] extra
+        # rather than the codec's own extra.
         import_optional_dependency("pyarrow", "analytics")
-        # Imported here so the Rust extension loads only when an MCAP file is read.
+        # Imported here so the compiled codec loads only when a read opens an MCAP file.
         import mcap_codec
 
         self.__group = group
@@ -127,9 +130,9 @@ class McapFileDecoder(FileDecoder):
     def batches(self) -> collections.abc.Iterator["pyarrow.RecordBatch"]:
         import mcap_codec
 
-        # Download exactly the Chunk records the cursor will ask for, so its reads are answered from memory.
-        # A read that misses the reader's cache also downloads up to 8 MiB past it, which can hold chunks the
-        # cursor skips.
+        # Download exactly the Chunk records the cursor will read, so the reader answers its reads from memory.
+        # Without this, a read the reader's cache cannot serve fetches 8 MiB from its position, which can include
+        # chunks the cursor skips.
         for offset, length in self.__cursor.chunk_ranges:
             self.__http_reader.prefetch_range(offset, offset + length - 1)
         try:
@@ -155,12 +158,12 @@ class McapFileDecoder(FileDecoder):
         return names
 
     def __open_error(self, exc: "mcap_codec.CodecError") -> Exception:
-        """The read's exception for a failure of the codec to open the file."""
+        """Return the exception to raise when the codec cannot open the file."""
         import mcap_codec
 
         data_range = self.__partition.data_range
-        # The plan's models refuse a window or a data_range that ends before it starts, so the one input the codec can
-        # refuse at open is a data_range ending past the topic's messages in the file.
+        # The plan's models reject a window or a data_range that ends before it starts, so the one input the codec can
+        # reject at open is a data_range that ends past the topic's messages in the file.
         if exc.code == mcap_codec.ErrorCode.INVALID_INPUT and data_range is not None:
             start, end = data_range
             return RobotoReadPlanExecutionException(
@@ -172,7 +175,7 @@ class McapFileDecoder(FileDecoder):
         return self.__read_error(exc)
 
     def __read_error(self, exc: "mcap_codec.CodecError") -> Exception:
-        """The read's exception for a failure of the codec."""
+        """Return the exception to raise for a failure the codec reports while it opens or reads the file."""
         import mcap_codec
 
         topic_part_id = self.__partition.topic_part_id
@@ -194,11 +197,11 @@ class McapFileDecoder(FileDecoder):
 
 
 def _projection(supplies: collections.abc.Sequence[SuppliedField]) -> "mcap_codec.Projection":
-    """The codec projection of the supplied fields: each at its path, less its excluded fields.
+    """Build the codec's projection of the supplied fields: each at its path, less its excluded fields.
 
-    The codec keeps a field when the longest include or exclude path at or above it is an include.
-    An exclude wins over an equal include, so a path one supplied field excludes is left out of ``exclude`` when
-    another supplied field is at that path.
+    The codec keeps a field when, of the include and exclude paths that name it or one of its ancestors, the longest is
+    an include. An exclude wins over an equal include, so a path one supplied field excludes is left out of
+    ``exclude`` when another supplied field is at that path.
     """
     import mcap_codec
 
@@ -208,11 +211,12 @@ def _projection(supplies: collections.abc.Sequence[SuppliedField]) -> "mcap_code
 
 
 def _timestamp_source(partition: ReadPlanPartition) -> "mcap_codec.TimestampSource":
-    """The codec's timestamp source for the partition.
+    """Build the codec's timestamp source for the partition.
 
-    Raises:
-        RobotoReadPlanExecutionException: With kind ``unsupported-timestamp`` for a kind other than a message time
-            or a schema field, a schema field without a path, or a unit other than s, ms, us or ns.
+    Raises :py:class:`~roboto.exceptions.RobotoReadPlanExecutionException` with kind
+    :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.UNSUPPORTED_TIMESTAMP` when the timestamp's kind is not a
+    message log time, a message publish time or a schema field, when a schema field has no path, or when the unit is
+    not s, ms, us or ns.
     """
     import mcap_codec
 

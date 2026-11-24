@@ -20,16 +20,15 @@ from ..sentinels import NotSet, is_set
 
 
 def make_cli_client(endpoint: str, token: str, default_timeout: Timeout = NotSet) -> RobotoClient:
-    """Build a client that authenticates with ``token`` and tells the Roboto API its requests come from the CLI.
+    """Build a client that authenticates with ``token`` and tells Roboto its requests come from the CLI.
 
     Args:
         endpoint: Base URL of the Roboto API, such as ``https://api.roboto.ai``.
-        token: Roboto access token.
         default_timeout: Seconds to wait for each request before giving up, as ``ROBOTO_DEFAULT_HTTP_TIMEOUT`` or
             a config file profile's ``default_http_timeout`` sets it. ``None`` or ``NotSet`` waits indefinitely.
 
     Raises:
-        RobotoDeprecatedException: ``token`` is in the format Roboto retired in March 2024.
+        RobotoDeprecatedException: ``token`` begins with ``robo_pat``, a format Roboto retired in March 2024.
     """
     return RobotoClient(
         endpoint=endpoint,
@@ -45,8 +44,8 @@ def cli_roboto_env(config_file: typing.Optional[pathlib.Path]) -> RobotoEnv:
     """Return the process's Roboto environment variables, with ``config_file`` in place of ``ROBOTO_CONFIG_FILE``.
 
     Args:
-        config_file: The path given with the CLI's global ``--config-file`` option, or ``None`` when it wasn't given,
-            which keeps ``ROBOTO_CONFIG_FILE`` as it is.
+        config_file: Path given with the CLI's global ``--config-file`` option. ``None`` keeps ``ROBOTO_CONFIG_FILE``
+            as it is.
     """
     env = RobotoEnv.default()
     if config_file is None:
@@ -55,14 +54,23 @@ def cli_roboto_env(config_file: typing.Optional[pathlib.Path]) -> RobotoEnv:
 
 
 class CLIContext:
+    """Shared state of the CLI's commands: the configuration, the client built from it, and each extension's context.
+
+    The CLI's entry point fills it after parsing arguments, and only for commands that need a configuration. For any
+    other command, its attributes stay unset.
+    """
+
     __roboto_service_base_url: typing.Optional[str]
     __http: typing.Optional[HttpClient]
     extensions: dict[str, typing.Any]
+    """Context of each CLI extension, keyed by the extension's name."""
+
     roboto_client: RobotoClient
     roboto_config: RobotoConfig
 
     @property
     def roboto_service_base_url(self) -> str:
+        """Unused. Base URL of the Roboto API, which nothing in the CLI sets or reads."""
         if self.__roboto_service_base_url is None:
             raise ValueError("roboto_service_base_url is unset")
 
@@ -74,7 +82,6 @@ class CLIContext:
 
     @property
     def http_client(self) -> HttpClient:
-        # The CLI's entry point sets this after parsing arguments, and only for commands that take a context.
         if self.__http is None:
             raise ValueError("Unset HTTP client!")
 

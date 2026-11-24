@@ -4,21 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Example: AgentThread with client-side tools.
-
-Demonstrates how to expose Python functions as client-side tools that the
-Roboto agent can invoke. This example implements two toy memory tools
-(``remember`` and ``recall``) backed by a local markdown file as the
-knowledge store.
-
-Running this script requires programmatic access to a Roboto deployment:
-    https://docs.roboto.ai/getting-started/programmatic-access.html
-
-Then:
-
-    python packages/roboto/examples/agent_thread_client_tools.py
-"""
-
 from __future__ import annotations
 
 import pathlib
@@ -33,7 +18,7 @@ from roboto.ai.agent_thread import (
     AgentToolUseEvent,
 )
 
-# Anchor the KB file next to the script so running from any cwd is consistent.
+# Next to this script, so that the tools read and write the same file from any working directory.
 KB_FILE = pathlib.Path(__file__).with_name("knowledge.md")
 
 
@@ -55,7 +40,7 @@ def recall(query: str) -> str:
     """Search long-term memory for facts matching a substring.
 
     Args:
-        query: A substring to search for (case-insensitive).
+        query: Substring to search for, ignoring case.
     """
     if not KB_FILE.exists():
         return "no facts recorded yet"
@@ -78,8 +63,18 @@ def _print_event(event: AgentEvent) -> None:
 
 
 def main() -> None:
-    # Clear the KB so re-running the demo produces a clean recall sequence
-    # rather than surfacing stale facts from prior runs.
+    """Ask Roboto's AI to store a fact and recall it with two client tools, and print the thread as it runs.
+
+    A client tool is a Python function that the AI asks the caller to run. Whenever the AI requests ``remember`` or
+    ``recall``, ``AgentThread.run`` calls it in this process and submits its result to the AI. The tools keep facts as
+    lines of a Markdown file, ``knowledge.md``, next to this script.
+
+    Running it requires programmatic access to Roboto:
+    https://docs.roboto.ai/getting-started/programmatic-access.html
+
+    Run it with ``python packages/roboto/examples/agent_thread_client_tools.py``.
+    """
+    # Delete the facts earlier runs stored, so that recall finds only the one this run stores.
     if KB_FILE.exists():
         KB_FILE.unlink()
 

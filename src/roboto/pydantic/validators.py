@@ -8,27 +8,27 @@ import pydantic
 
 
 def remove_non_noneable_init_args(data: dict, model: pydantic.BaseModel) -> dict:
-    """
-    Remove keys from ``data`` (e.g., kwargs passed to ``__init__``) set to ``None``
-    that are not allowed to be ``None`` according to ``model``'s type definition.
+    """Return ``data`` without the ``None`` values that ``model``'s fields do not accept.
 
-    This is particularly useful when marshalling data from the database into a
-    Pydantic model. If a database row has a ``NULL`` value for a
-    field that is not nullable, this function can be used to filter out those ``None``
-    values before passing the data to the model's ``__init__`` method.
+    Call it from a model's ``__init__`` so that a ``None`` passed for a field whose type excludes ``None`` falls back
+    to the field's default instead of failing validation. A field accepts ``None`` only when its annotation is a union
+    that includes ``None``, such as ``typing.Optional[str]``; a field annotated ``typing.Any`` does not count. A
+    ``None`` for a key that names no field of ``model`` is removed too.
 
-    Example usage:
+    Args:
+        data: Keyword arguments passed to the model's ``__init__``. It is not modified.
+        model: Model whose field annotations decide which ``None`` values to keep, usually the instance being built.
 
-    >>> class Foo(pydantic.BaseModel):
-    ...     a: int = 3
-    ...
-    ...     def __init__(self, **kwargs):
-    ...         filtered_kwargs = remove_non_noneable_init_args(kwargs, self)
-    ...         super().__init__(**filtered_kwargs)
-    >>> Foo(a=None)
-    Foo(a=3, b='bar')
+    Examples:
+        Without the filter, ``Foo(a=None)`` raises ``pydantic.ValidationError``:
 
-    Without this function, the above would raise a ``ValidationError``.
+        >>> class Foo(pydantic.BaseModel):
+        ...     a: int = 3
+        ...
+        ...     def __init__(self, **kwargs):
+        ...         super().__init__(**remove_non_noneable_init_args(kwargs, self))
+        >>> Foo(a=None)
+        Foo(a=3)
     """
 
     def _field_allows_none(field_name):
@@ -36,10 +36,9 @@ def remove_non_noneable_init_args(data: dict, model: pydantic.BaseModel) -> dict
         if field is None:
             return False
 
-        # Allows none if field annotation is a union type and None is one of the types in the union
+        # An annotation with no type arguments, such as int, has no __args__; the AttributeError means the
+        # field does not accept None.
         try:
-            # After dropping 3.9 support, add `isinstance(field.annotation, types.UnionType)`
-            # to this statement to remove the `# type: ignore` and ditch the try/except.
             return type(None) in field.annotation.__args__  # type: ignore
         except AttributeError:
             return False
@@ -48,6 +47,17 @@ def remove_non_noneable_init_args(data: dict, model: pydantic.BaseModel) -> dict
 
 
 def validate_nonzero_gitpath_specs(value: list[str]) -> list[str]:
+    """Reject a list of gitignore-style patterns that is empty or holds only blank strings.
+
+    Args:
+        value: Patterns to check.
+
+    Returns:
+        ``value``, unchanged.
+
+    Raises:
+        ValueError: ``value`` is empty, or every pattern in it is empty or only whitespace.
+    """
     filtered = list(filter(lambda p: p.strip() != "", value))
 
     if len(value) == 0:

@@ -17,135 +17,171 @@ from ...pydantic.serializers import field_serializer_custom_field_values
 from ..ingestion_runs import IngestionRun
 
 MAX_INACTIVITY_MINUTES = 7 * 24 * 60
-"""Longest inactivity a :py:class:`CompletionPolicy` may wait for: one week."""
+"""Maximum inactivity of a ``CompletionPolicy``, in minutes: 10,080, one week."""
 
 
 class CompletionPolicy(pydantic.BaseModel):
-    """When Roboto marks a session complete on its own.
+    """Rule by which Roboto marks a session complete after a period with no new files.
 
-    A session's completion policy is set when the session is created and can be changed with an
-    update. Roboto marks the session complete once ``inactivity_minutes`` have passed since a file
-    was last added to it, or since the policy was changed, whichever is later. A session
-    that no file has been added to yet is not completed this way. Adding a file to a session Roboto
-    completed puts it back in progress, and Roboto marks it complete again after the same inactivity.
+    Carried in ``SessionRecord.completion_policy``. Set it when you create a session, with
+    :py:meth:`~roboto.experimental.sessions.Session.create`, or change it with
+    :py:meth:`~roboto.experimental.sessions.Session.update`. Building one raises ``pydantic.ValidationError`` when
+    ``inactivity_minutes`` is less than 1 or more than 10,080 (``MAX_INACTIVITY_MINUTES``).
+
+    Roboto marks the session complete once ``inactivity_minutes`` have passed since a file was last added to it, or
+    since the policy was changed, whichever is later. A session that no file has been added to yet is not completed
+    this way. Adding a file to a session Roboto completed puts it back in progress, and Roboto marks it complete again
+    after the same inactivity.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     inactivity_minutes: int = pydantic.Field(ge=1, le=MAX_INACTIVITY_MINUTES)
-    """Minutes without a new file after which Roboto marks the session complete."""
+    """Number of minutes without a new file after which Roboto marks the session complete, from 1 to 10,080."""
 
 
 class SessionStatus(StrEnum):
-    """Whether a session is still receiving files."""
+    """Status of a session: whether more of its files are expected."""
 
     InProgress = "in_progress"
-    """Files may still be added. Roboto does not announce the session ingested."""
+    """Session that may still gain files. Roboto does not announce an in-progress session ingested."""
 
     Complete = "complete"
-    """All of the session's files have been added. Roboto announces ``session.ingested`` once every
-    ingestable file in it is ingested."""
+    """Session whose files have all been added, marked complete by request or by its completion policy.
+
+    Roboto announces it ingested, with a ``session.ingested`` platform event, once every ingestable file it waits
+    for is ingested.
+    """
 
 
 class SessionRecord(pydantic.BaseModel):
-    """Wire-format row for a session: an operational time window of a Device such as a drone flight,
-    a vehicle drive, or a robot run.
+    """Data record of a session, as the Roboto API returns it.
 
-    A Session unifies the recordings and auxiliary data produced during its window;
-    it may span many files or cover only a slice of one.
+    A session is an operational time window of a device, such as a drone flight, a vehicle drive, or a robot run. It
+    groups the recordings and other data produced during that window, and can span many files or hold only part of
+    one. :py:class:`~roboto.experimental.sessions.Session` wraps this record with methods that act on the session, and
+    exposes it as :py:attr:`~roboto.experimental.sessions.Session.record`. Building a record raises
+    ``pydantic.ValidationError`` when ``name`` is longer than 120 characters.
 
-    ``min_timestamp_ns`` and ``max_timestamp_ns`` span every file the Session holds: each file supplies the
-    time window stated for it or, without one, the time span of the data the Session takes from it. The
-    platform recomputes them in the same write as any change to the Session's files or to the anchors of
-    their data, so the row never disagrees with its contents.
+    Roboto announces a complete session ingested, with a ``session.ingested`` platform event, once every
+    :py:attr:`~roboto.domain.files.FileRecord.ingestable` file it waits for is ingested. ``ingested_at`` and
+    ``ingestion_count`` record those announcements.
+
+    ``min_timestamp_ns`` and ``max_timestamp_ns`` span every file the session holds: each file supplies the time
+    window stated for it or, without one, the time span of the data the session takes from it. Roboto recomputes
+    them in the same write as any change to the session's files or to the wall-clock anchors of their data, so they
+    always match the session's files.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     completed_at: typing.Optional[datetime.datetime] = None
-    """When the session was last marked complete. ``None`` if it never was. Adding a file to a complete
-    session puts it back in progress and keeps this value, so check ``status`` to tell whether the session
-    is complete now."""
+    """Time the session was last marked complete, or ``None`` if it never has been.
+
+    Adding a file to a complete session puts it back in progress and keeps this value, so read ``status`` to tell
+    whether the session is complete now.
+    """
 
     completed_by: typing.Optional[str] = None
-    """User ID or service account that last marked the session complete. ``None`` if it never was."""
+    """Principal that last marked the session complete, or ``None`` if the session never has been.
+
+    The principal is in the same ``<type>:<id>`` form as ``created_by``, and is Roboto's own system user when Roboto
+    made the change.
+    """
 
     completes_at: typing.Optional[datetime.datetime] = None
-    """When Roboto will mark the session complete unless another file is added first. ``None`` while the
-    session is complete, has no completion policy, or has no files."""
+    """Time Roboto will mark the session complete unless another file is added first.
+
+    ``None`` while the session is complete, has no completion policy, or has no files.
+    """
 
     completion_policy: typing.Optional[CompletionPolicy] = None
-    """When Roboto marks the session complete on its own. ``None``: the session is marked complete only
-    by request."""
+    """Rule by which Roboto marks the session complete on its own, or ``None`` if the session has none.
+
+    A session without one is marked complete only by request, with
+    :py:meth:`~roboto.experimental.sessions.Session.complete`.
+    """
 
     created: typing.Optional[datetime.datetime] = None
-    """When the session was created."""
+    """Time the session was created."""
 
     created_by: str
-    """User ID or service account that created the session."""
+    """Principal that created the session, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     custom_fields: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Values for the custom fields defined on Sessions in this org.
+    """Values of the custom fields the organization defines for sessions, keyed by field name.
 
-    Every ``Ready`` custom field defined for ``(org_id, Session)`` appears as a
-    key; values that have not been set surface as ``None`` rather than being
-    absent. Empty when no custom fields are defined for the org.
+    Every session custom field in the :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` state appears
+    as a key, mapped to ``None`` when the session has no value for it. Fields in any other state are absent, so the
+    map is empty when no session custom field is in that state.
     """
 
     description: typing.Optional[str] = None
-    """Optional description of the Session."""
+    """Human-readable description of the session, or ``None`` if it has none."""
 
     ingested_at: typing.Optional[datetime.datetime] = None
-    """When the session was last announced ingested. ``None`` until the first announcement."""
+    """Time Roboto last announced the session ingested, or ``None`` if it never has."""
 
     ingestion_count: int = 0
-    """How many times the session has been announced ingested. Each announcement fires a
-    ``session.ingested`` event. A session is announced again when it is put back in progress and marked
-    complete again, or when its ingestable files change while it is complete, once they are all ingested
-    again. A file uploaded again, removed, or deleted changes them; editing a file's tags, metadata, or
-    description does not."""
+    """Number of times Roboto has announced the session ingested.
+
+    Roboto announces a session again when it is put back in progress and marked complete again, or when its
+    ingestable files change while it is complete, once they are all ingested again. Uploading a file again, removing
+    it, or deleting it changes them; editing a file's tags, metadata, or description does not.
+    """
 
     max_timestamp_ns: typing.Optional[int] = None
-    """Latest time covered by the Session, in Unix-epoch nanoseconds. ``None`` while none of its files
-    supplies a time: the Session holds no files, or only files added without a time window whose topic data
-    has no time span registered yet."""
+    """Latest time covered by the session, in nanoseconds since the Unix epoch.
+
+    ``None`` while none of its files supplies a time: the session holds no files, or only files added without a time
+    window whose topic data has no time span registered yet.
+    """
 
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """User-supplied metadata.
+    """Key-value metadata on the session.
 
-    Sessions cannot be filtered or sorted by ``metadata`` keys;
-    for queryable structured attributes, define a custom field on the ``Session`` entity type.
+    Sessions cannot be filtered or sorted by metadata keys. To query a structured attribute of sessions, define a
+    custom field for sessions instead.
     """
 
     min_timestamp_ns: typing.Optional[int] = None
-    """Earliest time covered by the Session, in Unix-epoch nanoseconds. ``None`` while none of its files
-    supplies a time: the Session holds no files, or only files added without a time window whose topic data
-    has no time span registered yet."""
+    """Earliest time covered by the session, in nanoseconds since the Unix epoch.
+
+    ``None`` while none of its files supplies a time: the session holds no files, or only files added without a time
+    window whose topic data has no time span registered yet.
+    """
 
     modified: typing.Optional[datetime.datetime] = None
-    """When the Session was last modified."""
+    """Time the session was last modified."""
 
     modified_by: str
-    """User ID or service account that last modified the Session."""
+    """Principal that last modified the session, in the same ``<type>:<id>`` form as ``created_by``.
+
+    It is Roboto's own system user when Roboto made the change.
+    """
 
     name: typing.Optional[str] = pydantic.Field(default=None, max_length=120)
-    """A short, human-readable name for the Session. If provided, must be 120 characters or less."""
+    """Human-readable name of the session, at most 120 characters, or ``None`` if it has none.
+
+    Roboto does not require names to be unique.
+    """
 
     org_id: str
-    """Organization that owns the Session."""
+    """ID of the organization that owns the session."""
 
     session_id: str
-    """Stable, unique identifier for the Session."""
+    """Unique ID of the session, beginning with ``se_``."""
 
     status: SessionStatus = SessionStatus.InProgress
-    """Whether the session is in progress or complete. Adding a file to a complete session puts it back
-    in progress."""
+    """Status of the session: whether more of its files are expected.
+
+    Adding a file to a complete session puts it back in progress.
+    """
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """User-supplied tags.
+    """Tags on the session.
 
-    Sessions can be filtered by tag membership (e.g., ``tags CONTAINS '<tag>'``)
-    but are not sortable by tag.
+    A RoboQL query can filter sessions by tag, as in ``tags CONTAINS '<tag>'``, but cannot sort them by tag.
     """
 
     @pydantic.field_serializer("custom_fields", when_used="json")
@@ -154,349 +190,419 @@ class SessionRecord(pydantic.BaseModel):
 
 
 class SessionIngestionState(StrEnum):
-    """Where a session's ingestion stands."""
+    """Ingestion state of a session: whether it is in progress, waiting for files to be ingested, or ingested.
+
+    Only files that are :py:attr:`~roboto.domain.files.FileRecord.ingestable`, and that the session was not told to
+    stop waiting for, decide the state.
+    """
 
     InProgress = "in_progress"
-    """The session is in progress, so it is not announced ingested."""
+    """Session in progress, which Roboto does not announce ingested."""
 
     Processing = "processing"
-    """The session is complete and at least one of its ingestable files is not ingested yet."""
+    """Complete session with at least one file it waits for that is not ingested yet."""
 
     Ingested = "ingested"
-    """The session is complete and every ingestable file in it is ingested."""
+    """Complete session whose files it waits for are all ingested."""
 
 
 class PendingIngestionFile(pydantic.BaseModel):
-    """A file in a session that is ingestable and not ingested yet."""
+    """Ingestable file of a session that is not ingested yet, which the session waits for.
+
+    Carried in ``SessionIngestionStatus.pending_files``.
+    """
 
     file_id: str
     """ID of the file."""
     relative_path: str
-    """Path of the file within its dataset, device, or org."""
+    """Path of the file from the root of its dataset's, device's, or organization's files."""
     ingestion_status: IngestionStatus
-    """How much of the file's current version is ingested: not at all, or partly."""
+    """How much of the file's current version is ingested.
+
+    Either none of it (:py:attr:`~roboto.domain.files.IngestionStatus.NotIngested`) or part of it
+    (``PartlyIngested``).
+    """
     uploaded: typing.Optional[datetime.datetime] = None
-    """When the file's current version was uploaded."""
+    """Time the file's current version was uploaded."""
     last_run: typing.Optional[IngestionRun] = None
-    """The latest time an ingestion rule's trigger ran on the file. ``None`` when none has."""
+    """Latest run of an ingestion rule's trigger on the file's current version, or ``None`` if none has run."""
 
 
 class SkippedIngestionFile(pydantic.BaseModel):
-    """A file in a session that is ingestable and not ingested, which the session no longer waits for.
+    """Ingestable file of a session that is not ingested, which the session was told to stop waiting for.
 
-    The skip covers the upload of the file that was current when it was made: editing the file's tags,
-    metadata, or description keeps it, and uploading the file again ends it."""
+    Carried in ``SessionIngestionStatus.skipped_files``.
+    :py:meth:`~roboto.experimental.sessions.Session.skip_waiting_for` stops a session waiting for a file. The skip
+    covers the version of the file that was current when it was made: editing the file's tags, metadata, or
+    description keeps it, and uploading the file again ends it.
+    """
 
     file_id: str
     """ID of the file."""
     relative_path: str
-    """Path of the file within its dataset, device, or org."""
+    """Path of the file from the root of its dataset's, device's, or organization's files."""
     skipped_at: typing.Optional[datetime.datetime] = None
-    """When the session was told to stop waiting for the file."""
+    """Time the session was told to stop waiting for the file."""
     skipped_by: typing.Optional[str] = None
-    """User ID or service account that told the session to stop waiting for the file."""
+    """Principal that told the session to stop waiting for the file.
+
+    It is written as ``<type>:<id>``, such as ``user:<user_id>``.
+    """
 
 
 class SessionIngestionStatus(pydantic.BaseModel):
-    """Where a session stands in ingestion, with the files it is still waiting for.
+    """Response body of :py:meth:`~roboto.experimental.sessions.Session.ingestion_status`.
 
-    Response of ``GET /v1/sessions/id/<session_id>/ingestion``.
+    Ingestion state of a session, with the files it still waits for. Also carried in
+    ``SkipWaitingResponse.ingestion``. Files deleted from Roboto are left out of every list and count.
     """
 
     session_id: str
     """ID of the session."""
     state: SessionIngestionState
-    """Whether the session is in progress, waiting for files to be ingested, or ingested."""
+    """Ingestion state of the session: whether it is in progress, waiting for files to be ingested, or ingested."""
     ingestion_count: int
-    """How many times the session has been announced ingested."""
+    """Number of times Roboto has announced the session ingested."""
 
     pending_files: list[PendingIngestionFile] = pydantic.Field(default_factory=list)
-    """Ingestable files not ingested yet, which keep a complete session from being announced. Holds at
-    most the first 100, ordered by path; :attr:`pending_file_count` counts them all."""
+    """Ingestable files not ingested yet that the session waits for, the first 100 by path.
+    ``pending_file_count`` counts them all."""
 
     pending_file_count: int = 0
-    """How many ingestable files are not ingested yet, leaving out skipped ones."""
+    """Number of ingestable files not ingested yet that the session waits for."""
 
     failed_file_count: int = 0
-    """Pending files whose latest ingestion run failed, or finished without ingesting the file. Counts only the
-    files in :attr:`pending_files`, so at most 100."""
+    """Number of files in ``pending_files`` whose latest ingestion run did not ingest them, so at most 100.
+
+    A run counts when it failed, or finished without ingesting any of the file.
+    """
 
     ingested_file_count: int = 0
-    """How many ingestable files are ingested."""
+    """Number of ingestable files that are ingested."""
 
     not_ingestable_file_count: int = 0
-    """How many files are not ingestable. The session never waits for them."""
+    """Number of files that are not ingestable, which the session never waits for."""
 
     skipped_files: list[SkippedIngestionFile] = pydantic.Field(default_factory=list)
-    """Ingestable files not ingested that the session was told to stop waiting for. At most the first 100;
-    :attr:`skipped_file_count` counts them all."""
+    """Ingestable files not ingested that the session was told to stop waiting for, the first 100 by path.
+    ``skipped_file_count`` counts them all."""
 
     skipped_file_count: int = 0
-    """How many ingestable files not ingested the session was told to stop waiting for."""
+    """Number of ingestable files not ingested that the session was told to stop waiting for."""
 
 
 class SessionIngestionSummary(pydantic.BaseModel):
-    """Where one session's ingestion stands, in counts: what a sessions list shows per row.
+    """Ingestion state of one session, in counts.
 
-    Response item of ``POST /v1/sessions/ingestion/summaries``.
+    :py:meth:`~roboto.experimental.sessions.Session.ingestion_summaries` returns one per session. Unlike
+    ``SessionIngestionStatus``, it lists no files. Files deleted from Roboto are left out of every count.
     """
 
     session_id: str
     """ID of the session."""
     state: SessionIngestionState
-    """Whether the session is in progress, waiting for files to be ingested, or ingested."""
+    """Ingestion state of the session: whether it is in progress, waiting for files to be ingested, or ingested."""
     ingested_file_count: int = 0
-    """How many ingestable files are ingested."""
+    """Number of ingestable files that are ingested."""
     pending_file_count: int = 0
-    """How many ingestable files are not ingested yet, leaving out skipped ones."""
+    """Number of ingestable files not ingested yet that the session waits for."""
     not_ingestable_file_count: int = 0
-    """How many files are not ingestable. The session never waits for them."""
+    """Number of files that are not ingestable, which the session never waits for."""
     skipped_file_count: int = 0
-    """Ingestable files not ingested that the session no longer waits for."""
+    """Number of ingestable files not ingested that the session was told to stop waiting for."""
     failed_file_count: int = 0
-    """Pending files whose latest ingestion run failed, or finished without ingesting the file. Counted among the
-    first 100 pending files, as :attr:`SessionIngestionStatus.pending_files` lists them."""
+    """Number of files the session waits for whose latest ingestion run did not ingest them.
+
+    A run counts when it failed, or finished without ingesting any of the file. Only the first 100 files by path
+    that the session waits for are counted.
+    """
 
 
 class SessionDevice(pydantic.BaseModel):
-    """One device attached to a session, with its type.
+    """Device attached to a session, with its device type.
 
-    Response item of ``POST /v1/sessions/devices``.
+    Carried in :py:attr:`~roboto.experimental.sessions.SessionDevicesResponse.devices`.
     """
 
     device_id: str
     """ID of the device."""
     device_type_id: typing.Optional[str]
-    """ID of the device's type, or ``None`` for a device with no type."""
+    """ID of the device's type, or ``None`` if the device has none."""
 
 
 class SkipWaitingResponse(pydantic.BaseModel):
-    """Response of ``POST /v1/sessions/id/<session_id>/ingestion/skip``."""
+    """Response body of :py:meth:`~roboto.experimental.sessions.Session.skip_waiting_for`."""
 
     ingestion: SessionIngestionStatus
-    """Where the session stands in ingestion after the skip."""
+    """Ingestion state of the session after the skip."""
     not_in_session: list[str] = pydantic.Field(default_factory=list)
-    """Requested file ids that are not in the session, so nothing was skipped for them."""
+    """IDs of requested files that are not in the session, for which nothing was skipped."""
 
 
 class SessionFileRecord(pydantic.BaseModel):
-    """Wire-format row for one file a Session holds, and the part of the file it holds.
+    """Data record of one file a session holds, and the part of the file it holds.
 
-    Time window contract (``min_wall_clock_timestamp_ns`` and ``max_wall_clock_timestamp_ns``):
-
-    1. Set together or both ``None``; a window with only one bound is rejected on write.
-    2. When both are ``None``, the Session holds the file's whole recorded time window.
-    3. When both are set, ``min_wall_clock_timestamp_ns <= max_wall_clock_timestamp_ns``. Consumers
-       iterating session data must keep only the file's data inside the closed interval
-       ``[min_wall_clock_timestamp_ns, max_wall_clock_timestamp_ns]``.
-    4. Values are nanoseconds since the Unix epoch, measured the same way as the parent Session's own bounds.
-       A caller states this window in the file's own timestamps, on
-       :py:class:`~roboto.experimental.sessions.SessionFile`; the platform adds the anchor covering the data
-       the window names and reports the sum here, alongside the ``unix_epoch_offset_ns`` it added.
-
-    Data range contract (``data_range``):
-
-    1. ``None`` means the Session holds the whole file.
-    2. ``(start, end)``: ``start`` is the first covered position; ``end`` is one past the last, with
-       ``0 <= start < end``. Values are in the file's own units: stored-row positions (counted from 0), or
-       nanoseconds of media time for video.
-    3. Used when one file is shared by several sessions; the range names the slice of the file that belongs
-       to this session.
+    No SDK method or Roboto route uses this model. :py:meth:`~roboto.experimental.sessions.Session.list_files` yields
+    ``SessionFileView`` instead, which describes the time window and data range the same way.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     created: typing.Optional[datetime.datetime] = None
-    """When this file was added to the session."""
+    """Time the file was added to the session."""
 
     created_by: str
-    """User ID or service account that added this file to the session."""
+    """Principal that added the file to the session, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     data_range: typing.Optional[tuple[int, int]] = None
-    """The slice of the file the Session holds, as ``(start, end)`` in the file's own units, or ``None`` when
-    it holds the whole file. ``start`` is the first covered position; ``end`` is one past the last."""
+    """Part of the file the session holds, or ``None`` when it holds the whole file.
+
+    The part is ``(start, end)`` in the file's own units. ``start`` is the first position held; ``end`` is one past
+    the last.
+    """
 
     fs_node_id: str
-    """Identifier of the file."""
+    """ID of the file."""
 
     max_wall_clock_timestamp_ns: typing.Optional[int] = None
-    """Upper bound (inclusive) of the part of the file the Session holds, in Unix-epoch nanoseconds.
-    ``None`` means the Session holds the file up to the end of its recorded time window;
-    paired with ``min_wall_clock_timestamp_ns``."""
+    """End of the time window of the file the session holds, or ``None`` when it holds the file's whole time span.
+
+    The end is inclusive, in nanoseconds since the Unix epoch.
+    """
 
     min_wall_clock_timestamp_ns: typing.Optional[int] = None
-    """Lower bound (inclusive) of the part of the file the Session holds, in Unix-epoch nanoseconds.
-    ``None`` means the Session holds the file from the beginning of its recorded time window;
-    paired with ``max_wall_clock_timestamp_ns``."""
+    """Start of the time window of the file the session holds, or ``None`` when it holds the file's whole time span.
+
+    The start is inclusive, in nanoseconds since the Unix epoch.
+    """
 
     modified: typing.Optional[datetime.datetime] = None
-    """When this file's place in the session was last modified."""
+    """Time the file's place in the session was last modified."""
 
     modified_by: str
-    """User ID or service account that last modified this file's place in the session."""
+    """Principal that last modified the file's place in the session.
+
+    It is in the same ``<type>:<id>`` form as ``created_by``.
+    """
 
     session_id: str
-    """Identifier of the session holding this file."""
+    """ID of the session holding the file."""
 
     unix_epoch_offset_ns: typing.Optional[int] = None
-    """Wall-clock instant of stored time 0 for the file's data the Session holds, in nanoseconds since the
-    Unix epoch: what the platform added to the file's own timestamps to reach
-    ``min_wall_clock_timestamp_ns`` and ``max_wall_clock_timestamp_ns``, and what to subtract to read any
-    other instant back in the file's own timestamps. ``None`` when that data includes nothing registered,
-    and when it sits at more than one instant, which leaves no single offset to report."""
+    """Wall-clock time of time 0 of the file's data the session holds, in nanoseconds since the Unix epoch.
+
+    Roboto added it to the file's own timestamps to compute ``min_wall_clock_timestamp_ns`` and
+    ``max_wall_clock_timestamp_ns``; subtract it from a wall-clock time to read that time in the file's own
+    timestamps. ``None`` when that data has no registered time span, or when its parts have different offsets.
+    """
 
 
 class SessionFileView(pydantic.BaseModel):
-    """One row of the ``GET /v1/sessions/id/<session_id>/files`` response: a file's place in a Session joined
-    with display fields of the file itself.
+    """Data record of a file a session holds, as the Roboto API returns it.
 
-    These fields come from the session's composition: ``file_id``, the optional time window
-    ``min_wall_clock_timestamp_ns`` / ``max_wall_clock_timestamp_ns`` in Unix-epoch nanoseconds, the optional
-    ``data_range`` slice (the window and the slice both under the contracts documented on
-    :py:class:`SessionFileRecord`), and the ``unix_epoch_offset_ns`` the platform added to reach that window.
-    Every other field is read from the file itself when the files are listed, and describes the file rather
-    than its place in the session: ``created`` is when the file was created, not when it joined the session.
-    None of those fields is part of a write.
+    :py:meth:`~roboto.experimental.sessions.Session.list_files` yields these, and
+    :py:meth:`~roboto.experimental.sessions.Session.add_file` and
+    :py:meth:`~roboto.experimental.sessions.Session.add_files` return them. ``file_id``, ``data_range``, the time
+    window and ``unix_epoch_offset_ns`` describe the part of the file the session holds. Every other field describes
+    the file itself: ``created``, for example, is when the file was created, not when it joined the session.
+
+    Time window (``min_wall_clock_timestamp_ns`` and ``max_wall_clock_timestamp_ns``):
+
+    - Both are set or both are ``None``. When both are ``None``, the session holds the file's whole time span.
+    - When both are set, the window is the closed interval ``[min_wall_clock_timestamp_ns,
+      max_wall_clock_timestamp_ns]``, and a read scoped to the session returns only the file's data inside it.
+    - Values are nanoseconds since the Unix epoch. You state the window in the file's own timestamps, on
+      :py:class:`~roboto.experimental.sessions.SessionFile`, and Roboto reports it here with the data's wall-clock
+      anchor added (``unix_epoch_offset_ns``, when the data has one anchor).
+
+    Data range (``data_range``):
+
+    - ``None`` means the session holds the whole file.
+    - ``(start, end)`` names the part of a file several sessions share that belongs to this session. ``start`` is
+      the first position held and ``end`` is one past the last, with ``0 <= start < end``. Values are in the file's
+      own units: stored-row positions counted from 0, or nanoseconds of media time for video.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     created: typing.Optional[datetime.datetime] = None
-    """When the file was created."""
+    """Time the file was created."""
 
     data_range: typing.Optional[tuple[int, int]] = None
-    """The slice of the file the Session holds, as ``(start, end)`` in the file's own units, or ``None`` when
-    it holds the whole file. ``start`` is the first covered position; ``end`` is one past the last."""
+    """Part of the file the session holds, or ``None`` when it holds the whole file.
+
+    The part is ``(start, end)`` in the file's own units. ``start`` is the first position held; ``end`` is one past
+    the last.
+    """
 
     dataset_id: typing.Optional[str] = None
     """ID of the dataset that contains the file."""
 
     file_id: str
-    """Stable, unique identifier of the file."""
+    """Unique ID of the file, beginning with ``fl_``."""
 
     max_wall_clock_timestamp_ns: typing.Optional[int] = None
-    """Upper bound (inclusive) of the part of the file the Session holds, in Unix-epoch nanoseconds.
-    ``None`` means the Session holds the file up to the end of its recorded time window;
-    paired with ``min_wall_clock_timestamp_ns``."""
+    """End of the time window of the file the session holds, or ``None`` when it holds the file's whole time span.
+
+    The end is inclusive, in nanoseconds since the Unix epoch.
+    """
 
     min_wall_clock_timestamp_ns: typing.Optional[int] = None
-    """Lower bound (inclusive) of the part of the file the Session holds, in Unix-epoch nanoseconds.
-    ``None`` means the Session holds the file from the beginning of its recorded time window;
-    paired with ``max_wall_clock_timestamp_ns``."""
+    """Start of the time window of the file the session holds, or ``None`` when it holds the file's whole time span.
+
+    The start is inclusive, in nanoseconds since the Unix epoch.
+    """
 
     ingestable: typing.Optional[bool] = None
-    """Whether the file is meant to be ingested: its path matched one of its org's ingestion rules when its
-    current version was created, or it has since been partly or fully ingested."""
+    """Whether the file is meant to be ingested.
+
+    The meaning is the one :py:attr:`~roboto.domain.files.FileRecord.ingestable` describes.
+    """
 
     ingestion_status: typing.Optional[IngestionStatus] = None
-    """How much of the contributing file has been ingested."""
+    """How much of the file's data has been ingested into topics."""
 
     modified: typing.Optional[datetime.datetime] = None
-    """When the file was last modified."""
+    """Time the file was last modified."""
 
     name: typing.Optional[str] = None
-    """Name of the file (the final segment of ``relative_path``)."""
+    """Name of the file, the final component of ``relative_path``."""
 
     origination: typing.Optional[str] = None
-    """Provenance of the file, e.g. an invocation id or upload source."""
+    """Free-form description of what added the file, such as the SDK version or the user that uploaded it."""
 
     relative_path: typing.Optional[str] = None
-    """Path of the file within its dataset."""
+    """Path of the file from the root of its dataset's, device's, or organization's files."""
 
     size: typing.Optional[int] = None
-    """Size of the file in bytes."""
+    """Size of the file's content in bytes."""
 
     tags: list[str] = pydantic.Field(default_factory=list)
     """Tags on the file."""
 
     unix_epoch_offset_ns: typing.Optional[int] = None
-    """Wall-clock instant of stored time 0 for the file's data the Session holds, in nanoseconds since the
-    Unix epoch: what the platform added to the file's own timestamps to reach
-    ``min_wall_clock_timestamp_ns`` and ``max_wall_clock_timestamp_ns``, and what to subtract to read any
-    other instant back in the file's own timestamps. ``None`` when that data includes nothing registered,
-    and when it sits at more than one instant, which leaves no single offset to report."""
+    """Wall-clock time of time 0 of the file's data the session holds, in nanoseconds since the Unix epoch.
+
+    Roboto added it to the file's own timestamps to compute ``min_wall_clock_timestamp_ns`` and
+    ``max_wall_clock_timestamp_ns``; subtract it from a wall-clock time to read that time in the file's own
+    timestamps. ``None`` when that data has no registered time span, or when its parts have different offsets.
+    """
 
 
 class SessionTopicSchema(pydantic.BaseModel):
-    """A schema a topic's data in a Session is recorded with."""
+    """Schema that a topic's data in a session is recorded with.
+
+    Carried in ``SessionTopicRecord.schemas``.
+    """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     checksum: str
-    """Content checksum of the schema's fields, unique within an organization."""
+    """Checksum of the schema's fields, unique within an organization."""
 
     name: typing.Optional[str] = None
-    """Name of the schema, such as ``"sensor_msgs/msg/Imu"``, or ``None`` when the schema was recorded without one."""
+    """Name of the schema, such as ``"sensor_msgs/msg/Imu"``, or ``None`` if it was recorded without one."""
 
     schema_id: str
-    """Stable identifier of the schema."""
+    """Unique ID of the schema."""
 
 
 class SessionTopicRecord(TopicIdentityRecord):
-    """A topic whose data a Session holds, with that data's schemas, time span, file count and message count."""
+    """Data record of a topic whose data a session holds, with that data's schemas, time span and counts.
+
+    :py:meth:`~roboto.experimental.sessions.Session.list_topics` yields topics whose ``record`` is this model.
+    """
 
     end_time_ns: typing.Optional[int] = None
-    """Latest instant of the topic's data in the Session, in Unix-epoch nanoseconds, or ``None`` when its data
-    carries no timestamps."""
+    """Latest time of the topic's data in the session, in nanoseconds since the Unix epoch.
+
+    ``None`` when that data carries no timestamps.
+    """
 
     file_count: int = 0
-    """How many of the Session's files carry data of the topic."""
+    """Number of the session's files that carry data of the topic."""
 
     message_count: typing.Optional[int] = None
-    """How many messages of the topic the Session holds, from the Session's ``topic_stats`` metrics; ``None``
-    until those metrics are computed, when topic statistics are not available in the Session's organization, and
-    for a topic whose count could not be determined."""
+    """Number of messages of the topic the session holds, from the topic statistics Roboto computes for the session.
+
+    ``None`` until those statistics are computed, when topic statistics are not available in the session's
+    organization, and when the count could not be determined.
+    """
 
     schemas: list[SessionTopicSchema] = pydantic.Field(default_factory=list)
-    """The schemas the topic's data in the Session is recorded with, ordered by when Roboto first ingested the
-    topic's data under each from the Session's files. Most topics have one."""
+    """Schemas the topic's data in the session is recorded with; most topics have one.
+
+    They are listed in the order Roboto first ingested the topic's data under each from the session's files.
+    """
 
     start_time_ns: typing.Optional[int] = None
-    """Earliest instant of the topic's data in the Session, in Unix-epoch nanoseconds, or ``None`` when its data
-    carries no timestamps."""
+    """Earliest time of the topic's data in the session, in nanoseconds since the Unix epoch.
+
+    ``None`` when that data carries no timestamps.
+    """
 
 
 class SessionTopicFieldStats(pydantic.BaseModel):
-    """The statistics of one field of a topic over a Session's data."""
+    """Statistics of one field of a topic over a session's data.
+
+    Carried in ``SessionTopicStats.fields``.
+    """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     path: FieldPath
-    """Path of the field in its schema, from the schema root to the leaf. For one element of an array field declared
-    with element names, the array's path followed by the element's name, such as ``("action", "main_gripper")``."""
+    """Path of the field in its schema, from the schema root to the leaf.
+
+    For one element of an array field declared with element names, the path is the array's path followed by the
+    element's name, such as ``("action", "main_gripper")``.
+    """
 
     stats: dict[str, float] = pydantic.Field(default_factory=dict)
-    """Each statistic computed for the field, by name: ``count``, ``min``, ``max``, ``mean``, ``median``, ``sum``,
-    ``stddev``, ``p25``, ``p75``, ``p95`` and ``p99`` for a numeric field; ``count``, ``true_count`` and
-    ``false_count`` for a boolean one. A statistic that was not computed is absent."""
+    """Each statistic computed for the field, by name.
+
+    A numeric field has ``count``, ``min``, ``max``, ``mean``, ``median``, ``sum``, ``stddev``, ``p25``, ``p75``,
+    ``p95`` and ``p99``; a boolean one has ``count``, ``true_count`` and ``false_count``. A statistic that was not
+    computed is absent.
+    """
 
 
 class SessionTopicStats(pydantic.BaseModel):
-    """The statistics of one topic over a Session's data, grouped by field."""
+    """Response body of :py:meth:`~roboto.experimental.sessions.Session.get_topic_stats`.
+
+    Statistics of one topic over a session's data, grouped by field.
+    """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     fields: list[SessionTopicFieldStats] = pydantic.Field(default_factory=list)
-    """One entry per field of the topic that has statistics, ordered by path, except that the elements of a named array
-    follow the array's path in the order its names were declared."""
+    """One entry per field of the topic that has statistics, ordered by path.
+
+    The elements of a named array are the exception: they follow the array's path in the order its names were
+    declared.
+    """
 
     message_count: typing.Optional[int] = None
-    """How many messages of the topic the Session holds, or ``None`` when that count was not computed."""
+    """Number of messages of the topic the session holds, or ``None`` when that count was not computed."""
 
     topic_id: str
-    """Stable identifier of the topic."""
+    """ID of the topic."""
 
 
 class SessionTopicStatsRunStatus(StrEnum):
-    """Where the latest run Roboto triggered to compute a Session's topic statistics stands."""
+    """Status of a topic statistics run: where the latest run Roboto triggered on a session stands."""
 
     NotRun = "not_run"
-    """No run was triggered for the Session, such as one that was never ingested, or was ingested before Roboto
-    computed topic statistics in its org."""
+    """No run was triggered for the session.
+
+    For example, the session was never announced ingested, or was announced before Roboto computed topic statistics
+    in its organization.
+    """
 
     Scheduled = "scheduled"
-    """The Session was announced ingested in the last five minutes, the organization's session-metrics trigger is
-    enabled, and Roboto has yet to start the run for that announcement."""
+    """Roboto has not yet started the run for the session's announcement as ingested in the last five minutes.
+
+    Roboto reports this only while the organization's session-metrics trigger is enabled.
+    """
 
     Running = "running"
     """Roboto is starting the ``session_metrics`` action, or the action is queued or running."""
@@ -505,28 +611,37 @@ class SessionTopicStatsRunStatus(StrEnum):
     """The action failed or was cancelled, or Roboto could not start it."""
 
     Finished = "finished"
-    """The action finished. It can leave some topics without statistics: when the Session's topics would have more
-    than 10,000 statistics in all, the topics with the most fields are left out until the rest fit."""
+    """The action finished.
+
+    It can leave some topics without statistics: when the session's topics would have more than 10,000 statistics
+    in all, the topics with the most fields are left out until the rest fit.
+    """
 
 
 class SessionTopicStatsRun(pydantic.BaseModel):
-    """The latest run of the ``session_metrics`` action that Roboto triggered on a Session.
+    """Response body of :py:meth:`~roboto.experimental.sessions.Session.get_topic_stats_run`.
 
-    Roboto triggers one each time the Session is announced ingested, but only while the organization's
-    session-metrics trigger (named ``roboto-session-metrics``) is installed and enabled. Runs of the action
-    started by hand are not included.
+    Latest run of the ``session_metrics`` action that Roboto triggered on a session. Roboto triggers one each time
+    the session is announced ingested, but only while the organization's session-metrics trigger (named
+    ``roboto-session-metrics``) is installed and enabled. Runs of the action started by hand are not included.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     status: SessionTopicStatsRunStatus
-    """Where the run stands. When Roboto triggered no run on the Session's latest announcement and none is
-    ``scheduled``, this describes the run on the newest earlier announcement that has one, which computed
-    statistics from the Session's files as they were then."""
+    """Status of the run: where it stands.
+
+    When Roboto triggered no run on the session's latest announcement and none is ``Scheduled``, this describes the
+    run on the newest earlier announcement that has one, which computed statistics from the session's files as they
+    were then.
+    """
 
     started: typing.Optional[datetime.datetime] = None
-    """When Roboto last tried to start the run; ``None`` when it is scheduled or was not run."""
+    """Time Roboto last tried to start the run, or ``None`` when the run is ``Scheduled`` or ``NotRun``."""
 
     invocation_id: typing.Optional[str] = None
-    """The action invocation the run started; ``None`` while Roboto is still starting it, when it was not run, and
-    when Roboto could not start one."""
+    """ID of the action invocation the run started, or ``None`` when the run has started none.
+
+    It is ``None`` while Roboto is still starting the run, when no run was triggered, and when Roboto could not
+    start one.
+    """

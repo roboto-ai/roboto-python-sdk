@@ -4,8 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""What reading one file of a read plan's partition takes and gives."""
-
 from __future__ import annotations
 
 import abc
@@ -28,18 +26,20 @@ if typing.TYPE_CHECKING:
     import pyarrow  # pants: no-infer-dep
 
 ObjectSignedUrlResolver = typing.Callable[[ReadPlanObjectRef], str]
-"""Returns a signed download URL for the version of a file that a read plan's object reference names.
+"""Function that signs the version of a file that a read plan names, and returns a download URL for it.
 
-The resolver receives the whole :py:class:`~roboto.experimental.topics.ReadPlanObjectRef`, not only a file id, so the
-URL it returns is for the version that the plan names, or for the file's current version when the reference names
-none. By contrast, :py:class:`~roboto.domain.topics.mcap_topic_reader.SignedUrlResolver`, which ``McapTopicReader``
-uses, takes a file id and signs the file's current version."""
+It receives the whole ``ReadPlanObjectRef``, not only a file ID, so the URL is for the version the reference names,
+or for the file's current version when the reference names none.
+:py:class:`~roboto.domain.topics.mcap_topic_reader.SignedUrlResolver`, which ``McapTopicReader`` uses, instead takes a
+file ID and signs the file's current version."""
 
 
 @dataclasses.dataclass(frozen=True)
 class SuppliedField:
-    """The field at ``path``, which one file supplies to the read,
-    less the fields at ``excluded``, which other scan tasks supply (they may read the same file)."""
+    """Field one file supplies to the read: the field at ``path``, less the fields at ``excluded``.
+
+    Other scan tasks supply the excluded fields, and they may read the same file.
+    """
 
     path: FieldPath
 
@@ -49,7 +49,7 @@ class SuppliedField:
 
 @dataclasses.dataclass(frozen=True)
 class ScanTaskGroup:
-    """The scan tasks of a partition that read one file, and the fields they supply.
+    """Group of a partition's scan tasks that read one file, with the fields they supply.
 
     Every scan task in the group agrees on the file's format, transformations and topic name.
     """
@@ -57,41 +57,42 @@ class ScanTaskGroup:
     format: RepresentationStorageFormat
 
     object: ReadPlanObjectRef
+    """File the scan tasks read, and the version of it to read."""
 
     supplies: tuple[SuppliedField, ...]
-    """In the order of the leaf-most paths they come from.
+    """Fields the file supplies, in the order of the projected paths they come from.
 
-    For one path, the supplied field at the path itself comes before the subtrees inside it, which come in plan order.
-    Empty when the file is read only for its row numbers and timestamps.
+    Only projected paths with no other projected path inside them count, sorted by their components. For one path, the
+    supplied field at the path itself comes before the subtrees inside it, which come in plan order. Empty when the
+    file is read only for its row numbers and timestamps.
     """
 
     topic_name: typing.Optional[str]
-    """The topic the scan tasks read from the file;
-    see :py:attr:`~roboto.experimental.topics.ReadPlanScanTask.topic_name`."""
+    """Name of the topic the scan tasks read from the file, as ``ReadPlanScanTask.topic_name`` describes."""
 
 
 @dataclasses.dataclass(frozen=True)
 class FileDecodeParams:
-    """What decoding a file takes beyond the read plan: how to reach the file and whether to cache it.
+    """Settings for decoding a file that the read plan does not give: how to reach the file and whether to cache it.
 
-    Caching applies to Parquet files only; MCAP files always stream.
+    Caching applies to Parquet files only; MCAP files are always read over HTTP.
     """
 
     cache_dir: pathlib.Path
     """Directory Parquet files are cached under."""
 
     cache_policy: CachePolicy
-    """Whether fetched Parquet files are cached to local disk."""
+    """Whether each Parquet file is downloaded to ``cache_dir`` before it is read."""
 
     signed_url_resolver: ObjectSignedUrlResolver
-    """Mints a signed download URL for the version of a file that a plan names."""
+    """Function that returns a signed download URL for each file the decoder reads."""
 
 
 class FileDecoder(abc.ABC):
-    """Decodes the fields one file supplies to a partition into RecordBatches.
+    """Decoder that reads the fields one file supplies to a partition as ``pyarrow.RecordBatch`` objects.
 
-    Opening a decoder opens its file, so its fields are known before the first batch.
-    Close it when done, or use it as a context manager.
+    Opening a decoder opens its file, so its fields are known before the first batch. Close it when done, or use it as
+    a context manager.
     """
 
     def __enter__(self) -> typing.Self:
@@ -108,39 +109,48 @@ class FileDecoder(abc.ABC):
     @property
     @abc.abstractmethod
     def value_fields(self) -> list["pyarrow.Field"]:
-        """The value columns, one per top-level field the file supplies, sorted by name, comparing Unicode code points.
+        """Value columns, one per top-level field the file supplies, sorted by name by Unicode code point.
 
         Each struct keeps the fields the file supplies, in the order the file stores them.
         """
 
     @abc.abstractmethod
     def batches(self) -> collections.abc.Iterator["pyarrow.RecordBatch"]:
-        """The window's rows, in the file's stored row order; iterate it once.
+        """Return an iterator over the window's rows, in batches and in the file's stored row order.
 
-        A partition that declares a ``data_range`` gets only the window's rows inside that slice of the file.
-        Each batch has the columns of :py:func:`~roboto.experimental.topics.batch_transforms.topic_data_schema` over
-        :py:attr:`value_fields`: the row number, the timestamp, then the value columns.
-        A row's number is its 0-based position among the file's rows of the topic, counting every stored row,
-        including rows outside the window or the ``data_range`` and rows with a null timestamp, so a row has the same
-        number in every file of its partition.
-        The timestamp is absolute: the stored value in nanoseconds plus the partition's ``time_offset_ns``.
-        Batch boundaries carry no meaning.
+        Iterate the result only once. When the partition declares a ``data_range``, only the window's rows inside that
+        slice of the file are returned.
+
+        Each batch has the columns of ``roboto.experimental.topics.batch_transforms.topic_data_schema`` over
+        ``value_fields``: the row number, the timestamp, then the value columns.
+
+        - A row's number is its 0-based position among the file's rows of the topic, counting every stored row,
+          including rows outside the window or the ``data_range`` and rows with a null timestamp, so a row has the
+          same number in every file of its partition.
+        - The timestamp is absolute: the stored value in nanoseconds plus the partition's ``time_offset_ns``.
+
+        Where one batch ends and the next begins carries no meaning.
         """
 
     @abc.abstractmethod
     def close(self) -> None:
-        """Release the file. Safe to call more than once."""
+        """Release the file. Calling it more than once is safe."""
 
     @abc.abstractmethod
     def struct_field_names(self, path: FieldPath) -> typing.Optional[list[str]]:
-        """The names of the fields of the struct at ``path`` in the file, in the file's order.
+        """Return the names of the fields of the struct at ``path`` in the file, in the file's order.
 
-        ``None`` when the file has no struct at ``path``.
+        Args:
+            path: Path of the struct within the topic's messages.
+
+        Returns:
+            The field names, or ``None`` when the file has no struct at ``path``.
         """
 
 
 FileDecoderOpener = typing.Callable[[ScanTaskGroup, ReadPlanPartition, TimeWindow], FileDecoder]
-"""Opens a :py:class:`FileDecoder` of a group's file for its partition and the partition's window.
+"""Function that opens a decoder of a group's file for a partition and its window, and returns the ``FileDecoder``.
 
-The window is absolute and includes both ends. A decoder keeps the rows whose absolute timestamp lies in it.
+The window is in nanoseconds since the Unix epoch and includes both ends. The decoder keeps the rows whose timestamp,
+once the partition's ``time_offset_ns`` is added, lies in it.
 """

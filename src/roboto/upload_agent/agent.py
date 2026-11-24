@@ -31,10 +31,27 @@ logger = default_logger()
 
 
 DEFAULT_ROBOTO_UPLOAD_FILE = DEFAULT_ROBOTO_DIR / "default_roboto_upload.json"
-"""If you put a template JSON file here, it'll be used by `:func:`~create_upload_configs`"""
+"""Path of the template file ``UploadAgent.create_upload_configs`` copies into each directory.
+
+It is ``~/.roboto/default_roboto_upload.json``.
+"""
 
 
 class UploadAgent:
+    """Service that uploads directories on local disk to Roboto datasets.
+
+    A directory is queued for upload when it holds an upload config file, named by
+    :py:attr:`~roboto.upload_agent.files.UploadAgentConfig.upload_config_filename`. ``create_upload_configs`` writes
+    those files, and ``process_uploads`` uploads the directories that have one.
+
+    Args:
+        agent_config: Directories to scan, the name of the upload config file, and what to delete after an upload.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
+        default_roboto_upload_file: Template file ``create_upload_configs`` copies into each directory. ``None`` uses
+            ``DEFAULT_ROBOTO_UPLOAD_FILE``.
+    """
+
     __roboto_client: RobotoClient
     __agent_config: UploadAgentConfig
     __default_roboto_upload_file: pathlib.Path
@@ -50,6 +67,15 @@ class UploadAgent:
         self.__default_roboto_upload_file = default_roboto_upload_file or DEFAULT_ROBOTO_UPLOAD_FILE
 
     def create_upload_configs(self):
+        """Write an upload config file into each directory directly under a search path that has none.
+
+        A directory is skipped when it is empty or already holds an upload config file, an upload-in-progress file,
+        or an upload-complete file. Search paths that are not directories are skipped.
+
+        Each file written is a copy of the template at ``default_roboto_upload_file``, with each ``$NAME`` and
+        ``${NAME}`` replaced by the value of environment variable ``NAME``. When the template is missing or cannot be
+        read or parsed, each file holds a config with every field at its default.
+        """
         directories_to_consider: list[pathlib.Path] = []
 
         for search_path in self.__agent_config.search_paths:
@@ -103,9 +129,42 @@ class UploadAgent:
             logger.info("Wrote upload config file to %s", upload_config_file)
 
     def process_uploads(self, merge_uploads: bool = False) -> collections.abc.Sequence[datasets.Dataset]:
-        """
-        If merge is true, everything will be combined into a single dataset. Otherwise, each directory will be uploaded
-        to a separate dataset.
+        """Upload each directory that holds an upload config file, and return the datasets uploaded to.
+
+        Upload config files are found by searching each search path recursively; a file that cannot be parsed is
+        logged and skipped. For each directory, in order:
+
+        1. Skip it if it holds an upload-complete file.
+        2. Choose its dataset: the one named by its upload-in-progress file, so an interrupted upload resumes into
+           the dataset it started; otherwise the merged dataset, with ``merge_uploads``; otherwise a new dataset built
+           from the config file's ``dataset`` section.
+        3. Write an upload-in-progress file naming that dataset.
+        4. Upload the directory's files, filtered by the config file's ``include_patterns`` and ``exclude_patterns``.
+           Uploaded files are deleted from disk when the config file's ``delete_uploaded_files`` says so, or, when it
+           is unset, the agent config's.
+        5. Delete the upload config file, write an upload-complete file, delete the upload-in-progress file, then
+           upload the upload-complete file to the dataset.
+        6. With the agent config's ``delete_empty_directories``, remove the directory if nothing but the
+           upload-complete file is left in it.
+        7. Add the dataset to each collection in the config file's ``add_to_collections``. A failure is logged and
+           does not stop the run.
+
+        A failure in steps 2 to 6 stops the run. A directory that got past step 3 keeps a marker file, so the next run
+        resumes it into the same dataset or, once its upload-complete file is written, skips it.
+
+        Args:
+            merge_uploads: Whether to upload every directory into one new dataset, created in the agent config's
+                ``default_org_id``. Each directory's config file then updates that dataset: its description replaces
+                the dataset's, an unset one clearing it, its metadata and tags are added, and its
+                ``add_to_collections`` is ignored. ``False`` uploads each directory to its own dataset.
+
+        Returns:
+            With ``merge_uploads``, the merged dataset. Otherwise, each dataset this call created or resumed an
+            upload into.
+
+        Raises:
+            RobotoNotFoundException: An upload-in-progress file names a dataset that no longer exists, or that the
+                caller cannot see.
         """
 
         upload_config_files = self.__get_upload_config_files()
@@ -148,6 +207,8 @@ class UploadAgent:
                                 collection_id,
                             )
                         except Exception:
+                            # Any failure is logged and skipped: the dataset is already uploaded, and the other
+                            # collections and directories still proceed.
                             logger.error(
                                 "Failed to add dataset %s to collection %s",
                                 uploaded_dataset.dataset_id,
@@ -195,6 +256,7 @@ class UploadAgent:
         return upload_config_files
 
     def __delete_uploaded_dir_if_safe(self, path: pathlib.Path):
+        """Remove ``path`` if it is empty or holds only the upload-complete file."""
         if not path.is_dir():
             return
 
@@ -219,12 +281,10 @@ class UploadAgent:
         path: pathlib.Path,
         update_dataset: typing.Optional[datasets.Dataset] = None,
     ) -> typing.Optional[datasets.Dataset]:
-        """
-        If you pass in an update_dataset, it will be used instead of creating a new one, and any
-        dataset properties in the upload config file will be applied as an update.
+        """Upload the directory holding the upload config file at ``path``, as ``process_uploads`` describes.
 
-        This will return a dataset if one is created, which means it will NOT return a dataset passed into the
-        ``update_dataset`` param.
+        Returns ``None`` when the directory was already uploaded or ``update_dataset`` is given, since the caller
+        already holds that dataset.
         """
         dir_to_upload = path.parent
 
@@ -268,11 +328,8 @@ class UploadAgent:
         dataset: datasets.Dataset
         should_write_in_progress_file: bool
 
-        # Order of figuring out what dataset we're working on:
-        # 1. In progress is always the first choice, because if it exists, it means we already made a decision that
-        #    we want to stick with, and for some reason the upload failed. Let's not change that.
-        # 2. Explicit update
-        # 3. Create new
+        # An upload-in-progress file wins over update_dataset: an earlier run already chose this directory's dataset
+        # and was interrupted before it finished.
         if in_progress_dataset is not None:
             dataset = in_progress_dataset
             should_write_in_progress_file = False
@@ -316,8 +373,6 @@ class UploadAgent:
                 ).model_dump_json(indent=2)
             )
 
-        # Default to using the delete-uploaded-files strategy from the agent config file, but override it if it
-        # has been explicitly set in the upload file.
         delete_uploaded_files = self.__agent_config.delete_uploaded_files
         if file.upload.delete_uploaded_files is not None:
             delete_uploaded_files = file.upload.delete_uploaded_files
@@ -330,7 +385,7 @@ class UploadAgent:
         )
 
         exclude_patterns = file.upload.exclude_patterns or []
-        # Explicitly opt out of uploading the upload-in-progress file.
+        # The upload-in-progress file stays local; the upload-complete file is uploaded on its own below.
         exclude_patterns.append(f"**/{UPLOAD_IN_PROGRESS_FILENAME}")
 
         dataset.upload_directory(
@@ -351,12 +406,12 @@ class UploadAgent:
             )
         )
 
-        # Delete the in progress file after writing the complete file, because that's when we know for sure that
-        # our completion has been signaled to both Roboto service and the local OS.
+        # Delete the upload-in-progress file only once the upload-complete file exists, so an interrupted run leaves
+        # one of the two and no later run uploads the directory to a second dataset.
         upload_in_progress_file.unlink(missing_ok=True)
 
-        # Explicitly write the upload complete file, because it's useful as an "everything is ready" triggers signal,
-        # as well as a diagnostic aid.
+        # Uploaded after every other file, so a trigger can treat its arrival as a sign that the directory is fully
+        # uploaded. It also records which dataset the directory went to, and when.
         dataset.upload_file(upload_complete_file, UPLOAD_COMPLETE_FILENAME)
 
         logger.info(f"Upload completed, view at {self.__roboto_client.frontend_endpoint}/datasets/{dataset.dataset_id}")
@@ -364,8 +419,6 @@ class UploadAgent:
         if self.__agent_config.delete_empty_directories:
             self.__delete_uploaded_dir_if_safe(dir_to_upload)
 
-        # If we were passed in an update_dataset, we don't want to return it, because the intention of the return
-        # is to be added to an array of created datasets. This one already exists / wasn't created by this call.
         if update_dataset is not None:
             return None
 

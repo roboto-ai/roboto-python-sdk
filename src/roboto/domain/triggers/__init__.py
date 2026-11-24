@@ -4,20 +4,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Triggers: fire on platform events or a schedule, filter with a condition, dispatch targets.
+"""Triggers: rules that run targets, such as invoking an action, on matching platform events or on a schedule.
 
-A trigger pairs a firing source — a subscription to one or more platform events (fired
-at most once per the subscription's ``once_per``) or a cron schedule — with an optional
-condition over the firing's variable namespace and one or more targets to run on a match.
-
-The event catalog describes what each event type exposes — payload model, namespace
-roots, supported ``once_per`` values — and drives both save-time validation and evaluation.
-Conditions reuse the :class:`~roboto.query.Condition` wire format; target templates
-reuse the :mod:`roboto.templating` ``{{...}}`` placeholder syntax.
-
-:class:`roboto.domain.actions.Trigger` is the legacy model of the same thing (one action,
-``causes``/``for_each``), deprecated and kept only for existing code; it cannot read a
-trigger the current model added capabilities to. :class:`Trigger` here reads them all.
+Use :py:class:`~roboto.domain.triggers.Trigger`, which replaces the deprecated
+:py:class:`~roboto.domain.actions.Trigger`, to create, find, update, and dry-run triggers, including those the
+deprecated class cannot express.
 """
 
 from .conditions import (

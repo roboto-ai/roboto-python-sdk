@@ -4,15 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Wire models for the trigger dry-run endpoint (``POST /v1/triggers/id/{id}/dry-run``).
-
-A dry run answers "would this trigger fire for this event, and if not, why not" by
-replaying the evaluator's gates in order — subscribed, enabled, condition, target
-prefilter, already fired — against current platform state, without claiming a
-dispatch slot or running any target. The response is the structured trace the web
-UI's "Test this trigger" stepper and the CLI's ``dry-run`` command render.
-"""
-
 import datetime
 import typing
 
@@ -29,153 +20,197 @@ from .targets import TriggerTargetType
 
 
 class TriggerDryRunGateName(StrEnum):
-    """The gates the evaluator runs, in evaluation order."""
+    """Gate a trigger dry-run result is for: a check a trigger must pass to run its targets for a platform event.
+
+    The members are listed in the order Roboto checks the gates.
+    """
 
     Subscribed = "subscribed"
-    """Is the trigger subscribed to the event's type?"""
+    """Whether the trigger fires for the event's type.
+
+    The type must be one of the trigger's subscribed platform events, or
+    :py:attr:`~roboto.domain.platform_events.PlatformEventType.ScheduleFired` for a schedule-fired trigger.
+    """
 
     Enabled = "enabled"
-    """Is the trigger enabled?"""
+    """Whether the trigger is enabled."""
 
     Condition = "condition"
-    """Does the trigger's condition hold for the event?"""
+    """Whether the trigger's condition holds for the event. Passes when the trigger has no condition."""
 
     TargetPrefilter = "target_prefilter"
-    """Does at least one target accept the event (pathspec and precondition gates)?"""
+    """Whether at least one of the trigger's targets accepts the event.
+
+    For example, an action target accepts the event when its required-input patterns match a file.
+    """
 
     AlreadyFired = "already_fired"
-    """Is a dispatch slot still claimable at the trigger's ``once_per``?"""
+    """Whether at least one target that accepts the event has not yet run for it at the trigger's ``once_per``.
+    Fails when every accepting target already has."""
 
 
 class TriggerDryRunGateStatus(StrEnum):
-    """Outcome of one gate in a dry run."""
+    """Outcome of one gate in a trigger dry run."""
 
     Passed = "passed"
+    """The trigger meets this gate."""
 
     Failed = "failed"
+    """The trigger does not meet this gate, so Roboto checks no later gate."""
 
     NotEvaluated = "not_evaluated"
-    """An earlier gate failed, so this one was short-circuited."""
+    """An earlier gate failed, so Roboto did not check this one."""
 
 
 class ConditionLeafTrace(pydantic.BaseModel):
-    """One leaf of the trigger's condition, with the actual value it saw."""
+    """One comparison in a trigger's condition, with the value the dry run's event supplied for its field.
+
+    Carried in ``TriggerDryRunGate.condition_leaves``.
+    """
 
     field: str
-    """The condition field, as stored on the trigger."""
+    """Field the comparison reads, as written in the trigger's condition."""
 
     comparator: Comparator
-    """The leaf's comparator."""
+    """Comparator the comparison applies."""
 
     expected: typing.Optional[typing.Any] = None
-    """The value the condition compares against."""
+    """Value the comparison tests the field against."""
 
     actual: typing.Optional[typing.Any] = None
-    """The value the event's namespace resolved for :attr:`field`; ``None`` when the
-    field did not resolve (missing entity, missing key)."""
+    """Value the event supplied for ``field``, or ``None`` if the field did not resolve.
+
+    A field does not resolve when the record it names is missing, the key is absent, or the field names a topic or
+    message path, which no platform event supplies.
+    """
 
     passed: bool
-    """Whether this leaf held for the event."""
+    """Whether this comparison, taken on its own, held for the event."""
 
 
 class TargetAcceptanceTrace(pydantic.BaseModel):
-    """One target's prefilter decision."""
+    """One target's decision on whether to accept the dry run's event.
+
+    Carried in ``TriggerDryRunGate.targets``.
+    """
 
     target_id: str
-    """The target within the trigger."""
+    """ID of the target within the trigger."""
 
     target_type: TriggerTargetType
-    """Kind of target."""
+    """Kind of target: invoking an action, starting an agent, or sending a Slack message."""
 
     accepted: bool
-    """Whether the target's ``accepts`` prefilter passed."""
+    """Whether the target accepts the event. A target that raised an error while Roboto checked it does not."""
 
     reason: typing.Optional[str] = None
-    """Why the target declined, where determinable (e.g. which required-input pattern
-    had no matching file). ``None`` when accepted or when no finer reason is known."""
+    """Why the target declined, such as which required-input pattern no file matched, or the error it raised.
+    ``None`` when the target accepted, or when Roboto cannot say more than that it declined."""
 
 
 class DispatchSlotTrace(pydantic.BaseModel):
-    """The state of one target's dispatch slot at the dry run's idempotency token."""
+    """Dispatch slot of one target that accepts the dry run's event, showing whether the target already ran for it.
+
+    A dispatch is one attempt to run one target for one platform event, as recorded by
+    :py:class:`~roboto.domain.triggers.TriggerDispatchRecord`. A trigger runs each target at most once for each value of
+    its ``once_per``, such as once per file, so each target has one slot per idempotency token, which at most one
+    dispatch holds.
+
+    Carried in ``TriggerDryRunGate.dispatches``.
+    """
 
     target_id: str
-    """The target within the trigger."""
+    """ID of the target within the trigger."""
 
     occupied: bool
-    """Whether a dispatch row occupies the slot (the trigger already fired here)."""
+    """Whether a dispatch that has not failed holds the slot, so the trigger would skip the target for this event.
+
+    A failed dispatch leaves the slot free for the trigger to try again.
+    """
 
     status: typing.Optional[TriggerDispatchStatus] = None
-    """The occupying dispatch's status, when one exists."""
+    """Status of the dispatch in the slot, or ``None`` if the slot is empty."""
 
     result_ref: typing.Optional[str] = None
-    """What the occupying dispatch produced (invocation id, thread id, Slack ts)."""
+    """What the dispatch in the slot produced: an invocation ID, an agent thread ID, or a Slack message timestamp.
+    ``None`` if the slot is empty or the dispatch produced nothing."""
 
 
 class TriggerDryRunGate(pydantic.BaseModel):
-    """One gate's result in a dry-run trace.
+    """Result of one gate in a trigger dry run.
 
-    ``condition_leaves`` is populated only on the ``condition`` gate, ``targets`` only
-    on ``target_prefilter``, and ``idempotency_token``/``dispatches`` only on
-    ``already_fired``.
+    Each list and token field belongs to one gate of ``TriggerDryRunGateName``: ``condition_leaves`` to ``Condition``,
+    ``targets`` to ``TargetPrefilter``, and ``idempotency_token`` and ``dispatches`` to ``AlreadyFired``. They are
+    ``None`` on every other gate, and on a gate Roboto did not evaluate.
+
+    Carried in ``TriggerDryRunResponse.gates``.
     """
 
     gate: TriggerDryRunGateName
-    """Which gate this is."""
+    """Gate this result is for."""
 
     status: TriggerDryRunGateStatus
-    """Whether the gate passed, failed, or was short-circuited."""
+    """Whether the gate passed, failed, or was not evaluated because an earlier gate failed."""
 
     detail: typing.Optional[str] = None
-    """Plain-English explanation of the outcome."""
+    """Plain-English explanation of the outcome, such as which condition field did not match."""
 
     condition_leaves: typing.Optional[list[ConditionLeafTrace]] = None
-    """Per-leaf results with actual values (``condition`` gate only)."""
+    """Result of each comparison in the trigger's condition. Empty when the trigger has no condition."""
 
     targets: typing.Optional[list[TargetAcceptanceTrace]] = None
-    """Per-target prefilter decisions (``target_prefilter`` gate only)."""
+    """Each target's decision on whether to accept the event."""
 
     idempotency_token: typing.Optional[str] = None
-    """The dedup token the event projects onto (``already_fired`` gate only)."""
+    """Token that names the event's file, dataset, or occurrence at the trigger's ``once_per``.
+
+    Events with the same token share one run of each target.
+    """
 
     dispatches: typing.Optional[list[DispatchSlotTrace]] = None
-    """Per-target dispatch-slot state at the token (``already_fired`` gate only)."""
+    """Slot of each target that accepts the event, at ``idempotency_token``."""
 
 
 class TriggerDryRunRequest(pydantic.BaseModel):
-    """Request payload for a trigger dry run.
+    """Request body for :py:meth:`~roboto.domain.triggers.Trigger.dry_run`.
 
-    Provide :attr:`event` (a fully-formed platform event to evaluate) or a single
-    reference (:attr:`dataset_id`, :attr:`file_id`, :attr:`invocation_id`,
-    :attr:`event_id`, or :attr:`scheduled_for`), from which the server synthesizes
-    an event. With an entity reference, :attr:`event_type` optionally picks which of
-    the trigger's subscribed event types to synthesize; the default is the trigger's
-    first subscribed event type compatible with the reference. A schedule-fired
-    trigger needs no reference: the server synthesizes its next scheduled minute.
+    Set ``event`` to evaluate a complete platform event, or at most one reference for Roboto to synthesize a platform
+    event from: ``dataset_id``, ``file_id``, ``invocation_id`` or ``event_id`` for a trigger that fires on platform
+    events, or ``scheduled_for`` for a schedule-fired trigger. A schedule-fired trigger needs no reference; Roboto then
+    synthesizes its next scheduled occurrence. Building a request that sets ``event`` together with a reference or
+    ``event_type``, or sets more than one reference, raises ``pydantic.ValidationError``.
     """
 
     event: typing.Optional[PlatformEvent] = None
-    """A platform event to evaluate as-is."""
+    """Platform event to evaluate as given.
+
+    It must belong to the trigger's organization, as must every resource it names.
+    """
 
     dataset_id: typing.Optional[str] = None
-    """Synthesize an event about this dataset."""
+    """ID of a dataset to synthesize a platform event about."""
 
     file_id: typing.Optional[str] = None
-    """Synthesize an event about this file."""
+    """ID of a file to synthesize a platform event about."""
 
     invocation_id: typing.Optional[str] = None
-    """Synthesize an event about this invocation."""
+    """ID of an invocation to synthesize a platform event about."""
 
     event_id: typing.Optional[str] = None
-    """Synthesize a platform event about this event (the annotation on your data): ``event.created`` for a dataset
-    event (``ev_*``), or ``session_event.created`` for an event on a session (``evt_*``)."""
+    """ID of an event to synthesize a platform event about.
+
+    Roboto synthesizes :py:attr:`~roboto.domain.platform_events.PlatformEventType.EventCreated` for an event on a
+    dataset (``ev_``), or :py:attr:`~roboto.domain.platform_events.PlatformEventType.SessionEventCreated` for an event
+    on a session (``evt_``).
+    """
 
     scheduled_for: typing.Optional[datetime.datetime] = None
-    """For a schedule-fired trigger: synthesize the occurrence for this scheduled minute
-    (UTC). With no reference at all, a schedule-fired trigger is dry-run for its next
-    scheduled minute."""
+    """Time of the occurrence to synthesize for a schedule-fired trigger, with seconds and smaller units dropped.
+    ``None`` synthesizes the schedule's next occurrence."""
 
     event_type: typing.Optional[PlatformEventType] = None
-    """Which subscribed event type to synthesize for an entity reference."""
+    """Type of platform event to synthesize from a reference; it must be one the reference can produce.
+    ``None`` uses the first of the trigger's subscribed event types that the reference can produce."""
 
     @pydantic.model_validator(mode="after")
     def _exactly_one_subject(self) -> "TriggerDryRunRequest":
@@ -207,26 +242,28 @@ class TriggerDryRunRequest(pydantic.BaseModel):
 
 
 class TriggerDryRunResponse(pydantic.BaseModel):
-    """The structured trace a trigger dry run produces.
+    """Response body of :py:meth:`~roboto.domain.triggers.Trigger.dry_run`.
 
-    Gates appear in evaluation order. The first failed gate is why the trigger would
-    not fire; every gate after it is ``not_evaluated``.
+    A dry run reports whether a trigger would run its targets for a platform event, and if not, why. It checks the
+    trigger's gates against the event and the organization's current data, in the order Roboto checks them when the
+    trigger fires, and runs no target. The first failed gate is why the trigger would not fire; every gate after it is
+    ``TriggerDryRunGateStatus.NotEvaluated``.
     """
 
     trigger_id: str
-    """The trigger that was dry-run."""
+    """ID of the trigger that was dry-run."""
 
     event_type: PlatformEventType
-    """Type of the (given or synthesized) event that was evaluated."""
+    """Type of the platform event evaluated, whether the request gave it or Roboto synthesized it."""
 
     would_fire: bool
-    """Whether the trigger would dispatch at least one target for this event."""
+    """Whether the trigger would run at least one target for the event: true when every gate passed."""
 
     verdict: str
-    """One plain-English sentence summarizing the outcome."""
+    """One plain-English sentence summarizing the outcome, quoting the first failed gate's ``detail`` if any failed."""
 
     gates: list[TriggerDryRunGate]
-    """The gate-by-gate trace, in evaluation order."""
+    """Result of every gate, in the order Roboto checks them."""
 
 
 __all__ = [

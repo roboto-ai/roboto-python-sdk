@@ -4,7 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Topics APIs in active refinement; see :py:mod:`roboto.experimental` for the stability contract."""
+"""Topics: sequences of structured time-series data, called messages, identified by name across the files that log them.
+
+Unlike :py:mod:`roboto.domain.topics`, where each file has its own topic of a given name, a ``Topic`` here holds the
+data every file in an organization logs under one topic name. Use ``Topic`` to read a topic's messages as
+dictionaries, a pandas DataFrame or Arrow record batches, and to anchor its data in a session to wall-clock time; a
+``TopicContext`` limits those operations to the topic's data in one session, event, file, dataset or device, as on
+the ``Topic`` that :py:meth:`~roboto.experimental.sessions.Session.get_topic` returns.
+"""
 
 from .batch_transforms import (
     ELEMENT_NAMES_FIELD_METADATA_KEY,

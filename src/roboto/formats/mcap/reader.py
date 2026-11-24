@@ -25,11 +25,7 @@ from .ros_cdr_decoder_factory import (
 
 
 class _EndOfStream:
-    """Singleton type for the :data:`END_OF_STREAM` sentinel.
-
-    A dedicated type makes the sentinel both ``is``-comparable and unambiguous
-    in a type signature, and gives it a readable ``repr`` in test output.
-    """
+    """Type of ``END_OF_STREAM``: one instance, compared with ``is``, with a readable ``repr`` in test output."""
 
     _instance: typing.Optional["_EndOfStream"] = None
 
@@ -43,37 +39,43 @@ class _EndOfStream:
 
 
 END_OF_STREAM = _EndOfStream()
-"""Sentinel returned by :py:meth:`McapReader.next_decoded` when the stream is exhausted.
+"""Value ``McapReader.next_decoded`` returns in place of a message once the reader has no more messages.
 
-A decoded message value can legitimately be ``None`` (a JSON ``null`` payload),
-so exhaustion cannot be signaled with ``None`` without making a real null-valued
-message indistinguishable from end-of-stream. Callers test ``result is
-END_OF_STREAM`` to detect exhaustion and treat every other value -- ``None``
-included -- as a delivered message.
+A message can decode to ``None``, such as a JSON ``null`` payload, so ``None`` cannot mark the end.
 """
 
 
 class McapEnvelopeTimestamp(typing.NamedTuple):
-    """The pair of timestamps an MCAP message envelope carries.
-
-    Every MCAP message records two times in nanoseconds:
-    1. ``log_time``, when the message was written to the file, and
-    2. ``publish_time``, when its producer published it.
-
-
-    Both fields are ``math.inf`` when the reader is exhausted.
-    """
+    """Log time and publish time of an MCAP message, as ``McapReader.next_envelope_timestamp`` returns them."""
 
     log_time: typing.Union[int, float]
+    """Time the message was recorded, in nanoseconds."""
+
     publish_time: typing.Union[int, float]
+    """Time the message's producer published it, in nanoseconds."""
 
 
 class McapReader:
-    """Reader for processing MCAP files with field projection.
+    """Reader that decodes the messages of an MCAP stream and keeps only selected fields.
 
-    Provides an iterator interface for reading decoded messages from MCAP files,
-    filtered by log time and optionally by topic, and projected to selected fields.
-    Handles JSON, msgpack, and the ROS/CDR encodings (``ros1msg`` / ``ros2msg`` / ``ros2idl`` / ``omgidl``).
+    Reads the messages whose log time falls in a time range and, optionally, that are on one topic. Decodes messages
+    encoded as JSON, msgpack, ROS 1, or CDR (ROS 2 and OMG IDL schemas), and skips a ROS 1 or CDR message it cannot
+    decode.
+
+    Args:
+        stream: Binary stream of the MCAP data to read.
+        fields: Fields to keep in each message ``next`` returns.
+        start_time: Inclusive start of the log-time range, in nanoseconds. ``None`` starts at the first message.
+        end_time: Exclusive end of the log-time range, in nanoseconds. ``None`` reads to the last message.
+        log_time_order: Whether to return messages in log-time order. ``False`` returns them in the order the file
+            stores them, which avoids sorting messages across chunks, and still applies the time range. Pass ``False``
+            only when message order does not matter; code that merges readers by log time needs ``True``.
+        topic_name: Topic to read the messages of. ``None`` reads every topic. Messages on every MCAP channel of the
+            topic are read.
+
+    Raises:
+        RobotoInternalException: ``topic_name`` is given and the file's summary section lists no channel on that
+            topic. A stream that cannot seek, or a file with no summary section, is not checked.
     """
 
     __message_iterator: typing.Iterator[mcap.reader.DecodedMessageTuple]
@@ -90,38 +92,8 @@ class McapReader:
         log_time_order: bool = True,
         topic_name: typing.Optional[str] = None,
     ):
-        """Initialize the MCAP reader with filtering parameters.
-
-        Args:
-            stream: Binary stream containing MCAP data to read.
-            fields: Fields to project decoded messages to.
-            start_time: Optional start time in nanoseconds for temporal filtering.
-            end_time: Optional end time in nanoseconds for temporal filtering.
-            log_time_order: Whether messages are yielded in log-time order (the
-                default) or in file order, which skips the underlying reader's
-                cross-chunk ordering heap. Temporal filtering applies either way.
-                Only consumers for which message order carries no meaning may opt
-                out; any caller that merges readers by timestamp must keep the
-                default.
-            topic_name: Read only messages on MCAP channels of this topic, or on every channel when ``None``.
-                A file with several channels on the topic yields the messages of all of them.
-
-        Raises:
-            RobotoInternalException: ``topic_name`` is given and the file's summary lists no channel on that topic.
-                A non-seekable stream or a file without a summary section is not checked.
-
-        Examples:
-            >>> with open("data.mcap", "rb") as f:
-            ...     reader = McapReader(f, fields, start_time=1000, end_time=2000)
-            ...     while reader.has_next:
-            ...         message = reader.next()
-            ...         if message:
-            ...             print(message.to_dict())
-        """
-        # All ROS/CDR encodings (ros1msg / ros2msg / ros2idl / omgidl) route through the shared
-        # mcap_codec decoder. JSON keeps its own pure-Python factory: it preserves json.loads
-        # semantics (None for null fields, plain lists, arbitrary-precision ints), where the
-        # codec's materialization is deliberately CDR-shaped.
+        # JSON channels use their own decoder, so messages decode as json.loads decodes them: None for a null field,
+        # lists for arrays, and integers of any size.
         json_decoder = JsonDecoderFactory()
         msgpack_decoder = make_msgpack_decoder_factory()
         ros_cdr_codec_decoder = make_ros_cdr_codec_decoder_factory()
@@ -143,30 +115,23 @@ class McapReader:
 
     @property
     def has_next(self) -> bool:
-        """Check if there are more messages available to read.
-
-        Returns:
-            True if there are more messages to read, False otherwise.
-        """
+        """Whether the reader has another message to return."""
         return self.__next_unconsummed_decode_result is not None
 
     @property
     def field_paths(self) -> list[tuple[str, ...]]:
-        """Get the path of each field being projected, in the order the fields were given at initialization.
+        """Path through the schema of each selected field, in the order of ``fields``.
 
-        Returns:
-            One tuple per field, its :py:attr:`~roboto.formats.FieldSelection.path_in_schema`:
-            the path components from the schema root to the field.
+        Each path is the field's :py:attr:`~roboto.formats.FieldSelection.path_in_schema`.
         """
         return [field.path_in_schema for field in self.__fields]
 
     @property
     def next_envelope_timestamp(self) -> McapEnvelopeTimestamp:
-        """Get the envelope timestamps of the next message to be read.
+        """Log time and publish time of the next message, both ``math.inf`` once the reader has no more messages.
 
-        Returns:
-            The next message's ``log_time`` and ``publish_time`` in nanoseconds,
-            or both ``math.inf`` if no more messages.
+        Since ``math.inf`` is greater than every timestamp, code that merges readers by taking the smallest next log
+        time never picks an exhausted reader.
         """
         if self.__next_unconsummed_decode_result is None:
             return McapEnvelopeTimestamp(log_time=math.inf, publish_time=math.inf)
@@ -175,20 +140,19 @@ class McapReader:
         return McapEnvelopeTimestamp(log_time=message.log_time, publish_time=message.publish_time)
 
     def next(self) -> typing.Union[DecodedMessage, None]:
-        """Read and return the next decoded message.
-
-        Advances the reader to the next message and returns it as a DecodedMessage
-        object, or None if no more messages are available.
+        """Return the next message, keeping only the selected fields, and advance the reader.
 
         Returns:
-            DecodedMessage containing the next message data, or None if no more messages.
+            The next message, or ``None`` once the reader has no more messages.
 
         Examples:
-            >>> while reader.has_next:
-            ...     message = reader.next()
-            ...     if message:
-            ...         data = message.to_dict()
-            ...         print(f"Message at {data.get('log_time')}: {data}")
+            >>> from roboto.formats import FieldSelection
+            >>> from roboto.formats.mcap import McapReader
+            >>> with open("data.mcap", "rb") as f:
+            ...     reader = McapReader(f, [FieldSelection(("position", "x"))], topic_name="/pose")
+            ...     while reader.has_next:
+            ...         message = reader.next()
+            ...         print(message.to_dict())
         """
         next_decode_result = self.__next_unconsummed_decode_result
         self.__decode_next()
@@ -202,22 +166,14 @@ class McapReader:
         return None
 
     def next_decoded(self) -> typing.Any:
-        """Read and return the next message's raw decoded value, advancing the reader.
+        """Return the next message as its decoder produced it, with every field, and advance the reader.
 
-        The raw value is what the format decoder produced -- a dict for
-        JSON-encoded messages, and nested ``dict`` / sequence / scalar values
-        for ROS/CDR encodings -- with no projection applied. Callers that want
-        projected dictionary output use :py:meth:`next` and
-        :py:meth:`DecodedMessage.to_dict` instead.
-
-        A decoded value of ``None`` is a real message (a JSON ``null`` payload)
-        and is delivered as such. Exhaustion is signaled with the dedicated
-        :data:`END_OF_STREAM` sentinel instead, so callers must test ``result is
-        END_OF_STREAM`` rather than ``result is None`` to detect the end.
+        The value is nested dictionaries, sequences, and scalars. To keep only the selected fields, use ``next`` and
+        :py:meth:`~roboto.formats.mcap.decoded_message.DecodedMessage.to_dict` instead.
 
         Returns:
-            The decoded message value, or :data:`END_OF_STREAM` if no more
-            messages are available.
+            The decoded message, or ``END_OF_STREAM`` once the reader has no more messages. A message can decode to
+            ``None``, so test ``result is END_OF_STREAM``, not ``result is None``, to detect the end.
         """
         next_decode_result = self.__next_unconsummed_decode_result
         self.__decode_next()
@@ -226,15 +182,13 @@ class McapReader:
         return next_decode_result.decoded_message
 
     def next_message_is_time_aligned(self, timestamp: typing.Union[int, float]) -> bool:
-        """Check if the next message has the specified timestamp.
+        """Return whether the next message's log time equals ``timestamp``.
 
-        Used for time-aligned reading when merging data from multiple readers.
+        Code that merges several readers by log time uses it to find the readers whose next message has the earliest
+        log time. Returns ``False`` once the reader has no more messages.
 
         Args:
-            timestamp: Timestamp to check against in nanoseconds.
-
-        Returns:
-            True if the next message has the specified timestamp, False otherwise.
+            timestamp: Log time to compare with, in nanoseconds.
         """
         next_decode_result = self.__next_unconsummed_decode_result
         if next_decode_result is None:
@@ -243,9 +197,8 @@ class McapReader:
         return next_decode_result.message.log_time == timestamp
 
     def __decode_next(self) -> None:
-        # The CDR codec decoder returns UNDECODABLE_MESSAGE for a message it cannot decode (an
-        # unsupported wstring/wchar in a non-recoverable position) rather than raising, so a single
-        # such message does not abort iteration over the rest of the file. Skip past those.
+        # The ROS 1 and CDR decoder returns UNDECODABLE_MESSAGE, instead of raising, for a message it cannot decode, so
+        # that one such message does not end the read. Skip each one.
         while True:
             next_decode_result = next(self.__message_iterator, None)
             if next_decode_result is not None and next_decode_result.decoded_message is UNDECODABLE_MESSAGE:
@@ -255,10 +208,10 @@ class McapReader:
 
 
 def _raise_if_summary_lists_no_channel_on_topic(reader: mcap.reader.McapReader, topic_name: str) -> None:
-    """Raise when the file's summary section lists no MCAP channel on ``topic_name``.
+    """Reject ``topic_name`` when the file's summary section lists no MCAP channel on it.
 
-    Only a seekable reader's summary is read: a non-seekable reader's ``get_summary`` consumes the stream.
-    A file without a summary section is not checked, since its channels are known only by reading it through.
+    Checks only a seekable reader, because reading a non-seekable reader's summary consumes the stream. A file with no
+    summary section is not checked, because its channels are known only by reading it to the end.
 
     Raises:
         RobotoInternalException: The summary lists no channel on ``topic_name``.

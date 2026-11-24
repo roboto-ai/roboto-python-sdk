@@ -23,19 +23,16 @@ from .parquet import ParquetFileDecoder
 
 
 def make_file_decoder_opener(params: FileDecodeParams) -> FileDecoderOpener:
-    """Return a :py:data:`~roboto.experimental.topics.decode.FileDecoderOpener` that reads files through ``params``.
+    """Build a ``FileDecoderOpener`` that reads files through ``params``.
 
-    The opener picks the decoder by the group's format:
-    :py:class:`~roboto.experimental.topics.decode.mcap.McapFileDecoder` or
-    :py:class:`~roboto.experimental.topics.decode.parquet.ParquetFileDecoder`.
+    The opener picks the decoder by the format of the group's file: ``McapFileDecoder`` for MCAP and
+    ``ParquetFileDecoder`` for Parquet.
 
-    Args:
-        params: How to reach each file and whether to cache it.
-
-    Returns:
-        An opener of file decoders. The opener raises :py:class:`~roboto.exceptions.RobotoReadPlanExecutionException`
-        with kind ``unsupported-format`` for a format other than MCAP or Parquet, and passes on what opening the
-        decoder raises.
+    Raises:
+        RobotoReadPlanExecutionException: With kind
+            :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.UNSUPPORTED_FORMAT`, when the group's format is
+            neither MCAP nor Parquet. Raised when the returned function is called, which also raises what the chosen
+            decoder raises when it opens the file.
     """
 
     def open_file_decoder(group: ScanTaskGroup, partition: ReadPlanPartition, window: TimeWindow) -> FileDecoder:
@@ -43,7 +40,7 @@ def make_file_decoder_opener(params: FileDecodeParams) -> FileDecoderOpener:
             return McapFileDecoder(group, partition, window, params)
         if group.format == RepresentationStorageFormat.PARQUET:
             return ParquetFileDecoder(group, partition, window, params)
-        # A plan built without validation can hold a format name the enum lacks.
+        # A scan task built by model_construct, which skips validation, can hold a format the enum lacks.
         raise RobotoReadPlanExecutionException(
             f"Topic partition {partition.topic_part_id} uses {group.format}. "
             "The topic data reader supports MCAP and Parquet only.",

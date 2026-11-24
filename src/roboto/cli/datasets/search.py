@@ -27,6 +27,10 @@ from ..context import CLIContext
 
 
 def search(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print the record of each dataset that matches every ``--metadata`` pair and ``--tag``, as a JSON list.
+
+    With neither option, prints every dataset in the ``--org`` organization.
+    """
     conditions: list[typing.Union[Condition, ConditionGroup]] = []
 
     if args.metadata:
@@ -62,7 +66,7 @@ def search(args, context: CLIContext, parser: argparse.ArgumentParser):
     query = QuerySpecification(**query_args)
     searcher = RobotoSearch.for_roboto_client(context.roboto_client, args.org)
 
-    # Fetch dataset metadata, since we want to dump all dataset fields as JSON on the cmdline
+    # Without RecordWithMeta, each printed record's metadata would be empty.
     results = searcher.find_datasets(query, content_mode=QueryContentMode.RecordWithMeta)
 
     print(json.dumps([result.to_dict() for result in results], indent=2))

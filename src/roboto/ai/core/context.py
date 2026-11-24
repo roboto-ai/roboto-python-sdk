@@ -12,107 +12,100 @@ from ...time import _NanosecondsFromInteger
 
 
 class ClientViewingContext(pydantic.BaseModel):
-    """What the Roboto client (e.g. the Web UI) is currently viewing when the
-    user composed a message.
+    """What the caller had open in their client, such as the Roboto web app, when they wrote a message to Roboto's AI.
 
-    Passed to the agent as implicit context for resolving deictic references
-    — "this dataset", "those files", "the visualizer state I'm looking at" —
-    that the user would otherwise have to spell out. This type is purely
-    informational; it is not enforced and never gates tool authorization.
+    Carried in :py:attr:`~roboto.ai.agent_thread.StartAgentThreadRequest.client_context` and
+    :py:attr:`~roboto.ai.agent_thread.SendMessageRequest.client_context`, and stored on the caller's message as
+    :py:attr:`~roboto.ai.core.AgentClientContextEntry.context`. It lets the AI resolve references such as "this
+    dataset" or "those files" without the caller naming them. It does not change what the AI may access: the AI
+    still reads each resource through its own tools. Roboto also records each dataset, file and session it names as
+    an :py:class:`~roboto.ai.agent_thread.AgentThreadSubject`, so the thread can be found from that resource.
 
-    Distinct from:
-
-    * :class:`AnalysisScope`, which is a hard analysis window honored by
-      individual tools on the server side.
-    * :class:`~roboto.ai.goals.AgentGoal`, which declares typed outcomes the
-      agent runner must drive the turn to satisfy.
-
-    The corresponding wire-format field is ``client_context`` (with a
-    one-release ``context`` alias for migration).
+    It differs from :py:class:`~roboto.ai.core.AnalysisScope`, which limits the data the AI's tools read, and from
+    :py:class:`~roboto.ai.goals.AgentGoal`, which states a result the AI must reach in a turn.
     """
 
     dataset_ids: list[str] = pydantic.Field(default_factory=list)
-    """IDs of datasets the user is currently viewing or has selected."""
+    """IDs of the datasets the caller had open or selected. Defaults to none."""
 
     file_ids: list[str] = pydantic.Field(default_factory=list)
-    """IDs of files the user is currently viewing or has selected."""
+    """IDs of the files the caller had open or selected. Defaults to none."""
 
     collection_ids: list[str] = pydantic.Field(default_factory=list)
-    """IDs of collections the user is currently viewing or has selected."""
+    """IDs of the collections the caller had open or selected. Defaults to none."""
 
     device_ids: list[str] = pydantic.Field(default_factory=list)
-    """IDs of devices the user is currently viewing or has selected.
+    """IDs of the devices the caller had open or selected. Defaults to none.
 
-    Device IDs are user-chosen rather than minted by Roboto, so unlike the
-    other fields here a value may look like anything at all."""
+    Each is the ID the organization gave the device, such as a serial number, so unlike the other IDs here it has no
+    fixed prefix.
+    """
 
     device_type_ids: list[str] = pydantic.Field(default_factory=list)
-    """IDs of device types the user is currently viewing."""
+    """IDs of the device types the caller had open. Defaults to none."""
 
     session_ids: list[str] = pydantic.Field(default_factory=list)
-    """IDs of sessions the user is currently viewing."""
+    """IDs of the sessions the caller had open. Defaults to none."""
 
     view_ids: list[str] = pydantic.Field(default_factory=list)
-    """IDs of Views -- saved, shareable searches over one resource type --
-    applied to a resource table the user is looking at.
+    """IDs of the Views applied to the resource table the caller had open. Defaults to none.
 
-    Informational, like every field here: it lets the agent resolve "this
-    View" without the user naming it, and the agent still reads the View
-    through its own tools."""
+    A View is a saved, shareable search over one kind of resource. These IDs let the AI resolve "this View" without
+    the caller naming it.
+    """
 
     table_state: Optional[dict[str, Any]] = None
-    """The resource table on screen, when the user composed the message from
-    one: its ``target`` (``datasets``, ``files``, ...) and its live
-    ``definition`` -- the same shape a View stores: RoboQL text or filter
-    controls, plus visible columns, sort, and page size.
+    """Resource table the caller had open, or ``None`` if they wrote the message from elsewhere.
 
-    Sent whether or not a View is loaded, so the agent can describe ad-hoc
-    filters and so "save what I'm looking at as a View" names something
-    concrete. Informational, like every field here."""
+    Holds the table's ``target`` (``datasets``, ``files``, ...) and its current ``definition``, in the shape a View
+    stores: RoboQL text or filter controls, plus the visible columns, sort and page size. The client sends it whether
+    or not a View is loaded, so the AI can describe filters the caller has not saved, and can save the table as it
+    stands when the caller asks it to save what they are looking at as a View.
+    """
 
     display_time_anchor_ns: Optional[int] = None
-    """Epoch nanoseconds the client renders as t=0, set only while the user is
-    reading timestamps as an elapsed count from that instant, and ``None``
-    otherwise.
+    """Time the client shows as zero, in nanoseconds since the Unix epoch, or ``None`` if it shows absolute times.
 
-    Informational, like every field here: it lets the agent resolve a bare
-    relative time the user types ("around 65 s") to an absolute instant, and the
-    agent still reports absolute nanoseconds back."""
+    The client sets it while the caller reads timestamps as time elapsed since this time. It lets the AI turn a
+    relative time the caller types, such as "around 65 s", into an absolute time. The AI still reports times back in
+    nanoseconds since the Unix epoch.
+    """
 
     display_time_anchor_label: Optional[str] = None
-    """What the client shows the user as the name of that t=0 — "Start of
-    workspace", or a picked timestamp rendered as local time.
+    """Name the client shows for the time in ``display_time_anchor_ns``, or ``None`` when that field is ``None``.
 
-    Informational, like every field here: it lets the agent name the instant an
-    offset is counted from, rather than leaving the reader to guess. ``None``
-    whenever ``display_time_anchor_ns`` is ``None``."""
+    The name is "Start of workspace" or a chosen timestamp in local time. It lets the AI name the time an offset
+    counts from.
+    """
 
     visualizer_state: Optional[dict[str, Any]] = None
-    """State of the visualizer, when the user composed the message from the
-    visualizer view. A relatively opaque JSON blob."""
+    """State of the visualizer, or ``None`` if the caller wrote the message from elsewhere.
+
+    The Roboto web app defines its form.
+    """
 
     misc_context: Optional[dict[str, Any]] = None
-    """Miscellaneous client-supplied context that doesn't fit the typed fields
-    above. Use sparingly; prefer adding a typed field when a recurring shape
-    emerges."""
+    """Other context from the client that fits none of the other fields, or ``None`` for none."""
 
 
 class AnalysisScope(pydantic.BaseModel):
-    """The slice of data an agent is expected to analyze.
+    """Time window of the data Roboto's AI analyzes in a thread.
 
-    An ``AnalysisScope`` is delivered to every ``AgentTool`` invocation on
-    the server side. Individual tools opt in to honoring the scope as they
-    are adopted; this SDK type carries the configuration, it does not
-    itself enforce anything. Fields set to ``None`` are unconstrained on
-    that dimension; an ``AnalysisScope`` with every field ``None`` is
-    equivalent to no scope at all.
+    Carried in :py:attr:`~roboto.ai.agent_thread.StartAgentThreadRequest.analysis_scope`,
+    :py:attr:`~roboto.ai.agent_thread.SendMessageRequest.analysis_scope`,
+    :py:attr:`~roboto.ai.agent.LaunchAgentRequest.analysis_scope` and
+    :py:attr:`~roboto.domain.triggers.StartAgentTarget.analysis_scope`. Roboto passes the scope to each tool the AI
+    calls, and each tool decides whether to apply it. A bound left ``None`` leaves that end of the window open, so a
+    scope with both bounds ``None`` limits nothing.
+
+    Building it raises ``pydantic.ValidationError`` when ``start_time`` is after ``end_time``.
     """
 
     start_time: Optional[_NanosecondsFromInteger] = None
-    """Lower bound (inclusive) of the analysis window, expressed as nanoseconds since the Unix epoch."""
+    """Inclusive start of the window, in nanoseconds since the Unix epoch. ``None`` leaves the start open."""
 
     end_time: Optional[_NanosecondsFromInteger] = None
-    """Upper bound (inclusive) of the analysis window, expressed as nanoseconds since the Unix epoch."""
+    """Inclusive end of the window, in nanoseconds since the Unix epoch. ``None`` leaves the end open."""
 
     @pydantic.model_validator(mode="after")
     def _validate_time_window(self) -> "AnalysisScope":
@@ -121,13 +114,20 @@ class AnalysisScope(pydantic.BaseModel):
         return self
 
     def merge(self, override: "AnalysisScope") -> "AnalysisScope":
-        """Zipper-merge ``override`` onto this scope, dimension by dimension.
+        """Build a scope that takes each bound from ``override`` when it is set, and from this scope otherwise.
 
-        For each field, the ``override`` value wins when it is set (not
-        ``None``); otherwise this scope's value carries through. Used to
-        reconcile an invoke-time scope (``override``) against an authored
-        template scope (``self``): a launch can override individual
-        dimensions while inheriting the rest.
+        Roboto calls this when a user launches an agent, or a trigger starts one, with a scope set. It merges that
+        scope, as ``override``, into the scope in the agent's request template, as this scope.
+
+        Args:
+            override: Scope whose bounds replace this scope's. A bound left ``None`` keeps this scope's.
+
+        Returns:
+            A new scope. Neither this scope nor ``override`` changes.
+
+        Raises:
+            pydantic.ValidationError: The resulting start is after the resulting end, as when ``override`` sets only a
+                start later than this scope's end.
         """
         return AnalysisScope(
             start_time=override.start_time if override.start_time is not None else self.start_time,

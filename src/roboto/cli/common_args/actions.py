@@ -20,13 +20,11 @@ from ..validation import (
 
 
 def parse_action_reference_string(value: str) -> actions.ActionReference:
-    """Parse action reference string into ActionReference object.
+    """Build an :py:class:`~roboto.domain.actions.ActionReference` from an action reference a user wrote.
 
     Args:
-        value: Action reference string (e.g., "my-action", "org/my-action", "action@digest")
-
-    Returns:
-        Parsed ActionReference instance
+        value: Reference to the action, as ``<name>``, ``<org_id>/<name>``, or either followed by ``@<digest>`` to pin
+            one version.
     """
     org_name_parts = value.split("/", maxsplit=1)
     name_part = org_name_parts[-1]
@@ -35,8 +33,7 @@ def parse_action_reference_string(value: str) -> actions.ActionReference:
     parse_result = dict()
 
     if len(org_name_parts) == 2:
-        # Org is explicit: Action belongs to the org specified in the reference
-        # Example: "some-org/an-action"
+        # `<org_id>/<name>`: the reference names the organization that owns the action.
         action_owner = org_name_parts[0]
         parse_result["owner"] = action_owner
 
@@ -52,7 +49,7 @@ def parse_action_reference_string(value: str) -> actions.ActionReference:
 
 
 class ActionReferenceParser(argparse.Action):
-    """Parse an action reference string into its org (if given) and action name components."""
+    """``argparse`` action that stores an action reference argument as an ``ActionReference``."""
 
     def __call__(
         self,
@@ -75,6 +72,18 @@ def add_action_reference_arg(
     arg_help: str = "Partially or fully qualified reference to Action on which to operate.",
     arg_name="action",
 ) -> None:
+    """Add the argument that selects an action to ``parser``.
+
+    The parsed arguments hold the action as an ``ActionReference``. ``roboto actions show``,
+    ``roboto actions list-invocations`` and ``roboto actions invoke`` take it as a positional argument, and
+    ``roboto actions create`` as ``--inherits_from``.
+
+    Args:
+        positional: Whether the argument is positional. ``False`` adds it as the option ``--<arg_name>``.
+        required: Whether the option must be given. Ignored when ``positional`` is true, since argparse requires every
+            positional argument.
+        arg_name: Name of the argument, under which the parsed arguments hold the reference.
+    """
     arg = arg_name if positional else f"--{arg_name}"
     kwargs: dict[str, typing.Any] = {
         "metavar": "<action_name> | <action_name>@<digest> | <org>/<action_name> | <org>/<action_name>@<digest>",  # noqa: E501
@@ -91,7 +100,16 @@ def add_action_reference_arg(
 
 
 class ActionParameterArg(argparse.Action):
-    """Parse an action parameter string an ActionParameter value object."""
+    """``argparse`` action that parses each ``--parameter`` value into an action parameter.
+
+    Each parameter is an :py:class:`~roboto.domain.actions.ActionParameter`. A value is ``|``-separated
+    ``<key>=<value>`` pairs, as ``METAVAR`` shows. ``required`` is true only when its value is ``true``, ignoring
+    case; any other key's value is read as JSON when it parses as JSON, and kept as a string otherwise. Parameters
+    from repeated ``--parameter`` options accumulate in one list.
+
+    A pair with no ``=`` raises ``argparse.ArgumentError``. A parameter ``ActionParameter`` rejects prints the first
+    validation error and exits with status 1.
+    """
 
     METAVAR: typing.ClassVar[str] = "'name=<name>|required=<true|false>|default=<value>|description=<description>'"  # noqa: E501
 
@@ -131,6 +149,7 @@ class ActionParameterArg(argparse.Action):
                     try:
                         parsed_value = json.loads(parsed_value)
                     except Exception:
+                        # Not JSON: keep the string the user wrote.
                         pass
                 parse_result[key] = parsed_value
 
@@ -146,6 +165,11 @@ class ActionParameterArg(argparse.Action):
 
 
 class ActionTimeoutArg(argparse.Action):
+    """``argparse`` action that stores an action's timeout, in minutes, as a positive integer.
+
+    A value that is not a positive integer, or more than one value, raises ``argparse.ArgumentError``.
+    """
+
     def __call__(
         self,
         parser: argparse.ArgumentParser,
@@ -178,16 +202,36 @@ class ActionTimeoutArg(argparse.Action):
 
 
 class DockerInstructionForm(enum.Enum):
-    """The form of a CMD instruction."""
+    """Form of a ``--command`` argument, which decides whether it is split into words.
+
+    The names follow the exec and shell forms of a Docker ``CMD`` instruction.
+    """
 
     Exec = "exec"
+    """Split into words by POSIX shell quoting rules."""
+
     Shell = "shell"
+    """Kept as one string."""
 
 
 def parse_compute_requirements(
     args: argparse.Namespace,
     defaults: typing.Optional[actions.ComputeRequirements] = None,
 ) -> typing.Optional[actions.ComputeRequirements]:
+    """Build the compute requirements that the ``--vcpu``, ``--memory`` and ``--storage`` options set.
+
+    Each value the options leave out comes from ``defaults``. ``--gpu`` is not read. When
+    :py:class:`~roboto.domain.actions.ComputeRequirements` rejects the values, prints the first validation error and
+    exits with status 1.
+
+    Args:
+        args: Parsed command-line arguments, from a parser that ``add_compute_requirements_args`` added to.
+        defaults: Compute requirements to take each value left out from, such as an action's current ones. ``None``
+            uses the defaults of ``ComputeRequirements``.
+
+    Returns:
+        The compute requirements, or ``None`` when none of the three options is given.
+    """
     if args.vcpu is None and args.memory is None and args.storage is None:
         return None
 
@@ -209,6 +253,11 @@ def parse_compute_requirements(
 
 
 def add_compute_requirements_args(parser: argparse.ArgumentParser) -> None:
+    """Add the flags that set an action's compute requirements to ``parser``.
+
+    The flags are ``--vcpu``, ``--memory``, ``--storage`` and ``--gpu``. ``roboto actions create``,
+    ``roboto actions update`` and ``roboto actions invoke`` take them.
+    """
     resource_requirements_group = parser.add_argument_group(
         "Resource requirements",
         "Specify required compute resources.",
@@ -242,7 +291,6 @@ def add_compute_requirements_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
-    # Placeholder
     resource_requirements_group.add_argument(
         "--gpu",
         required=False,
@@ -259,6 +307,21 @@ def parse_container_overrides(
     args: argparse.Namespace,
     defaults: typing.Optional[actions.ContainerParameters] = None,
 ) -> typing.Optional[actions.ContainerParameters]:
+    """Build the container parameters that the ``--entrypoint``, ``--command``, ``--workdir`` and ``--env`` options set.
+
+    Each value the options leave out comes from ``defaults``. ``null`` given to ``--entrypoint`` or ``--command``
+    clears that override. ``--entrypoint`` becomes a one-item list, and ``--command`` is split into words when
+    ``--command-form`` is ``exec``. When :py:class:`~roboto.domain.actions.ContainerParameters` rejects the values,
+    prints the first validation error and exits with status 1.
+
+    Args:
+        args: Parsed command-line arguments, from a parser that ``add_container_parameters_args`` added to.
+        defaults: Container parameters to take each value left out from, such as an action's current ones. ``None``
+            takes none.
+
+    Returns:
+        The container parameters, or ``None`` when none of the four options is given or every value is ``None``.
+    """
     if args.entry_point is None and args.command is None and args.workdir is None and args.env is None:
         return None
 
@@ -296,12 +359,18 @@ def parse_container_overrides(
         }
         if not kwargs:
             return None
+        # The filter above drops None but keeps null, so a cleared override reaches the model as None.
         return actions.ContainerParameters.model_validate(
             {key: value if value is not null else None for key, value in kwargs.items()}
         )
 
 
 def add_container_parameters_args(parser: argparse.ArgumentParser) -> None:
+    """Add the flags that set an action's container parameters to ``parser``.
+
+    The flags are ``--entrypoint``, ``--command``, ``--command-form``, ``--workdir`` and ``--env``.
+    ``roboto actions create``, ``roboto actions update`` and ``roboto actions invoke`` take them.
+    """
     group = parser.add_argument_group(
         "Container parameters",
         "Specify parameters to pass to the action's Docker container at runtime.",

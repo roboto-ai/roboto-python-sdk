@@ -20,44 +20,29 @@ from ...compat import import_optional_dependency
 
 @functools.lru_cache(maxsize=1)
 def _resolve_orjson() -> tuple[typing.Optional[types.ModuleType], typing.Optional[type[Exception]]]:
-    """Resolve the optional ``orjson`` accelerator and its decode-error type, once.
+    """Return the ``orjson`` module and its ``JSONDecodeError``, or ``(None, None)`` when it is not installed.
 
-    orjson ships in the ``analytics`` extra. It is resolved lazily on the first
-    decode — like the other optional dependencies on this read path — so that
-    importing this module never imports orjson; only an actual decode does. The
-    import is best-effort (``errors="ignore"`` returns ``None`` when the extra is
-    absent rather than the mandatory ``errors="raise"`` used where pandas/pyarrow
-    are hard requirements), and callers fall back to the standard library ``json``
-    module when it is ``None``. The result is memoized, keeping repeated
-    resolution off the per-message decode hot path.
-
-    Returns:
-        A tuple of the ``orjson`` module and its ``JSONDecodeError`` type, or
-        ``(None, None)`` when orjson is not installed.
+    ``orjson`` ships in the ``analytics`` extra. It is looked up on the first decode rather than at import, so importing
+    this module never imports ``orjson``, and the result is cached so later decodes skip the lookup.
     """
     module = import_optional_dependency("orjson", "analytics", errors="ignore")
     decode_error = module.JSONDecodeError if module is not None else None
     return module, decode_error
 
 
-# The magnitude at or above which a JSON number that orjson decoded as a float
-# may be a widened integer. orjson keeps integers in [-2**63, 2**64 - 1] exact
-# and silently widens anything beyond that to float, whereas json.loads preserves
-# arbitrary precision. Every widened integer has magnitude at least 2**63, so any
-# float orjson returns below this magnitude is faithful and any at or above it is
-# reparsed with json.loads to recover the exact value.
+# Magnitude at or above which a float from orjson may be a widened integer. orjson decodes integers in
+# [-2**63, 2**64 - 1] exactly and silently widens any outside that range to float, while json.loads keeps every
+# integer exact. Every widened integer has a magnitude of at least 2**63, so a float below this magnitude matches what
+# json.loads returns, and the payload of one at or above it is reparsed with json.loads.
 _WIDE_INT_FLOAT_MAGNITUDE = float(2**63)
 
 
 def _has_widened_float(value: typing.Any) -> bool:
-    """Report whether any float in ``value`` is large enough to be a widened integer.
+    """Return whether any float in ``value`` is large enough to be an integer ``orjson`` widened.
 
-    Walks the parsed structure iteratively, inspecting only floats — the sole
-    type orjson can produce where it diverges from json.loads. The threshold is
-    rarely met, so this is a cheap pass over already-parsed data rather than a
-    scan of the raw payload bytes. A genuine float literal at or above the
-    threshold is reparsed too, where json.loads yields the same float, so the
-    only cost is a rarely taken slow path.
+    Only floats are checked, since they are the only parsed values where ``orjson`` and ``json.loads`` can differ. A
+    float literal at or above the threshold also returns ``True``; reparsing it with ``json.loads`` yields the same
+    float.
     """
     stack = [value]
     while stack:
@@ -74,57 +59,42 @@ def _has_widened_float(value: typing.Any) -> bool:
 
 
 class JsonDecoderFactory(McapDecoderFactory):
-    """Factory for creating JSON message decoders for MCAP readers.
+    """Decoder factory that decodes JSON-encoded MCAP messages to the Python objects ``json.loads`` returns.
 
-    Provides functionality to decode JSON-encoded messages within MCAP files.
-    This decoder factory is used by the MCAP reader to handle messages that
-    were originally encoded in JSON format.
+    The SDK's own code uses it; to read messages from an MCAP file, use :py:class:`~roboto.formats.mcap.McapReader`
+    instead. Decoding uses ``orjson`` when the ``analytics`` extra installs it, and the standard library ``json`` module
+    otherwise. The result is the same either way, including for the non-standard ``NaN``, ``Infinity``, and
+    ``-Infinity`` tokens and for integers of any size.
     """
 
     def decoder_for(
         self, message_encoding: str, schema: typing.Optional[Schema]
     ) -> typing.Optional[typing.Callable[[bytes], typing.Any]]:
-        """Create a decoder function for JSON-encoded messages.
+        """Build a function that decodes one JSON-encoded message, or return ``None`` for any other encoding.
 
-        Returns a decoder function if the message encoding is JSON, otherwise returns None
-        to indicate this factory cannot handle the encoding.
+        The ``mcap`` library's reader calls this to get a decoder for a channel's messages.
 
         Args:
-            message_encoding: The encoding format of the message.
-            schema: Optional schema information for the message.
+            message_encoding: Message encoding of the channel. Only ``json`` gets a decoder.
+            schema: Ignored. JSON messages decode without a schema.
 
-        Returns:
-            A decoder function for JSON messages, or None if the encoding is not JSON.
-
-        Examples:
-            >>> factory = JsonDecoderFactory()
-            >>> decoder = factory.decoder_for(MessageEncoding.JSON, None)
-            >>> if decoder:
-            ...     decoded = decoder(b'{"x": 1.5, "y": 2.0}')
-            ...     print(decoded)
-            {'x': 1.5, 'y': 2.0}
+        Raises:
+            json.JSONDecodeError: A message is not valid JSON. Raised when the returned function is called.
+            UnicodeDecodeError: A message is not valid UTF-8. Raised when the returned function is called.
         """
         if message_encoding != MessageEncoding.JSON:
             return None
 
         def decode(data: bytes) -> typing.Any:
-            """Parse one JSON-encoded MCAP message payload into a Python object.
+            """Parse one message payload, returning what ``json.loads`` returns for it.
 
-            Uses ``orjson`` when it is installed and falls back to the standard library
-            ``json`` module otherwise. The two parsers produce identical Python objects
-            for the standard JSON these payloads carry, with two divergences handled
-            here so the result is never observably different from ``json.loads``:
+            ``orjson``, when installed, parses the bytes directly. Two cases fall back to ``json.loads`` on the
+            decoded string:
 
-            - ``orjson`` rejects the non-standard ``NaN``, ``Infinity``, and
-              ``-Infinity`` tokens that ``json.loads`` accepts; on any ``orjson`` parse
-              error the payload is reparsed with ``json.loads``.
-            - ``orjson`` decodes integers outside ``[-2**63, 2**64 - 1]`` as floats,
-              losing the precision ``json.loads`` keeps. When the parsed result carries a
-              float large enough to be such a widened integer, the payload is reparsed
-              with ``json.loads`` to recover the exact value.
-
-            ``orjson`` parses the raw ``bytes`` directly, which is its fastest input
-            form. The fallback decodes the same bytes to ``str`` before parsing.
+            - ``orjson`` rejects the payload, as it rejects the ``NaN``, ``Infinity``, and ``-Infinity`` tokens that
+              ``json.loads`` accepts.
+            - The result holds a float large enough to be an integer outside ``[-2**63, 2**64 - 1]``, which ``orjson``
+              widens to a float and ``json.loads`` keeps exact.
             """
             orjson, orjson_decode_error = _resolve_orjson()
             if orjson is not None:

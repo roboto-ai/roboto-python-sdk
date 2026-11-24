@@ -4,29 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Filter controls as a user built them, in a form that survives being saved.
-
-A :class:`SavedFilters` records what someone expressed in a filter UI — which field, which
-operator, which values — rather than the query that expression compiles to. Saved Views hold
-this, and rebuild an executable query from it on load.
-
-**Why this exists rather than a** :class:`~roboto.query.QuerySpecification`. A query cannot be
-stored faithfully today, because :class:`~roboto.query.Comparator` has no way to say "the last
-7 days", "between these two dates", or "any of these three". Those get flattened at translation
-time — a relative window resolves to fixed instants, a range becomes two comparisons, a
-multi-select becomes an OR group — and the flattening has no inverse. A View storing the
-translated query would show the week it was saved, forever, presented as though it were live.
-
-:class:`FilterOnlyComparator` lists exactly what ``Comparator`` cannot express. Members leave
-it as ``Comparator`` grows to cover them; when it is empty, a saved filter is expressible as a
-plain ``QuerySpecification``.
-
-**On the per-variant comparator lists below.** They state what a filter control offers for a
-field type, which is narrower than what the query language accepts for the same field: a date
-filter presents ``<``, ``>`` and ``BETWEEN`` where a query supports all six ordering and
-equality operators, and a boolean filter presents ``EQUALS`` alone.
-"""
-
 import datetime
 import typing
 
@@ -37,86 +14,96 @@ from ..principal import RobotoPrincipalType
 from .conditions import Comparator
 
 CUSTOM_FIELD_PREFIX: typing.Final[str] = "custom."
-"""Prefix that addresses one of the organization's custom fields in a query field.
+"""Prefix that names one of the organization's custom fields in a query's field.
 
-``custom.<field_name>`` names the custom field ``<field_name>`` wherever a query takes a field: a
-:class:`~roboto.query.Condition`'s ``field``, a :class:`~roboto.query.QuerySpecification`'s ``sort_by``,
-a :class:`~roboto.query.ValueCountsSpec`'s ``field``, and a saved filter's ``field``.
+``custom.<field_name>`` names the custom field ``<field_name>`` wherever a query takes a field:
+:py:attr:`~roboto.query.Condition.field`, :py:attr:`~roboto.query.QuerySpecification.sort_by`,
+:py:attr:`~roboto.query.ValueCountsSpec.field`, and a saved filter's ``field``. No SDK method reads it.
 """
 
 METRIC_FIELD_PREFIX: typing.Final[str] = "metric."
-"""Prefix distinguishing a user-defined metric from an ordinary numeric property.
+"""Prefix that marks a field as a user-defined metric rather than a numeric property of the resource.
 
-Metric filters store the prefixed form so that ``field`` means the same thing here as it does
-in a :class:`~roboto.query.Condition`, and translating a filter into a query copies the field
-across rather than special-casing it.
+A ``MetricFilter`` stores its ``field`` with the prefix, so the field names the metric the same way
+:py:attr:`~roboto.query.Condition.field` does, and converting the filter to a query copies it unchanged. No SDK
+method reads it.
 """
 
 METRIC_FIELD_PATTERN: typing.Final[str] = r"^metric\..+"
+"""Regular expression a metric filter's ``field`` must match.
+
+It matches ``METRIC_FIELD_PREFIX`` followed by the metric's path.
+"""
 
 MetricField: typing.TypeAlias = typing.Annotated[str, pydantic.StringConstraints(pattern=METRIC_FIELD_PATTERN)]
-"""A metric's dot-delimited path, carrying its ``metric.`` prefix."""
+"""Field name of a user-defined metric: ``metric.`` followed by the metric's dot-delimited path."""
 
 
 class FilterOnlyComparator(StrEnum):
-    """Operators a saved filter needs that :class:`~roboto.query.Comparator` cannot express.
+    """Operator of a saved filter that :py:class:`~roboto.query.Comparator` cannot express.
 
-    Every member is a gap in the query language, and this enum is the list of them. It is the
-    complement of ``Comparator``, never a superset: a member here that ``Comparator`` *can*
-    express is a stale entry.
+    Converting a filter to a query fixes what these operators mean: ``Between`` becomes two comparisons, and a
+    relative time window becomes a range between two fixed times. The conversion cannot be undone, so ``SavedFilters``
+    stores the operator itself. A window converted when a View was saved would match the wrong records from the next
+    day on, with nothing in the stored query to show it.
 
-    Members are removed one at a time as ``Comparator`` grows to cover them. The wire values do
-    not change when that happens, so filters saved beforehand keep parsing.
+    Every member but ``Between`` is a time window relative to when the filter runs, and takes no value.
     """
 
     Between = "BETWEEN"
-    """An inclusive range. Translates to ``GTE`` and ``LTE``, which loses the fact that the
-    author expressed one range rather than two independent bounds."""
+    """Inclusive range from the filter's first value to its second.
+
+    Converts to :py:attr:`~roboto.query.Comparator.GreaterThanOrEqual` on the first and
+    :py:attr:`~roboto.query.Comparator.LessThanOrEqual` on the second.
+    """
 
     Today = "TODAY"
-    Last3Hours = "LAST_3_HOURS"
-    Last8Hours = "LAST_8_HOURS"
-    Last24Hours = "LAST_24_HOURS"
-    Last7Days = "LAST_7_DAYS"
-    Last30Days = "LAST_30_DAYS"
-    Last90Days = "LAST_90_DAYS"
-    ThisMonth = "THIS_MONTH"
-    """Relative windows, resolved against "now" when the filter runs.
+    """Current day."""
 
-    These are the members that matter. The others cost fidelity; these cost correctness — a
-    resolved window is wrong the day after it is saved, and nothing about the stored value
-    says so.
-    """
+    Last3Hours = "LAST_3_HOURS"
+    """Last 3 hours."""
+
+    Last8Hours = "LAST_8_HOURS"
+    """Last 8 hours."""
+
+    Last24Hours = "LAST_24_HOURS"
+    """Last 24 hours."""
+
+    Last7Days = "LAST_7_DAYS"
+    """Last 7 days."""
+
+    Last30Days = "LAST_30_DAYS"
+    """Last 30 days."""
+
+    Last90Days = "LAST_90_DAYS"
+    """Last 90 days."""
+
+    ThisMonth = "THIS_MONTH"
+    """Current month."""
 
 
 class IdentityComparator(StrEnum):
-    """Operators over a principal-valued field, where the operator names a principal type.
+    """Operator of an identity filter: which type of principal the field must name.
 
-    An audit column such as ``created_by`` stores a fully-qualified principal —
-    ``user:<user_id>``, ``device:<device_id>@<org_id>``, ``invocation:<invocation_id>`` — so
-    "created by a user" is a question about the type prefix and "created by *this* user" a
-    question about the whole value. Putting the type in the operator is what lets a filter UI
-    offer the matching directory to pick from, instead of asking for a hand-typed prefix.
+    Fields such as ``created_by`` hold a principal as ``<type>:<id>``, such as ``user:<user_id>`` or
+    ``device:<device_id>@<org_id>``. Because the operator names the type, a filter control can offer principals of
+    that type to pick from. Each :py:class:`~roboto.principal.RobotoPrincipalType` has two members, paired in
+    ``IDENTITY_OPERATORS_BY_TYPE``:
 
-    Each type contributes two operators (see :data:`IDENTITY_OPERATORS_BY_TYPE`): a
-    value-bearing ``IS_<TYPE>`` and a valueless ``IS_ANY_<TYPE>``.
+    - ``Is<Type>`` takes principals of the type as values and matches any of them.
+    - ``IsAny<Type>`` takes no value and matches every principal of the type.
 
-    Separate from :class:`FilterOnlyComparator` because these are not gaps in the query
-    language. Both halves are expressible as a query today — ``IS_<TYPE>`` as ``EQUALS`` against
-    each picked principal, ``IS_ANY_<TYPE>`` as ``LIKE '<type>:%'`` — so they are never removed.
-    They are a filter-control affordance, and they outlive the gap enum.
+    Unlike ``FilterOnlyComparator``, both convert to a query without loss: ``Is<Type>`` to
+    :py:attr:`~roboto.query.Comparator.Equals` on each value, combined with OR, and ``IsAny<Type>`` to
+    :py:attr:`~roboto.query.Comparator.Like` with the pattern ``<type>:%``.
     """
 
-    # Value-bearing: match specific principals of the type. The values are principals of that
-    # type, and several of them are alternatives — a client fans them out to an OR of EQUALS.
     IsUser = "IS_USER"
     IsDevice = "IS_DEVICE"
     IsInvocation = "IS_INVOCATION"
     IsIntegration = "IS_INTEGRATION"
     IsOrg = "IS_ORG"
 
-    # Valueless: the type carried by the operator is the entire predicate, expanded by a
-    # client to a `<type>:%` prefix match.
     IsAnyUser = "IS_ANY_USER"
     IsAnyDevice = "IS_ANY_DEVICE"
     IsAnyInvocation = "IS_ANY_INVOCATION"
@@ -125,13 +112,16 @@ class IdentityComparator(StrEnum):
 
 
 class IdentityOperators(typing.NamedTuple):
-    """The operator pair one principal type contributes to an identity field's menu."""
+    """Pair of identity operators for one principal type.
+
+    ``IDENTITY_OPERATORS_BY_TYPE`` holds one for each type.
+    """
 
     comparator: IdentityComparator
-    """The value-bearing ``IS_<TYPE>``."""
+    """Operator that matches the principals in a filter's values, ``Is<Type>``."""
 
     preset: IdentityComparator
-    """The valueless ``IS_ANY_<TYPE>``."""
+    """Operator that matches every principal of the type and takes no value, ``IsAny<Type>``."""
 
 
 IDENTITY_OPERATORS_BY_TYPE: typing.Final[dict[RobotoPrincipalType, IdentityOperators]] = {
@@ -145,11 +135,10 @@ IDENTITY_OPERATORS_BY_TYPE: typing.Final[dict[RobotoPrincipalType, IdentityOpera
     ),
     RobotoPrincipalType.Org: IdentityOperators(IdentityComparator.IsOrg, IdentityComparator.IsAnyOrg),
 }
-"""Which operators each principal type contributes, and the only statement of that pairing.
+"""Identity operators of each principal type.
 
-Exhaustive over :class:`~roboto.principal.RobotoPrincipalType` rather than listing the types an
-audit column happens to hold today, so a new platform principal type is filterable as soon as it
-exists instead of being silently unaddressable. A test pins that.
+Covers every :py:class:`~roboto.principal.RobotoPrincipalType`, not only the types that ``created_by`` values hold,
+so a filter can match any type of principal.
 """
 
 IDENTITY_TYPES_BY_COMPARATOR: typing.Final[dict[IdentityComparator, RobotoPrincipalType]] = {
@@ -157,16 +146,19 @@ IDENTITY_TYPES_BY_COMPARATOR: typing.Final[dict[IdentityComparator, RobotoPrinci
     for principal_type, operators in IDENTITY_OPERATORS_BY_TYPE.items()
     for operator in (operators.comparator, operators.preset)
 }
-"""The principal type each identity operator addresses. Derived from the pairing above."""
+"""Principal type each identity operator matches.
+
+Derived from ``IDENTITY_OPERATORS_BY_TYPE``.
+"""
 
 IDENTITY_PRESET_COMPARATORS: typing.Final[frozenset[IdentityComparator]] = frozenset(
     operators.preset for operators in IDENTITY_OPERATORS_BY_TYPE.values()
 )
-"""The ``IS_ANY_<TYPE>`` half. Valueless: the comparator alone carries the predicate."""
+"""Identity operators that take no value: the ``IsAny<Type>`` operator of each principal type."""
 
 
 class FilterMatchMode(StrEnum):
-    """How separate filters combine."""
+    """Match mode of a ``SavedFilters``: how its filters combine."""
 
     And = "AND"
     """Every filter must match."""
@@ -187,43 +179,35 @@ PRESET_COMPARATORS: typing.Final[frozenset[FilterOnlyComparator]] = frozenset(
         FilterOnlyComparator.ThisMonth,
     }
 )
-"""Relative windows. Valueless: the comparator alone carries the range."""
+"""Relative time windows: the date operators that take no value."""
 
 PRESENCE_COMPARATORS: typing.Final[frozenset[Comparator]] = frozenset({Comparator.IsNull, Comparator.IsNotNull})
-"""Null checks. Valueless: the comparator alone carries the question."""
+"""Operators that test whether a field is set, and take no value."""
 
 
 def _utc_designator_as_offset(value: str) -> str:
-    """Rewrite a trailing ``Z`` as ``+00:00``.
+    """Rewrite the UTC designator ``Z`` as ``+00:00``, which ``datetime.fromisoformat`` accepts before Python 3.11.
 
-    ``datetime.fromisoformat`` only learned to accept the UTC designator in Python 3.11, and
-    this SDK supports 3.10 (``requires-python = ">=3.10,<4"``). ``Z`` is also the common case
-    rather than an exotic one — it is what ``toISOString()`` emits, so it is the shape most
-    values arriving from the web UI take.
-
-    Tests run on 3.13 only, where the rewrite is redundant, so this is separated out and
-    asserted directly: a version-dependent failure is otherwise invisible to CI.
-
-    Mirrors the same rewrite in ``conditions.py``.
+    The SDK supports Python 3.10, and most dates the Roboto web app saves end in ``Z``, as JavaScript's
+    ``toISOString()`` writes them. Kept separate so a test can check the rewrite directly, since the tests run on a
+    Python version that parses ``Z`` without it. :py:meth:`~roboto.query.Condition.matches` makes the same rewrite.
     """
     return value.replace("Z", "+00:00")
 
 
 def _as_instant(value: str) -> datetime.datetime:
-    """Parse an ISO 8601 date value, reading a bare date as UTC.
+    """Parse an ISO 8601 date value, reading one with no UTC offset as UTC.
 
-    Date values are stored as the caller wrote them, so a View saved by the web UI round
-    trips byte-identical rather than being renormalized underneath it. They are parsed here
-    only to be checked: an unparseable value would be stored happily and fail whenever the
-    View was next loaded, and ordering ``BETWEEN`` bounds by their spelling misjudges any
-    pair written in different offsets or precisions.
+    Filters store date values as the caller wrote them, so a View the Roboto web app saved reads back unchanged.
+    Validation parses them only to check them:
 
-    The web UI emits ``toISOString()`` throughout, so its own lexical comparison is sound.
-    Nothing constrains an SDK, CLI, or agent caller the same way.
+    - A value that does not parse would otherwise be stored, and fail each time the View loads.
+    - ``Between`` bounds compared as strings are misordered when they use different offsets or precisions.
 
-    A value with no offset is read as UTC, matching how relative windows already resolve.
-    Comparing a naive against an aware datetime would otherwise raise, and refusing the pair
-    would reject something unambiguous in practice.
+    A value with no offset is read as UTC because comparing it with one that has an offset raises ``TypeError``.
+
+    Raises:
+        ValueError: ``value`` is not an ISO 8601 date.
     """
     try:
         parsed = datetime.datetime.fromisoformat(_utc_designator_as_offset(value))
@@ -233,7 +217,7 @@ def _as_instant(value: str) -> datetime.datetime:
 
 
 def _is_valueless(comparator: typing.Any) -> bool:
-    """Whether a comparator carries its own meaning and needs no operand."""
+    """Whether ``comparator`` takes no value: a presence check, a relative time window, or ``IsAny<Type>``."""
     return (
         comparator in PRESENCE_COMPARATORS
         or comparator in PRESET_COMPARATORS
@@ -242,11 +226,11 @@ def _is_valueless(comparator: typing.Any) -> bool:
 
 
 def _principal_type(value: str) -> typing.Optional[RobotoPrincipalType]:
-    """The principal type a ``<type>:<id>`` string names, or ``None`` if it names none.
+    """Return the principal type a ``<type>:<id>`` string names, or ``None`` if it names none.
 
-    Not :py:meth:`roboto.principal.RobotoPrincipal.from_string`, which indexes into the split
-    and raises ``IndexError`` for a value carrying no colon; inside a validator that surfaces
-    as a server error rather than as the rejection it is.
+    Does not call :py:meth:`~roboto.principal.RobotoPrincipal.from_string`, which raises ``IndexError`` for a principal
+    type with no colon after it, such as ``user``. Raised inside a validator, that error would escape as itself
+    instead of becoming a ``pydantic.ValidationError``.
     """
     principal_type, separator, identifier = value.partition(":")
     if not separator or not identifier:
@@ -258,12 +242,12 @@ def _principal_type(value: str) -> typing.Optional[RobotoPrincipalType]:
 
 
 class _FilterBase(pydantic.BaseModel):
-    """Shared shape. Each subclass narrows ``comparator`` to the operators its type offers."""
+    """Fields and checks every filter type shares. Each subclass narrows ``comparator`` to the operators it offers."""
 
     model_config = pydantic.ConfigDict(extra="forbid")
 
     field: str
-    """The field being filtered, as the query layer addresses it."""
+    """Field to filter on, named as :py:attr:`~roboto.query.Condition.field` names it."""
 
     def _require_values(self, minimum: int = 1) -> None:
         values = typing.cast(list, self.values)  # type: ignore[attr-defined]
@@ -274,18 +258,18 @@ class _FilterBase(pydantic.BaseModel):
 
 
 class _EqualityFilterBase(_FilterBase):
-    """Shared shape of the types that offer ``EQUALS`` and ``NOT_EQUALS``."""
+    """Fields and checks of the filter types that offer ``Equals`` and ``NotEquals``."""
 
     or_null: bool = False
-    """Whether the row also matches records where the field is not set.
+    """Whether the filter also matches records where the field is not set.
 
-    ``EQUALS`` over several values matches any of them, and ``NOT_EQUALS`` over several matches
-    none of them, but neither ever matches a field that is not set. This is how a row says "a, b,
-    or not set" (``EQUALS``) or "neither a nor b, or not set" (``NOT_EQUALS``). Accepted only with
-    those two comparators.
+    :py:attr:`~roboto.query.Comparator.Equals` with several values matches a record whose field holds any of them,
+    and :py:attr:`~roboto.query.Comparator.NotEquals` one whose field holds none of them, but neither matches a
+    record where the field is not set. Setting this matches those records too: "a, b, or not set", or "neither a nor
+    b, or not set". Allowed only with ``Equals`` and ``NotEquals``.
 
-    Left out of the serialized row while false, so a row that does not use it serializes as it did
-    before the field existed, and SDK releases from before then can still read it.
+    Left out of the serialized filter while ``False``, so SDK versions that predate the field can read a filter that
+    does not use it.
     """
 
     @pydantic.model_validator(mode="after")
@@ -304,9 +288,16 @@ class _EqualityFilterBase(_FilterBase):
 
 
 class StringFilter(_EqualityFilterBase):
-    """Text matching."""
+    """Filter on a text field.
+
+    Building one raises ``pydantic.ValidationError`` when ``comparator`` is an operator the filter does not offer,
+    when ``comparator`` takes a value and ``values`` holds no non-blank string, or when ``or_null`` is set with a
+    comparator other than the two it allows.
+    """
 
     type: typing.Literal["string"] = "string"
+    """Kind of filter, always ``"string"``."""
+
     comparator: typing.Literal[
         Comparator.Equals,
         Comparator.NotEquals,
@@ -317,7 +308,10 @@ class StringFilter(_EqualityFilterBase):
         Comparator.IsNull,
         Comparator.IsNotNull,
     ]
+    """Operator the filter applies."""
+
     values: list[str] = pydantic.Field(default_factory=list)
+    """Values to compare the field with, empty when ``comparator`` takes none."""
 
     @pydantic.model_validator(mode="after")
     def _check_values(self) -> "StringFilter":
@@ -329,9 +323,16 @@ class StringFilter(_EqualityFilterBase):
 
 
 class NumericFilter(_EqualityFilterBase):
-    """Ordering and equality over a numeric property."""
+    """Filter on a numeric field, by order or equality.
+
+    Building one raises ``pydantic.ValidationError`` when ``comparator`` is an operator the filter does not offer,
+    when ``comparator`` takes a value and ``values`` is empty, or when ``or_null`` is set with a comparator other
+    than the two it allows.
+    """
 
     type: typing.Literal["numeric"] = "numeric"
+    """Kind of filter, always ``"numeric"``."""
+
     comparator: typing.Literal[
         Comparator.Equals,
         Comparator.NotEquals,
@@ -342,7 +343,10 @@ class NumericFilter(_EqualityFilterBase):
         Comparator.IsNull,
         Comparator.IsNotNull,
     ]
+    """Operator the filter applies."""
+
     values: list[float] = pydantic.Field(default_factory=list)
+    """Values to compare the field with, empty when ``comparator`` takes none."""
 
     @pydantic.model_validator(mode="after")
     def _check_values(self) -> "NumericFilter":
@@ -351,29 +355,32 @@ class NumericFilter(_EqualityFilterBase):
 
 
 class MetricFilter(_EqualityFilterBase):
-    """Ordering and equality over a user-defined metric.
+    """Filter on a user-defined metric, by order or equality.
 
-    Numeric in every respect except that ``field`` is a metric path. Kept a distinct variant
-    so a client restoring a View knows to reopen the metric picker rather than the property
-    form, which it cannot infer from the field name alone.
+    Offers the same operators and values as ``NumericFilter``, but ``field`` names a metric, so a client that loads
+    the filter knows to show its metric picker rather than its property controls.
+    :py:attr:`~roboto.query.Comparator.IsNull` matches a resource, such as a session, with no value recorded for the
+    metric.
 
-    Carries the presence pair like any other scalar type. A session may simply have no such
-    metric recorded, and the session query path answers that directly — it maps ``IS_NULL``
-    to a ``NOT EXISTS`` over the metrics table.
+    Building one raises ``pydantic.ValidationError`` when ``field`` does not match ``METRIC_FIELD_PATTERN``, when
+    ``comparator`` is an operator the filter does not offer, when ``comparator`` takes a value and ``values`` is
+    empty, or when ``or_null`` is set with a comparator other than the two it allows.
     """
 
     type: typing.Literal["metric"] = "metric"
+    """Kind of filter, always ``"metric"``."""
+
     field: MetricField
+    """Name of the metric: ``metric.`` followed by its dot-delimited path."""
 
     unit: typing.Optional[str] = None
-    """The metric's unit, copied from its definition when the filter was built.
+    """Unit of the metric, or ``None`` if the metric's definition declares none.
 
-    Denormalized for display: the filter chip renders it beside the value ("path_deviation >
-    1.5 m") without looking the definition up. ``None`` when the definition declares no unit.
-
-    Being a copy, it goes stale if the definition's unit later changes: a saved View renders
-    the unit the filter was built with, not the current one.
+    Copied from the definition when the filter was built. A client shows it beside the value, as in
+    ``path_deviation > 1.5 m``, without fetching the definition. A later change to the definition's unit does not
+    change it.
     """
+
     comparator: typing.Literal[
         Comparator.Equals,
         Comparator.NotEquals,
@@ -384,7 +391,10 @@ class MetricFilter(_EqualityFilterBase):
         Comparator.IsNull,
         Comparator.IsNotNull,
     ]
+    """Operator the filter applies."""
+
     values: list[float] = pydantic.Field(default_factory=list)
+    """Values to compare the metric with, empty when ``comparator`` takes none."""
 
     @pydantic.model_validator(mode="after")
     def _check_values(self) -> "MetricFilter":
@@ -393,13 +403,20 @@ class MetricFilter(_EqualityFilterBase):
 
 
 class DateFilter(_FilterBase):
-    """Instants and ranges. Values are ISO 8601 strings.
+    """Filter on a date field, by a time, a range, or a time window relative to when the filter runs.
 
-    The only variant offering relative windows, which is where the fidelity problem this whole
-    model exists for actually bites.
+    Building one raises ``pydantic.ValidationError`` when:
+
+    - ``comparator`` is an operator the filter does not offer.
+    - ``comparator`` is ``FilterOnlyComparator.Between`` and ``values`` does not hold exactly two non-blank ISO 8601
+      dates, or the second is before the first.
+    - ``comparator`` is :py:attr:`~roboto.query.Comparator.LessThan` or
+      :py:attr:`~roboto.query.Comparator.GreaterThan` and the first value is missing, blank, or not an ISO 8601 date.
     """
 
     type: typing.Literal["date"] = "date"
+    """Kind of filter, always ``"date"``."""
+
     comparator: typing.Literal[
         Comparator.LessThan,
         Comparator.GreaterThan,
@@ -415,7 +432,13 @@ class DateFilter(_FilterBase):
         FilterOnlyComparator.Last90Days,
         FilterOnlyComparator.ThisMonth,
     ]
+    """Operator the filter applies."""
+
     values: list[str] = pydantic.Field(default_factory=list)
+    """Dates to compare the field with, as ISO 8601 strings, empty when ``comparator`` takes none.
+
+    Stored as written. A date with no UTC offset is read as UTC when two are compared.
+    """
 
     @pydantic.model_validator(mode="after")
     def _check_values(self) -> "DateFilter":
@@ -437,15 +460,25 @@ class DateFilter(_FilterBase):
 
 
 class BooleanFilter(_EqualityFilterBase):
-    """True or false, or unset."""
+    """Filter on a true-or-false field.
+
+    Building one raises ``pydantic.ValidationError`` when ``comparator`` is an operator the filter does not offer,
+    when ``comparator`` is :py:attr:`~roboto.query.Comparator.Equals` and ``values`` holds no value or more than two,
+    or when ``or_null`` is set with any other comparator.
+    """
 
     type: typing.Literal["boolean"] = "boolean"
+    """Kind of filter, always ``"boolean"``."""
+
     comparator: typing.Literal[
         Comparator.Equals,
         Comparator.IsNull,
         Comparator.IsNotNull,
     ]
+    """Operator the filter applies."""
+
     values: list[bool] = pydantic.Field(default_factory=list)
+    """Values the field may equal, one or both of ``True`` and ``False``; empty when ``comparator`` takes none."""
 
     @pydantic.model_validator(mode="after")
     def _check_values(self) -> "BooleanFilter":
@@ -457,15 +490,21 @@ class BooleanFilter(_EqualityFilterBase):
 
 
 class SetFilter(_FilterBase):
-    """Membership in a collection-valued field, such as tags.
+    """Filter on a field that holds a collection, such as tags, by whether the collection contains values.
 
-    Has no presence axis: an empty collection is not the same as an absent one, and the UI
-    offers no null check here.
+    Offers no :py:attr:`~roboto.query.Comparator.IsNull` or ``IsNotNull``. Building one raises
+    ``pydantic.ValidationError`` when ``comparator`` is an operator the filter does not offer, or when ``values`` is
+    empty.
     """
 
     type: typing.Literal["set"] = "set"
+    """Kind of filter, always ``"set"``."""
+
     comparator: typing.Literal[Comparator.Contains, Comparator.NotContains]
+    """Operator the filter applies."""
+
     values: list[str] = pydantic.Field(default_factory=list)
+    """Values to look for in the collection."""
 
     @pydantic.model_validator(mode="after")
     def _check_values(self) -> "SetFilter":
@@ -475,16 +514,26 @@ class SetFilter(_FilterBase):
 
 
 class EnumFilter(_EqualityFilterBase):
-    """Equality against a closed set of options."""
+    """Filter on a field whose values come from a fixed set of options, by equality.
+
+    Building one raises ``pydantic.ValidationError`` when ``comparator`` is an operator the filter does not offer,
+    when ``comparator`` takes a value and ``values`` is empty, or when ``or_null`` is set with a comparator other
+    than the two it allows.
+    """
 
     type: typing.Literal["enum"] = "enum"
+    """Kind of filter, always ``"enum"``."""
+
     comparator: typing.Literal[
         Comparator.Equals,
         Comparator.NotEquals,
         Comparator.IsNull,
         Comparator.IsNotNull,
     ]
+    """Operator the filter applies."""
+
     values: list[str] = pydantic.Field(default_factory=list)
+    """Options to compare the field with, empty when ``comparator`` takes none."""
 
     @pydantic.model_validator(mode="after")
     def _check_values(self) -> "EnumFilter":
@@ -493,39 +542,39 @@ class EnumFilter(_EqualityFilterBase):
 
 
 class LabeledOption(pydantic.BaseModel):
-    """One option as it was picked: the value a query is built from, plus what the picker showed.
+    """Option picked for an ``IdentityFilter``: the value a query uses and the label shown.
 
-    Both halves are stored because the label cannot be recovered later. An opaque value —
-    ``user:usr_01J...``, a tag id — renders as itself, and resolving it on load would mean a
-    directory lookup per chip, against an org that whoever opens a shared View may not be able
-    to read. Only ``value`` ever reaches a query.
+    The label is stored because it cannot be recovered when the filter loads. Without it, a value such as
+    ``user:<user_id>`` would show as itself, or need one lookup per value, which a user opening a shared View may not
+    have permission to make. Only ``value`` goes into a query.
+
+    Carried in ``IdentityFilter.values``.
     """
 
     model_config = pydantic.ConfigDict(extra="forbid")
 
     value: str
-    """What the query is built from. A fully-qualified principal, for an identity filter."""
+    """Principal the option stands for, as ``<type>:<id>``."""
 
     label: str
-    """What the picker displayed when the author chose this option. Display only, never queried."""
+    """Text the picker showed when the author chose the option, never used in a query."""
 
 
 class IdentityFilter(_FilterBase):
-    """A principal-valued field, filtered by principal type.
+    """Filter on a field that holds a principal, such as ``created_by`` or ``modified_by``, by the principal's type.
 
-    Audit columns (``created_by``, ``modified_by``) hold a fully-qualified principal string, so
-    the operator names the type (:class:`IdentityComparator`) and any values it takes are
-    principals of that type — an ``IS_USER`` filter carrying a ``device:`` value is rejected,
-    since it records an intent the picker cannot express and a query cannot satisfy.
+    The operator, an ``IdentityComparator``, names the type, and any values are principals of that type, each stored
+    with the label the picker showed. Offers no :py:attr:`~roboto.query.Comparator.IsNull` or ``IsNotNull``, because
+    Roboto records a principal in these fields whenever it creates or changes a resource.
 
-    Values are labeled options rather than bare strings: a principal id is not a name a reader
-    can place, so the directory's display name is captured alongside it at pick time.
-
-    Has no presence axis. Every write path stamps an audit principal, so the column is never
-    null and a null check would be an operator that always answers the same way.
+    Building one raises ``pydantic.ValidationError`` when ``comparator`` is not an ``IdentityComparator``, when an
+    ``Is<Type>`` comparator has no values, or when a value is not of the form ``<type>:<id>`` or names a principal of
+    a type other than the comparator's.
     """
 
     type: typing.Literal["identity"] = "identity"
+    """Kind of filter, always ``"identity"``."""
+
     comparator: typing.Literal[
         IdentityComparator.IsUser,
         IdentityComparator.IsDevice,
@@ -538,7 +587,10 @@ class IdentityFilter(_FilterBase):
         IdentityComparator.IsAnyIntegration,
         IdentityComparator.IsAnyOrg,
     ]
+    """Operator the filter applies, which names the principal type to match."""
+
     values: list[LabeledOption] = pydantic.Field(default_factory=list)
+    """Principals to match, with the labels the picker showed; empty for an ``IsAny<Type>`` comparator."""
 
     @pydantic.model_validator(mode="after")
     def _check_values(self) -> "IdentityFilter":
@@ -572,23 +624,40 @@ Filter: typing.TypeAlias = typing.Annotated[
     ],
     pydantic.Field(discriminator="type"),
 ]
-"""One filter row. ``type`` selects the variant, and with it the operators on offer."""
+"""Filter of any type, told apart by ``type``.
+
+One of ``StringFilter``, ``NumericFilter``, ``MetricFilter``, ``DateFilter``, ``BooleanFilter``, ``SetFilter``,
+``EnumFilter`` or ``IdentityFilter``.
+
+Each type's ``comparator`` accepts only the operators the Roboto web app's filter controls offer for that kind of
+field, which can be fewer than a query accepts for it. Of the :py:class:`~roboto.query.Comparator` members, a date
+filter offers ``LessThan`` but not ``LessThanOrEqual``, and a boolean filter offers ``Equals`` but not ``NotEquals``.
+``comparators_by_type`` lists each type's operators.
+"""
 
 
 class SavedFilters(pydantic.BaseModel):
-    """A complete set of filter controls, as saved."""
+    """Filter controls as their author set them: the field, operator and values of each filter, and how they combine.
+
+    Records the operator the author chose, such as "the last 7 days", rather than the query it converts to.
+    Converting fixes a relative window's dates and splits a range into two comparisons, and cannot be undone;
+    ``FilterOnlyComparator`` lists the operators a :py:class:`~roboto.query.QuerySpecification` cannot express.
+    Building one raises ``pydantic.ValidationError`` when a filter's ``type`` is not a filter type, or when a filter
+    fails its own type's checks.
+
+    Carried in :py:attr:`~roboto.domain.views.ViewDefinition.filters`.
+    """
 
     model_config = pydantic.ConfigDict(extra="forbid")
 
     filters: list[Filter] = pydantic.Field(default_factory=list)
-    """The rows, in the order the author added them."""
+    """Filters, in the order the author added them."""
 
     match_mode: FilterMatchMode = FilterMatchMode.And
-    """Whether the rows are combined with AND or OR.
+    """How the filters combine: every one must match, or at least one.
 
-    Deliberately a single flag rather than a nested boolean expression. A
-    :class:`~roboto.query.Condition` can express arbitrary nesting, but a filter UI cannot
-    build one legibly, so this records the shape the UI actually offers.
+    One mode applies to every filter. Unlike a :py:class:`~roboto.query.ConditionGroup`, saved filters cannot nest,
+    since the filter controls give an author no way to build nested groups.
     """
 
 
@@ -602,16 +671,17 @@ FILTER_VARIANTS: typing.Final[dict[str, type[pydantic.BaseModel]]] = {
     "enum": EnumFilter,
     "identity": IdentityFilter,
 }
-"""Every filter variant, keyed by its ``type`` discriminant."""
+"""Each filter type's model, keyed by the value of its ``type`` field."""
 
 
 def comparators_by_type() -> dict[str, list[str]]:
-    """The operators each filter type offers, as wire values.
+    """Return the wire values of the operators each filter type accepts, keyed by the filter's ``type``.
 
-    Derived from the models rather than restated, so it cannot fall out of step with what
-    they actually accept. Two callers: anything building a filter that needs to know what is
-    valid for a field type, and the drift check against the filter UI's own copy of this
-    vocabulary — there is no code generation between the two, so a test compares them.
+    Read from the filter models' ``comparator`` fields, so it lists exactly what they accept. Each list is sorted.
+
+    Examples:
+        >>> comparators_by_type()["boolean"]
+        ['EQUALS', 'IS_NOT_NULL', 'IS_NULL']
     """
     return {
         name: sorted(

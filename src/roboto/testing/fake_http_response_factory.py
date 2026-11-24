@@ -14,23 +14,22 @@ from ..http.http_client import HttpResponse
 
 
 class FakeHttpResponseFactory:
-    """
-    A factory for creating fake HTTP responses, for use with the roboto.http.HttpClient.
+    """Builder of fake HTTP responses, for tests that mock :py:class:`~roboto.http.HttpClient`.
 
-    Example:
-        >>> import contextlib
-        >>> import unittest.mock
-        >>> from roboto.http import HttpClient, FakeHttpResponseFactory
-        >>> mock_http_client = unittest.mock.create_autospec(HttpClient, instance=True)
-        >>> with contextlib.ExitStack() as stack:
-        ...     http_get_mock = stack.enter_context(unittest.mock.patch.object(mock_http_client, "get"))
-        ...     http_get_mock.side_effect = FakeHttpResponseFactory(
-        ...         "https://example.com",
-        ...         {"foo": "bar"},
-        ...         status_code=200,
-        ...         headers={"Content-Type": "application/json"},
-        ...     )
+    Calling an instance ignores the call's arguments and builds a new
+    :py:class:`~roboto.http.response.HttpResponse` from the constructor's arguments, with its body not yet read. Set an
+    instance as the ``side_effect`` of a mocked request method, as in
+    ``http_client.get.side_effect = FakeHttpResponseFactory(url, {"foo": "bar"})``, and every call of that method
+    returns such a response. The response is returned whatever its status: nothing raises the
+    :py:class:`~roboto.exceptions.ClientError` or :py:class:`~roboto.exceptions.ServerError` that ``HttpClient`` raises
+    for an error status.
 
+    Args:
+        url: URL the response reports it came from.
+        response_data: Value the response body holds, encoded with ``json.dumps``. Defaults to the string ``"{}"``,
+            which the body holds as a JSON string, not an empty object.
+        status_code: HTTP status code of the response.
+        headers: Headers of the response. ``None`` gives it none.
     """
 
     __headers: dict[str, str]
@@ -51,6 +50,12 @@ class FakeHttpResponseFactory:
         self.__url = url
 
     def __call__(self, *args, **kwargs) -> HttpResponse:
+        """Build a new response from the constructor's arguments.
+
+        Args:
+            *args: Ignored.
+            **kwargs: Ignored.
+        """
         headers = email.message.Message()
         for k, v in self.__headers.items():
             headers.add_header(k, v)

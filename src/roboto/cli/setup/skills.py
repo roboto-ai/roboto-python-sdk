@@ -24,21 +24,21 @@ from .files import download_file
 AGENT_SKILLS_ARCHIVE_URL = "https://github.com/roboto-ai/agent-skills/archive/refs/heads/main.tar.gz"
 AGENT_SKILLS_REPO_URL = "https://github.com/roboto-ai/agent-skills"
 
-# The AI tools setup installs skills for. Claude Desktop reads none of the directories setup writes.
 SKILL_READERS = (AiTool.ClaudeCode, AiTool.Codex, AiTool.Cursor, AiTool.VSCode)
+"""AI tools that ``roboto setup`` installs skills for. Claude Desktop reads none of the directories setup writes."""
 
 _SKILL_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 # Setup writes this file into every skill directory it installs, so a later run can tell the skills it installed
 # from the ones the user installed some other way. Setup removes only the skills it installed when Roboto stops
-# publishing them, and ``roboto upgrade`` updates skills only on a machine where setup installed some.
+# publishing them, and `roboto upgrade` updates skills only on a machine where setup installed some.
 _INSTALLED_BY_SETUP_FILE_NAME = ".installed-by-roboto-setup"
 _INSTALLED_BY_SETUP_FILE_CONTENTS = (
     f"roboto setup installed this skill from {AGENT_SKILLS_REPO_URL}, "
     + "and removes it when Roboto stops publishing it.\n"
 )
 
-# Matches a path part that isn't an ordinary file or directory name on every platform setup runs on, one that:
+# Matches a path part that is not an ordinary file or directory name on every platform setup runs on, one that:
 # 1. contains a control character, or a character Windows reads as a separator, a drive, or a wildcard;
 # 2. ends in a dot or space, which Windows drops when it opens the path, so ".. " opens as "..";
 #    this also matches "." and "..";
@@ -50,23 +50,26 @@ _UNSAFE_PATH_PART = re.compile(
 
 
 class AgentSkillsArchiveError(Exception):
-    """The agent skills archive holds no skills, or isn't a gzipped tar archive."""
+    """The agent skills archive holds no skills, or is not a gzipped tar archive.
+
+    ``install_agent_skills`` raises it, and ``set_up_agent_skills`` reports it as a failed step instead.
+    """
 
 
 def set_up_agent_skills(
     environment: SetupEnvironment, tools: typing.Optional[collections.abc.Collection[AiTool]] = None
 ) -> StepOutcome:
-    """Download Roboto's agent skills from GitHub and install them as :func:`install_agent_skills` describes.
+    """Download Roboto's agent skills from GitHub and install them as ``install_agent_skills`` describes.
 
     Any error, from the network, a bad archive, or the file system, is reported as a failed step so the remaining
     steps of setup still run.
 
     Args:
-        environment: The machine to set up.
-        tools: The AI tools to install the skills for. Defaults to every tool installed on the machine.
+        environment: Machine to set up.
+        tools: AI tools to install the skills for. Defaults to every tool installed on the machine.
 
     Returns:
-        What was installed, and for which AI tools, or why the skills couldn't be installed.
+        What was installed, and for which AI tools, or why the skills could not be installed.
     """
     try:
         archive = download_file(AGENT_SKILLS_ARCHIVE_URL)
@@ -81,8 +84,8 @@ def set_up_agent_skills(
     try:
         return install_agent_skills(environment, archive, tools)
     except PermissionError as exc:
-        # Raised for a folder the user can't write to, and on Windows also for a skill folder another program is using,
-        # since Windows won't rename or delete that folder.
+        # Raised for a folder the user cannot write to, and on Windows also for a skill folder another program is
+        # using, since Windows refuses to rename or delete that folder.
         return StepOutcome(
             step="Agent skills",
             status=StepStatus.Failed,
@@ -101,15 +104,15 @@ def set_up_agent_skills(
 def update_agent_skills(environment: SetupEnvironment) -> typing.Optional[StepOutcome]:
     """Update Roboto's agent skills, and remove any Roboto no longer publishes, where ``roboto setup`` installed them.
 
-    Where setup never installed them, nothing is installed: the user didn't ask for skills there. Likewise, Claude
+    Where setup never installed them, nothing is installed: the user did not ask for skills there. Likewise, Claude
     Code gets the skills only where it already has one that setup installed, so a user who left Claude Code out of
-    setup isn't given them by an upgrade.
+    setup is not given them by an upgrade. ``roboto upgrade`` calls this.
 
     Args:
-        environment: The machine to update.
+        environment: Machine to update.
 
     Returns:
-        What was updated, as :func:`set_up_agent_skills` reports it, or ``None`` when setup never installed skills.
+        What was updated, as ``set_up_agent_skills`` reports it, or ``None`` when setup never installed skills.
     """
     shared_copies = _skills_installed_by_setup(environment.agent_skills_dir)
     if not shared_copies:
@@ -132,30 +135,30 @@ def install_agent_skills(
     Each skill is written to the shared skills directory (``~/.agents/skills``), replacing any earlier copy of the same
     skill. Codex, Cursor, and VS Code read skills from that directory, whether or not they are in ``tools``, and the
     ``skills`` command line tool (skills.sh) keeps its copies there too. Claude Code reads only its own skills
-    directory, so when Claude Code is in ``tools`` each skill gets a link there, or a copy where the platform doesn't
-    allow links. Where Claude Code's skills directory is itself a link to the shared one, the skills there are already
-    Claude Code's, and nothing more is linked.
+    directory, so when Claude Code is in ``tools`` each skill gets a link there, or a copy where the operating system
+    does not allow links. Where Claude Code's skills directory is itself a link to the shared one, the skills there are
+    already Claude Code's, and nothing more is linked.
 
     Running setup again updates Roboto's skills, and removes each skill an earlier run installed that the archive no
-    longer holds, from the shared skills directory and from Claude Code's. Skills with other names that setup didn't
+    longer holds, from the shared skills directory and from Claude Code's. Skills with other names that setup did not
     install are never touched.
 
-    Only regular files are installed. Links and device files are skipped, and so is any file whose path isn't made of
+    Only regular files are installed. Links and device files are skipped, and so is any file whose path is not made of
     ordinary file and directory names on every platform: one that could lead out of its skill's directory, or that
     Windows would open as a device.
 
     Args:
-        environment: The machine to set up.
-        archive: A gzipped tar archive of the repository, as GitHub serves it: one top-level directory holding a
+        environment: Machine to set up.
+        archive: Gzipped tar archive of the repository, as GitHub serves it: one top-level directory holding a
             ``skills/<skill name>/`` directory per skill.
-        tools: The AI tools to install the skills for. Defaults to every tool installed on the machine.
+        tools: AI tools to install the skills for. Defaults to every tool installed on the machine.
 
     Returns:
         What was installed, and for which AI tools, and which skills were removed.
 
     Raises:
-        AgentSkillsArchiveError: ``archive`` isn't a gzipped tar archive, or holds no skills.
-        OSError: A skill couldn't be written to, or removed from, one of the skills directories. Each skill written
+        AgentSkillsArchiveError: ``archive`` is not a gzipped tar archive, or holds no skills.
+        OSError: A skill could not be written to, or removed from, one of the skills directories. Each skill written
             there is left whole, holding either the copy this run wrote or the last complete copy from before the run,
             if there was one.
     """
@@ -198,7 +201,7 @@ def install_agent_skills(
         )
 
     # Every tool setup installs skills for, apart from Claude Code, reads them from the shared skills directory, so
-    # leaving one out of ``tools`` doesn't keep the skills from it.
+    # leaving one out of tools does not keep the skills from it.
     also_reading = [
         tool.value
         for tool in installed_tools
@@ -265,7 +268,7 @@ def _read_skills(archive: bytes) -> list[_Skill]:
                         executable=bool(member.mode & 0o100),
                     )
                 )
-    # Data that isn't a gzipped tar archive raises TarError. A truncated download raises EOFError, and a corrupted
+    # Data that is not a gzipped tar archive raises TarError. A truncated download raises EOFError, and a corrupted
     # one zlib.error, or OSError when its checksum fails.
     except (tarfile.TarError, EOFError, OSError, zlib.error) as exc:
         raise AgentSkillsArchiveError(f"The download isn't a readable archive: {exc}") from None
@@ -285,8 +288,8 @@ def _replace_directory(target: pathlib.Path, skill: _Skill) -> None:
 
 
 def _link_directory(link: pathlib.Path, shared_copy: pathlib.Path, skill: _Skill) -> None:
-    # True when an earlier run made ``link``, and also when Claude Code's skills directory is itself a link to the
-    # shared one, where replacing ``link`` would delete the skill just installed.
+    # True when an earlier run made link, and also when Claude Code's skills directory is itself a link to the
+    # shared one, where replacing link would delete the skill just installed.
     if link.resolve() == shared_copy.resolve():
         return
     _put_in_place(link, lambda staging: _link_or_copy(staging, shared_copy, skill))
@@ -316,12 +319,12 @@ def _write_skill(directory: pathlib.Path, skill: _Skill) -> None:
 def _put_in_place(target: pathlib.Path, build: typing.Callable[[pathlib.Path], None]) -> None:
     """Replace ``target`` with what ``build`` makes beside it, so no failure leaves ``target`` half replaced.
 
-    If ``build`` or the swap fails, ``target`` stays as it was. That covers an old copy that Windows won't rename or
-    delete because a program has one of its files open.
+    If ``build`` or the swap fails, ``target`` stays as it was. That covers an old copy that Windows refuses to rename
+    or delete because a program has one of its files open.
     """
     staging = target.with_name(f".{target.name}.tmp")
     retired = target.with_name(f".{target.name}.old")
-    # A run killed between the two renames below leaves the old copy only at ``retired``. It moves back to ``target``
+    # A run killed between the two renames below leaves the old copy only at retired. It moves back to target
     # before the leftovers are removed, so a copy stays in place even if this run fails too.
     if os.path.lexists(retired) and not os.path.lexists(target):
         os.replace(retired, target)
@@ -332,7 +335,7 @@ def _put_in_place(target: pathlib.Path, build: typing.Callable[[pathlib.Path], N
     try:
         build(staging)
 
-        # Renaming can't replace a directory that isn't empty, so the old copy moves aside first. The new copy is
+        # Renaming cannot replace a directory that is not empty, so the old copy moves aside first. The new copy is
         # already complete, so an AI tool reading the skill finds the old copy or the new one, except in the instant
         # between the two renames.
         had_previous_copy = target.is_symlink() or target.exists()
@@ -341,7 +344,8 @@ def _put_in_place(target: pathlib.Path, build: typing.Callable[[pathlib.Path], N
         try:
             os.replace(staging, target)
         except BaseException:
-            # Includes Ctrl-C arriving between the two renames, which would otherwise leave no copy in place.
+            # Catches every exception, including Ctrl-C arriving between the two renames, and puts the old copy back
+            # before re-raising it, so a failure here leaves the earlier copy in place, if there was one.
             if had_previous_copy:
                 os.replace(retired, target)
             raise
@@ -388,7 +392,7 @@ def _remove_installed_skill(directory: pathlib.Path) -> None:
 
 
 def _is_claude_code_copy(claude_code_copy: pathlib.Path, shared_copy: pathlib.Path) -> bool:
-    # Either a link to the shared copy, or the copy setup makes where the platform doesn't allow links.
+    # Either a link to the shared copy, or the copy setup makes where the platform does not allow links.
     return claude_code_copy.resolve() == shared_copy.resolve() or _is_installed_by_setup(claude_code_copy)
 
 
@@ -400,7 +404,7 @@ def _remove_claude_code_copy(claude_code_copy: pathlib.Path, shared_copy: pathli
         if claude_code_copy.is_symlink():
             claude_code_copy.unlink()
     elif _is_installed_by_setup(claude_code_copy):
-        # The copy setup makes where the platform doesn't allow links.
+        # The copy setup makes where the platform does not allow links.
         _remove_installed_skill(claude_code_copy)
 
 

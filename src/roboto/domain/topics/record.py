@@ -23,47 +23,37 @@ from ...warnings import experimental
 
 
 class RepresentationSelector(pydantic.BaseModel):
-    """Criteria for selecting among multiple representations of the same data.
+    """Criteria for choosing which of a message path's representations to read.
 
-    When a message path has multiple representations (e.g., both raw sensor data and
-    a processed JPEG encoding), this is a *hard filter*: only matching representations
-    qualify, and message paths with no matching representation are dropped from
-    selection results — callers must handle empty or partial output.
+    A message path can have several representations, such as the original image messages and a JPEG encoding of
+    them. A read uses only the representations that meet every criterion set on the selector, and leaves out a
+    message path with no such representation, so it can return some of the requested message paths or none of them.
 
-    **Legacy carve-out for ``content_format``:** representations with no ``format`` set
-    (i.e., predating the field) are treated as matching any ``content_format`` request.
-    This keeps older data accessible. When both an explicit format match and a legacy
-    representation are available for the same message path, the explicit match wins.
-
-    Instances are immutable (``frozen=True``) so they can be safely shared — including
-    as default arguments to methods like :py:meth:`Topic.get_data`.
-
-    Attributes:
-        content_format: If set, only representations whose ``format`` field matches
-            this value qualify (e.g., ``"jpeg"``). Representations with no ``format``
-            also qualify under the legacy carve-out. ``None`` means no constraint.
-        transformations: If set, only representations whose ``transformations`` field
-            matches exactly qualify. ``[]`` matches representations with no transformations
-            (i.e., raw/original data). ``None`` means no constraint.
+    Instances are immutable, so one instance can serve as a default argument, as it does in
+    :py:meth:`~roboto.domain.topics.Topic.get_data`.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     content_format: typing.Optional[str] = None
+    """Content format that a representation's ``format`` must equal, such as ``"jpeg"``, or ``None`` for no requirement.
+
+    A representation whose ``format`` is ``None`` meets any value.
+    """
+
     transformations: typing.Optional[list[str]] = None
+    """Transformations that a representation's ``transformations`` must equal, in order, or ``None`` for no requirement.
+
+    ``[]`` requires a representation with no transformations: the original data.
+    """
 
     @classmethod
     def raw(cls) -> RepresentationSelector:
-        """Select representations with no transformations applied (original data)."""
+        """Build a selector that requires the original data: a representation with no transformations."""
         return cls(transformations=[])
 
     def matches(self, representation: RepresentationRecord) -> bool:
-        """Check whether a representation satisfies this selector's criteria.
-
-        A representation matches when each non-``None`` selector field is satisfied.
-        For ``content_format``, representations with no ``format`` set are treated
-        as matching (legacy carve-out — see class docstring).
-        """
+        """Return whether ``representation`` meets every criterion set on this selector."""
         if self.content_format is not None:
             if representation.format is not None and representation.format != self.content_format:
                 return False
@@ -75,30 +65,30 @@ class RepresentationSelector(pydantic.BaseModel):
         self,
         mappings: list[MessagePathRepresentationMapping],
     ) -> list[MessagePathRepresentationMapping]:
-        """Select one representation per message path that matches this selector.
+        """Choose one matching representation for each message path in ``mappings``.
 
-        When the API returns multiple representations for the same message paths
-        (e.g., both a raw MCAP and a processed JPEG MCAP for an image topic),
-        this method picks a matching representation for each path and deduplicates
-        so each message path appears in exactly one mapping.
+        :py:meth:`~roboto.domain.topics.Topic.get_data` and :py:meth:`~roboto.domain.topics.Topic.get_data_as_df`
+        choose representations through it, so most code never calls it.
 
-        Non-matching representations are excluded. When both an explicit format match
-        and a legacy representation (no ``format`` set) cover the same message path,
-        the explicit match wins. Message paths covered by no matching representation
-        are dropped — callers must handle empty or partial results.
+        A topic can have several representations covering the same message paths, such as an MCAP file of the
+        original data and an MCAP file of JPEG-encoded images for an image topic. Mappings whose representation does
+        not match are dropped, and each message path goes to the first remaining mapping that covers it. When
+        ``content_format`` is set, representations whose ``format`` equals it come before those whose ``format`` is
+        ``None``; otherwise the order of ``mappings`` decides. A message path that no matching representation covers
+        is left out.
 
         Args:
-            mappings: All representation mappings, potentially with overlapping message paths.
+            mappings: Message paths paired with the representations that hold their data. A message path can
+                appear in more than one mapping.
 
         Returns:
-            Deduplicated mappings of message paths to matching representations.
-            Empty if no representation matches.
+            Mappings in which each message path appears at most once, or an empty list when no representation
+            matches.
         """
         matched = [m for m in mappings if self.matches(m.representation)]
 
-        # Prefer explicit content_format matches over legacy reps (where rep.format is
-        # None and the legacy carve-out applies). Without a content_format constraint,
-        # all matched mappings are equivalent.
+        # matches() already required any representation with a format to equal content_format, so listing those
+        # first lets an exact format match cover a message path before a representation with no format can.
         if self.content_format is not None:
             explicit = [m for m in matched if m.representation.format is not None]
             legacy = [m for m in matched if m.representation.format is None]
@@ -124,163 +114,147 @@ class RepresentationSelector(pydantic.BaseModel):
 
 
 class RepresentationStorageFormat(enum.Enum):
-    """Supported storage formats for topic data representations.
-
-    Defines the available formats for storing and accessing topic data within
-    the Roboto platform. Each format has different characteristics and use cases.
-    """
+    """File format that a representation's data is stored in."""
 
     MCAP = "mcap"
-    """MCAP format - optimized for robotics time-series data with efficient random access."""
+    """MCAP, a container format for timestamped robotics messages."""
     PARQUET = "parquet"
-    """Parquet format - columnar storage optimized for analytics and large-scale data processing."""
+    """Apache Parquet, a columnar file format."""
 
 
 class TransformationKind(StrEnum):
-    """Canonical vocabulary of transformations that can be applied when producing a representation.
+    """Kind of transformation applied to a topic's data to produce a representation of it.
 
-    A transformation is serialized into ``RepresentationRecord.transformations`` as a
-    ``"<kind>:<param>"`` string (e.g. ``"downsample:0.5"``, ``"encode:jpeg"``). This enum is the
-    source of truth for the set of supported kinds; the parameter tail remains free-form because
-    different kinds carry different parameter shapes (floats, format tokens, etc.).
-
-    Producers should construct transformation strings via :py:meth:`with_param` and consumers
-    should destructure them via :py:meth:`parse` to keep the vocabulary centralized.
-
-    Examples:
-        >>> TransformationKind.DOWNSAMPLE.with_param(0.5)
-        'downsample:0.5'
-        >>> TransformationKind.parse("encode:jpeg")
-        (<TransformationKind.ENCODE: 'encode'>, 'jpeg')
+    A representation lists each transformation applied to it in ``RepresentationRecord.transformations``, as a
+    ``"<kind>:<param>"`` string such as ``"downsample:0.5"`` or ``"encode:jpeg"``. This enum lists the kinds; the form
+    of the parameter depends on the kind. Build these strings with ``with_param`` and split them with ``parse``.
     """
 
     DOWNSAMPLE = "downsample"
-    """Spatial or temporal downsampling. Parameter is a float scale factor in ``(0, 1]``."""
+    """Spatial or temporal downsampling. The parameter is a scale factor in ``(0, 1]``."""
     ENCODE = "encode"
-    """Re-encoding to a different content format. Parameter is the target format token (e.g. ``"jpeg"``)."""
+    """Re-encoding into another content format. The parameter is the target format, such as ``"jpeg"``."""
 
     def with_param(self, param: object) -> str:
-        """Construct a transformation descriptor string for this kind with the given parameter."""
+        """Build the ``"<kind>:<param>"`` transformation string for this kind and ``param``.
+
+        Args:
+            param: Parameter of the transformation, converted to a string.
+
+        Examples:
+            >>> TransformationKind.DOWNSAMPLE.with_param(0.5)
+            'downsample:0.5'
+        """
         return f"{self.value}:{param}"
 
     @classmethod
     def parse(cls, descriptor: str) -> tuple[TransformationKind, str]:
-        """Parse a ``"<kind>:<param>"`` transformation descriptor into its kind and raw parameter.
+        """Split a ``"<kind>:<param>"`` transformation string into its kind and its parameter.
+
+        Args:
+            descriptor: Transformation string, such as ``"encode:jpeg"``.
+
+        Returns:
+            ``(kind, param)``: the kind and the parameter as a string. The parameter is empty when ``descriptor``
+            contains no ``:``.
 
         Raises:
-            ValueError: If the kind prefix is not a known :py:class:`TransformationKind` member.
+            ValueError: The text before the first ``:`` is not a ``TransformationKind`` value.
+
+        Examples:
+            >>> TransformationKind.parse("encode:jpeg")
+            (<TransformationKind.ENCODE: 'encode'>, 'jpeg')
         """
         kind, _, param = descriptor.partition(":")
         return cls(kind), param
 
 
 class RepresentationRecord(pydantic.BaseModel):
-    """Record representing a data representation for topic content.
+    """Data record of a representation, as the Roboto API returns it.
 
-    A representation is a pointer to processed topic data stored in a specific format
-    and location. Representations enable efficient access to topic data by providing
-    multiple storage formats optimized for different use cases.
-
-    Most message paths within a topic point to the same representation (e.g., an MCAP or Parquet
-    file containing all topic data). However, some message paths may have multiple
-    representations for analytics or preview formats.
-
-    Representations are versioned and associated with specific files or storage locations
-    through the association field.
+    A representation is one stored copy of a topic's data, in one file format and possibly transformed, such as
+    downsampled or encoded as JPEG. Most of a topic's message paths share one representation, usually the MCAP or
+    Parquet file that holds all of the topic's data; some message paths have further representations, such as a
+    preview format.
     """
 
     association: Association
-    """
-    Identifier and entity type with which this Representation is associated. E.g., a file, a database.
-    """
+    """Resource that holds the representation's data, usually a file."""
 
     created: datetime.datetime
+    """Time the representation was created."""
 
     format: typing.Optional[str] = None
-    """
-    Content format descriptor for this representation.
-    For image topics: the image encoding (e.g. "jpeg", "png") for simplified representations,
-    or the ROS schema name (e.g. "sensor_msgs/Image") for original/passthrough representations.
-    None for non-image topics or legacy representations.
+    """Content format of the representation's data, or ``None`` when none was recorded, as for most non-image topics.
+
+    For an image topic, this is the image encoding of an encoded representation, such as ``"jpeg"`` or ``"png"``, or
+    the message schema name of the original data, such as ``"sensor_msgs/Image"``.
     """
 
     modified: datetime.datetime
+    """Time the representation was last modified."""
+
     representation_id: str
+    """Unique ID of the representation."""
+
     storage_format: RepresentationStorageFormat
+    """File format the representation's data is stored in."""
+
     topic_id: str
+    """ID of the topic this representation belongs to."""
 
     transformations: list[str] = pydantic.Field(default_factory=list)
-    """
-    Ordered list of transformation descriptors applied to produce this representation.
-    Empty for original/passthrough representations.
+    """Transformations applied, in order, to produce this representation, or an empty list for the original data.
 
-    Each entry is a ``"<kind>:<param>"`` string where ``<kind>`` is a
-    :py:class:`TransformationKind` member. Construct entries via
-    :py:meth:`TransformationKind.with_param` and parse them via
-    :py:meth:`TransformationKind.parse` to keep the vocabulary centralized.
-
-    Example: ``["downsample:0.5", "encode:jpeg"]``
+    Each entry is a ``"<kind>:<param>"`` string whose kind is a ``TransformationKind`` value, such as
+    ``["downsample:0.5", "encode:jpeg"]``.
     """
 
     version: int
+    """Version number of the representation, as set when it was added."""
 
 
 class CanonicalDataType(enum.Enum):
-    """Normalized data types used across different robotics frameworks.
+    """Framework-independent data type of a message path, which Roboto uses to choose how to display its data.
 
-    Well-known and simplified data types that provide a common vocabulary for
-    describing message path data types across different frameworks and technologies.
-    These canonical types are primarily used for UI rendering decisions and
-    cross-platform compatibility.
+    Each native field type, such as a field type of ROS 1 (http://wiki.ros.org/msg), ROS 2
+    (https://docs.ros.org/en/iron/Concepts/Basic/About-Interfaces.html#field-types) or uORB
+    (https://docs.px4.io/main/en/middleware/uorb.html#adding-a-new-topic), maps onto one of these. For example:
 
-    The canonical types abstract away framework-specific details while preserving
-    the essential characteristics needed for data processing and visualization.
-
-    References:
-        - ROS 1 field types: http://wiki.ros.org/msg
-        - ROS 2 field types: https://docs.ros.org/en/iron/Concepts/Basic/About-Interfaces.html#field-types
-        - uORB: https://docs.px4.io/main/en/middleware/uorb.html#adding-a-new-topic
-
-    Example mappings:
-        - ``float32`` -> ``CanonicalDataType.Number``
-        - ``uint8[]`` -> ``CanonicalDataType.Array``
-        - ``sensor_msgs/Image`` -> ``CanonicalDataType.Image``
-        - ``geometry_msgs/Pose`` -> ``CanonicalDataType.Object``
-        - ``std_msgs/Header`` -> ``CanonicalDataType.Object``
-        - ``string`` -> ``CanonicalDataType.String``
-        - ``char`` -> ``CanonicalDataType.String``
-        - ``bool`` -> ``CanonicalDataType.Boolean``
-        - ``byte`` -> ``CanonicalDataType.Byte``
+    - ``float32`` -> ``CanonicalDataType.Number``
+    - ``uint8[]`` -> ``CanonicalDataType.Array``
+    - ``sensor_msgs/Image`` -> ``CanonicalDataType.Image``
+    - ``geometry_msgs/Pose`` -> ``CanonicalDataType.Object``
+    - ``std_msgs/Header`` -> ``CanonicalDataType.Object``
+    - ``string`` -> ``CanonicalDataType.String``
+    - ``char`` -> ``CanonicalDataType.String``
+    - ``bool`` -> ``CanonicalDataType.Boolean``
+    - ``byte`` -> ``CanonicalDataType.Byte``
     """
 
     Array = "array"
-    """A sequence of values."""
+    """Sequence of values."""
     Boolean = "boolean"
+    """True or false value."""
     Byte = "byte"
+    """Single byte."""
     Categorical = "categorical"
-    """
-    Data that can take a limited, fixed set of values.
-    To be interpreted correctly by Roboto clients,
-    a ``MessagePathRecord`` with this type must have a ``"categories"`` metadata key on the ``MessagePathRecord``,
-    which must be the ordered list of values that the Categorical can take.
+    """Value from a fixed, ordered set of values, such as ``"off"`` or ``"on"``.
 
-    For example, a signal that is logged as either "off" or "on"
-    could be represented as a Categorical with the metadata ``"categories"=["off", "on"]``.
-    This allows Roboto to map the value "off" to 0 and "on" to 1
-    --each corresponding to their index position in the metadata array--
-    and therefore visualize these state transitions as a plot.
-
-    The default visual representation of ``Categorical`` data will be the same as ``String`` data,
-    but the Roboto visualizer will be capable of rendering Categorical data in a plot.
+    The message path's metadata must have a ``"categories"`` key (``MessagePathMetadataWellKnown.Categories``)
+    listing the values in order, such as ``["off", "on"]``. Roboto maps each value to its index in that list,
+    ``"off"`` to 0 and ``"on"`` to 1, so it can plot changes from one value to another. Outside a plot, Roboto
+    displays categorical data as it displays ``String`` data.
     """
     Image = "image"
-    """Special purpose type for data that can be rendered as an image."""
+    """Data that Roboto can display as an image."""
     Number = "number"
+    """Numeric scalar, such as an integer or a float."""
     NumberArray = "number_array"
-    """A flat sequence of numeric scalars, of fixed or variable length.
+    """Flat sequence of numeric scalars, of fixed or variable length.
 
     Elements are ints, floats, or decimals: never booleans, strings, nested sequences, or structs, so a
-    ``NumberArray`` message path never has child message paths. A fixed length appears as the trailing ``[N]``
+    ``NumberArray`` message path never has child message paths. A fixed length appears as the trailing ``[<N>]``
     of ``data_type`` (``float64[7]``, ``fixed_size_list<element: double>[3]``) and is read by
     :py:attr:`~roboto.domain.topics.MessagePath.array_length`; ``float64[]`` and ``list<element: double>``
     declare none.
@@ -292,27 +266,37 @@ class CanonicalDataType(enum.Enum):
     therefore checks ``data_type`` for a byte-width element type rather than relying on this type alone.
     """
     Object = "object"
-    """A struct with attributes."""
+    """Struct with attributes."""
     String = "string"
+    """Text."""
     Timestamp = "timestamp"
-    """
-    Time elapsed since the Unix epoch, identifying a single instant on the time-line.
-    Roboto clients will look for a ``"unit"`` metadata key on the ``MessagePath`` record,
-    and will assume "ns" if none is found.
-    If the timestamp is in a different unit, add the following metadata to the `MessagePath` record:
-    ``{ "unit": "s"|"ms"|"us"|"ns" }``
-    The unit must be a known value from :py:class:`~roboto.time.TimeUnit`.
+    """Instant in time, as the time elapsed since the Unix epoch.
+
+    The unit is the message path's ``"unit"`` metadata value, which must be a :py:class:`~roboto.time.TimeUnit`
+    value: ``"s"``, ``"ms"``, ``"us"`` or ``"ns"``. Without that key, Roboto reads the value as nanoseconds.
     """
     Unknown = "unknown"
-    """This is a fallback and should be used sparingly."""
+    """Data that fits no other type. Assign it only when no other type applies."""
     LatDegFloat = "latdegfloat"
-    """Geographic point in degrees. E.g. 47.6749387 (used in ULog ver_data_format >= 2)"""
+    """Latitude in degrees, as a float, such as ``47.6749387``.
+
+    ULog files with ``ver_data_format`` 2 or later use it.
+    """
     LonDegFloat = "londegfloat"
-    """Geographic point in degrees. E.g. 9.1445274  (used in ULog ver_data_format >= 2)"""
+    """Longitude in degrees, as a float, such as ``9.1445274``.
+
+    ULog files with ``ver_data_format`` 2 or later use it.
+    """
     LatDegInt = "latdegint"
-    """Geographic point in degrees, expressed as an integer. E.g. 317534036 (used in ULog ver_data_format < 2)"""
+    """Latitude in degrees times 10^7, as an integer, such as ``317534036`` for 31.7534036 degrees.
+
+    ULog files with ``ver_data_format`` below 2 use it.
+    """
     LonDegInt = "londegint"
-    """Geographic point in degrees, expressed as an integer. E.g. 1199146398 (used in ULog ver_data_format < 2)"""
+    """Longitude in degrees times 10^7, as an integer, such as ``1199146398`` for 119.9146398 degrees.
+
+    ULog files with ``ver_data_format`` below 2 use it.
+    """
 
 
 _FIXED_ARRAY_DATA_TYPE = re.compile(r"([^\[]+)\[(\d+)\]")
@@ -322,29 +306,33 @@ _BYTE_WIDTH_ELEMENT_TYPES = frozenset({"byte", "char", "int8", "int8_t", "octet"
 
 @dataclasses.dataclass(frozen=True)
 class FixedArrayDataType:
-    """The element type and length that a flat, fixed-length array declares in its ``data_type``.
+    """Element type and length that a flat, fixed-length array declares in its ``data_type``.
 
-    Read one with :py:meth:`parse`.
+    Build one with ``parse``.
     """
 
     element_type: str
-    """Type of each element, as the recording format spells it: ``float32`` for ``float32[6]``, and ``float`` for
-    the Arrow ``fixed_size_list<element: float not null>[6]``."""
+    """Type of each element, as the recording format spells it.
+
+    ``float32`` for ``float32[6]``, and ``float`` for the Arrow ``fixed_size_list<element: float not null>[6]``.
+    """
 
     length: int
-    """Number of elements, from the trailing ``[N]``."""
+    """Number of elements, from the trailing ``[<N>]``."""
 
     @classmethod
     def parse(cls, data_type: str) -> typing.Optional[FixedArrayDataType]:
-        """Read the element type and length from a ``data_type`` that ends in a single ``[N]``.
+        """Build the element type and length from a ``data_type`` that ends in a single ``[<N>]``.
 
-        ``float64[7]``, ``Point[3]`` and ``fixed_size_list<element: double>[3]`` parse. ``None`` for a
-        variable-length array (``float64[]``, ``list<element: double>``), a ROS 2 bounded one (``float64[<=10]``),
-        a multi-dimensional one (``float64[2][3]``, ``fixed_size_list<element: list<element: double>>[3]``) and a
-        scalar.
+        ``float64[7]``, ``Point[3]`` and ``fixed_size_list<element: double>[3]`` parse.
 
         Args:
-            data_type: A field's or message path's native data type.
+            data_type: Native data type of a field or message path.
+
+        Returns:
+            The element type and length, or ``None`` for a variable-length array (``float64[]``,
+            ``list<element: double>``), a ROS 2 bounded one (``float64[<=10]``), a multi-dimensional one
+            (``float64[2][3]``, ``fixed_size_list<element: list<element: double>>[3]``) or a scalar.
         """
         # Each Arrow "list<" opener (in list<, large_list< and fixed_size_list<) is one dimension.
         # fixed_size_list<element: list<element: double>>[3] ends in the outer list's [3] alone, which the pattern
@@ -362,21 +350,22 @@ class FixedArrayDataType:
 
     @property
     def has_byte_width_elements(self) -> bool:
-        """Whether each element is one byte wide: ``uint8``, ``int8``, ``uint8_t``, ``int8_t``, ``byte``, ``char``
-        or ``octet``, in any letter case. Such arrays typically hold raw bytes, not signals
-        (see :py:attr:`CanonicalDataType.NumberArray`)."""
+        """Whether each element is one byte wide.
+
+        The one-byte element types are ``uint8``, ``int8``, ``uint8_t``, ``int8_t``, ``byte``, ``char`` and
+        ``octet``, in any letter case. Arrays of them typically hold raw bytes, not signals; see
+        ``CanonicalDataType.NumberArray``.
+        """
         return self.element_type.lower() in _BYTE_WIDTH_ELEMENT_TYPES
 
 
 class MessagePathStatistic(enum.Enum):
-    """Statistics computed by Roboto in our standard ingestion actions.
+    """Statistic that Roboto's ingestion actions compute for a message path, keyed by this value in its metadata.
 
-    Which of these a given message path actually carries depends on the ingestion path that
-    produced it, so treat every one as optional: read them with ``metadata.get(...)`` or through
-    the corresponding :py:class:`~roboto.domain.topics.MessagePath` property, both of which yield
-    ``None`` when the statistic was never written, and never assume a missing value means zero.
-    Indexing :py:attr:`~roboto.domain.topics.MessagePathRecord.metadata` directly raises
-    ``KeyError`` for a statistic that was never written.
+    Which statistics a message path has depends on the action that ingested it, so treat each one as optional. Read
+    it with ``metadata.get(...)`` or the matching :py:class:`~roboto.domain.topics.MessagePath` property, which both
+    return ``None`` for a statistic that was never computed; a missing statistic does not mean zero. Indexing
+    ``MessagePathRecord.metadata`` directly raises ``KeyError`` for a missing one.
     """
 
     Count = "count"
@@ -392,260 +381,245 @@ class MessagePathStatistic(enum.Enum):
 
 
 class MessagePathMetadataWellKnown(StrEnum):
-    """
-    Well-known metadata key names (with well-known semantics) that may be set in
-    :py:attr:`~roboto.domain.topics.MessagePathRecord.metadata`.
+    """Metadata key that Roboto gives a meaning to in ``MessagePathRecord.metadata``.
 
-    These are most often set by Roboto's first-party ingestion actions and used by Roboto clients.
+    Roboto's ingestion actions usually set these keys, and Roboto's clients read them.
     """
 
     ColumnName = "column_name"
-    """
-    The original name or path to this field in the source data schema.
-    May differ from :py:attr:`~roboto.domain.topics.MessagePathRecord.message_path`
-    if character substitutions were applied to conform to naming requirements.
+    """Deprecated. Field's name or path in the source data's schema.
 
-    Notes:
-        - Use of this metadata field is soft-deprecated as of SDK v0.24.0.
-        - Prefer use of :py:attr:`~roboto.domain.topics.MessagePathRecord.source_path` and
-          :py:attr:`~roboto.domain.topics.MessagePathRecord.path_in_schema` instead.
-          Those attributes are now first-class fields on :py:class:`~MessagePathRecord`
-          and can be specified via :py:class:`~roboto.domain.topics.AddMessagePathRequest`.
+    Use ``MessagePathRecord.source_path`` instead. The name or path can differ from ``MessagePathRecord.message_path``
+    when characters were replaced to meet message path naming rules. ``MessagePathRecord.path_in_schema`` holds the
+    same path as a list of components, and :py:class:`~roboto.domain.topics.AddMessagePathRequest` sets it.
     """
 
     Categories = "categories"
-    """
-    An ordered list of values that a :py:attr:`~roboto.domain.topics.CanonicalDataType.Categorical` can take.
+    """Ordered list of the values a ``CanonicalDataType.Categorical`` message path takes.
 
-    Examples:
-        - ``"categories"=["off", "on"]``
-        - ``"categories"=["left", "up", "right", "down"]``
+    For example, ``["off", "on"]`` or ``["left", "up", "right", "down"]``.
     """
 
     Unit = "unit"
-    """
-    Unit of a field. E.g., 'ns' for a timestamp.
-    If provided, must match a known, supported unit from :py:class:`~roboto.time.TimeUnit`.
+    """Unit of the message path's values, such as ``"ns"`` for a timestamp.
+
+    When set, it must be a :py:class:`~roboto.time.TimeUnit` value.
     """
 
 
 class MessagePathRecord(pydantic.BaseModel):
-    """Record representing a message path within a topic.
+    """Data record of a message path, as the Roboto API returns it.
 
-    Defines a specific field or signal within a topic's data schema, including
-    its data type, metadata, and statistical information. Message paths use
-    dot notation to specify nested attributes within complex message structures.
-
-    Message paths are the fundamental units for accessing individual data elements
-    within time-series robotics data, enabling fine-grained analysis and visualization
-    of specific signals or measurements.
+    A message path is one field or signal of a topic's messages, such as ``"pose.position.x"``.
+    :py:class:`~roboto.domain.topics.MessagePath` wraps this record with methods that act on the message path, and
+    exposes it as :py:attr:`~roboto.domain.topics.MessagePath.record`.
     """
 
     canonical_data_type: CanonicalDataType
-    """Normalized data type, used primarily internally by the Roboto Platform."""
+    """Framework-independent data type of the field, which Roboto uses to choose how to display its data."""
 
     created: datetime.datetime
+    """Time the message path was created."""
+
     created_by: str
+    """ID of the user who created the message path."""
 
     data_type: str
-    """
-    'Native'/framework-specific data type of the attribute at this path.
-    E.g. "float32", "uint8[]", "geometry_msgs/Pose", "string".
+    """Native data type of the field, as the source data's framework names it.
+
+    For example, ``"float32"``, ``"uint8[]"``, ``"geometry_msgs/Pose"`` or ``"string"``.
     """
 
     message_path: str
-    """
-    Dot-delimited path to the attribute within the datum record.
-    """
+    """Dot-delimited path to the field within the topic's messages, such as ``"pose.position.x"``."""
 
     message_path_id: str
+    """Unique ID of the message path, beginning with ``mp_``."""
 
     metadata: collections.abc.Mapping[str, typing.Any] = pydantic.Field(
         default_factory=dict,
     )
-    """
-    Key-value pairs to associate with this metadata for discovery and search, e.g.
-    `{ 'min': '0.71', 'max': '1.77 }`
+    """Key-value metadata on the message path, such as ``{"min": 0.71, "max": 1.77}``.
+
+    ``MessagePathStatistic`` and ``MessagePathMetadataWellKnown`` list the keys Roboto gives a meaning to.
     """
 
     modified: datetime.datetime
+    """Time the message path was last modified."""
+
     modified_by: str
+    """ID of the user who last modified the message path."""
 
     org_id: str
-    """
-    This message path's organization ID, which is the organization ID of the containing topic.
-    """
+    """ID of the organization that owns the message path, which is the organization that owns its topic."""
 
     path_in_schema: list[str]
-    """
-    List of path components representing the field's location in the original data schema.
-    Unlike :py:attr:`message_path`, which must conform to Roboto-specific naming requirements
-    and assumes dots separated path parts imply nested data,
-    this preserves the exact path from the source data for accurate attribute access.
-    This is expected to be the split representation of :py:attr:`source_path`.
+    """Components of the field's path in the source data's schema, in order from the schema root.
+
+    Each component keeps the source's own name. ``message_path`` instead follows Roboto's naming rules and treats
+    every dot as a separator between nested fields, so this is the path to use to find the field in the source data.
     """
 
     representations: collections.abc.MutableSequence[RepresentationRecord] = pydantic.Field(default_factory=list)
-    """
-    Zero to many Representations of this MessagePath.
-    """
+    """Representations that hold this message path's data, if any."""
 
     source_path: str
-    """
-    The original name of this field in the source data schema.
-    May differ from :py:attr:`message_path` if character substitutions were applied to conform to naming requirements.
+    """Name of the field in the source data's schema: ``path_in_schema`` joined with dots.
 
-    This is the preferred field to use when specifying ``message_path_include`` or
-    ``message_path_exclude`` to the ``get_data`` or ``get_data_as_df`` methods
-    of :py:class:`~roboto.domain.topics.Topic` and :py:class:`~roboto.domain.events.Event`.
+    It can differ from ``message_path`` when characters were replaced to meet message path naming rules. Prefer it
+    when you pass ``message_paths_include`` or ``message_paths_exclude`` to the ``get_data`` and ``get_data_as_df``
+    methods of :py:class:`~roboto.domain.topics.Topic` and :py:class:`~roboto.domain.events.Event`.
     """
 
     topic_id: str
+    """ID of the topic this message path belongs to."""
 
     def parents(self, delimiter: str = ".") -> list[str]:
-        """
-        Logical message path ancestors of this path.
+        """Return the paths of this field's ancestors in the source data's schema, nearest first.
+
+        Each ancestor's path is leading components of ``path_in_schema``, joined with ``delimiter``.
+
+        Args:
+            delimiter: String to join path components with.
 
         Examples:
-            Given a deeply nested field ``root.sub_obj_1.sub_obj_2.leaf_field``:
+            For a record whose ``path_in_schema`` is ``["root", "sub_obj_1", "sub_obj_2", "leaf_field"]``:
 
-            >>> field = "root.sub_obj_1.sub_obj_2.leaf_field"
-            >>> record = MessagePathRecord(message_path=field)  # other fields omitted for brevity
-            >>> print(record.parents())
+            >>> record.parents()
             ['root.sub_obj_1.sub_obj_2', 'root.sub_obj_1', 'root']
         """
         parent_path_parts = self.path_in_schema[:-1]
         return [delimiter.join(parent_path_parts[:i]) for i in range(len(parent_path_parts), 0, -1)]
 
     def to_field_selection(self) -> FieldSelection:
-        """Translate this record into the :py:class:`~roboto.formats.FieldSelection` the format decoders accept."""
+        """Return this field as the :py:class:`~roboto.formats.FieldSelection` that format readers take."""
         return FieldSelection(path_in_schema=tuple(self.path_in_schema))
 
 
 class MessagePathRepresentationMapping(pydantic.BaseModel):
-    """Mapping between message paths and their data representation.
+    """Item of the response body of ``GET /v1/topics/id/{topic_id}/message-path/representations``.
 
-    Associates a set of message paths with a specific representation that contains
-    their data. This mapping is used to efficiently locate and access data for
-    specific message paths within topic representations.
+    It pairs message paths with a representation that holds their data.
+    :py:meth:`~roboto.domain.topics.Topic.get_data` and :py:meth:`~roboto.domain.topics.Topic.get_data_as_df` read the
+    list to choose where each message path's data comes from.
     """
 
     message_paths: collections.abc.MutableSequence[MessagePathRecord]
+    """Message paths whose data the representation holds."""
+
     representation: RepresentationRecord
+    """Record of the representation that holds the message paths' data."""
 
 
 class TopicRecord(pydantic.BaseModel):
-    """Record representing a topic in the Roboto platform.
+    """Data record of a topic, as the Roboto API returns it.
 
-    A topic is a collection of timestamped data records that share a common name
-    and association (typically a file). Topics represent logical data streams
-    from robotics systems, such as sensor readings, robot state information,
-    or other time-series data.
-
-    Data from the same file with the same topic name are considered part of the
-    same topic. Data from different files or with different topic names belong
-    to separate topics, even if they have similar schemas.
-
-    When source files are chunked by time or size but represent the same logical
-    data collection, they will produce multiple topic records for the same
-    "logical topic" (same name and schema) across those chunks.
+    A topic is a sequence of structured time-series data, called messages, linked to a source file; each message
+    follows the topic's schema. Data under one topic name in one file forms one topic. Data in different files, or
+    under different names, forms separate topics even when the schemas match, so a recording split into several
+    files by time or size yields one topic record per file for the same topic name.
+    :py:class:`~roboto.domain.topics.Topic` wraps this record with methods that act on the topic, and exposes it as
+    :py:attr:`~roboto.domain.topics.Topic.record`.
     """
 
     association: Association
-    """
-    Identifier and entity type with which this Topic is associated. E.g., a file, a dataset.
-    """
+    """Resource the topic belongs to, usually the file its data came from."""
 
     created: datetime.datetime
+    """Time the topic was created."""
 
     created_by: str
+    """ID of the user who created the topic."""
 
     default_representation: typing.Optional[RepresentationRecord] = None
-    """
-    Default Representation for this Topic.
-    Assume that if a MessagePath is not more specifically associated with a Representation,
-    it should use this one.
+    """Record of the representation that holds the data of each message path without one of its own.
+
+    ``None`` if there is none.
     """
 
     end_time: typing.Optional[int] = None
-    """
-    Timestamp of oldest message in topic, in nanoseconds since epoch (assumed Unix epoch).
-    """
+    """Timestamp of the topic's latest message, in nanoseconds since the Unix epoch, or ``None`` if unknown."""
 
     message_count: typing.Optional[int] = None
+    """Number of messages in the topic, or ``None`` if unknown."""
 
     message_paths: collections.abc.MutableSequence[MessagePathRecord] = pydantic.Field(default_factory=list)
+    """Message paths of the topic.
+
+    When ``message_paths_next_token`` is not ``None``, this holds only the first part of the list.
     """
-    Zero to many MessagePathRecords associated with this TopicSource.
+
+    message_paths_next_token: typing.Optional[str] = None
+    """Token for the message paths that ``message_paths`` leaves out, or ``None`` when it holds every one.
+
+    A record leaves message paths out when they would not fit in one response with the rest of the record. Pass the
+    token as ``page_token`` to ``GET /v1/topics/id/{topic_id}/message-paths`` for the first page of the rest, and each
+    page's ``next_token`` for the page after it, until ``next_token`` is ``None``.
+    :py:class:`~roboto.domain.topics.Topic` fetches every page when it is built from the record, so its
+    :py:attr:`~roboto.domain.topics.Topic.record` holds every message path.
     """
 
     metadata: collections.abc.Mapping[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """
-    Arbitrary metadata.
-    """
+    """Key-value metadata on the topic."""
 
     modified: datetime.datetime
+    """Time the topic was last modified."""
 
     modified_by: str
+    """ID of the user who last modified the topic."""
 
     org_id: str
+    """ID of the organization that owns the topic."""
 
     schema_checksum: typing.Optional[str] = None
-    """
-    Checksum of topic schema.
-    May be None if topic does not have a known/named schema.
-    """
+    """Checksum of the topic's schema, or ``None`` if the topic has no known schema."""
 
     schema_id: typing.Optional[str] = None
-    """
-    ID of the schema record for this topic.
-    May be None if the topic has no schema, or if the schema record has not yet been populated.
-    """
+    """ID of the topic's schema, or ``None`` if the topic has no schema or Roboto has not yet recorded it."""
 
     schema_name: typing.Optional[str] = None
-    """
-    Type of messages in topic. E.g., "sensor_msgs/PointCloud2".
-    May be None if topic does not have a known/named schema.
-    """
+    """Name of the topic's message type, such as ``"sensor_msgs/PointCloud2"``, or ``None`` if it is unknown."""
 
     start_time: typing.Optional[int] = None
-    """
-    Timestamp of earliest message in topic, in nanoseconds since epoch (assumed Unix epoch).
-    """
+    """Timestamp of the topic's earliest message, in nanoseconds since the Unix epoch, or ``None`` if unknown."""
 
     topic_id: str
+    """Unique ID of the topic, beginning with ``tp_``."""
+
     topic_name: str
+    """Name of the topic, such as ``"/imu/data"``."""
 
 
 class TopicTimeBounds(pydantic.BaseModel):
-    """Earliest start and latest end, in epoch nanoseconds, across a set of topics.
+    """Response body of :py:meth:`~roboto.domain.datasets.Dataset.get_topic_time_bounds`.
 
-    The aggregate of the ``start_time`` and ``end_time`` of every topic in the set, computed
-    server-side so a caller does not have to page the whole set to fold them.
-
-    Either field is None when no topic in the set carries that timestamp — because the set is
-    empty, or because every topic in it left that bound unset.
+    :py:meth:`~roboto.domain.topics.Topic.get_time_bounds_by_association` also returns it. It holds the earliest start
+    time and latest end time across a set of topics, such as the topics of a dataset. Roboto computes the bounds, so a
+    caller does not have to page through every topic to find them.
     """
 
     start_time: typing.Optional[int] = None
-    """
-    Earliest ``start_time`` across the set, in nanoseconds since epoch (assumed Unix epoch).
+    """Earliest ``start_time`` of a topic in the set, in nanoseconds since the Unix epoch.
+
+    ``None`` when no topic in the set has a ``start_time``, which includes an empty set.
     """
 
     end_time: typing.Optional[int] = None
-    """
-    Latest ``end_time`` across the set, in nanoseconds since epoch (assumed Unix epoch).
+    """Latest ``end_time`` of a topic in the set, in nanoseconds since the Unix epoch.
+
+    ``None`` when no topic in the set has an ``end_time``, which includes an empty set.
     """
 
 
 FieldPath = tuple[str, ...]
-"""A schema field's path components, in order from the schema root to the leaf."""
+"""Path components of a schema field, in order from the schema root to the leaf."""
 
 
 def validate_data_range(data_range: tuple[int, int]) -> tuple[int, int]:
-    """Check that ``data_range`` is a pair of non-negative positions with ``start < end``.
+    """Reject a ``data_range`` that is not a pair of non-negative positions with ``start < end``.
 
-    Both positions must fit in a signed 64-bit integer, which is how the platform stores them.
+    Pydantic calls this while it builds a model with a ``DataRange`` field, such as a topic partition record. Both
+    positions must also fit in a signed 64-bit integer, which is how Roboto stores them.
 
     Args:
         data_range: The ``(start, end)`` pair to check, with ``start`` included and ``end`` excluded.
@@ -684,76 +658,76 @@ episode metadata carry over unchanged.
 
 @experimental
 class SchemaFieldRecord(pydantic.BaseModel):
-    """A single field within a topic schema.
+    """Field of a topic schema.
 
-    One entry per unique field path within a schema;
-    field paths are deduplicated across topics that share the schema.
+    A schema has one record per field path, and topics that share the schema share its field records.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     canonical_data_type: CanonicalDataType
-    """Normalized data type used for cross-framework compatibility and UI rendering decisions."""
+    """Framework-independent data type of the field, which Roboto uses to choose how to display its data."""
 
     created: typing.Optional[datetime.datetime] = None
     created_by: str
     data_type: str
-    """Native, framework-specific data type of the field. E.g. "float32", "uint8[]", "geometry_msgs/Pose"."""
+    """Native data type of the field, as the source data's framework names it, such as ``"float32"``."""
 
     field_id: str
     modified: typing.Optional[datetime.datetime] = None
     modified_by: str
     name: str
-    """Human-readable display name of the field (typically the final component of ``path_in_schema``)."""
+    """Display name of the field, usually the last component of ``path_in_schema``."""
 
     org_id: str
     path_in_schema: FieldPath
-    """
-    Path components locating this field in the source data schema.
-    Each component is a schema-native attribute name, in order from the schema root to the leaf.
+    """Components of the field's path in the source data's schema, from the schema root to the leaf.
+
+    Each component is the source's own name for that level of the schema.
     """
 
     schema_id: str
     unit: typing.Optional[str] = None
-    """Optional unit of the field's values (e.g., ``"ns"``, ``"m/s"``). None if the field is unitless or unknown."""
+    """Unit of the field's values, such as ``"ns"`` or ``"m/s"``, or ``None`` if it has none or it is unknown."""
 
     element_names: typing.Optional[tuple[str, ...]] = None
-    """Name of each element of a fixed-width numeric array, in element order, as declared with
-    :py:attr:`roboto.experimental.ingest.Field.element_names`. None when the field's elements are not named."""
+    """Name of each element of a fixed-length numeric array field, in element order, or ``None`` if not named.
+
+    They are declared with ``roboto.experimental.ingest.Field.element_names``.
+    """
 
 
 @experimental
 class TopicSchemaRecord(pydantic.BaseModel):
-    """A content-addressed topic schema.
+    """Topic schema, identified by its fields.
 
-    Within an organization, two schemas with identical fields share a single record
-    (identified by a deterministic checksum of the fields).
-    ``name`` is a mutable, informational label (last-writer-wins) and is not part of the schema's identity.
+    Within an organization, schemas with identical fields share one record, which a checksum of the fields
+    identifies. ``name`` is not part of that identity: creating or ingesting a topic, or adding message paths to one,
+    with a schema name and fields identical to this schema's replaces it with that schema name.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     checksum: str
-    """Deterministic checksum computed over the schema's fields; identical schemas share a checksum."""
+    """Checksum computed from the schema's fields; schemas with identical fields have the same checksum."""
 
     created: typing.Optional[datetime.datetime] = None
     created_by: str
     modified: typing.Optional[datetime.datetime] = None
     modified_by: str
     name: typing.Optional[str] = None
-    """Informational label for the schema (e.g., ``"sensor_msgs/PointCloud2"``). Not part of identity."""
+    """Informational name of the schema, such as ``"sensor_msgs/PointCloud2"``; not part of its identity."""
 
     org_id: str
     schema_id: str
-    """Stable identifier for this schema record."""
+    """Unique ID of the schema."""
 
 
 @experimental
 class TopicIdentityRecord(pydantic.BaseModel):
-    """A durable identity for a topic.
+    """Identity of a topic across files.
 
-    Within an organization, topic names are unique:
-    data logged under the same topic name in different files shares a single identity record.
+    Within an organization, data logged under the same topic name in different files shares one identity record.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -763,31 +737,33 @@ class TopicIdentityRecord(pydantic.BaseModel):
     modified: typing.Optional[datetime.datetime] = None
     modified_by: str
     name: str
-    """Human-readable topic name (e.g., ``"/camera/image_raw"``). Unique within an organization."""
+    """Name of the topic, such as ``"/camera/image_raw"``, unique within an organization."""
 
     org_id: str
     topic_id: str
-    """Stable identifier for this topic identity."""
+    """Unique ID of the topic identity."""
 
 
 TimelineSourceKind: typing.TypeAlias = typing.Literal["schema_field", "message_log_time", "message_publish_time"]
-"""Discriminator for how a ``TimelineSourceRecord`` derives its timestamps.
+"""Where a ``TimelineSourceRecord`` takes its timestamps from.
 
-``"schema_field"`` points at a timestamp field inside the schema (``field_id`` is set).
-``"message_log_time"`` and ``"message_publish_time"`` point at the message envelope's
-log or publish timestamp respectively (``field_id`` is ``None``).
+- ``"schema_field"``: a timestamp field of the schema, named by the record's ``field_id``.
+- ``"message_log_time"``: the time each message was logged, from the message envelope.
+- ``"message_publish_time"``: the time each message was published, from the message envelope.
 """
 
 
 @experimental
 class TimelineSourceRecord(pydantic.BaseModel):
-    """A registered timeline source for a schema.
+    """Source of timestamps registered for a schema.
 
-    A timeline source either points at a timestamp field inside the schema
-    (``source="schema_field"``, ``field_id`` set) or at the message envelope's
-    log or publish timestamp (``source`` in ``{"message_log_time", "message_publish_time"}``,
-    ``field_id`` is ``None``). Timeline sources are scoped to a schema, not a topic, so
-    topics that share a schema share their timeline sources.
+    A timeline source takes timestamps from a timestamp field of the schema or from each message's log or publish
+    time, as ``source`` says. Timeline sources belong to a schema, not a topic, so topics that share a schema share
+    its timeline sources.
+
+    Building one raises ``pydantic.ValidationError`` when ``source`` is not a ``TimelineSourceKind`` value, when
+    ``source`` is ``"schema_field"`` and ``field_id`` is ``None``, or when ``field_id`` is set and ``source`` is
+    anything else.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -795,25 +771,22 @@ class TimelineSourceRecord(pydantic.BaseModel):
     created: typing.Optional[datetime.datetime] = None
     created_by: str
     field_id: typing.Optional[str] = None
-    """ID of the schema field supplying timestamps. Set when ``source == "schema_field"``; otherwise ``None``."""
+    """ID of the schema field the timestamps come from when ``source`` is ``"schema_field"``; otherwise ``None``."""
 
     is_default: bool = False
-    """Whether this timeline source is the default for its schema when no source is specified explicitly."""
+    """Whether this is its schema's default timeline source, used when no timeline source is named."""
 
     modified: typing.Optional[datetime.datetime] = None
     modified_by: str
     name: str
-    """Human-readable label for this timeline source."""
+    """Human-readable name of the timeline source."""
 
     org_id: str
     schema_id: str
-    """ID of the schema this timeline source is registered against."""
+    """ID of the schema this timeline source belongs to."""
 
     source: TimelineSourceKind
-    """
-    Where timestamps come from: a schema field (``"schema_field"``), or the message envelope's
-    log or publish timestamp (``"message_log_time"`` / ``"message_publish_time"``).
-    """
+    """Where the timestamps come from: a schema field, or each message's log or publish time."""
 
     timeline_source_id: str
 
@@ -828,17 +801,14 @@ class TimelineSourceRecord(pydantic.BaseModel):
 
 @experimental
 class TimelineExtentRecord(pydantic.BaseModel):
-    """Min/max timestamp bounds for one topic partition measured against one timeline source.
+    """Smallest and largest timestamps of one topic partition, as one timeline source measures them.
 
-    Written by ingest when a partition's timestamps are summarized for a given source
-    (e.g., a schema timestamp field, or message log/publish time).
+    Ingestion records them when it summarizes a partition's timestamps for a timeline source, such as a timestamp
+    field of the schema or the messages' log time.
 
-    Stored timestamps come through verbatim from the data source: they may be absolute
-    nanoseconds since the Unix epoch, or partition-relative (e.g., monotonic from zero).
-    ``unix_epoch_offset_ns`` is the calibration that projects stored values onto
-    Unix-epoch wall-clock: ``session_time_ns = stored_time_ns + unix_epoch_offset_ns``.
-    A value of 0 means the stored timestamps are already absolute Unix-epoch ns,
-    or that no calibration has been applied yet.
+    Timestamps are stored as the source data has them, so they can be nanoseconds since the Unix epoch or relative
+    to the partition, such as a clock that starts at zero. ``unix_epoch_offset_ns`` converts a stored timestamp to
+    nanoseconds since the Unix epoch: ``unix_time_ns = stored_time_ns + unix_epoch_offset_ns``.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -846,27 +816,26 @@ class TimelineExtentRecord(pydantic.BaseModel):
     created: typing.Optional[datetime.datetime] = None
     created_by: str
     max_timestamp: typing.Optional[int] = None
-    """Largest stored timestamp in this extent, in nanoseconds. Absolute or partition-relative per the source."""
+    """Largest stored timestamp of the partition, in nanoseconds."""
 
     min_timestamp: typing.Optional[int] = None
-    """Smallest stored timestamp in this extent, in nanoseconds. Absolute or partition-relative per the source."""
+    """Smallest stored timestamp of the partition, in nanoseconds."""
 
     modified: typing.Optional[datetime.datetime] = None
     modified_by: str
     org_id: str
     timeline_extent_id: str
     timeline_source_id: str
-    """ID of the timeline source these bounds are measured against."""
+    """ID of the timeline source that measures these timestamps."""
 
     topic_part_id: str
-    """ID of the topic partition these bounds apply to."""
+    """ID of the topic partition these timestamps belong to."""
 
     unix_epoch_offset_ns: int = 0
-    """
-    Nanoseconds to add to each stored timestamp to obtain Unix-epoch wall-clock time:
-    ``session_time_ns = stored_time_ns + unix_epoch_offset_ns``.
-    0 when stored timestamps are already absolute Unix-epoch ns, or when no calibration
-    has been recorded for this partition/source pair.
+    """Nanoseconds to add to each stored timestamp to get nanoseconds since the Unix epoch.
+
+    ``0`` when the stored timestamps already count from the Unix epoch, or when no offset has been recorded for this
+    partition and timeline source.
     """
 
 
@@ -878,6 +847,8 @@ class TopicPartitionRecord(pydantic.BaseModel):
     the file's messages follow (``schema_id``), the device that produced them, and the ``data_range``
     locating them inside the file, for formats that pack several slices of data into one shared file.
     A partition references a file, not a specific version; reads always resolve to the current version.
+
+    Building one raises ``pydantic.ValidationError`` for a ``data_range`` that ``validate_data_range`` rejects.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
@@ -885,7 +856,7 @@ class TopicPartitionRecord(pydantic.BaseModel):
     created: typing.Optional[datetime.datetime] = None
     created_by: str
     data_range: typing.Optional[DataRange] = None
-    """The slice of the file this partition's data occupies, as ``(start, end)``, or ``None`` for the whole file.
+    """Slice of the file that this partition's data occupies, as ``(start, end)``, or ``None`` for the whole file.
 
     ``start`` alone identifies the partition within its (topic, file) pair, since a slice's starting
     position is stable across re-ingest: re-declaring a slice that begins at the same position updates
@@ -893,10 +864,10 @@ class TopicPartitionRecord(pydantic.BaseModel):
     """
 
     device_id: typing.Optional[str] = None
-    """ID of the device that produced this partition's data, if known."""
+    """ID of the device that produced this partition's data, or ``None`` if unknown."""
 
     fs_node_id: str
-    """ID of the file this partition's data lives in."""
+    """ID of the file this partition's data is in."""
 
     modified: typing.Optional[datetime.datetime] = None
     modified_by: str

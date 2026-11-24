@@ -24,10 +24,10 @@ from .record import (
 )
 
 FieldDescription: TypeAlias = Annotated[str, pydantic.StringConstraints(max_length=256)]
-"""Long-form description of a custom field. Up to 256 characters."""
+"""Human-readable description of a custom field, at most 256 characters."""
 
 FieldDisplayName: TypeAlias = Annotated[str, pydantic.StringConstraints(max_length=128)]
-"""Human-readable label for a custom field. Up to 128 characters."""
+"""Human-readable label for a custom field, at most 128 characters."""
 
 
 def _text_or_none(value: Optional[str]) -> Optional[str]:
@@ -37,22 +37,21 @@ def _text_or_none(value: Optional[str]) -> Optional[str]:
     return value.strip() or None
 
 
-# Maximum number of options for an enum custom field.
+# Maximum number of distinct values an enum custom field may declare, counted after repeats are dropped.
 _MAX_ENUM_VALUES = 250
 
-# Maximum character length - after whitespace trimming - of an enum option, as provided by the user.
-# Enum options are normalized, and their normalized length will usually, but not always,
-# be smaller than what the user provided.
+# Maximum length of an enum value as the caller supplied it, not counting surrounding whitespace.
+# Normalizing usually leaves a value no longer, but NFC can lengthen it, and that does not count
+# against the cap.
 _MAX_ENUM_VALUE_LENGTH = 256
 
-# Characters that would break RoboQL queries if they show up in an enum option.
+# Characters that would break a RoboQL query on an enum value containing them.
 _ENUM_VALUE_FORBIDDEN_PUNCTUATION = frozenset('"\\')
 
 
 def _clean_enum_value(value: str, index: int) -> str:
-    # Check for rejected characters before normalizing, so that they fail loudly rather than
-    # quietly becoming a space or some other benign character. NFC neither introduces nor removes
-    # any of these, so it's safe to apply afterwards.
+    # Check for rejected characters before normalizing, so a tab or newline is rejected rather than
+    # becoming a space. NFC neither introduces nor removes any of these characters.
     for position, character in enumerate(value):
         # Reject Unicode control characters, such as NUL, tab, CR, LF, etc.
         if unicodedata.category(character) == "Cc":
@@ -67,7 +66,6 @@ def _clean_enum_value(value: str, index: int) -> str:
                 "double quotes and backslashes are not supported in enum values"
             )
 
-    # Length is checked for before normalizing, against what the caller actually sent.
     trimmed = value.strip()
     if len(trimmed) > _MAX_ENUM_VALUE_LENGTH:
         raise ValueError(
@@ -102,11 +100,28 @@ def _validate_field_options(options: CustomFieldOptions) -> CustomFieldOptions:
 
 
 ValidatedCustomFieldOptions: TypeAlias = Annotated[CustomFieldOptions, pydantic.AfterValidator(_validate_field_options)]
-"""Custom field options as supplied when a field is defined or updated - tidied and checked."""
+"""Type-specific configuration of a custom field, as a create or update request carries it.
+
+Building the request normalizes the enum values and rejects any it cannot store, as
+``CreateCustomFieldRequest.options`` describes.
+"""
 
 
 def check_options_match_field_type(field_type: CustomFieldType, options: Optional[CustomFieldOptions]) -> None:
-    """Raise ``ValueError`` if ``options`` are missing for, or don't belong to, a field of ``field_type``."""
+    """Reject an enum field type without ``options``, and ``options`` for a different field type.
+
+    :py:meth:`~roboto.domain.custom_fields.CustomField.create` and
+    :py:meth:`~roboto.domain.custom_fields.CustomField.update` check a field's options through it, so most code never
+    calls it.
+
+    Args:
+        field_type: Value type of the custom field.
+        options: Type-specific configuration for the field, or ``None`` if it has none.
+
+    Raises:
+        ValueError: ``field_type`` is :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Enum` and ``options`` is
+            ``None``, or ``options`` are for a different field type.
+    """
     if field_type == CustomFieldType.Enum and options is None:
         raise ValueError(f"options are required for field_type '{CustomFieldType.Enum}'")
 
@@ -116,59 +131,59 @@ def check_options_match_field_type(field_type: CustomFieldType, options: Optiona
 
 @experimental
 class CreateCustomFieldRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/custom-fields``.
+    """Request body for :py:meth:`~roboto.domain.custom_fields.CustomField.create`.
 
-    Defines a new custom field for an entity type in the caller's organization.
-    Normally constructed by :py:meth:`~roboto.domain.custom_fields.CustomField.create`
-    rather than instantiated directly.
+    A reserved ``field_name`` raises ``RobotoInvalidRequestException``. A ``metadata_path`` other than ``None`` raises
+    ``RobotoInvalidRequestException``. Building it raises ``pydantic.ValidationError`` when:
+
+    - ``description`` is over 256 characters.
+    - ``display_name`` is over 128 characters.
+    - ``field_name`` does not match its pattern.
+    - ``options`` declares an enum value that ``options`` rejects.
+    - ``options`` do not suit ``field_type``.
     """
 
     description: Optional[FieldDescription] = None
-    """Long-form description of the field's meaning.
+    """Human-readable description of the custom field, at most 256 characters.
 
-    Surrounding whitespace is removed. Text that is empty once stripped counts as unset.
+    Surrounding whitespace is stripped, and text that is blank once stripped sets no description, as ``None`` does.
     """
 
     display_name: Optional[FieldDisplayName] = None
-    """Human-readable label shown in the UI.
+    """Human-readable label for the custom field, shown in the Roboto web app, at most 128 characters.
 
-    Surrounding whitespace is removed. Text that is empty once stripped counts as unset.
+    Surrounding whitespace is stripped, and text that is blank once stripped sets no label, as ``None`` does.
     """
 
     entity_type: TargetEntityType
-    """Roboto entity type the field extends."""
+    """Entity type the custom field extends."""
 
     field_name: Annotated[str, pydantic.StringConstraints(pattern=rf"^{CUSTOM_FIELD_NAME_PATTERN}$")]
-    """Name of the field. Fixed at creation time.
+    """Name of the custom field, unique within its organization and entity type, and fixed once the field is created.
 
-    Must match ``^[a-z][a-z0-9_]{0,62}$`` (lowercase ASCII, max 63 chars) and is
-    unique within ``(org_id, entity_type)``.
+    Must match ``^[a-z][a-z0-9_]{0,62}$``: a lowercase ASCII letter, then up to 62 lowercase ASCII letters, digits,
+    or underscores. Roboto reserves a few names that match it.
     """
 
     field_type: CustomFieldType
-    """Value type of the field.
+    """Value type of the custom field, fixed once the field is created.
 
-    Determines which operators are supported in search and sort.
+    It determines which operators search and sort support on the field.
     """
 
     metadata_path: Optional[str] = None
-    """Reserved for promoting an existing metadata key into a custom field.
-
-    Not yet supported; leave as ``None``. Supplying a value is rejected.
-    """
+    """Reserved for promoting a metadata key to a custom field. Leave it ``None``."""
 
     options: Optional[ValidatedCustomFieldOptions] = None
-    """Type-specific configuration.
+    """Type-specific configuration of the custom field. Required for an enum field, to declare its allowed values.
 
-    Required for :py:attr:`CustomFieldType.Enum` fields (to declare the allowed values).
+    Each enum value is normalized before it is stored: composed to Unicode NFC, with surrounding whitespace stripped
+    and each run of internal whitespace collapsed to a single space. A value that repeats an earlier one once
+    normalized is dropped, so the values keep the order in which each first appears. A field may declare at most 250
+    distinct values, each at most 256 characters as supplied, not counting surrounding whitespace.
 
-    Enum values are tidied before they are stored: each is normalized to Unicode NFC,
-    surrounding whitespace is removed, internal runs of whitespace become a single space,
-    and values that repeat after that are deduplicated. A field may declare at most 250
-    distinct values, each at most 256 characters long as supplied, not counting surrounding whitespace.
-
-    A value is rejected if it is blank, or if it contains a control character, a double
-    quote, or a backslash: a value carrying one of those cannot be relied on to work in search.
+    A value is rejected if it is blank, or if it contains a control character, a double quote, or a backslash, because
+    search could not reliably match such a value.
     """
 
     @pydantic.field_validator("description", "display_name", mode="after")
@@ -178,61 +193,67 @@ class CreateCustomFieldRequest(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def check_options_match_field_type(self) -> CreateCustomFieldRequest:
+        """Reject an enum field without ``options``, and ``options`` for a different field type.
+
+        Pydantic calls this while it builds the request.
+        """
         check_options_match_field_type(self.field_type, self.options)
         return self
 
 
 @experimental
 class ListCustomFieldsRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/custom-fields/query``.
+    """Request body for :py:meth:`~roboto.domain.custom_fields.CustomField.list`.
 
-    Pages through the custom fields visible to the caller, optionally filtered by
-    entity type and status. Normally constructed by
-    :py:meth:`~roboto.domain.custom_fields.CustomField.list` rather than directly.
+    Building the request raises ``pydantic.ValidationError`` when ``statuses`` is empty.
     """
 
     entity_type: Optional[TargetEntityType] = None
-    """If provided, restrict results to fields targeting this entity type."""
+    """Entity type to list custom fields for. ``None`` lists the fields on every entity type."""
 
     statuses: list[CustomFieldStatus] = pydantic.Field(min_length=1)
-    """Statuses to include in the results. Must contain at least one status."""
+    """Statuses of the custom fields to list. Must hold at least one."""
 
     page_token: Optional[str] = None
-    """Opaque token returned by a prior page; omit on the first request."""
+    """Token from a previous page's response that resumes the listing after it. ``None`` starts at the first page."""
 
 
 @experimental
 class UpdateCustomFieldRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/custom-fields/{field_id}``.
+    """Request body for :py:meth:`~roboto.domain.custom_fields.CustomField.update`.
 
-    Carries mutable metadata changes for an existing custom field. Each request attribute
-    defaults to :py:obj:`~roboto.sentinels.NotSet`, which leaves the
-    corresponding attribute unchanged; pass ``None`` explicitly to clear an
-    attribute.
+    A field left unset (``NotSet``) is unchanged.
+
+    A request for a custom field whose status is not :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`
+    raises ``RobotoInvalidRequestException``. ``options`` for a different field type, or without an enum value the
+    field already has, raise ``RobotoInvalidRequestException``. Building it raises ``pydantic.ValidationError`` when:
+
+    - ``description`` is over 256 characters.
+    - ``display_name`` is over 128 characters.
+    - ``options`` declares an enum value that ``options`` rejects.
     """
 
     description: Union[Optional[FieldDescription], NotSetType] = NotSet
-    """New description for the field, or ``None`` to clear it.
+    """Human-readable description of the custom field, at most 256 characters. ``None`` clears it.
 
-    Leave as :py:obj:`~roboto.sentinels.NotSet` to leave unchanged. Surrounding whitespace is
-    removed, and text that is empty once stripped clears the attribute.
+    Surrounding whitespace is stripped, and text that is blank once stripped clears it too.
     """
 
     display_name: Union[Optional[FieldDisplayName], NotSetType] = NotSet
-    """New display name for the field, or ``None`` to clear it.
+    """Human-readable label for the custom field, shown in the Roboto web app, at most 128 characters.
 
-    Leave as :py:obj:`~roboto.sentinels.NotSet` to leave unchanged. Surrounding whitespace is
-    removed, and text that is empty once stripped clears the attribute.
+    ``None`` clears it. Surrounding whitespace is stripped, and text that is blank once stripped clears it too.
     """
 
     options: Union[ValidatedCustomFieldOptions, NotSetType] = NotSet
-    """Replacement type-specific configuration for the field.
+    """Type-specific configuration to replace the custom field's own.
 
-    Leave as :py:obj:`~roboto.sentinels.NotSet` to leave unchanged. Must be for the field's
-    ``field_type``. For an enum field, the new ``enum_values`` must include every existing value:
-    values can be added but not removed. Values are tidied and capped exactly as they are at creation.
-    A value that repeats an earlier one in ``enum_values``, once tidied, is discarded rather than
-    rejected, so re-sending a value the field already has changes nothing and raises nothing.
+    Must be for the field's ``field_type``. For an enum field, ``enum_values`` must include every value the field
+    already has: values can be added but not removed.
+
+    Enum values are normalized and capped as ``CreateCustomFieldRequest.options`` describes. A value that repeats an
+    earlier one once normalized is dropped rather than rejected, so re-sending a value the field already has changes
+    nothing.
     """
 
     model_config = pydantic.ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)
@@ -240,8 +261,8 @@ class UpdateCustomFieldRequest(pydantic.BaseModel):
     @pydantic.field_validator("description", "display_name", mode="after")
     @classmethod
     def _blank_text_clears(cls, value: Union[Optional[str], NotSetType]) -> Union[Optional[str], NotSetType]:
-        # Text that is empty once stripped clears the attribute rather than leaving it alone:
-        # a caller who sent whitespace asked for it to be emptied, and NotSet would no-op.
+        # Blank text becomes None, which clears the value, not NotSet, which would leave it unchanged:
+        # a caller who sent whitespace asked for the value to be emptied.
         if not is_set(value):
             return value
 

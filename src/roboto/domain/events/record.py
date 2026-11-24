@@ -15,92 +15,74 @@ from .operations import EventDisplayOptions
 
 
 class EventRecord(pydantic.BaseModel):
-    """
-    A wire-transmissible representation of an event.
+    """Data record of an event, as the Roboto API returns it.
+
+    An event is an annotation that ties datasets, files, topics, or message paths to a span of time, such as a
+    takeoff or a crash. :py:class:`~roboto.domain.events.Event` wraps this record with methods that act on the event,
+    and exposes it as :py:attr:`~roboto.domain.events.Event.record`.
     """
 
     associations: list[Association] = pydantic.Field(default_factory=list)
-    """
-    Datasets, files, topics and message paths which this event pertains to.
-    """
+    """Datasets, files, topics, and message paths the event annotates."""
 
     created: datetime.datetime
-    """
-    Date/time when this event was created.
-    """
+    """Time the event was created."""
 
     created_by: str
-    """
-    The user who created this event.
-    """
+    """Principal that created the event, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     description: typing.Optional[str] = None
-    """
-    An optional human-readable description of the event.
-    """
+    """Human-readable description of the event, or ``None`` if it has none."""
 
     end_time: int
-    """
-    The end time of the event, in nanoseconds since epoch (assumed Unix epoch). This can be equal to start_time if
-    the event is discrete, but can never be less than start_time.
+    """End of the event's time span, in nanoseconds since the Unix epoch.
+
+    Equal to ``start_time`` for an event at a single point in time, and never earlier than ``start_time``.
     """
 
     event_id: str
-    """
-    A globally unique ID used to reference an event.
-    """
+    """Unique ID of the event, beginning with ``ev_``."""
 
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """
-    Key-value pairs to associate with this event for discovery and search.
-    """
+    """Key-value metadata on the event."""
 
     custom_fields: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """
-    Values for the custom fields defined on Events in this org.
+    """Values of the custom fields the organization defines for events, keyed by field name.
 
-    Every ``Ready`` custom field defined for ``(org_id, Event)`` appears as a
-    key; values that have not been set surface as ``None`` rather than being
-    absent. Empty when no custom fields are defined for the org.
+    Every event custom field in the :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` state appears as
+    a key, mapped to ``None`` when the event has no value for it. Fields in any other state are absent, so the map is
+    empty when no event custom field is in that state.
     """
 
     modified: datetime.datetime
-    """
-    Date/time when this event was last modified.
-    """
+    """Time the event was last modified."""
 
     modified_by: str
-    """
-    The user who last modified this event.
-    """
+    """Principal that last modified the event, in the same ``<type>:<id>`` form as ``created_by``."""
 
     name: str
-    """
-    A brief human-readable name for the event. Many events can have the same name. "Takeoff", "Crash", "CPU Spike",
-    "Bad Image Quality", and "Unexpected Left" are a few potential examples.
+    """Human-readable name of the event, such as ``"Takeoff"`` or ``"CPU Spike"``.
+
+    Roboto does not require names to be unique, so many events can share one.
     """
 
     org_id: str
-    """
-    The organization to which this event belongs.
-    """
+    """ID of the organization that owns the event."""
 
     start_time: int
-    """
-    The start time of the event, in nanoseconds since epoch (assumed Unix epoch).
-    """
+    """Start of the event's time span, in nanoseconds since the Unix epoch."""
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """
-    Tags to associate with this event for discovery and search.
-    """
+    """Tags on the event."""
 
     display_options: typing.Optional[EventDisplayOptions] = None
-    """
-    Display options for the event, such as color.
-    """
+    """How the Roboto web app displays the event, such as its color, or ``None`` if no display options are set."""
 
     def __eq__(self, other: typing.Any) -> bool:
+        """Return whether two event records hold the same values, ignoring the order of associations and of tags.
+
+        Tags are compared as sets, so a repeated tag does not make two records unequal.
+        """
         if not isinstance(other, EventRecord):
             return NotImplemented
 

@@ -39,20 +39,21 @@ from .operations import (
 from .record import DirectoryRecord, FileRecord
 
 MAX_FILES_PER_MANIFEST = 500
+"""Default ``max_batch_size`` of the upload methods: the most files uploaded in one batch."""
 
 
 class FileSystem:
-    """The files and directories under one association: a dataset, a device, a device type, or the org itself.
+    """The files and directories of one dataset, device, device type, or organization, with the operations on them.
 
-    A ``FileSystem`` holds that association's directory tree and the operations on it: listing,
-    uploading, downloading, renaming, and deleting files, and creating, renaming, and deleting directories.
-    Each of these properties returns one: :py:attr:`~roboto.domain.datasets.Dataset.files` for a dataset's files,
+    That dataset, device, device type, or organization is the file system's ``association``. Get a ``FileSystem``
+    from :py:attr:`~roboto.domain.datasets.Dataset.files` for a dataset's files,
     :py:attr:`~roboto.domain.devices.Device.configurations` for a device's configurations,
-    :py:attr:`~roboto.domain.device_types.DeviceType.configurations` for a device type's configurations, and
-    :py:attr:`~roboto.domain.orgs.Org.assets` for the org's assets.
+    ``device_type.configurations`` for a device type's configurations, or :py:attr:`~roboto.domain.orgs.Org.assets`
+    for an organization's assets. Uploads and downloads act in the organization that owns the files, so a caller who
+    belongs to several organizations need not name one.
 
-    Every relative path a method takes or returns is relative to the root of the association's tree,
-    which files of other associations do not share.
+    Every path a method takes or returns is relative to the root of the association's files. Each association has
+    its own tree, so one path names different files in two associations.
     """
 
     __association: Association
@@ -67,15 +68,6 @@ class FileSystem:
         file_service: typing.Optional[FileService] = None,
         org_id: typing.Optional[str] = None,
     ) -> None:
-        """Bind to the files associated with ``association``.
-
-        Args:
-            association: The dataset, device, device type, or org whose files this object works on.
-            roboto_client: Roboto client instance. Uses the default if omitted.
-            file_service: Transfers file contents to and from storage. Built from ``roboto_client`` if omitted.
-            org_id: The org that owns the files. Sent as the caller's org on uploads and downloads, so a
-                member of several orgs acts in the owning one.
-        """
         self.__association = association
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__file_service = file_service or FileService(self.__roboto_client)
@@ -86,7 +78,7 @@ class FileSystem:
 
     @property
     def association(self) -> Association:
-        """The dataset, device, device type, or org whose files this object works on."""
+        """Dataset, device, device type, or organization whose files this object works on."""
         return self.__association
 
     def create_directory(
@@ -100,29 +92,34 @@ class FileSystem:
         """Create a directory among the association's files.
 
         Args:
-            name: Name of the directory to create.
-            error_if_exists: If True, raises an exception if the directory already exists.
-            parent_path: Path of the parent directory. If None, creates the directory at the root of the
-                association's files.
-            origination: Optional string describing the source or context of the directory creation.
-            create_intermediate_dirs: If True, creates intermediate directories in the path if they don't exist.
-                If False, requires all parent directories to already exist.
-
-        Raises:
-            RobotoConflictException: If the directory already exists and error_if_exists is True.
-            RobotoUnauthorizedException: If the caller lacks permission to create the directory.
-            RobotoInvalidRequestException: If the directory name is invalid or the parent path does not exist
-                (when create_intermediate_dirs is False).
+            name: Name of the directory, unique within its parent directory.
+            error_if_exists: Whether to raise ``RobotoConflictException`` when the directory already exists. When
+                ``False``, the existing directory is returned.
+            create_intermediate_dirs: Whether to create the directories along ``parent_path`` that do not exist.
+                When ``False``, every directory along it must already exist.
+            parent_path: Path of the directory to create this one in. ``None`` creates it at the root.
+            origination: What created the directory, recorded on it. ``None`` records the value of the
+                ``ROBOTO_ENV`` environment variable when it is set, and ``roboto <SDK version>`` otherwise.
 
         Returns:
-            DirectoryRecord of the created directory.
+            Record of the created directory, or of the existing one.
+
+        Raises:
+            RobotoConflictException: The directory already exists and ``error_if_exists`` is ``True``.
+            RobotoInvalidRequestException: The name is invalid, or a directory along ``parent_path`` does not exist
+                and ``create_intermediate_dirs`` is ``False``.
 
         Examples:
+            Create a directory at the root of a device's configurations:
+
+            >>> import pathlib
             >>> from roboto.domain import devices
             >>> device = devices.Device.from_id("rover-01")
             >>> directory = device.configurations.create_directory("calib")
             >>> print(directory.relative_path)
             calib
+
+            Create a nested directory, with the directories along its parent path:
 
             >>> directory = device.configurations.create_directory(
             ...     name="final",
@@ -149,34 +146,32 @@ class FileSystem:
     def create_link(self, target: typing.Union[File, str], relative_path: str) -> File:
         """Put a link to another file at ``relative_path`` among the association's files.
 
-        A link can be created in a device's or a device type's configurations or in the org's assets
-        (``device.configurations``, ``device_type.configurations``, ``org.assets``), not in a dataset's files. A link
-        lets one file appear in many devices' configurations without being copied.
+        Links can be created in a device's or a device type's configurations and in an organization's assets, but not
+        in a dataset's files. A link lets one file appear in many devices' configurations without being copied.
 
-        A link pins one version of its target: passing a :py:class:`File` pins that file's version, and passing a file
-        ID pins the target's current version. Later versions of the target do not move the link; create the link again
-        at the same path to point it at the new version, which adds a version to the link unless it already pins that
-        target version. Missing parent directories are created. Downloading the link, or asking it for a signed URL,
-        fetches the pinned version of the target.
+        A link pins one version of its target: passing a :py:class:`~roboto.domain.files.File` pins that file's
+        version, and passing a file ID pins the target's current version. Later versions of the target do not move the
+        link; create the link again at the same path to point it at the new version, which adds a version to the link
+        unless it already pins that target version. Missing parent directories are created. Downloading the link, or
+        asking it for a signed URL, fetches the pinned version of the target. While the link exists, uploading a file
+        to its path raises ``RobotoConflictException``.
 
         Args:
-            target: The file to link to, or its ID. It must be a file in the same org, not a link or a directory.
-            relative_path: Where the link sits, relative to the root of the association's files.
+            target: File to link to, or its ID. It must be a file in the same organization, not a link or a directory.
+            relative_path: Path of the link.
 
         Returns:
-            The link, whose :py:attr:`~roboto.domain.files.File.is_link` is True.
+            The link, whose :py:attr:`~roboto.domain.files.File.is_link` is ``True``.
 
         Raises:
-            RobotoConflictException: A file or a directory already occupies ``relative_path``. The reverse is
-                refused too: uploading a file to a link's path is a conflict until the link is deleted.
-            RobotoInvalidRequestException: The association is a dataset, or the target is a link or a directory,
-                is in another org, or does not exist at the version to pin.
-            RobotoUnauthorizedException: The caller cannot edit the association's files or view the target.
+            RobotoConflictException: A file or a directory already occupies ``relative_path``.
+            RobotoInvalidRequestException: The association is a dataset, or the target is a link or a directory, is in
+                another organization, or does not exist at the version to pin.
 
         Examples:
             >>> import pathlib
             >>> from roboto.domain import devices, orgs
-            >>> runbook = orgs.Org.from_id("og_abc123").assets.get_file_by_path("runbooks/field_service.pdf")
+            >>> runbook = orgs.Org.from_id("og_12345").assets.get_file_by_path("runbooks/field_service.pdf")
             >>> device = devices.Device.from_id("rover-01")
             >>> link = device.configurations.create_link(runbook, "runbooks/field_service.pdf")
             >>> link.download(pathlib.Path("/tmp/field_service.pdf"))
@@ -195,19 +190,14 @@ class FileSystem:
         """Delete directories from the association's files, with every file and directory beneath them.
 
         The directories stop appearing in listings when this returns. The files and directories beneath them are
-        removed in the background, so they can still appear for a short while. A path that names nothing is
-        ignored; a path that names a file deletes that file. A link beneath a deleted directory is deleted; the file
-        it points at is kept unless it, too, is beneath a deleted directory. Links elsewhere that point at deleted
-        files stop working. On a device's configurations, only the device's own directories are deleted, never its
-        device type's.
+        removed in the background, so they can still appear for a short while. Deleting a directory that no longer
+        exists succeeds and changes nothing, and a path that names a file deletes that file. A link beneath a deleted
+        directory is deleted, but the file it points at is kept unless it is beneath a deleted directory too. Links
+        elsewhere that point at deleted files stop working. On a device's configurations, only the device's own
+        directories are deleted, never its device type's.
 
         Args:
-            directory_paths: Paths of the directories to delete, relative to the root of the association's files.
-
-        Raises:
-            RobotoFeatureNotAvailableException: The association is an org, device, or device type, and files on those
-                are not enabled for the organization that owns it.
-            RobotoUnauthorizedException: The caller cannot delete the association's files.
+            directory_paths: Paths of the directories to delete.
 
         Examples:
             >>> from roboto.domain import devices
@@ -226,31 +216,25 @@ class FileSystem:
     ) -> None:
         """Delete the association's files that match the given patterns.
 
-        Deletes files that match the specified include patterns while excluding
-        those that match exclude patterns. Uses gitignore-style pattern matching
-        for flexible file selection. A matching link is deleted; the file it points at is not.
-
-        On a device's configurations, only the device's own files are considered. The configurations of its device
-        type are never deleted here; delete those through ``device_type.configurations``.
+        Deletes the matching files one request per file, through :py:meth:`~roboto.domain.files.File.delete`, whose
+        failures also apply. When one request fails, the files deleted before it stay deleted. A matching link is
+        deleted; the file it points at is not. On a device's configurations, only the device's own files are deleted;
+        delete its device type's through ``device_type.configurations``.
 
         Args:
-            include_patterns: List of gitignore-style patterns for files to include.
-                If None or empty, all files are considered for deletion. An empty list is
-                treated as no filter (all files), not as "include nothing".
-            exclude_patterns: List of gitignore-style patterns for files to exclude
-                from deletion. Takes precedence over include patterns. If None or empty,
-                no files are excluded.
+            include_patterns: Gitignore-style patterns for the files to delete. ``None`` or an empty list selects
+                every file.
+            exclude_patterns: Gitignore-style patterns for files to keep. Takes precedence over
+                ``include_patterns``. ``None`` or an empty list keeps none.
 
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to delete files.
-
-        Notes:
-            Pattern matching follows gitignore syntax. See https://git-scm.com/docs/gitignore
-            for detailed pattern format documentation.
+        Note:
+            Patterns follow the gitignore format described at https://git-scm.com/docs/gitignore.
 
         Examples:
+            Delete every PNG file in an organization's assets except those under a ``back_camera`` directory:
+
             >>> from roboto.domain import orgs
-            >>> org = orgs.Org.from_id("og_abc123")
+            >>> org = orgs.Org.from_id("og_12345")
             >>> org.assets.delete_files(include_patterns=["**/*.png"], exclude_patterns=["**/back_camera/**"])
         """
         for file in self.list_files(include_patterns, exclude_patterns):
@@ -265,41 +249,38 @@ class FileSystem:
         *,
         include_inherited: bool = False,
     ) -> list[tuple[FileRecord, pathlib.Path]]:
-        """Download the association's files to a local directory.
+        """Download the association's files that match the given patterns to a local directory.
 
-        Downloads files that match the specified patterns to the given local directory.
-        The files' directory structure is preserved in the download location.
-        If the output directory doesn't exist, it will be created. A link is saved at its own path with the
-        contents of the file version it points at.
+        Each file is saved at its path under ``out_path``. A link is saved at its own path, with the contents of the
+        file version it pins.
 
         Args:
-            out_path: Local directory path where files should be downloaded.
-            include_patterns: List of gitignore-style patterns for files to include.
-                If None or empty, all files are downloaded. An empty list is treated as
-                no filter (all files), not as "include nothing".
-            exclude_patterns: List of gitignore-style patterns for files to exclude
-                from download. Takes precedence over include patterns. If None or empty,
-                no files are excluded.
-            print_progress: Whether to show a progress bar during download.
-            include_inherited: When these are a device's configurations, also download those of its device type,
-                selected as :py:meth:`list_files` selects them. Refused for any other association.
+            out_path: Local directory to download into. Created, with any missing parents, if it does not exist.
+            include_patterns: Gitignore-style patterns for the files to download. ``None`` or an empty list selects
+                every file.
+            exclude_patterns: Gitignore-style patterns for files to skip. Takes precedence over
+                ``include_patterns``. ``None`` or an empty list skips none.
+            print_progress: Whether to show a progress bar during the download.
+            include_inherited: Whether, for a device's configurations, to also download its device type's, selected
+                as ``list_files`` selects them.
 
         Returns:
-            List of tuples containing (FileRecord, local_path) for each downloaded file.
+            One ``(record, local_path)`` pair per downloaded file.
 
         Raises:
-            RobotoIllegalArgumentException: A selected file's path resolves outside ``out_path``; nothing is
+            RobotoIllegalArgumentException: A selected file's path resolves outside ``out_path``. Nothing is
                 downloaded.
-            RobotoInvalidRequestException: ``include_inherited`` was set for anything but a device's configurations.
-            RobotoNotFoundException: A selected link points at a file version that no longer exists; nothing is
+            RobotoInvalidRequestException: ``include_inherited`` is ``True`` for anything but a device's
+                configurations.
+            RobotoNotFoundException: A selected link pins a file version that no longer exists. Nothing is
                 downloaded.
-            RobotoUnauthorizedException: Caller lacks permission to download files.
 
-        Notes:
-            Pattern matching follows gitignore syntax. See https://git-scm.com/docs/gitignore
-            for detailed pattern format documentation.
+        Note:
+            Patterns follow the gitignore format described at https://git-scm.com/docs/gitignore.
 
         Examples:
+            Download a device's calibration files:
+
             >>> import pathlib
             >>> from roboto.domain import devices
             >>> device = devices.Device.from_id("rover-01")
@@ -307,7 +288,6 @@ class FileSystem:
             ...     pathlib.Path("/tmp/rover-01"), include_patterns=["calib/**"]
             ... )
             >>> print(f"Downloaded {len(downloaded)} files")
-            Downloaded 2 files
         """
         if not out_path.is_dir():
             out_path.mkdir(parents=True)
@@ -356,29 +336,26 @@ class FileSystem:
         relative_path: typing.Union[str, pathlib.Path],
         version_id: typing.Optional[int] = None,
     ) -> File:
-        """Get a File instance for the association's file at the specified path.
+        """Fetch the association's file at a path.
 
         On a device's configurations, only the device's own files are looked up. A file the device inherits from its
-        device type is not found here; look it up through ``device_type.configurations`` instead.
+        device type is not found here; look it up through ``device_type.configurations``.
 
         Args:
-            relative_path: Path of the file relative to the root of the association's files.
-            version_id: Specific version of the file to retrieve. If None, gets the latest version.
-
-        Returns:
-            File instance representing the file at the specified path.
+            relative_path: Path of the file.
+            version_id: Version of the file to fetch. ``None`` fetches the latest version.
 
         Raises:
-            RobotoNotFoundException: The association has no file at the given path, including when a device's type
-                has it but the device itself does not.
-            RobotoUnauthorizedException: Caller lacks permission to access the file.
+            RobotoNotFoundException: The association has no file at this path.
 
         Examples:
+            Fetch a device's manifest:
+
             >>> from roboto.domain import devices
             >>> device = devices.Device.from_id("rover-01")
             >>> file = device.configurations.get_file_by_path("manifest.json")
-            >>> print(file.file_id)
-            fl_xyz789
+
+            Fetch the manifest's first version:
 
             >>> old_file = device.configurations.get_file_by_path("manifest.json", version_id=1)
             >>> print(old_file.version)
@@ -401,8 +378,6 @@ class FileSystem:
             >>> device = devices.Device.from_id("rover-01")
             >>> for directory in device.configurations.list_directories():
             ...     print(directory.relative_path)
-            calib
-            urdf
         """
         page_token: typing.Optional[str] = None
         while True:
@@ -424,54 +399,50 @@ class FileSystem:
         *,
         include_inherited: bool = False,
     ) -> collections.abc.Generator[File, None, None]:
-        """List the association's files with optional pattern-based filtering.
+        """List the association's files that match the given patterns.
 
-        Returns all of the association's files that match the specified include patterns
-        while excluding those that match exclude patterns. Uses gitignore-style
-        pattern matching for flexible file selection. For a device, a device type or an org, links are listed
-        as well as files; :py:attr:`~roboto.domain.files.File.is_link` tells them apart.
+        Links are listed alongside files; :py:attr:`~roboto.domain.files.File.is_link` tells them apart.
 
         Args:
-            include_patterns: List of gitignore-style patterns for files to include.
-                If None or empty, all files are considered. An empty list is treated as
-                no filter (all files), not as "include nothing".
-            exclude_patterns: List of gitignore-style patterns for files to exclude.
-                Takes precedence over include patterns. If None or empty, no files are excluded.
-            include_inherited: When these are a device's configurations, also list those of its device type. Refused
-                for any other association. Where the device and its type both have a file at the same path, only
-                the device's is listed. ``file.association.is_device_type`` tells which files came from the type.
-                Only ``list_files`` and :py:meth:`download_files` include the type's configurations:
-                :py:meth:`get_file_by_path`, :py:meth:`rename_file`, :py:meth:`delete_files` and
-                :py:meth:`delete_directories` act on the device's own configurations only, and
-                :py:meth:`~roboto.domain.files.File.delete` on a file from the type
-                deletes it from the type, for every device of that type.
+            include_patterns: Gitignore-style patterns for the files to list. ``None`` or an empty list selects
+                every file.
+            exclude_patterns: Gitignore-style patterns for files to leave out. Takes precedence over
+                ``include_patterns``. ``None`` or an empty list leaves out none.
+            include_inherited: Whether, for a device's configurations, to also list its device type's. Where the
+                device and its type both have a file at the same path, only the device's is listed.
+                ``file.association.is_device_type`` tells which files came from the type.
 
         Yields:
-            File instances that match the specified patterns.
+            Each matching :py:class:`~roboto.domain.files.File`, fetched a page at a time as the generator
+            advances.
 
         Raises:
-            RobotoInvalidRequestException: ``include_inherited`` was set for anything but a device's configurations.
-            RobotoUnauthorizedException: Caller lacks permission to list files.
+            RobotoInvalidRequestException: ``include_inherited`` is ``True`` for anything but a device's
+                configurations. It surfaces on the first iteration.
 
-        Notes:
-            Pattern matching follows gitignore syntax. See https://git-scm.com/docs/gitignore
-            for detailed pattern format documentation.
+        Note:
+            Patterns follow the gitignore format described at https://git-scm.com/docs/gitignore. A file appears
+            here shortly after its upload completes, not at once.
 
-            Files appear in this list shortly after their upload completes, not instantly.
+            Only this method and ``download_files`` include a device type's
+            configurations. ``get_file_by_path``, ``rename_file``, ``delete_files`` and ``delete_directories`` act
+            on the device's own configurations only, and :py:meth:`~roboto.domain.files.File.delete` on a file
+            from the type deletes it from the type, for every device of that type.
 
         Examples:
+            List every file in a device's configurations:
+
             >>> from roboto.domain import devices
             >>> device = devices.Device.from_id("rover-01")
             >>> for file in device.configurations.list_files():
             ...     print(file.relative_path)
-            manifest.json
-            calib/front_cam.yaml
+
+            List the calibration files, except backups:
 
             >>> for file in device.configurations.list_files(
             ...     include_patterns=["calib/**"], exclude_patterns=["**/*.bak"]
             ... ):
             ...     print(file.relative_path)
-            calib/front_cam.yaml
         """
         page_token: typing.Optional[str] = None
         while True:
@@ -489,22 +460,22 @@ class FileSystem:
                 break
 
     def rename_directory(self, old_path: str, new_path: str) -> DirectoryRecord:
-        """Rename or move a directory among the association's files.
+        """Rename or move a directory among the association's files, with everything beneath it.
 
-        Both ``old_path`` and ``new_path`` are relative to the root of the association's files. Pass a
-        ``new_path`` with fewer path components to move the directory up the tree, or
-        a different leaf name at the same depth to rename in place.
+        The last component of ``new_path`` becomes the directory's name, and the directory at the rest of
+        ``new_path`` becomes its parent.
 
         Args:
-            old_path: Current relative path of the directory (e.g. ``"logs/session1"``).
-            new_path: Target relative path of the directory (e.g. ``"session1"`` to move up one level).
+            old_path: Current path of the directory, such as ``"logs/session1"``.
+            new_path: Path to move the directory to, such as ``"session1"`` to move it up one level.
 
         Returns:
-            Updated :py:class:`~roboto.domain.files.DirectoryRecord` reflecting the new path.
+            Record of the moved directory.
 
         Raises:
+            RobotoInvalidRequestException: ``new_path`` is empty or the same as ``old_path``, no directory exists at
+                its parent path, that parent is the directory itself or beneath it, or the name is taken there.
             RobotoNotFoundException: No directory exists at ``old_path``.
-            RobotoInvalidRequestException: ``new_path`` conflicts with an existing node or contains a cycle.
 
         Examples:
             >>> from roboto.domain import devices
@@ -522,32 +493,27 @@ class FileSystem:
         return response.to_record(DirectoryRecord)
 
     def rename_file(self, file_id: str, new_path: str) -> FileRecord:
-        """Rename or move a file among the association's files.
+        """Rename or move one of the association's files.
 
-        ``new_path`` is relative to the root of the association's files. Pass a path with fewer components
-        to move the file up the tree, a different name at the same depth to rename in
-        place, or a path under a different directory to move sideways.
-
-        The file keeps its ID and versions; only its relative path changes.
+        The file keeps its ID, topics, and events. The rename adds a version of the file at ``new_path``.
 
         Args:
             file_id: ID of the file to rename or move.
-            new_path: Target relative path for the file
-                (e.g. ``"file.bag"`` to move to the root, or ``"other_dir/file.bag"``
-                to move into an existing directory).
+            new_path: Path to move the file to, such as ``"file.bag"`` to move it to the root or
+                ``"other_dir/file.bag"`` to move it into an existing directory.
 
         Returns:
-            Updated :py:class:`~roboto.domain.files.FileRecord` reflecting the new path.
+            Record of the file's new version.
 
         Raises:
-            RobotoNotFoundException: No file with ``file_id`` exists.
-            RobotoInvalidRequestException: ``new_path`` conflicts with an existing file,
-                the parent directory does not exist, or the move would create a cycle.
+            RobotoInvalidRequestException: No directory exists at ``new_path``'s parent path, the name is taken
+                there, or the file belongs to another association.
+            RobotoNotFoundException: No file has this ID.
 
         Examples:
             >>> from roboto.domain import devices
             >>> device = devices.Device.from_id("rover-01")
-            >>> record = device.configurations.rename_file("fl_xyz789", "manifest.json")
+            >>> record = device.configurations.rename_file("fl_12345", "manifest.json")
             >>> record.relative_path
             'manifest.json'
         """
@@ -571,32 +537,38 @@ class FileSystem:
         print_progress: bool = True,
         device_id: typing.Optional[str] = None,
     ) -> None:
-        """Upload all files and directories recursively from the specified directory path.
+        """Upload every file under a local directory, at any depth, to the association's files.
 
-        Use ``include_patterns`` and ``exclude_patterns`` to control what files and directories are
-        uploaded, and ``delete_after_upload`` to clean up your local filesystem after the uploads succeed.
+        Each file is uploaded to its path relative to ``directory_path``, so the association's files mirror the local
+        layout.
 
         Args:
-            directory_path: Local directory whose contents are uploaded, keeping its layout.
-            include_patterns: gitignore-style patterns for files to include. If None, every file is included.
-            exclude_patterns: gitignore-style patterns for files to exclude. Takes precedence over
+            directory_path: Local directory whose files to upload.
+            include_patterns: Gitignore-style patterns for the files to upload. ``None`` uploads every file; an
+                empty list uploads none.
+            exclude_patterns: Gitignore-style patterns for files to skip. Takes precedence over
                 ``include_patterns``.
-            delete_after_upload: If True, each uploaded local file is deleted once the uploads succeed.
-            max_batch_size: Maximum number of files per upload transaction.
-            print_progress: Whether to display an upload progress bar.
-            device_id: Optional identifier of the device that generated this data.
+            delete_after_upload: Whether to delete each uploaded local file once every upload has succeeded.
+                Directories are kept.
+            max_batch_size: Maximum number of files per upload batch. Each batch finishes uploading before the
+                next starts.
+            print_progress: Whether to show a progress bar during the upload.
+            device_id: ID of the device that produced the files' data.
 
-        Notes:
-            Both pattern lists follow the gitignore pattern format described
-            in https://git-scm.com/docs/gitignore#_pattern_format.
+        Note:
+            Patterns follow the gitignore format described at https://git-scm.com/docs/gitignore#_pattern_format,
+            but each is matched against a file's name only, not its path under ``directory_path``. A pattern
+            naming a directory, such as ``"__pycache__/"``, matches no file.
 
         Examples:
+            Upload a calibration directory to a device's configurations, skipping log files:
+
             >>> import pathlib
             >>> from roboto.domain import devices
             >>> device = devices.Device.from_id("rover-01")
             >>> device.configurations.upload_directory(
             ...     pathlib.Path("/path/to/calibration"),
-            ...     exclude_patterns=["**/*.log"],
+            ...     exclude_patterns=["*.log"],
             ... )
         """
         include_spec: typing.Optional[pathspec.PathSpec] = excludespec_from_patterns(include_patterns)
@@ -618,20 +590,19 @@ class FileSystem:
         print_progress: bool = True,
         device_id: typing.Optional[str] = None,
     ) -> File:
-        """Upload a single file associated with :py:attr:`association`.
+        """Upload one local file to the association's files.
 
         Args:
             file_path: Local file to upload.
-            file_destination_path: Destination path among the association's files. Defaults to the
-                file's own name at the root.
-            print_progress: Whether to display an upload progress bar.
-            device_id: Optional identifier of the device that generated this data.
+            file_destination_path: Path to upload the file to. ``None`` uploads it to the root under its own name.
+            print_progress: Whether to show a progress bar during the upload.
+            device_id: ID of the device that produced the file's data.
 
         Returns:
-            The uploaded file. Its record is fetched from the platform the first time it is read.
+            The uploaded file. Its record is fetched from Roboto the first time it is read.
 
         Raises:
-            RobotoInternalException: The upload reported success without reporting a file ID.
+            RobotoInternalException: The upload finished without reporting the new file's ID.
 
         Examples:
             >>> import pathlib
@@ -671,18 +642,22 @@ class FileSystem:
         print_progress: bool = True,
         device_id: typing.Optional[str] = None,
     ) -> dict[pathlib.Path, str]:
-        """Upload multiple files associated with :py:attr:`association`.
+        """Upload several local files to the association's files.
 
         Args:
-            files: Local files to upload.
-            file_destination_paths: Mapping from local path to destination path among the association's
-                files. Files not in the mapping upload to the root under their own name.
-            max_batch_size: Maximum number of files per upload transaction.
-            print_progress: Whether to display an upload progress bar.
-            device_id: Optional identifier of the device that generated this data.
+            files: Local files to upload, as a list or another collection that can be iterated more than once.
+            file_destination_paths: Path to upload each local file to, keyed by local path. A file not in the
+                mapping is uploaded to the root under its own name.
+            max_batch_size: Maximum number of files per upload batch. Each batch finishes uploading before the
+                next starts.
+            print_progress: Whether to show a progress bar during the upload.
+            device_id: ID of the device that produced the files' data.
 
         Returns:
-            Mapping from each uploaded local path to the ID of the file record it created.
+            ID of the file each local path was uploaded as, keyed by local path.
+
+        Raises:
+            ValueError: Two local files would be uploaded to the same path. Raised before any upload starts.
 
         Examples:
             >>> import pathlib
@@ -692,8 +667,7 @@ class FileSystem:
             ...     [pathlib.Path("/path/to/front_cam.yaml")],
             ...     file_destination_paths={pathlib.Path("/path/to/front_cam.yaml"): "calib/front_cam.yaml"},
             ... )
-            >>> file_ids[pathlib.Path("/path/to/front_cam.yaml")]
-            'fl_0123456789abcdef'
+            >>> print(file_ids[pathlib.Path("/path/to/front_cam.yaml")])
         """
         file_count = len(list(files))
         progress_monitor = (
@@ -716,15 +690,15 @@ class FileSystem:
             )
 
     def __route(self, *, dataset_route: str, association_route: str) -> str:
-        """Return the API route for one operation on the association's files.
+        """Build the API route for one operation on the association's files.
 
-        A dataset's files go through the dataset routes (``v1/datasets/<id>/...``), which every Roboto deployment
-        serves. A device's, a device type's or the org's files go through the association routes
-        (``v1/files/association/id/<id>/...``).
+        A dataset's files go through the dataset routes (``v1/datasets/{dataset_id}/...``), which every Roboto
+        deployment serves. A device's, a device type's or the organization's files go through the association routes
+        (``v1/files/association/id/{association_id}/...``).
 
         Args:
-            dataset_route: The rest of the route after ``v1/datasets/<id>/``.
-            association_route: The rest of the route after ``v1/files/association/id/<id>/``.
+            dataset_route: The rest of the route after ``v1/datasets/{dataset_id}/``.
+            association_route: The rest of the route after ``v1/files/association/id/{association_id}/``.
         """
         association_id = self.__association.association_id
         if self.__association.is_dataset:

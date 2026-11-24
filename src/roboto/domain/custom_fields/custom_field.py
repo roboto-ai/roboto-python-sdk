@@ -33,33 +33,29 @@ from .record import (
 
 @experimental
 class CustomField:
-    """A typed, queryable schema extension defined by an organization for a Roboto entity type.
+    """A custom field: a typed field an organization defines for one entity type, such as datasets.
 
-    Custom fields let an organization extend Roboto's built-in entity schemas with
-    typed fields tailored to its data and workflows. Each field is scoped to one
-    :py:class:`TargetEntityType` (e.g. Dataset, Collection, or Device) and is
-    optimized for efficient search — equality, range, prefix, and sort — on its
-    values.
+    Each entity of that type can hold a value for the field, set with the entity's own methods, such as
+    :py:meth:`~roboto.domain.datasets.Dataset.set_custom_field`, and search can filter and sort by it. The field's
+    ``field_type`` determines the values it accepts and how search can filter by it.
 
-    A field's :py:attr:`status` tells you what you can do with it:
+    A field's ``status`` determines what can be done with it, and
+    :py:class:`~roboto.domain.custom_fields.CustomFieldStatus` describes each status. A new field is ``Creating`` while
+    Roboto sets it up, and cannot hold values or be searched until it is ``Ready``. A deleted field is ``Deleting``
+    until Roboto removes it. ``create`` and ``delete`` return before Roboto finishes; ``wait_to_be_ready`` and
+    ``wait_to_be_deleted`` wait until it has.
 
-    - ``Creating``: the field is being set up. Values cannot yet be assigned to
-      entities, and search and sort queries cannot reference it.
-    - ``Ready``: the field is available end-to-end. Values can be set on entities
-      of ``entity_type``, and the field can be used in search filters and to sort
-      search results.
-    - ``Deleting``: the field is on its way out. Callers should treat it as already
-      gone — values can no longer be set and the field will shortly disappear.
-    - ``Failed``: the most recent create or delete attempt did not succeed.
+    A field's name is unique among its organization's fields for its entity type. Each organization can define a
+    limited number of custom fields for each entity type; fields being deleted do not count toward the limit.
 
-    Create and delete return as soon as the status transition has been recorded;
-    the rest of the work happens asynchronously. Use :py:meth:`wait_to_be_ready`
-    after :py:meth:`create` and :py:meth:`wait_to_be_deleted` after :py:meth:`delete`
-    if you need to wait for that work to finish.
+    Get a ``CustomField`` from ``create``, ``from_id``, ``from_name_and_entity_type``, or ``list``. To wrap a
+    :py:class:`~roboto.domain.custom_fields.CustomFieldRecord` already fetched from Roboto, build a ``CustomField``
+    from it directly. Each instance holds a copy of the field's record: methods that change the field update that copy
+    from Roboto's response, and ``refresh`` fetches changes made elsewhere.
 
-    Field names are unique within an ``(org_id, entity_type)`` pair, must match
-    ``^[a-z][a-z0-9_]{0,62}$`` (lowercase ASCII, max 63 chars), and are subject to a
-    per-org-tier quota on each entity type.
+    Args:
+        record: Record of the custom field.
+        roboto_client: Client to make requests to Roboto with.
     """
 
     __record: CustomFieldRecord
@@ -78,50 +74,48 @@ class CustomField:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> CustomField:
-        """Define a new custom field for an entity type in the caller's organization.
+        """Create a custom field for one entity type.
 
-        Returns as soon as the field has been registered. The newly created field is
-        typically still ``Creating`` and is not yet usable for setting values or
-        running queries; call :py:meth:`wait_to_be_ready` if you need to use the
-        field immediately.
-
-        Only administrators in the organization can define new custom fields.
+        Returns while the field is still :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Creating`: it
+        cannot hold values or be searched until Roboto finishes setting it up, which ``wait_to_be_ready`` waits for.
+        Only an administrator of the organization can create a custom field.
 
         Args:
-            field_name: Name of the field, unique within the ``(org_id, entity_type)``
-                pair. Must match ``^[a-z][a-z0-9_]{0,62}$``. Fixed at creation time
-                — cannot be changed later.
-            field_type: Value type of the field. Determines which operators are
-                supported in search and sort.
-            entity_type: Roboto entity type this field extends.
-            display_name: Human-readable label shown in the UI. Defaults to ``None``.
-            description: Longer description of the field's meaning.
-            options: Type-specific configuration. Required for
-                :py:attr:`~CustomFieldType.Enum` fields (to declare the allowed values).
-            metadata_path: Reserved for promoting an existing metadata key into a
-                custom field. Not yet supported; leave as ``None``.
-            caller_org_id: Organization that should own the field. If omitted, the field is
-                created in the caller's organization.
-            roboto_client: Roboto client instance. Uses the default if omitted.
+            field_name: Name of the custom field, unique among the organization's fields for ``entity_type`` and
+                fixed once the field is created. Must match ``^[a-z][a-z0-9_]{0,62}$``
+                (:py:const:`~roboto.domain.custom_fields.CUSTOM_FIELD_NAME_PATTERN`): a lowercase ASCII letter, then
+                up to 62 lowercase ASCII letters, digits, or underscores.
+            field_type: Value type of the custom field, which determines the values it accepts and how search can
+                filter by it.
+            entity_type: Kind of entity the custom field applies to.
+            display_name: Human-readable label for the custom field, shown in the Roboto web app, at most 128
+                characters. ``None`` sets none.
+            description: Human-readable description of the custom field, at most 256 characters. ``None`` sets none.
+            options: Type-specific configuration. Required for an enum field, to declare its allowed values, which are
+                normalized as :py:attr:`~roboto.domain.custom_fields.CreateCustomFieldRequest.options` describes.
+                ``None`` for every other field type.
+            metadata_path: Reserved for future use. Leave it ``None``: Roboto rejects any other value.
+            caller_org_id: Organization to create the custom field in. Required when the caller belongs to more than
+                one organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The newly created CustomField. Its :py:attr:`status` is typically
-            ``Creating``; call :py:meth:`wait_to_be_ready` to block until it is
-            ``Ready``.
+            The new custom field, with status ``Creating``.
 
         Raises:
-            RobotoConflictException: A field with this ``field_name`` and ``entity_type``
-                already exists in the target org.
-            RobotoInvalidRequestException: The request fails validation (e.g., a
-                ``field_name`` that does not match the regex, an enum field without
-                ``options``, or ``options`` whose ``field_type`` does not match
-                ``field_type``).
-            RobotoLimitExceededException: The limit on custom field definitions has
-                been reached for the target organization and Roboto entity type.
-            RobotoUnauthorizedException: The caller is not an administrator in the target org.
+            RobotoConflictException: The organization already has a custom field with this name for ``entity_type``.
+            RobotoInvalidRequestException: ``field_name`` is a name Roboto reserves, or ``metadata_path`` is set.
+            RobotoLimitExceededException: The organization already has as many custom fields for ``entity_type`` as
+                it is allowed.
+            RobotoUnauthorizedException: The caller is not an administrator of the organization.
+            pydantic.ValidationError: ``field_name`` does not match the pattern, an enum field has no ``options``,
+                ``options`` are for a different field type, or a value breaks a rule that
+                :py:class:`~roboto.domain.custom_fields.CreateCustomFieldRequest` states. Raised before the request is
+                sent.
 
         Examples:
-            Define a string field on datasets:
+            Create a string field on datasets:
 
             >>> field = CustomField.create(
             ...     field_name="flight_id",
@@ -131,7 +125,7 @@ class CustomField:
             ... )
             >>> field.wait_to_be_ready()
 
-            Define an enum field with a fixed set of allowed values:
+            Create an enum field with a fixed set of allowed values:
 
             >>> from roboto.domain.custom_fields import EnumFieldOptions
             >>> field = CustomField.create(
@@ -161,23 +155,19 @@ class CustomField:
 
     @classmethod
     def from_id(cls, field_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> CustomField:
-        """Load an existing custom field by its ``field_id``.
+        """Fetch a custom field by its ID.
 
         Args:
-            field_id: Opaque identifier assigned at create time.
-            roboto_client: Roboto client instance. Uses the default if omitted.
-
-        Returns:
-            The CustomField with this ``field_id``.
+            field_id: ID of the custom field, beginning with ``cf_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: No field with this ``field_id`` is visible to
-                the caller.
+            RobotoNotFoundException: No custom field has this ID.
 
         Examples:
-            >>> field = CustomField.from_id("cf_abc123")
-            >>> field.field_name
-            'flight_id'
+            >>> field = CustomField.from_id("cf_12345")
+            >>> print(field.field_name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -193,25 +183,20 @@ class CustomField:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> CustomField:
-        """Load a custom field by ``field_name`` and ``entity_type``.
+        """Fetch a custom field by its name and entity type.
 
-        Field names are unique within an ``(org_id, entity_type)`` pair, so the name
-        plus the entity type fully qualifies a field within a given org.
+        A name is unique among an organization's fields for one entity type, so the name, the entity type, and the
+        organization identify one field.
 
         Args:
-            field_name: Name of the field, as supplied to :py:meth:`create`.
-            entity_type: Entity type the field extends.
-            owner_org_id: Organization that owns the field. If omitted, searches the
-                caller's organization.
-            roboto_client: Roboto client instance. Uses the default if omitted.
-
-        Returns:
-            The matching CustomField.
+            field_name: Name of the custom field.
+            entity_type: Kind of entity the custom field applies to.
+            owner_org_id: Organization that owns the custom field. Defaults to the organization the caller acts in.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: No field with this name and entity type exists
-                in the target org.
-            RobotoUnauthorizedException: The caller is not authorized to retrieve the field.
+            RobotoNotFoundException: The organization has no custom field with this name for ``entity_type``.
 
         Examples:
             >>> field = CustomField.from_name_and_entity_type(
@@ -238,27 +223,24 @@ class CustomField:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator[CustomField, None, None]:
-        """Yield custom fields visible to the caller, optionally filtered by entity type and status.
+        """List an organization's custom fields, optionally limited to one entity type and some statuses.
 
-        By default, only fields in ``Creating``, ``Ready``, or ``Failed`` are returned;
-        fields in ``Deleting`` are excluded because they are on their way out. Pass
-        ``statuses=`` explicitly to override this.
+        Fetches the fields a page at a time as the generator is consumed.
 
         Args:
-            entity_type: If provided, restrict results to fields targeting this
-                entity type.
-            statuses: If provided, restrict results to fields in any of these statuses.
-                Defaults to ``(Creating, Ready, Failed)``.
-            owner_org_id: Organization to list fields from. If omitted, lists fields in the
-                caller's organization.
-            roboto_client: Roboto client instance. Uses the default if omitted.
+            entity_type: Kind of entity to list custom fields for. ``None`` lists the fields for every entity type.
+            statuses: Statuses of the custom fields to list. ``None`` or an empty sequence lists the fields whose
+                :py:class:`~roboto.domain.custom_fields.CustomFieldStatus` is ``Creating``, ``Ready``, or ``Failed``,
+                leaving out those being deleted.
+            owner_org_id: Organization whose custom fields to list. Defaults to the organization the caller acts in.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            CustomField instances matching the filters, in pages transparently fetched
-            as the generator is consumed.
+            Custom fields that match ``entity_type`` and ``statuses``.
 
         Examples:
-            List every Ready field on datasets in the caller's org:
+            List the ready custom fields on datasets:
 
             >>> for field in CustomField.list(
             ...     entity_type=TargetEntityType.Dataset,
@@ -301,101 +283,108 @@ class CustomField:
 
     @property
     def created(self) -> datetime.datetime:
-        """UTC timestamp when this field was defined."""
+        """Time the custom field was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """User ID that defined this field."""
+        """Principal that created the custom field, as ``<type>:<id>``, such as ``user:<user_id>``."""
         return self.__record.created_by
 
     @property
     def description(self) -> typing.Optional[str]:
-        """Long-form description of the field's meaning, or ``None`` if unset."""
+        """Human-readable description of the custom field, or ``None`` if it has none."""
         return self.__record.description
 
     @property
     def display_name(self) -> typing.Optional[str]:
-        """Human-readable label for the field, or ``None``."""
+        """Human-readable label of the custom field, or ``None`` if it has none."""
         return self.__record.display_name
 
     @property
     def entity_type(self) -> TargetEntityType:
-        """Roboto entity type this field extends."""
+        """Kind of entity the custom field applies to. Fixed when the field is created."""
         return self.__record.entity_type
 
     @property
     def field_id(self) -> str:
-        """Opaque, globally unique identifier for this field."""
+        """Unique ID of the custom field, beginning with ``cf_``."""
         return self.__record.field_id
 
     @property
     def field_name(self) -> str:
-        """Name of the field, unique within ``(org_id, entity_type)`` and fixed at creation time."""
+        """Name of the custom field, unique among its organization's fields for its entity type.
+
+        Fixed when the field is created.
+        """
         return self.__record.field_name
 
     @property
     def field_type(self) -> CustomFieldType:
-        """Value type of the field. Fixed at creation time."""
+        """Value type of the custom field. Fixed when the field is created."""
         return self.__record.field_type
 
     @property
     def last_error(self) -> typing.Optional[str]:
-        """Human-readable summary of the most recent failure, if any.
+        """Human-readable reason the custom field's most recent create or delete failed, or ``None``.
 
-        Populated when :py:attr:`status` is :py:attr:`CustomFieldStatus.Failed`, and may
-        stay set until the next failure or success.
+        Set when ``status`` becomes :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Failed`, and cleared when
+        the field is deleted. Roboto sets it; no request does.
         """
         return self.__record.last_error
 
     @property
     def metadata_path(self) -> typing.Optional[str]:
-        """Source metadata key the field was promoted from, if any. Reserved for future use."""
+        """Unused.
+
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldRecord.metadata_path` says why it is always ``None``.
+        """
         return self.__record.metadata_path
 
     @property
     def modified(self) -> datetime.datetime:
-        """UTC timestamp of the field's most recent status or other change."""
+        """Time the custom field was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """User ID of the most recent modifier. May be a system identity for automatic status changes."""
+        """Principal that last modified the custom field, in the same ``<type>:<id>`` form as ``created_by``.
+
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldRecord.modified_by` says when it is Roboto's own system user.
+        """
         return self.__record.modified_by
 
     @property
     def options(self) -> typing.Optional[CustomFieldOptions]:
-        """Type-specific configuration, or ``None`` if the field type takes none.
+        """Type-specific configuration of the custom field.
 
-        For enum fields this carries the allowed values and is required.
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldRecord.options` says which field types set it.
         """
         return self.__record.options
 
     @property
     def org_id(self) -> str:
-        """Organization that owns this field."""
+        """ID of the organization that owns the custom field."""
         return self.__record.org_id
 
     @property
     def status(self) -> CustomFieldStatus:
-        """Current lifecycle status. See the class docstring for the state machine."""
+        """Lifecycle state of the custom field, which determines what can be done with it."""
         return self.__record.status
 
     def delete(self) -> None:
         """Delete this custom field.
 
-        Returns as soon as the field has been moved to
-        :py:attr:`~CustomFieldStatus.Deleting`. From the caller's perspective the
-        field is gone at that point: values can no longer be set, and the field
-        will shortly disappear from query results. The rest of the removal happens
-        asynchronously; call :py:meth:`wait_to_be_deleted` if you need to know when
-        it has finished.
+        Returns once Roboto has moved the field to :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Deleting`:
+        from then on, values can no longer be set on it, and ``list`` leaves it out by default. Roboto then removes the
+        field; ``wait_to_be_deleted`` waits until it has. Deleting a custom field that is already being deleted, or
+        that no longer exists, succeeds and changes nothing. Only an administrator of the field's organization can
+        delete it.
 
-        Only administrators in the target organization can delete custom fields.
+        This instance's ``status`` is not updated; ``refresh`` fetches it.
 
         Raises:
-            RobotoUnauthorizedException: The caller lacks permission to delete this
-                field.
+            RobotoUnauthorizedException: The caller is not an administrator of the field's organization.
 
         Examples:
             >>> field = CustomField.from_name_and_entity_type("flight_id", TargetEntityType.Dataset)
@@ -405,21 +394,18 @@ class CustomField:
         self.__roboto_client.delete(path=f"v1/custom-fields/id/{self.field_id}", owner_org_id=self.org_id)
 
     def refresh(self) -> CustomField:
-        """Re-fetch this field's record from the server and return ``self``.
+        """Replace this instance's record with the custom field's current record from Roboto.
 
-        Useful for observing asynchronous state transitions (e.g., ``Creating`` →
-        ``Ready``) without constructing a new object.
+        Use it to see the status changes Roboto makes after the field is created or deleted.
 
         Returns:
-            This same CustomField, with its in-memory record replaced by a freshly
-            fetched copy.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoNotFoundException: The field has been fully deleted.
+            RobotoNotFoundException: Roboto has finished deleting the field.
 
         Examples:
-            >>> field.refresh().status
-            <CustomFieldStatus.Ready: 'ready'>
+            >>> print(field.refresh().status)
         """
         self.__record = CustomField.from_id(self.field_id, self.__roboto_client).__record
         return self
@@ -430,35 +416,40 @@ class CustomField:
         description: typing.Union[str, None, NotSetType] = NotSet,
         options: typing.Union[CustomFieldOptions, NotSetType] = NotSet,
     ) -> CustomField:
-        """Update mutable metadata on this custom field in place.
+        """Update this custom field's display name, description, or options.
 
-        Passing :py:obj:`~roboto.sentinels.NotSet` (the default) leaves a field
-        unchanged; passing ``None`` clears it.
-
-        Only administrators in this field's organization can update it.
+        An argument left unset (``NotSet``, the default) leaves that value unchanged. Roboto updates only a field
+        whose status is :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`. Only an administrator of the
+        field's organization can update it.
 
         Args:
-            display_name: New display name, or ``None`` to clear it.
-            description: New description, or ``None`` to clear it.
-            options: Replacement type-specific configuration. Must be for this field's
-                :py:attr:`field_type`. For an enum field, the new ``enum_values`` must include
-                every existing value: values can be added but not removed. Re-sending a value the
-                field already has is harmless: repeats are dropped, not rejected.
+            display_name: Human-readable label for the custom field, shown in the Roboto web app, at most 128
+                characters. ``None`` clears it, as does text that is blank once surrounding whitespace is stripped.
+            description: Human-readable description of the custom field, at most 256 characters. ``None`` clears it,
+                as does text that is blank once surrounding whitespace is stripped.
+            options: Type-specific configuration to replace the field's own, for this field's ``field_type``. For an
+                enum field, ``enum_values`` must include every value the field already has: values can be added but
+                not removed. Values are normalized as
+                :py:attr:`~roboto.domain.custom_fields.CreateCustomFieldRequest.options` describes, and a value that
+                repeats one the field already has is dropped rather than rejected. ``add_enum_values`` adds values
+                without listing the existing ones.
 
         Returns:
-            This same CustomField, with its in-memory record replaced by the
-            server's updated copy.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoInvalidRequestException: ``options`` are for a different field type, or
-                would remove an existing enum value.
+            RobotoConflictException: ``options`` is set, and another update changed the field's options while this
+                one was in progress. Refresh the field and try again.
+            RobotoInvalidRequestException: The field is not ``Ready``, ``options`` are for a different field type, or
+                ``options`` would remove an existing enum value.
             RobotoNotFoundException: The field no longer exists.
-            RobotoUnauthorizedException: The caller lacks permission to update this
-                field.
-            pydantic.ValidationError: An enum value cannot be stored, or ``enum_values`` is
-                longer than a field may declare. Raised before the request is sent.
+            RobotoUnauthorizedException: The caller is not an administrator of the field's organization.
+            pydantic.ValidationError: ``display_name`` or ``description`` is too long, an enum value cannot be
+                stored, or ``enum_values`` holds more than 250 distinct values. Raised before the request is sent.
 
         Examples:
+            Change the field's display name:
+
             >>> field.update(display_name="Flight identifier")
 
             Add a value to an enum field:
@@ -466,7 +457,7 @@ class CustomField:
             >>> from roboto.domain.custom_fields import EnumFieldOptions
             >>> field.update(options=EnumFieldOptions(enum_values=[*field.options.enum_values, "critical"]))
 
-            A value the field already has keeps its place, and the new one is appended:
+            Re-send a value the field already has: it keeps its place, and only the new value is appended:
 
             >>> field.options.enum_values
             ['low', 'medium', 'high']
@@ -494,28 +485,22 @@ class CustomField:
     def add_enum_values(self, *values: str) -> CustomField:
         """Add values to the set this enum field accepts.
 
-        Re-fetches the field before updating it: an update has to list every value the field
-        already has, so a value someone else added since this object was loaded would otherwise
-        read as a removal and be rejected.
-
-        Only administrators in this field's organization can update it.
+        Fetches the field's current values first, so that the update lists every value the field has, including any
+        added since this instance was loaded: ``update`` rejects options that leave one out. Called with no values, it
+        returns without making a request. The failures of ``refresh`` and ``update`` also apply.
 
         Args:
-            values: Values to allow, on top of the field's current ones. Each is normalized to
-                Unicode NFC with runs of whitespace collapsed to a single space; passing one the
-                field already has, in any spelling that normalizes the same, changes nothing.
-                A field may hold at most 250 values.
+            *values: Values to accept, in addition to the field's current ones. Each is normalized as
+                :py:attr:`~roboto.domain.custom_fields.CreateCustomFieldRequest.options` describes, and one that the
+                field already has, once normalized, changes nothing. A field may hold at most 250 values.
 
         Returns:
-            This same CustomField, with its in-memory record replaced by the server's updated
-            copy. Called with no values, it returns without contacting the server.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
+            RobotoConflictException: Another update changed the field's options between this method's fetch and its
+                update.
             RobotoInvalidRequestException: This field is not an enum field.
-            RobotoNotFoundException: The field no longer exists.
-            RobotoUnauthorizedException: The caller lacks permission to update this field.
-            pydantic.ValidationError: A value cannot be stored, or the field would end up with
-                more values than it is allowed.
 
         Examples:
             >>> field.options.enum_values
@@ -538,23 +523,20 @@ class CustomField:
         return self.update(options=EnumFieldOptions(enum_values=[*current.enum_values, *values]))
 
     def wait_to_be_ready(self, timeout: float = 5 * 60, poll_interval: int = 2) -> None:
-        """Block until this custom field reaches the :py:attr:`~CustomFieldStatus.Ready` state.
+        """Wait until this custom field is ``Ready``, refreshing this instance's record as it polls.
 
-        Intended to be called immediately after :py:meth:`create` to know when the
-        field is usable for setting values and querying.
+        Call it after ``create``: a field can hold values and be searched once its
+        :py:class:`~roboto.domain.custom_fields.CustomFieldStatus` is ``Ready``.
 
         Args:
-            timeout: Maximum time, in seconds, to wait. Most fields reach Ready well
-                within the default; raise this value if you observe legitimate
-                timeouts.
-            poll_interval: Seconds to sleep between polls.
+            timeout: Maximum time to wait, in seconds.
+            poll_interval: Seconds to wait between polls.
 
         Raises:
-            RobotoInvalidStateTransitionException: The field is in a state from which
-                it cannot reach Ready (``Failed`` or ``Deleting``), or it was deleted
-                while waiting.
-            roboto.waiters.TimeoutError: The field is still ``Creating`` after
-                ``timeout`` seconds.
+            RobotoInvalidStateTransitionException: The field is or becomes ``Failed`` or ``Deleting``, or is deleted,
+                so it will not become ``Ready``.
+            roboto.waiters.TimeoutError: The field was still ``Creating`` after ``timeout`` seconds. It subclasses the
+                built-in ``TimeoutError``.
 
         Examples:
             >>> field = CustomField.create(
@@ -592,23 +574,20 @@ class CustomField:
         )
 
     def wait_to_be_deleted(self, timeout: float = 5 * 60, poll_interval: int = 2) -> None:
-        """Block until this custom field is fully deleted.
+        """Wait until Roboto has finished deleting this custom field, refreshing this instance's record as it polls.
 
-        Intended to be called immediately after :py:meth:`delete` to know when the
-        field has been fully removed from the platform.
+        Call it after ``delete``.
 
         Args:
-            timeout: Maximum time, in seconds, to wait. Most fields are deleted well
-                within the default; raise this value if you observe legitimate
-                timeouts.
-            poll_interval: Seconds to sleep between polls.
+            timeout: Maximum time to wait, in seconds.
+            poll_interval: Seconds to wait between polls.
 
         Raises:
-            RobotoInvalidStateTransitionException: The field is in a state from which
-                it will not progress to deleted (``Ready``, ``Creating``, or
-                ``Failed``). Call :py:meth:`delete` first.
-            roboto.waiters.TimeoutError: The field is still ``Deleting`` after
-                ``timeout`` seconds.
+            RobotoInvalidStateTransitionException: The field's
+                :py:class:`~roboto.domain.custom_fields.CustomFieldStatus` is ``Creating``, ``Ready``, or ``Failed``:
+                either it was never deleted, or its deletion failed.
+            roboto.waiters.TimeoutError: The field was still ``Deleting`` after ``timeout`` seconds. It subclasses the
+                built-in ``TimeoutError``.
 
         Examples:
             >>> field.delete()

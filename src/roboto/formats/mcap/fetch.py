@@ -19,35 +19,39 @@ def open_for_window(
     end_time: typing.Optional[int] = None,
     topic_name: typing.Optional[str] = None,
 ) -> HttpRangeReader:
-    """Open a remote MCAP file for reading, prefetching only the chunks in a log-time window and of one topic.
+    """Open an MCAP file at a URL for reading, prefetching only the chunks in a log-time window and on one topic.
 
-    Reads the file's summary section to locate its chunk index, then prefetches
-    in parallel each chunk whose message log times intersect ``[start_time, end_time)``
-    and, given a ``topic_name``, whose chunk index lists a message index for a channel of that topic.
-    Later reads of those chunks are answered from the reader's in-memory cache.
-    The returned reader is positioned at the start of the file. The
-    caller owns it and must :py:meth:`~roboto.storage.HttpRangeReader.close` it.
+    :py:meth:`~roboto.domain.topics.Topic.get_data` opens MCAP files through it, so most code never calls it.
 
-    The window is matched against the chunk index's log-time bounds; when row
-    timestamps come from somewhere other than the message log time, pass no
-    bounds (prefetching then covers every chunk) and filter rows after decode.
+    Reads the file's summary section, then prefetches in parallel each chunk whose log-time range, as its chunk index
+    records it, overlaps ``[start_time, end_time)`` and, given a ``topic_name``, whose chunk index lists a message
+    index for a channel on that topic. Later reads of those chunks make no request. A file with no summary section or
+    no chunk index opens with no chunk prefetched.
 
-    :py:class:`~roboto.formats.mcap.McapReader` reads through :py:meth:`mcap.reader.SeekingReader.iter_messages`,
-    which picks chunks for a window and topic by the same log-time and channel rules, with one addition:
-    when given topics, it also reads a chunk whose chunk index names no message index,
-    since that chunk's topics are unknown until it is scanned.
-    This function does not prefetch such a chunk, so its bytes are downloaded when it is read.
+    Given a ``topic_name``, a chunk whose index lists no message indexes is not prefetched, since the index does not
+    show which topics the chunk holds; its bytes are downloaded when it is read.
+
+    Chunks are selected by log time only. To select messages by another timestamp, pass no bounds, which prefetches
+    every chunk, and filter the messages after decoding them.
 
     Args:
-        signed_url: Resolved download URL of the MCAP file.
-        start_time: Inclusive window lower bound in nanoseconds, or ``None`` for unbounded.
-        end_time: Exclusive window upper bound in nanoseconds, or ``None`` for unbounded.
-        topic_name: Prefetch only the chunks holding a message on an MCAP channel of this topic,
-            or chunks of every topic when ``None``.
+        signed_url: URL of the MCAP file, such as a signed download URL. The server must answer HTTP ``Range``
+            requests.
+        start_time: Inclusive start of the window, in nanoseconds of message log time. ``None`` leaves the window
+            open at the start.
+        end_time: Exclusive end of the window, in the same form. ``None`` leaves the window open at the end.
+        topic_name: Topic whose chunks to prefetch. ``None`` prefetches the chunks of every topic.
 
     Returns:
-        An :py:class:`~roboto.storage.HttpRangeReader` over the file, primed
-        with the selected chunks' bytes and positioned at offset 0.
+        :py:class:`~roboto.storage.HttpRangeReader` over the file, positioned at its first byte, with the selected
+        chunks already downloaded. You own the returned reader: close it with
+        :py:meth:`~roboto.storage.HttpRangeReader.close`, or use it as a context manager.
+
+    Raises:
+        OSError: A response has an HTTP error status or holds bytes other than the ones requested, or the server
+            sends no ``Content-Range`` header with the file's size.
+        urllib3.exceptions.MaxRetryError: A request still fails with a network error after 3 retries.
+        mcap.exceptions.McapError: The file does not end with an MCAP footer, or its summary section cannot be read.
     """
     http_reader = HttpRangeReader(signed_url)
     try:
@@ -60,10 +64,9 @@ def open_for_window(
                 if topic_name is not None
                 else None
             )
-            # Prefetch each in-window chunk's byte span separately. The MCAP spec does not guarantee
-            # chunk-index entries are time-sorted or file-contiguous, so out-of-window chunks can sit
-            # between in-window ones in the file; separate prefetches leave their bytes unfetched.
-            # A chunk is in the window when its message log times overlap [start_time, end_time).
+            # Prefetch each selected chunk's byte range separately, not one range from the first to the last:
+            # chunks outside the window or on other topics can sit between selected ones in the file, and one
+            # range would download them too.
             for chunk_index in summary.chunk_indexes:
                 if start_time is not None and chunk_index.message_end_time < start_time:
                     continue
@@ -79,5 +82,7 @@ def open_for_window(
         http_reader.seek(0)
         return http_reader
     except BaseException:
+        # A caller whose call raised has no reader to close, so close its connections on any exception, then
+        # re-raise it.
         http_reader.close()
         raise

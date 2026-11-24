@@ -26,6 +26,12 @@ from ..context import CLIContext
 
 
 def search(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Print, as a JSON list, the ``--org`` organization's actions that match every filter given.
+
+    With ``--actionhub``, the command searches the Action Hub's actions instead. An action matches when its name
+    equals ``--name``, each ``--metadata`` key holds the given value, and it has every ``--tag``. With no filters, the
+    command prints every action.
+    """
     conditions: list[typing.Union[Condition, ConditionGroup]] = []
     if args.name:
         conditions.append(

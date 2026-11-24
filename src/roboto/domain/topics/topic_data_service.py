@@ -34,6 +34,20 @@ logger = default_logger()
 
 
 def iterable_to_set(arg: collections.abc.Iterable[str]) -> set[str]:
+    """Return ``arg`` as a set of strings, treating a single string as one item rather than as its characters.
+
+    :py:meth:`~roboto.domain.topics.Topic.get_data` and the other methods that read topic data filter by message path
+    through it, so most code never calls it.
+
+    Args:
+        arg: Strings to convert, or a single string.
+
+    Returns:
+        ``arg`` itself when it is a set, not a copy; otherwise a new set of its items.
+
+    Raises:
+        TypeError: ``arg`` is not iterable.
+    """
     if isinstance(arg, set):
         return arg
     elif isinstance(arg, str):
@@ -47,20 +61,23 @@ def iterable_to_set(arg: collections.abc.Iterable[str]) -> set[str]:
 
 
 class TopicDataService:
-    """Internal service for retrieving topic data.
+    """Reader of topic data for the ``get_data`` and ``get_data_as_df`` methods of topics, message paths and events.
 
-    This service handles the low-level operations for accessing topic data that has been
-    ingested by the Roboto platform. It manages downloads, filtering, and processing
-    various data formats to provide efficient access to time-series robotics data.
+    The SDK's own code uses it; to read topic data, use the ``get_data`` or ``get_data_as_df`` methods of
+    :py:class:`~roboto.domain.topics.Topic`, :py:class:`~roboto.domain.topics.MessagePath`, or
+    :py:class:`~roboto.domain.events.Event` instead.
 
-    Note:
-        This is not intended as a public API.
-        To access topic data, prefer the ``get_data`` or ``get_data_as_df`` methods
-        on :py:class:`~roboto.domain.topics.Topic`, :py:class:`~roboto.domain.topics.MessagePath`,
-        or :py:class:`~roboto.domain.events.Event`.
+    It fetches the representations that hold each of a topic's message paths, keeps the message paths and
+    representations a read asks for, and reads them with the reader for their storage format, MCAP or Parquet.
+
+    Args:
+        roboto_client: Client to make requests to Roboto with.
+        cache_dir: Directory to download Parquet-stored topic data to and reuse it from. ``None`` uses
+            ``DEFAULT_CACHE_DIR``.
     """
 
     DEFAULT_CACHE_DIR: typing.ClassVar[pathlib.Path] = pathlib.Path.home() / ".cache" / "roboto" / "topic-data"
+    """Directory Parquet-stored topic data is downloaded to when no other is given: ``~/.cache/roboto/topic-data``."""
 
     __cache_dir: pathlib.Path
     __roboto_client: RobotoClient
@@ -83,22 +100,32 @@ class TopicDataService:
         cache_dir_override: typing.Union[str, pathlib.Path, None] = None,
         representation_selector: RepresentationSelector = RepresentationSelector.raw(),
     ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
-        """Retrieve data for a specific topic with optional filtering.
+        """Yield a topic's messages, optionally limited to some message paths and a time range.
+
+        A message path matches a path in ``message_paths_include`` or ``message_paths_exclude`` when that path is its
+        :py:attr:`~roboto.domain.topics.MessagePathRecord.message_path`, its
+        :py:attr:`~roboto.domain.topics.MessagePathRecord.source_path`, or the path of one of its ancestors. The
+        filters never leave out a message path whose data type is a timestamp.
 
         Args:
-            topic_id: Unique identifier of the topic to retrieve data for.
-            message_paths_include: Dot notation paths to include in the results.
-                If None, all paths are included.
-            message_paths_exclude: Dot notation paths to exclude from the results.
-                If None, no paths are excluded.
-            start_time: Start time (inclusive) for temporal filtering.
-            end_time: End time (exclusive) for temporal filtering.
-            cache_dir_override: Override the default cache directory for downloads.
-            representation_selector: Criteria for selecting among multiple representations.
-                Defaults to :py:meth:`RepresentationSelector.raw`.
+            topic_id: ID of the topic to read.
+            message_paths_include: Message paths to include. ``None`` includes every message path.
+            message_paths_exclude: Message paths to leave out. ``None`` leaves out none.
+            start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+            end_time: Exclusive end of the time range, in the same form.
+            cache_dir_override: Directory to download Parquet-stored data to for this read. ``None`` uses the
+                directory the service was created with.
+            representation_selector: Which of the topic's stored representations to read. Defaults to the original
+                data, with no transformations.
 
         Yields:
-            Tuple of (timestamp, record) where timestamp is in nanoseconds since Unix epoch.
+            ``(timestamp, message)`` tuples: the timestamp in nanoseconds since the Unix epoch, and a dictionary that
+            follows the topic's schema.
+
+        Raises:
+            NotImplementedError: The representations selected for the read are not all stored as MCAP or all as
+                Parquet. It surfaces on the first iteration.
         """
         message_path_repr_mappings = self.__get_message_path_mappings(topic_id)
         filtered_message_path_repr_mappings = self.__filter_message_path_mappings(
@@ -140,24 +167,30 @@ class TopicDataService:
         cache_dir_override: typing.Union[str, pathlib.Path, None] = None,
         representation_selector: RepresentationSelector = RepresentationSelector.raw(),
     ) -> pandas.DataFrame:
-        """Retrieve data for a specific topic as a pandas DataFrame with optional filtering.
+        """Fetch a topic's messages as a pandas DataFrame, optionally limited to some message paths and a time range.
+
+        The message paths are filtered as ``get_data`` describes.
 
         Args:
-            topic_id: Unique identifier of the topic to retrieve data for.
-            message_paths_include: Dot notation paths to include in the results.
-                If None, all paths are included.
-            message_paths_exclude: Dot notation paths to exclude from the results.
-                If None, no paths are excluded.
-            start_time: Start time (inclusive) for temporal filtering.
-            end_time: End time (exclusive) for temporal filtering.
-            cache_dir_override: Override the default cache directory for downloads.
-            representation_selector: Criteria for selecting among multiple representations.
-                Defaults to :py:meth:`RepresentationSelector.raw`.
+            topic_id: ID of the topic to read.
+            message_paths_include: Message paths to include. ``None`` includes every message path.
+            message_paths_exclude: Message paths to leave out. ``None`` leaves out none.
+            start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+            end_time: Exclusive end of the time range, in the same form.
+            cache_dir_override: Directory to download Parquet-stored data to for this read. ``None`` uses the
+                directory the service was created with.
+            representation_selector: Which of the topic's stored representations to read. Defaults to the original
+                data, with no transformations.
 
         Returns:
-            pandas.DataFrame
+            A data frame with one row per message, indexed by each message's timestamp: a UTC
+            ``pandas.DatetimeIndex`` named ``_index``.
 
-            The index of the DataFrame (``df.index``) is a pandas.DateTimeIndex, labeling the timestamp of each row.
+        Raises:
+            ImportError: The ``roboto[analytics]`` extra is not installed.
+            NotImplementedError: The representations selected for the read are not all stored as MCAP or all as
+                Parquet.
         """
         pd = import_optional_dependency("pandas", "analytics")
 
@@ -193,20 +226,16 @@ class TopicDataService:
 
         timestamps_as_datetimes = pd.to_datetime(timestamps, unit="ns", utc=True)
         df = df.set_index(timestamps_as_datetimes)
-        # GM(2025-12-31)
-        # When this dataframe is passed to Topic.create_from_df(), the index becomes a Parquet column.
-        # Naming it avoids an even more cryptic, autogenerated MessagePath name like "__index__level_0__".
-        # It's given a leading underscore to signify it is semi-private,
-        # and also in attempt to avoid a name conflict with a column named "index".
+        # Topic.create_from_df() writes the index as a Parquet column, which becomes a message path. Naming it gives
+        # that message path a readable name instead of an autogenerated one such as "__index_level_0__". The leading
+        # underscore marks it as added by Roboto and avoids a conflict with a column named "index".
         df.index.name = "_index"
 
         return df
 
     def __resolve_cache_dir(self, cache_dir_override: typing.Union[str, pathlib.Path, None] = None) -> pathlib.Path:
-        # Resolves only — does not create. The Parquet reader creates the directory
-        # lazily, and only when it has actually decided to write a file to it.
-        # Creating it here would also create it for MCAP-backed topics, which never
-        # use the cache, and would race on first-time creation under concurrent calls.
+        # Does not create the directory: the Parquet reader creates it only when it writes a file to it. Creating it
+        # here would also create it for reads of MCAP-stored data, which never use it.
         return pathlib.Path(cache_dir_override) if cache_dir_override is not None else self.__cache_dir
 
     def __filter_message_paths(
@@ -215,6 +244,12 @@ class TopicDataService:
         include_paths: typing.Optional[collections.abc.Iterable[str]],
         exclude_paths: typing.Optional[collections.abc.Iterable[str]],
     ) -> list[MessagePathRecord]:
+        """Return the records that pass the filters.
+
+        A record matches a filter path that equals its ``message_path``, its ``source_path``, or one of its
+        :py:meth:`~roboto.domain.topics.MessagePathRecord.parents`. Empty and ``None`` filters both select every
+        record.
+        """
         if not include_paths and not exclude_paths:
             return list(message_path_records)
 
@@ -223,10 +258,8 @@ class TopicDataService:
         exclude_paths_set = iterable_to_set(exclude_paths) if exclude_paths is not None else set()
 
         for record in message_path_records:
-            # The canonical-timestamp path is non-excludable: the Parquet reader
-            # needs it for start_time/end_time filtering, and yielded rows are
-            # always (timestamp, row) tuples — there is no scenario where the
-            # caller's data is meaningful without it.
+            # Keep timestamp message paths whatever the filters say: the Parquet reader reads one to apply start_time
+            # and end_time and to give each yielded row its timestamp.
             if record.canonical_data_type == CanonicalDataType.Timestamp:
                 filtered.append(record)
                 continue
@@ -234,7 +267,7 @@ class TopicDataService:
             paths = set(record.parents())
             paths.add(record.source_path)
             paths.add(
-                # May be different from source_path, support specifying either one
+                # Can differ from source_path; a filter may name either.
                 record.message_path
             )
 
@@ -254,7 +287,7 @@ class TopicDataService:
         message_paths_include: typing.Optional[collections.abc.Iterable[str]] = None,
         message_paths_exclude: typing.Optional[collections.abc.Iterable[str]] = None,
     ) -> list[MessagePathRepresentationMapping]:
-        # Exclude a MessagePathRepresentationMapping if no message paths remain after applying message path filters.
+        # Drop each mapping the filters leave with no message paths.
         message_path_repr_mappings = [
             message_path_repr_map.model_copy(
                 update={

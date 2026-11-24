@@ -20,41 +20,37 @@ if typing.TYPE_CHECKING:
 
 @dataclasses.dataclass(frozen=True)
 class Scale:
-    """
-    Configuration for rate-invariant (multi-scale) signal similarity search.
+    """Range of time scales to search for a query at, so a motion is found whether it happens faster or slower.
 
-    Searching across multiple scales finds a query pattern regardless of how quickly or
-    slowly it unfolds in the target. For example, a robot lifting a cup in 1 second and
-    the same robot lifting a cup in 3 seconds would both be found.
+    Pass it as ``scale`` to :py:func:`~roboto.analytics.signal_similarity.find_similar_signals`, which resamples the
+    query to the length each scale factor gives and searches at each length. A scale factor is relative to the query's
+    length: at ``2.0`` the search looks for matches twice as long as the query (the motion happened at half the speed),
+    and at ``0.5`` for matches half as long (twice the speed). A robot that lifts a cup in 1 second and one that lifts
+    it in 3 seconds are then both found.
 
-    ``min`` and ``max`` are positive scale factors relative to the original query length.
-    A scale of ``1.0`` corresponds to the original query length; ``2.0`` searches for
-    target subsequences twice as long (action happened at half speed); ``0.5`` searches
-    for subsequences half as long (action happened at double speed).
+    ``Scale.any()`` covers a wide range. Bounds that fit the motion, such as ``Scale(min=0.5, max=3.0)`` for one that
+    can take from half to three times as long as in the query, place the scale factors closer together where matches
+    are plausible and need fewer of them, so the search finds better matches with less computation.
 
-    While ``Scale.any()`` provides a convenient wide-range preset, providing
-    domain-informed bounds (e.g. ``Scale(min=0.5, max=3.0)`` for a motion that can
-    happen between half and triple speed) will both improve match quality — by
-    concentrating the search grid where matches are physically plausible — and
-    reduce compute by avoiding unnecessary scale steps.
+    Raises:
+        ValueError: ``min`` or ``max`` is not positive, ``min`` is greater than ``max``, or ``steps`` is less than 1.
     """
 
     min: float
-    """Minimum scale factor (must be positive)."""
+    """Smallest scale factor to search at. Must be positive."""
 
     max: float
-    """Maximum scale factor (must be >= ``min``)."""
+    """Largest scale factor to search at. Must be at least ``min``."""
 
     steps: int = 10
-    """Number of scale values to sample across the range."""
+    """Number of scale factors to search at, from ``min`` to ``max`` inclusive. Must be at least 1."""
 
     spacing: typing.Literal["log", "linear"] = "log"
-    """
-    How to distribute scale values across the range.
+    """How the scale factors are spread from ``min`` to ``max``:
 
-    * ``"log"`` (default) — geometrically spaced; equal ratio between adjacent steps,
-      which is more natural for speed ratios (e.g. 0.5x, 1x, 2x are equally spaced on a log scale).
-    * ``"linear"`` — linearly spaced.
+    * ``"log"``: with an equal ratio between adjacent factors, so 0.5, 1 and 2 are evenly spaced. This suits speed
+      ratios.
+    * ``"linear"``: with an equal difference between adjacent factors.
     """
 
     def __post_init__(self) -> None:
@@ -67,11 +63,18 @@ class Scale:
 
     @classmethod
     def any(cls) -> Scale:
-        """Well-known preset covering a wide range of speed ratios (0.1x to 10x)."""
+        """Build a scale that searches at 30 scale factors from 0.1 to 10, log-spaced.
+
+        It finds matches from a tenth of the query's length to ten times its length.
+        """
         return cls(min=0.1, max=10.0, steps=30)
 
     def factors(self) -> list[float]:
-        """Return a list of scale factors spanning the configured range."""
+        """Return the ``steps`` scale factors from ``min`` to ``max`` inclusive, spread as ``spacing`` sets.
+
+        Raises:
+            ImportError: The ``roboto[analytics]`` extra is not installed.
+        """
         np = import_optional_dependency("numpy", "analytics")
         if self.spacing == "log":
             return np.geomspace(self.min, self.max, self.steps).tolist()
@@ -80,82 +83,75 @@ class Scale:
 
 @dataclasses.dataclass(frozen=True)
 class MatchContext:
-    """
-    Correlate a matched subsequence back to its source.
+    """Topic, message paths, dataset and file a match was found in.
+
+    Carried in ``Match.context``.
     """
 
     message_paths: collections.abc.Sequence[str]
+    """Message paths whose data was compared with the query: the query's column names."""
+
     topic_id: str
+    """ID of the topic the match was found in."""
+
     topic_name: str
+    """Name of the topic the match was found in."""
 
     dataset_id: typing.Optional[str] = None
+    """ID of the dataset the topic or its file belongs to, or ``None`` if the topic belongs to neither."""
+
     file_id: typing.Optional[str] = None
+    """ID of the file the topic belongs to, or ``None`` if the topic does not belong to a file."""
 
 
 @dataclasses.dataclass(frozen=True)
 class Match:
-    """
-    A subsequence of a target signal that is similar to a query signal.
+    """Consecutive messages of a topic whose data is similar to a query.
+
+    :py:func:`~roboto.analytics.signal_similarity.find_similar_signals` returns these. ``start_idx`` and ``end_idx``
+    count rows of the topic's data from 0, after rows with a missing or non-numeric value are dropped.
     """
 
     context: MatchContext
-    """
-    Correlate a matched subsequence back to its source.
-    """
+    """Topic, message paths, dataset and file the match was found in."""
 
     end_idx: int
-    """
-    The end index in the target signal of this match.
-    """
+    """Position of the match's last row in the topic's data."""
 
     end_time: pandas.Timestamp
-    """
-    The end time in the target signal of this match.
-    """
+    """Timestamp of the match's last message, in UTC."""
 
     distance: float
-    """
-    Measure of similarity between a query signal and the subsequence of the target signal
-    this Match represents. A smaller distance indicates a closer match.
+    """Distance between the query and the match. A smaller distance means a closer match.
 
-    In single-scale search (``scale=None``) this is the raw z-normalised Euclidean
-    distance produced by MASS, with range ``[0, 2·√N]`` where ``N`` is the query length.
+    It is the Euclidean distance between the query and the match, summed over the message paths when the query has
+    several. When :py:func:`~roboto.analytics.signal_similarity.find_similar_signals` is called with
+    ``normalize=True``, each message path's values are first rescaled to a mean of 0 and a standard deviation of 1, so
+    each message path adds at most ``2·√N``, where ``N`` is the number of rows in the query.
 
-    In multi-scale search (``scale`` provided) this is multiplied by ``√N / √M``
-    (where ``N`` is the original needle length and ``M`` is the resampled length at that
-    scale step), projecting onto the same ``[0, 2·√N]`` range as single-scale search.
-    This means a ``max_distance`` threshold calibrated on single-scale search transfers
-    directly to multi-scale search without adjustment.
+    When it is called with ``scale``, the query is resampled to ``M`` rows at each scale factor, and the distance is
+    multiplied by ``√N / √M``. This makes distances at different scale factors comparable with each other and with a
+    search without ``scale``, so a ``max_distance`` chosen for one kind of search works unchanged for the other.
     """
 
     start_idx: int
-    """
-    The start index in the target signal of this match.
-    """
+    """Position of the match's first row in the topic's data."""
 
     start_time: pandas.Timestamp
-    """
-    The start time in the target signal of this match.
-    """
+    """Timestamp of the match's first message, in UTC."""
 
     subsequence: pandas.DataFrame
-    """
-    The subsequence of the target signal this Match represents.
-    It is equivalent to ``target[start_idx:end_idx]``.
+    """Rows of the topic's data from ``start_idx`` through ``end_idx`` inclusive, one column per message path.
+
+    It is indexed by message timestamp, in UTC.
     """
 
     scale: float = 1.0
-    """
-    The time-scale factor at which this match was found.
+    """Scale factor at which the match was found, relative to the query's length.
 
-    A value of ``1.0`` means the matched subsequence has the same length as the query.
-    Values greater than ``1.0`` mean the matched subsequence is proportionally longer
-    (the action occurred more slowly in the target than in the query).
-    Values less than ``1.0`` mean the matched subsequence is proportionally shorter
-    (the action occurred more quickly).
-
-    This field is only meaningful when ``scale`` is passed to
-    :py:func:`~roboto.analytics.signal_similarity.find_similar_signals`.
+    At ``1.0`` the match has as many rows as the query. Above ``1.0`` it has proportionally more (the motion happened
+    more slowly than in the query), and below ``1.0`` proportionally fewer (more quickly). Always ``1.0`` when
+    :py:func:`~roboto.analytics.signal_similarity.find_similar_signals` is called without ``scale``.
     """
 
     def to_event(
@@ -164,8 +160,25 @@ class Match:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> events.Event:
-        """
-        Create a Roboto Platform event out of this similarity match result.
+        """Create an event on the match's topic that spans the match's first to last message.
+
+        The event's description is ``"Match score: <distance>"``, and its metadata holds ``distance``,
+        ``message_paths``, ``start_index``, ``end_index`` and ``scale``. Reading the event's data leaves out the
+        match's last message, because a read of an event's data excludes its end time.
+
+        Args:
+            name: Human-readable name of the event.
+            caller_org_id: Organization to create the event in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+
+        Returns:
+            The new event.
+
+        Raises:
+            RobotoInvalidRequestException: The match's topic no longer exists, or belongs to an organization other
+                than the one the event is created in.
         """
         return events.Event.create(
             description=f"Match score: {self.distance}",

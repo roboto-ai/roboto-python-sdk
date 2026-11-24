@@ -52,48 +52,50 @@ from .trigger_view import TriggerType
 
 
 class TriggerSchedule:
-    """Utility for defining trigger schedules."""
+    """A recurring schedule for a ``ScheduledTrigger``, as a cron expression in UTC.
+
+    Build one with ``cron``, which checks the expression, or with ``hourly``, ``daily``, ``weekly`` or ``monthly``.
+    The constructor does not check the expression it is given.
+    """
 
     __cron_string: str
 
     @classmethod
     def cron(cls, cron_string: str) -> TriggerSchedule:
-        """Create a trigger schedule based on a Cron expression.
+        """Build a schedule for a cron expression, after checking that the expression is valid.
 
         Args:
-            cron_string: A Cron expression like `*/30 * * * *`.
-
-        Returns:
-            A :py:class:`TriggerSchedule` instance.
+            cron_string: Five-field cron expression, evaluated in UTC, such as ``"*/30 * * * *"`` for every 30
+                minutes.
 
         Raises:
-            ValueError: If the provided string is not a valid Cron expression.
+            ValueError: ``cron_string`` is not a valid cron expression.
         """
 
-        _ = cron_converter.Cron(cron_string)  # check validity
+        _ = cron_converter.Cron(cron_string)  # Raises ValueError for an invalid expression.
         return cls(cron_string)
 
     @classmethod
     def hourly(cls) -> TriggerSchedule:
-        """Every hour on the hour."""
+        """Build a schedule for every hour, on the hour."""
 
         return cls("0 * * * *")
 
     @classmethod
     def daily(cls) -> TriggerSchedule:
-        """Every day at midnight UTC."""
+        """Build a schedule for every day at midnight UTC."""
 
         return cls("0 0 * * *")
 
     @classmethod
     def weekly(cls) -> TriggerSchedule:
-        """Every Sunday at midnight UTC."""
+        """Build a schedule for every Sunday at midnight UTC."""
 
         return cls("0 0 * * 0")
 
     @classmethod
     def monthly(cls) -> TriggerSchedule:
-        """Every 1st of the month at midnight UTC."""
+        """Build a schedule for the first day of every month, at midnight UTC."""
 
         return cls("0 0 1 * *")
 
@@ -102,26 +104,23 @@ class TriggerSchedule:
 
     @property
     def cron_string(self) -> str:
-        """Cron string representing the schedule."""
+        """Cron expression of the schedule, evaluated in UTC."""
 
         return self.__cron_string
 
 
 class ScheduledTrigger:
-    """A trigger that invokes actions on a recurring schedule, e.g. hourly or daily.
+    """Deprecated. A trigger that invokes an action on a recurring schedule, such as hourly or daily.
 
-    .. deprecated::
-        This is the legacy trigger model, kept so existing code keeps working. It cannot
-        express triggers made with the current model (several targets, agent or Slack
-        targets, platform events beyond files and datasets) and will be removed. Use
-        :class:`roboto.domain.triggers.Trigger`, which reads and edits every trigger.
+    Use :py:class:`~roboto.domain.triggers.Trigger` instead, which reads and edits every trigger; pass ``schedule``
+    to :py:meth:`~roboto.domain.triggers.Trigger.create` to create one that runs on a schedule. This class will be
+    removed, and constructing one emits a ``DeprecationWarning``. It reads and edits only triggers that run on a
+    schedule and invoke one action: to this class, a trigger with several targets, or with an agent or Slack target,
+    does not exist.
 
-    Schedules are currently specified using standard Cron expressions, with times in UTC.
-    A handful of common schedules are provided by the :py:class:`TriggerSchedule` class.
-
-    Once a scheduled time is reached, the action associated with this trigger will be
-    invoked using the optionally provided input specification, and any other overrides
-    such as compute requirements or parameter values.
+    The schedule is a five-field cron expression evaluated in UTC; ``TriggerSchedule`` builds common ones. Each time
+    the schedule comes due, the trigger invokes the latest version of its action with the trigger's input, parameter
+    values, and overrides.
     """
 
     __record: ScheduledTriggerRecord
@@ -144,46 +143,49 @@ class ScheduledTrigger:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> ScheduledTrigger:
-        """Create a new scheduled trigger.
+        """Create a scheduled trigger.
 
-        If the trigger is enabled on creation, action invocations will commence on the
-        provided schedule. Note that the total number of active triggers in an organization is
-        subject to a tier-specific limit. Exceeding that limit will result in the trigger
-        being disabled.
+        When ``enabled`` is ``True`` and the organization is already at its limit on enabled triggers, Roboto creates
+        the trigger disabled rather than failing. Check ``enabled`` on the result.
 
         Args:
-            name: Unique name for the scheduled trigger. Must not exceed 256 characters.
-            schedule: Recurring schedule for the trigger, e.g. hourly.
-            action_name: Name of the action to invoke on schedule.
-            action_owner_id: Organization ID that owns the target action. If not provided,
-                searches the caller's organization.
-            compute_requirement_overrides: Optional compute requirement overrides for
-                action invocations.
-            container_parameter_overrides: Optional container parameter overrides for
-                action invocations.
-            enabled: Whether the trigger should be active immediately after creation.
-            invocation_input: Optional input specification to be used for all scheduled
-                action invocations.
-            invocation_upload_destination: Optional upload destination for invocation
-                outputs. Currently supports datasets.
-            parameter_values: Optional parameter values to pass to the action when invoked.
-            timeout: Optional timeout override for action invocations, in minutes.
-            caller_org_id: Organization ID to create the trigger in. Defaults to caller's org.
-            roboto_client: Roboto client instance. If not provided, defaults to the caller's
-                Roboto configuration.
+            name: Human-readable name of the trigger, unique within its organization. At most 256 characters, of
+                letters, digits, underscores, and hyphens.
+            schedule: When the trigger invokes the action: a five-field cron expression evaluated in UTC, or a
+                ``TriggerSchedule``.
+            action_name: Name of the action to invoke. The trigger invokes the action's latest version.
+            action_owner_id: ID of the organization that owns the action. ``None`` uses the organization the trigger
+                is created in. An action another organization owns must be published in Action Hub.
+            compute_requirement_overrides: Overrides of the action's compute requirements for each invocation.
+                ``None`` uses the action's own.
+            container_parameter_overrides: Overrides of the action's container parameters for each invocation.
+                ``None`` uses the action's own.
+            enabled: Whether the trigger invokes the action on its schedule once it is created.
+            invocation_input: Query that selects each invocation's input data when the invocation runs. ``None``
+                selects none.
+            invocation_upload_destination: Where each invocation uploads its output files, which must be a dataset.
+                ``None`` sets none.
+            parameter_values: Values of the action's parameters, keyed by parameter name. ``None`` passes none.
+            timeout: Maximum run time of each invocation, in minutes. ``None`` uses the action's own.
+            caller_org_id: Organization to create the trigger in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The newly created ``ScheduledTrigger`` instance.
+            The new scheduled trigger.
 
         Raises:
-            ValueError: If request parameters have invalid values, e.g. a negative timeout.
-            RobotoInvalidRequestException: If the request cannot be satisfied as provided.
-            RobotoUnauthorizedException: If the caller lacks permission to create triggers,
-                invoke the specified action or upload to the specified upload destination.
-            RobotoConflictException: If a scheduled trigger with the provided name already
-                exists in the target organization.
-            RobotoLimitExceededException: If the caller has exceeded their organization's
-                maximum action timeout limit (in minutes).
+            ValueError: ``schedule`` is not a valid cron expression, ``name`` is longer than 256 characters or
+                contains characters other than letters, digits, underscores, and hyphens, or ``timeout`` is negative.
+            RobotoNotFoundException: The organization that owns the action has no action named ``action_name``.
+            RobotoUnauthorizedException: The action belongs to another organization and is not published in Action
+                Hub, or the caller may not upload files to ``invocation_upload_destination``.
+            RobotoInvalidRequestException: ``invocation_upload_destination`` is not a dataset, or
+                ``container_parameter_overrides`` is set for an action that inherits its container from another
+                action.
+            RobotoConflictException: Another trigger in the organization has this name.
+            RobotoLimitExceededException: ``timeout`` exceeds the organization's maximum action timeout.
 
         Examples:
             Create an hourly trigger to invoke an analytics action with no explicit inputs:
@@ -195,7 +197,7 @@ class ScheduledTrigger:
             ...     schedule=TriggerSchedule.hourly(),
             ... )
 
-            Create a daily trigger to invoke an action that processes CSV files created after a given date:
+            Create a daily trigger whose invocations each take the CSV files created after a given date:
 
             >>> from roboto.domain.actions import ScheduledTrigger, TriggerSchedule, InvocationInput
             >>> scheduled_trigger = ScheduledTrigger.create(
@@ -204,7 +206,6 @@ class ScheduledTrigger:
             ...     schedule=TriggerSchedule.daily(),
             ...     invocation_input=InvocationInput.file_query("created > '2025-04-05' AND path LIKE '%.csv'"),
             ... )
-
         """
 
         if isinstance(schedule, str):
@@ -243,22 +244,18 @@ class ScheduledTrigger:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> ScheduledTrigger:
-        """Fetch a scheduled trigger by its unique ID.
+        """Fetch a scheduled trigger by its ID.
 
         Args:
-            trigger_id: Unique trigger ID.
-            owner_org_id: Organization ID which owns the trigger. Defaults to caller's org.
-            roboto_client: Roboto client instance. If not provided, defaults to the caller's
-                Roboto configuration.
-
-        Returns:
-            The ``ScheduledTrigger`` with the provided unique ID.
+            trigger_id: Unique ID of the trigger.
+            owner_org_id: Organization that owns the trigger. Roboto finds the trigger by its ID alone, so this can
+                be left out.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: If no scheduled trigger exists with the provided ID in the
-                target organization.
-            RobotoUnauthorizedException: If the caller is not a member of the trigger's
-                target organization.
+            RobotoNotFoundException: No trigger has this ID, or the trigger does not run on a schedule, or it has
+                more than one target or a target that does not invoke an action.
         """
 
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -277,22 +274,18 @@ class ScheduledTrigger:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> ScheduledTrigger:
-        """Fetch a scheduled trigger by its unique name within an organization.
+        """Fetch a scheduled trigger by its name, which is unique within its organization.
 
         Args:
-            name: Name of the scheduled trigger.
-            owner_org_id: Organization ID which owns the trigger. Defaults to caller's org.
-            roboto_client: Roboto client instance. If not provided, defaults to the caller's
-                Roboto configuration.
-
-        Returns:
-            The ``ScheduledTrigger`` with the provided unique name.
+            name: Name of the trigger.
+            owner_org_id: Organization that owns the trigger. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: If no scheduled trigger exists with the provided name in the
-                target organization.
-            RobotoUnauthorizedException: If the caller is not a member of the trigger's
-                target organization.
+            RobotoNotFoundException: The organization has no trigger with this name, or the trigger does not run on a
+                schedule, or it has more than one target or a target that does not invoke an action.
         """
 
         roboto_client = RobotoClient.defaulted(roboto_client)
@@ -329,43 +322,43 @@ class ScheduledTrigger:
 
     @property
     def action_reference(self) -> ActionReference:
-        """Reference to the action this trigger invokes."""
+        """Action the trigger invokes."""
 
         return self.__record.action
 
     @property
     def compute_requirement_overrides(self) -> typing.Optional[ComputeRequirements]:
-        """Optional compute requirement overrides."""
+        """Overrides of the action's compute requirements for each invocation, or ``None`` to use the action's own."""
 
         return self.__record.compute_requirement_overrides
 
     @property
     def container_parameter_overrides(self) -> typing.Optional[ContainerParameters]:
-        """Optional container parameter overrides."""
+        """Overrides of the action's container parameters for each invocation, or ``None`` to use the action's own."""
 
         return self.__record.container_parameter_overrides
 
     @property
     def created(self) -> datetime.datetime:
-        """Creation time for this scheduled trigger."""
+        """Time the scheduled trigger was created."""
 
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """User who created this scheduled trigger."""
+        """ID of the user who created the scheduled trigger."""
 
         return self.__record.created_by
 
     @property
     def enabled(self) -> bool:
-        """True if this scheduled trigger is enabled."""
+        """Whether the trigger invokes the action on its schedule."""
 
         return self.__record.enabled
 
     @property
     def invocation_input(self) -> typing.Optional[InvocationInput]:
-        """Optional input specification for action invocations."""
+        """Input each invocation receives, or ``None`` if invocations take no input."""
 
         return self.__record.invocation_input
 
@@ -373,43 +366,46 @@ class ScheduledTrigger:
     def invocation_upload_destination(
         self,
     ) -> typing.Optional[InvocationUploadDestination]:
-        """Optional upload destination for action invocation outputs."""
+        """Where each invocation uploads its output files, or ``None`` if the trigger sets no destination."""
 
         return self.__record.invocation_upload_destination
 
     @property
     def name(self) -> str:
-        """This trigger's name, unique among scheduled triggers in the org."""
+        """Human-readable name of the scheduled trigger, unique within its organization."""
 
         return self.__record.name
 
     @property
     def org_id(self) -> str:
-        """Organization ID which owns this scheduled trigger."""
+        """ID of the organization that owns the scheduled trigger."""
 
         return self.__record.org_id
 
     @property
     def parameter_values(self) -> typing.Optional[dict[str, typing.Any]]:
-        """Optional action parameter values."""
+        """Values for the action's parameters, keyed by parameter name, or ``None`` if the trigger sets none."""
 
         return self.__record.parameter_values
 
     @property
     def record(self) -> ScheduledTriggerRecord:
-        """Wire-transmissible representation of this scheduled trigger."""
+        """Record of the scheduled trigger that this instance holds.
+
+        ``update`` replaces it with Roboto's response.
+        """
 
         return self.__record
 
     @property
     def schedule(self) -> str:
-        """Invocation schedule for the target action."""
+        """Cron expression, in UTC, for when the trigger invokes the action, such as ``"0 * * * *"`` for every hour."""
 
         return self.__record.schedule
 
     @property
     def timeout(self) -> typing.Optional[int]:
-        """Optional invocation timeout, in minutes."""
+        """Timeout of each invocation, in minutes, or ``None`` to use the action's own."""
 
         return self.__record.timeout
 
@@ -421,18 +417,24 @@ class ScheduledTrigger:
 
     @property
     def modified(self) -> datetime.datetime:
-        """Last modification time for this scheduled trigger."""
+        """Time the scheduled trigger was last modified."""
 
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """User who last modified this scheduled trigger."""
+        """ID of the user who last modified the scheduled trigger.
+
+        :py:attr:`~roboto.domain.actions.ScheduledTriggerRecord.modified_by` says when it is Roboto's own system user.
+        """
 
         return self.__record.modified_by
 
     def delete(self) -> None:
-        """Delete this scheduled trigger."""
+        """Delete the scheduled trigger.
+
+        Deleting a scheduled trigger that no longer exists succeeds and changes nothing.
+        """
 
         self.__roboto_client.delete(
             f"v1/triggers/scheduled/id/{self.trigger_id}",
@@ -440,29 +442,28 @@ class ScheduledTrigger:
         )
 
     def disable(self) -> None:
-        """Disable this scheduled trigger.
+        """Disable the scheduled trigger, so it starts no invocations until it is enabled again.
 
-        If the trigger is already disabled, the call has no effect.
-
-        Any currently running scheduled invocations will proceed to completion,
-        but no new scheduled invocations will occur, unless and until the trigger
-        is re-enabled.
+        Invocations already running continue to completion. A trigger that is already disabled, as far as this
+        instance's record shows, is left as it is without a request; otherwise this calls ``update`` with
+        ``enabled=False``.
         """
 
         if self.enabled:
             self.update(enabled=False)
 
     def enable(self) -> bool:
-        """Enable this scheduled trigger.
+        """Enable the scheduled trigger, so it invokes the action on its schedule.
 
-        If the trigger is already enabled, the call has no effect.
-
-        The total number of active triggers within an organization is subject
-        to a tier-specific limit. If this operation results in the limit
-        being exceeded, this trigger will remain disabled.
+        A trigger that is already enabled, as far as this instance's record shows, is left as it is without a
+        request; otherwise this calls ``update`` with ``enabled=True``.
 
         Returns:
-            ``True`` if the trigger is now enabled, ``False`` otherwise.
+            ``True``. When the trigger cannot be enabled, the call raises instead of returning ``False``.
+
+        Raises:
+            RobotoLimitExceededException: The organization is already at its limit on enabled triggers.
+            RobotoNotFoundException: The action the trigger invokes no longer exists.
         """
 
         if not self.enabled:
@@ -471,10 +472,10 @@ class ScheduledTrigger:
         return self.enabled
 
     def get_action(self) -> Action:
-        """Get the target :py:class:`~roboto.domain.actions.Action` for this scheduled trigger.
+        """Fetch the latest version of the :py:class:`~roboto.domain.actions.Action` the trigger invokes.
 
-        Returns:
-            The action this trigger invokes on a recurring schedule.
+        Raises:
+            RobotoNotFoundException: The action no longer exists.
         """
 
         return Action.from_name(
@@ -486,17 +487,10 @@ class ScheduledTrigger:
     def get_evaluations(
         self,
     ) -> collections.abc.Generator[TriggerEvaluationRecord, None, None]:
-        """Get the evaluation history for this scheduled trigger.
+        """Yield a record of each time the trigger came due and tried to invoke the action, newest first.
 
-        Under normal circumstances, this trigger's target action will simply
-        be invoked on the configured schedule, for as long as the trigger is enabled.
-        However, it's possible that an error occurs when attempting to invoke the
-        action. In either case, a trigger evaluation record is created to capture
-        the details of what happened.
-
-        Returns:
-            A generator that yields :py:class:`~roboto.domain.actions.TriggerEvaluationRecord`
-            instances, ordered by descending evaluation start time.
+        Each :py:class:`~roboto.domain.actions.TriggerEvaluationRecord` says when the attempt started and ended and
+        whether it invoked the action. Records are fetched 100 at a time, as the iteration reaches them.
         """
 
         query_params: dict[str, typing.Any] = {
@@ -525,12 +519,9 @@ class ScheduledTrigger:
                 break
 
     def get_invocations(self) -> collections.abc.Generator[Invocation, None, None]:
-        """Get the scheduled invocations initiated by this trigger, if any.
+        """Yield the :py:class:`~roboto.domain.actions.Invocation` objects the trigger started, newest first.
 
-        Returns:
-            A generator that yields :py:class:`~roboto.domain.actions.Invocation`
-            instances for any scheduled invocations kicked off by this trigger.
-            The invocations are ordered from most to least recently created.
+        Invocations are fetched 100 at a time, as the iteration reaches them.
         """
 
         query_spec = QuerySpecification(
@@ -563,43 +554,42 @@ class ScheduledTrigger:
         schedule: typing.Union[str, TriggerSchedule, NotSetType] = NotSet,
         timeout: typing.Union[typing.Optional[int], NotSetType] = NotSet,
     ) -> ScheduledTrigger:
-        """Update this scheduled trigger.
+        """Update the scheduled trigger's properties.
 
-        Changing the action associated with this trigger, or the default upload destination,
-        are subject to authorization checks. Enabling the trigger or changing the target
-        action's timeout are subject to tier-specific organization limit checks.
-
-        Per Roboto convention, the sentinel value ``NotSet`` is the default for all
-        arguments to this call, indicating that the corresponding trigger attribute should
-        not be updated. The value ``None``, on the other hand, indicates that the relevant trigger
-        attribute should be set to ``None`` (i.e. cleared).
+        Each argument left unset (``NotSet``) leaves that property unchanged.
 
         Args:
-            action_name: Name of the target action to associate with this trigger.
-            action_owner_id: Organization ID that owns the target action.
-            compute_requirement_overrides: Optional compute requirement overrides for
-                action invocations.
-            container_parameter_overrides: Optional container parameter overrides for
-                action invocations.
-            enabled: Whether the trigger should be active immediately after creation.
-            invocation_input: Optional input specification to be used for all scheduled
-                action invocations.
-            invocation_upload_destination: Optional upload destination for invocation
-                outputs.
-            parameter_values: Optional parameter values to pass to the action when invoked.
-            schedule: Recurring schedule for the trigger, e.g. hourly.
-            timeout: Optional timeout override for action invocations, in minutes.
+            action_name: Name of the action to invoke. The action's owner stays the same unless ``action_owner_id`` is
+                also set.
+            action_owner_id: ID of the organization that owns the action. An action another organization owns must be
+                published in Action Hub.
+            compute_requirement_overrides: Overrides of the action's compute requirements for each invocation.
+                ``None`` clears the override, so invocations use the action's own.
+            container_parameter_overrides: Overrides of the action's container parameters for each invocation.
+                ``None`` clears the override, so invocations use the action's own.
+            enabled: Whether the trigger invokes the action on its schedule.
+            invocation_input: Query that selects each invocation's input data when the invocation runs. ``None``
+                clears it.
+            invocation_upload_destination: Where each invocation uploads its output files, which must be a dataset.
+                ``None`` clears it.
+            parameter_values: Values of the action's parameters, keyed by parameter name. ``None`` clears them.
+            schedule: When the trigger invokes the action: a five-field cron expression evaluated in UTC, or a
+                ``TriggerSchedule``.
+            timeout: Maximum run time of each invocation, in minutes. ``None`` clears the override, so invocations
+                use the action's own.
 
         Returns:
-            This trigger with any updates applied.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            ValueError: If request parameters have invalid values, e.g. a negative timeout.
-            RobotoInvalidRequestException: If the request cannot be satisfied as provided.
-            RobotoUnauthorizedException: If the caller lacks permission to invoke the
-                specified action or upload to the specified upload destination.
-            RobotoLimitExceededException: If the caller has exceeded their organization's
-                maximum action timeout limit (in minutes).
+            ValueError: ``schedule`` is not a valid cron expression, or ``timeout`` is negative.
+            RobotoNotFoundException: The organization that owns the action has no action with the trigger's action name.
+            RobotoUnauthorizedException: The action belongs to another organization and is not published in Action
+                Hub, or the caller may not upload files to ``invocation_upload_destination``.
+            RobotoInvalidRequestException: ``invocation_upload_destination`` is not a dataset, or the action inherits
+                its container from another action and the trigger sets container parameter overrides.
+            RobotoLimitExceededException: The update enables the trigger and the organization is already at its limit
+                on enabled triggers, or ``timeout`` exceeds the organization's maximum action timeout.
         """
 
         trigger_schedule: typing.Union[str, NotSetType] = NotSet

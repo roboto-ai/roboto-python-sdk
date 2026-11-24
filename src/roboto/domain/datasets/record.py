@@ -14,9 +14,12 @@ from ...pydantic.serializers import field_serializer_custom_field_values
 
 
 def make_backwards_compatible_placeholder_storage_ctx() -> dict[str, typing.Any]:
-    """
-    Because of some overly aggressive pydantic model validation, we need to return a storage_context with our
-    original S3 description in order to stop SDK clients prior to 0.10.0 from throwing errors.
+    """Deprecated. Return the placeholder ``storage_ctx`` that SDK versions before 0.10.0 require on dataset records.
+
+    Pydantic calls this while it builds a ``DatasetRecord`` without a ``storage_ctx``, as that field's default, which
+    Roboto does whenever it creates or returns a dataset; nothing replaces it. Those versions reject a dataset record
+    whose ``storage_ctx`` lacks the ``bucket_name``, ``iam_role_arn``, and ``key_prefix`` keys, so each key is present
+    with the value ``"NOT_SET"``.
     """
     return {
         "bucket_name": "NOT_SET",
@@ -26,83 +29,86 @@ def make_backwards_compatible_placeholder_storage_ctx() -> dict[str, typing.Any]
 
 
 class DatasetRecord(pydantic.BaseModel):
-    """Wire-transmissible representation of a dataset in the Roboto platform.
+    """Data record of a dataset, as the Roboto API returns it.
 
-    DatasetRecord contains all the metadata and properties associated with a dataset,
-    including its identification, timestamps, metadata, tags, and organizational
-    information. This is the data structure used for API communication and persistence.
-
-    DatasetRecord instances are typically created by the platform during dataset
-    creation operations and are updated as datasets are modified. The Dataset domain
-    class wraps DatasetRecord to provide a more convenient interface for dataset
-    operations.
-
-    The record includes audit information (created/modified timestamps and users),
-    organizational context, and user-defined metadata and tags for discovery and
-    organization purposes.
+    A dataset is a container of files in a directory structure, usually from one robot activity such as a flight.
+    :py:class:`~roboto.domain.datasets.Dataset` wraps this record with methods that act on the dataset, and exposes
+    it as :py:attr:`~roboto.domain.datasets.Dataset.record`. Building a record raises ``pydantic.ValidationError``
+    when ``name`` is longer than 120 characters.
     """
 
     created: datetime.datetime
-    """Timestamp when this dataset was created in the Roboto platform."""
+    """Time the dataset was created."""
 
     created_by: str
-    """User ID or service account that created this dataset."""
+    """Principal that created the dataset, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     dataset_id: str
-    """Unique identifier for this dataset within the Roboto platform."""
+    """Unique ID of the dataset, beginning with ``ds_``."""
 
     description: Optional[str] = None
-    """Human-readable description of the dataset's contents and purpose."""
+    """Human-readable description of the dataset, or ``None`` if it has none."""
 
     device_id: Optional[str] = None
-    """Optional identifier of the device that generated this dataset's data."""
+    """ID of the device the dataset's data came from, or ``None`` if none was given."""
 
     metadata: dict[str, Any] = pydantic.Field(default_factory=dict)
-    """User-defined key-value pairs for storing additional dataset information."""
+    """Key-value metadata on the dataset."""
 
     custom_fields: dict[str, Any] = pydantic.Field(default_factory=dict)
-    """Values for the custom fields defined on Datasets in this org.
+    """Values of the custom fields the organization defines for datasets, keyed by field name.
 
-    Every ``Ready`` custom field defined for ``(org_id, Dataset)`` appears as a
-    key — values that have not been set surface as ``None`` rather than being
-    absent. Empty when no custom fields are defined for the org.
+    Every dataset custom field in the :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` state appears
+    as a key, mapped to ``None`` when the dataset has no value for it. Fields in any other state are absent, so the
+    map is empty when no dataset custom field is in that state.
     """
 
     modified: datetime.datetime
-    """Timestamp when this dataset was last modified."""
+    """Time the dataset was last modified."""
 
     modified_by: str
-    """User ID or service account that last modified this dataset."""
+    """Principal that last modified the dataset, in the same ``<type>:<id>`` form as ``created_by``."""
 
     name: Optional[str] = pydantic.Field(
         default=None,
         max_length=120,
     )
-    """A short name for this dataset. This may be an org-specific unique ID that's more meaningful than the dataset_id,
-    or a short summary of the dataset's contents. If provided, must be 120 characters or less."""
+    """Human-readable name of the dataset, at most 120 characters, or ``None`` if it has none.
+
+    Roboto does not require names to be unique. A name can be an identifier more meaningful to the organization than
+    ``dataset_id``, or a short summary of the dataset's contents.
+    """
 
     org_id: str
-    """Organization ID that owns this dataset."""
+    """ID of the organization that owns the dataset."""
 
-    roboto_record_version: int = 0  # A protected field, incremented on every update
-    """Internal version number for this record, automatically incremented on updates."""
+    roboto_record_version: int = 0
+    """Unused. Version number of the record, ``0`` on every dataset Roboto returns."""
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """List of tags for categorizing and discovering this dataset."""
+    """Tags on the dataset."""
 
-    # Because datasets may have files in many buckets, both customer provided and Roboto managed, having a single
-    # storage location or a single administrator no longer makes sense.
-    #
-    # These fields are deprecated, and have defaulting strategies to maintain backwards compatibility with old
-    # versions of the Roboto SDK, since this record defines the shape of the service's return payload.
+    # A dataset's files can live in several buckets, customer-provided or Roboto-managed, so no single storage
+    # location or administrator describes a dataset. Roboto never sets the three fields below; their defaults keep
+    # the API's dataset payload parseable by older SDK versions that still require them.
     administrator: str = "Roboto"
-    """Deprecated field maintained for backwards compatibility. Always defaults to 'Roboto'."""
+    """Deprecated. Administrator of the dataset, always ``"Roboto"`` on datasets Roboto returns.
+
+    Nothing replaces it.
+    """
 
     storage_ctx: dict[str, Any] = pydantic.Field(default_factory=make_backwards_compatible_placeholder_storage_ctx)
-    """Deprecated storage context field maintained for backwards compatibility with SDK versions prior to 0.10.0."""
+    """Deprecated. Placeholder storage context whose values are all ``"NOT_SET"``.
+
+    Each file's :py:attr:`~roboto.domain.files.FileRecord.uri` gives where that file is stored. SDK versions before
+    0.10.0 require this field.
+    """
 
     storage_location: str = "S3"
-    """Deprecated storage location field maintained for backwards compatibility. Always defaults to 'S3'."""
+    """Deprecated. Storage location of the dataset, always ``"S3"`` on datasets Roboto returns.
+
+    Each file's :py:attr:`~roboto.domain.files.FileRecord.uri` gives where that file is stored.
+    """
 
     @pydantic.field_serializer("custom_fields", when_used="json")
     def _serialize_custom_fields(self, custom_fields: dict[str, Any]) -> dict[str, Any]:

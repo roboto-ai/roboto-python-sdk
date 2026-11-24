@@ -17,103 +17,132 @@ from .targets import TriggerTargetType
 
 
 class TriggerDispatchStatus(StrEnum):
-    """Lifecycle state of one dispatch: one attempt to run one target for one matched event."""
+    """Status of a dispatch: one attempt to run one of a trigger's targets for one matched platform event.
+
+    Roboto may deliver a platform event to a trigger more than once, such as after a failure, so a slot whose dispatch
+    failed or was abandoned can be claimed again and its target retried.
+    """
 
     Claimed = "claimed"
-    """The dispatch slot is claimed and the target is about to run. A claim that
-    neither finalizes nor is reclaimed within the redelivery grace period is presumed
-    dead and may be claimed again, so delivery is at-least-once: a target may run
-    twice for one event."""
+    """The dispatch has claimed its slot, and its target is running or about to run.
+
+    A claim that has not finished after five minutes is presumed abandoned, and a redelivery of the platform event may
+    claim the slot again, so a target can run twice for one platform event.
+    """
 
     Dispatched = "dispatched"
-    """The target ran; :attr:`TriggerDispatchRecord.result_ref` points at what it produced."""
+    """The target ran, or had already run for this slot.
+
+    ``TriggerDispatchRecord.result_ref`` names what it produced when it ran.
+    """
 
     Failed = "failed"
-    """The target raised; a redelivered event may claim the slot again."""
+    """The target failed or was rejected. A redelivery of the platform event may claim the slot again."""
 
     Unknown = "unknown"
-    """The claim outlived every redelivery of its event without finalizing, so the
-    outcome cannot be determined. Set by an operational sweep, never reclaimable."""
+    """The claim never finished and no redelivery claimed the slot again, so the target's outcome cannot be determined.
+
+    Roboto moves a claim to this status after about two hours, and never claims the slot again.
+    """
 
 
 @dataclasses.dataclass(frozen=True)
 class DispatchSlot:
-    """One target of one trigger at one dedup token: the unit a dispatch claims.
+    """Slot a dispatch occupies: one target of one trigger, for the platform events that share one idempotency token.
 
-    At most one dispatch ever occupies a slot. It is the dispatch table's primary key
-    and the vocabulary every dispatch port speaks.
+    Roboto keeps one dispatch record per slot, and a retry of the slot replaces it. Returned by
+    ``TriggerDispatchRecord.slot``.
     """
 
     trigger_id: str
+    """ID of the trigger."""
+
     idempotency_token: str
+    """Token that identifies the matched platform event at the trigger's ``once_per``.
+
+    For example, ``file.uploaded|dataset:ds_12345``.
+    """
+
     target_id: str
+    """ID of the target, unique within the trigger."""
 
 
 class TriggerDispatchRecord(pydantic.BaseModel):
-    """Wire-transmissible representation of one trigger dispatch.
+    """Data record of a trigger dispatch, as the Roboto API returns it.
 
-    A dispatch is one attempt to run one target of one trigger for one matched
-    platform event, deduped at the trigger's :class:`~roboto.domain.platform_events.OncePer`.
-    The triple (:attr:`trigger_id`, :attr:`idempotency_token`,
-    :attr:`target_id`) is the :class:`DispatchSlot`; at most one dispatch ever
-    occupies a slot, which is what makes redelivered events safe.
+    A dispatch is one attempt to run one of a trigger's targets for a platform event that matched the trigger. The
+    trigger's ``once_per`` (a :py:class:`~roboto.domain.platform_events.OncePer`) decides which platform events share an
+    idempotency token, and Roboto runs each target at most once per token, except when it retries a slot whose dispatch
+    failed or was abandoned. :py:meth:`~roboto.domain.triggers.Trigger.dispatches` returns these records.
     """
 
     trigger_id: str
-    """Trigger this dispatch belongs to."""
+    """ID of the trigger this dispatch belongs to."""
 
     idempotency_token: str
-    """Dedup token derived from the matched event at the trigger's ``once_per``
-    (``{event.type}|{once_per}:{projection}``)."""
+    """Token that identifies the matched platform event at the trigger's ``once_per``.
+
+    It has the form ``<event type>|<once_per>:<value>``, such as ``file.uploaded|dataset:ds_12345``.
+    """
 
     target_id: str
-    """Which of the trigger's targets this dispatch ran."""
+    """ID of the target this dispatch ran, unique within the trigger."""
 
     org_id: str
-    """Organization that owns the trigger."""
+    """ID of the organization that owns the trigger."""
 
     target_type: TriggerTargetType
-    """Kind of target dispatched."""
+    """Kind of target this dispatch ran, which decides what ``result_ref`` holds."""
 
     event_type: PlatformEventType
-    """Type of the platform event that matched."""
+    """Type of the matched platform event."""
 
     event_id: str
-    """Id of the platform event occurrence that most recently claimed this slot."""
+    """ID of the platform event that last claimed this slot.
+
+    A retry can come from another platform event with the same token, such as an upload of another file to the same
+    dataset at ``once_per=dataset``.
+    """
 
     subject: str
-    """The entity the matched platform event was about, as a ``roboto://`` URI; the
-    same value as the event's own ``subject``."""
+    """Entity the platform event in ``event_id`` is about, as a ``roboto://`` URI such as ``roboto://file/fl_12345``."""
 
     dataset_id: typing.Optional[str] = None
-    """The dataset the subject belongs to (the subject itself for a dataset event),
-    which is what a dataset's page lists dispatches by. ``None`` when the subject has
-    no dataset, such as an invocation."""
+    """ID of the dataset the platform event is about, or of the dataset that holds the file it is about.
+
+    ``None`` for a platform event about anything else, such as an invocation or a session.
+    """
 
     status: TriggerDispatchStatus
-    """Where this dispatch is in its lifecycle."""
+    """Status of the dispatch."""
 
     status_detail: typing.Optional[str] = None
-    """Human-readable detail for :attr:`status`, e.g. the error a failed target raised."""
+    """Human-readable detail on ``status``, such as the error a failed target raised, or ``None`` if there is none."""
 
     result_ref: typing.Optional[str] = None
-    """What a dispatched target produced: an invocation id, an agent thread id, or a
-    Slack message timestamp, per :attr:`target_type`."""
+    """What the target produced, by ``target_type``: an invocation ID, an agent thread ID, or a Slack message timestamp.
+
+    ``None`` until ``status`` is ``TriggerDispatchStatus.Dispatched``, after a failure, and when the action invocation
+    or agent thread already existed for this slot, so the target did not run again.
+    """
 
     claimed_at: datetime.datetime
-    """When the slot was (most recently) claimed."""
+    """Time the slot was last claimed."""
 
     finalized_at: typing.Optional[datetime.datetime] = None
-    """When the dispatch reached a terminal status; ``None`` while claimed."""
+    """Time the dispatch reached a final status.
+
+    ``None`` while ``status`` is ``TriggerDispatchStatus.Claimed``.
+    """
 
     @property
     def slot(self) -> DispatchSlot:
-        """The slot this dispatch occupies."""
+        """Slot this dispatch occupies."""
         return DispatchSlot(self.trigger_id, self.idempotency_token, self.target_id)
 
     @property
     def subject_uri(self) -> RobotoUri:
-        """:attr:`subject` as a parsed :class:`~roboto.uri.RobotoUri`."""
+        """Same value as ``subject``, parsed as a :py:class:`~roboto.uri.RobotoUri`."""
         return RobotoUri.parse(self.subject)
 
 

@@ -19,27 +19,38 @@ logger = default_logger()
 
 
 class FilesChangesetItem(pydantic.BaseModel):
-    """
-    A single row in the file metadata changeset .jsonl file.
+    """Change to one of an action's output files, stored as one JSON line in ``ROBOTO_FILE_METADATA_CHANGESET_FILE``.
+
+    Each call to a method of :py:class:`~roboto.action_runtime.FilesChangesetFileManager`, such as
+    :py:meth:`~roboto.action_runtime.FilesChangesetFileManager.put_tags`, appends one.
     """
 
     relative_path: str
-    """The path to the file relative to the ``${ROBOTO_OUTPUT_DIR}`` directory, which will correspond to the file's
-    relative_path in a roboto dataset after upload."""
+    """Path of the file relative to the action's output directory, and so its path in the dataset after upload."""
 
     update: files.UpdateFileRecordRequest
-    """The file metadata update to apply to the file."""
+    """Change to apply to the file once Roboto uploads it."""
 
 
 class FilesChangesetFileManager:
-    """
-    This class is used to pre-write tags/metadata updates to files which haven't been uploaded yet, but will be at the
-    conclusion of an action, by virtue of being in that action's output directory.
+    """Service that records tag, metadata, and description changes for an action's output files.
 
-    It uses a "file changeset" file to accumulate these pending updates during an action's runtime, and then applies
-    them automatically at the end of an action, after the action's output directory has been uploaded.
+    An action's output files reach Roboto only after the action finishes, when Roboto uploads its output directory
+    (``ROBOTO_OUTPUT_DIR``), so the action cannot change them with :py:meth:`~roboto.domain.files.File.update` while
+    it runs. Each method of this class instead appends the change to the file at
+    ``ROBOTO_FILE_METADATA_CHANGESET_FILE``. After the upload, Roboto applies each change to the file at the same path
+    in the dataset it uploaded to, and skips paths where that dataset has no file.
 
-    The most common way to get access to this would be via :class:`roboto.action_runtime.InvocationContext`.
+    Each method can be called any number of times while the action runs, and the calls accumulate.
+
+    Get the invocation's instance from :py:attr:`~roboto.action_runtime.InvocationContext.file_changeset_manager`.
+
+    Note:
+        When the first call for a file is ``set_description``, Roboto drops the tag and metadata changes of every
+        later call for that file.
+
+    Raises:
+        ValueError: ``ROBOTO_FILE_METADATA_CHANGESET_FILE`` is not set.
     """
 
     __path: pathlib.Path
@@ -59,20 +70,18 @@ class FilesChangesetFileManager:
         self.__path = path
 
     def put_tags(self, relative_path: str, tags: list[str]):
-        """
-        Adds tags to a to-be-uploaded file which is expected to be written to
-        ``${ROBOTO_OUTPUT_DIR}/relative_path`` by the end of the user portion of an action's runtime.
+        """Add tags to an output file once Roboto uploads it.
 
-        This can be called multiple times throughout the runtime of an action, and will be accumulated accordingly.
-        Order of calls matters.
+        Args:
+            relative_path: Path of the file relative to the action's output directory.
+            tags: Tags to add to the file.
 
         Examples:
+            Tag the file the action writes to ``images/front0_raw_000734.jpg`` in its output directory:
+
             >>> from roboto import InvocationContext
-            >>> context = InvocationContext.from_env()
-            >>> file_changeset_manager = context.file_changeset_manager
-            >>>
-            >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
-            >>> file_changeset_manager.put_tags("images/front0_raw_000734.jpg", ["cloudy", "rainy"]})
+            >>> manager = InvocationContext.from_env().file_changeset_manager
+            >>> manager.put_tags("images/front0_raw_000734.jpg", ["cloudy", "rainy"])
         """
         self.__append_update(
             relative_path,
@@ -80,24 +89,19 @@ class FilesChangesetFileManager:
         )
 
     def remove_tags(self, relative_path: str, tags: list[str]):
-        """
-        Removes tags from a to-be-uploaded file which is expected to be written to
-        ``${ROBOTO_OUTPUT_DIR}/relative_path`` by the end of the user portion of an action's runtime. You'll generally
-        only need this to remove tags which were added by a previous call to :meth:`put_tags`.
+        """Remove tags from an output file once Roboto uploads it.
 
-        This can be called multiple times throughout the runtime of an action, and will be accumulated accordingly.
-        Order of calls matters.
+        Roboto applies removals before additions, so it cannot remove a tag that a ``put_tags`` call adds to the same
+        file, whichever call came first.
+
+        Args:
+            relative_path: Path of the file relative to the action's output directory.
+            tags: Tags to remove from the file.
 
         Examples:
             >>> from roboto import InvocationContext
-            >>> context = InvocationContext.from_env()
-            >>> file_changeset_manager = context.file_changeset_manager
-            >>>
-            >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
-            >>> file_changeset_manager.put_tags("images/front0_raw_000734.jpg", ["cloudy", "rainy"]})
-            >>>
-            >>> # Actually this is just Seattle's aggressive mist, that's not really rainy...
-            >>> file_changeset_manager.remove_tags("images/front0_raw_000734.jpg", ["rainy"]})
+            >>> manager = InvocationContext.from_env().file_changeset_manager
+            >>> manager.remove_tags("images/front0_raw_000734.jpg", ["rainy"])
         """
         self.__append_update(
             relative_path,
@@ -105,23 +109,24 @@ class FilesChangesetFileManager:
         )
 
     def put_fields(self, relative_path: str, metadata: dict[str, typing.Any]):
-        """
-        Adds metadata key/value pairs to a to-be-uploaded file which is expected to be written to
-        ``${ROBOTO_OUTPUT_DIR}/relative_path`` by the end of the user portion of an action's runtime.
+        """Set key-value metadata on an output file once Roboto uploads it.
 
-        This can be called multiple times throughout the runtime of an action, and will be accumulated accordingly.
-        Order of calls matters.
+        When two calls set the same key, the later call's value wins.
+
+        Args:
+            relative_path: Path of the file relative to the action's output directory.
+            metadata: Key-value metadata to set on the file.
 
         Examples:
+            Set two keys:
+
             >>> from roboto import InvocationContext
-            >>> context = InvocationContext.from_env()
-            >>> file_changeset_manager = context.file_changeset_manager
-            >>>
-            >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
-            >>> file_changeset_manager.put_fields("images/front0_raw_000734.jpg", {"cars": 2, "trucks": 3})
-            >>>
-            >>> # Actually there was a 3rd car I missed in the first pass, and a plane, let me fix that...
-            >>> file_changeset_manager.put_fields("images/front0_raw_000734.jpg", {"cars": 3, "planes": 1})
+            >>> manager = InvocationContext.from_env().file_changeset_manager
+            >>> manager.put_fields("images/front0_raw_000734.jpg", {"cars": 2, "trucks": 3})
+
+            Change ``cars`` and add ``planes`` with a later call:
+
+            >>> manager.put_fields("images/front0_raw_000734.jpg", {"cars": 3, "planes": 1})
         """
         self.__append_update(
             relative_path,
@@ -129,24 +134,19 @@ class FilesChangesetFileManager:
         )
 
     def remove_fields(self, relative_path: str, keys: list[str]):
-        """
-        Removes metadata key/value pairs from a to-be-uploaded file which is expected to be written to
-        ``${ROBOTO_OUTPUT_DIR}/relative_path`` by the end of the user portion of an action's runtime. You'll generally
-        only need this to remove values which were added by a previous call to :meth:`put_fields`.
+        """Remove metadata keys from an output file once Roboto uploads it.
 
-        This can be called multiple times throughout the runtime of an action, and will be accumulated accordingly.
-        Order of calls matters.
+        Roboto applies removals before additions, so it cannot remove a key that a ``put_fields`` call sets on the
+        same file, whichever call came first.
+
+        Args:
+            relative_path: Path of the file relative to the action's output directory.
+            keys: Metadata keys to remove from the file.
 
         Examples:
             >>> from roboto import InvocationContext
-            >>> context = InvocationContext.from_env()
-            >>> file_changeset_manager = context.file_changeset_manager
-            >>>
-            >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
-            >>> file_changeset_manager.put_fields("images/front0_raw_000734.jpg", {"cars": 2, "trucks": 3})
-            >>>
-            >>> # Whoops, actually I don't want to count those trucks...
-            >>> file_changeset_manager.remove_fields("images/front0_raw_000734.jpg", ["trucks"])
+            >>> manager = InvocationContext.from_env().file_changeset_manager
+            >>> manager.remove_fields("images/front0_raw_000734.jpg", ["trucks"])
         """
         self.__append_update(
             relative_path,
@@ -154,24 +154,29 @@ class FilesChangesetFileManager:
         )
 
     def set_description(self, relative_path: str, description: typing.Optional[str]):
-        """
-        Sets the human-readable description of a to-be-uploaded file which is expected to be written to
-        ``${ROBOTO_OUTPUT_DIR}/relative_path`` by the end of the user portion of an action's runtime.
+        """Set the description of an output file once Roboto uploads it.
+
+        When called more than once for a file, the last call's description wins.
+
+        Args:
+            relative_path: Path of the file relative to the action's output directory.
+            description: Human-readable description of the file. ``None`` clears a description an earlier call set.
 
         Examples:
             >>> from roboto import InvocationContext
-            >>> context = InvocationContext.from_env()
-            >>> file_changeset_manager = context.file_changeset_manager
-            >>>
-            >>> # This would reference a file at ${ROBOTO_OUTPUT_DIR}/images/front0_raw_000734.jpg
-            >>> file_changeset_manager.set_description("images/front0_raw_000734.jpg", "This image was over-exposed")
+            >>> manager = InvocationContext.from_env().file_changeset_manager
+            >>> manager.set_description("images/front0_raw_000734.jpg", "This image was over-exposed")
         """
         self.__append_update(relative_path, files.UpdateFileRecordRequest(description=description))
 
     def _apply_to_dataset(self, dataset: datasets.Dataset):
-        """
-        Applies all pending file metadata changes to the given dataset. This is what the Roboto action framework
-        calls after the user portion of an action's runtime has completed. You should never need to call this directly.
+        """Apply the recorded changes to the files of ``dataset`` at the recorded paths.
+
+        A path with no file in ``dataset`` is skipped. When any recorded line fails to parse, it logs the error and
+        applies no changes.
+
+        Raises:
+            ValueError: ``ROBOTO_OUTPUT_DIR`` is not set.
         """
         if RobotoEnv.default().output_dir is None:
             raise ValueError(
@@ -227,7 +232,8 @@ class FilesChangesetFileManager:
             )
 
     def __append_update(self, relative_path: str, update: files.UpdateFileRecordRequest):
-        # Duplicates are OK, as we'll ignore them at upload time
+        # A call that repeats an earlier change is harmless: _apply_to_dataset merges every line for a path into one
+        # update.
         with open(self.__path, "a") as f:
             print(
                 FilesChangesetItem(relative_path=relative_path, update=update).model_dump_json(),

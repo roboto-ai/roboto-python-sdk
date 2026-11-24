@@ -26,14 +26,26 @@ from .namespace import EventNamespace
 UNSTRIPPED_ROOTS: frozenset[str] = (DEFAULT_PLATFORM_EVENT_CATALOG.namespace_roots() | RESERVED_ROOTS) - frozenset(
     {"dataset", "file"}
 )
-"""Namespace roots the query :class:`~roboto.query.Field` parser does not recognize as
-resource prefixes, so it leaves them in the lookup path (``changed.vehicle_id`` stays
-whole, unlike ``dataset.x`` which strips to ``x``). Derived from the default catalog's
-exposed roots."""
+"""Roots of trigger condition fields that :py:class:`~roboto.query.Field` keeps in the field's lookup path.
+
+The field parser strips the ``dataset.`` and ``file.`` prefixes, so ``dataset.x`` looks up ``x``, but keeps any other
+root, so ``changed.vehicle_id`` is looked up whole. The set holds every root an event type in the default platform event
+catalog exposes, plus ``envelope`` and ``trigger``, minus ``dataset`` and ``file``."""
 
 
 def iter_leaf_conditions(condition: ConditionType) -> collections.abc.Iterator[Condition]:
-    """Yield every leaf :class:`~roboto.query.Condition` in ``condition``, depth-first."""
+    """Yield every leaf :py:class:`~roboto.query.Condition` in a condition tree, depth-first.
+
+    Roboto calls this when a trigger is created or updated, to check each leaf of its condition, and when it evaluates
+    a trigger's condition against a platform event, including in a dry run. A :py:class:`~roboto.query.ConditionGroup`
+    is never yielded itself, whatever its operator; the conditions inside it are.
+
+    Args:
+        condition: Condition tree to walk. A single leaf is yielded alone.
+
+    Yields:
+        Each leaf condition, in the order it appears in the tree.
+    """
     if isinstance(condition, Condition):
         yield condition
     elif isinstance(condition, ConditionGroup):
@@ -42,11 +54,21 @@ def iter_leaf_conditions(condition: ConditionType) -> collections.abc.Iterator[C
 
 
 def explicit_root(condition: Condition) -> typing.Optional[str]:
-    """Return the namespace root ``condition``'s field explicitly names, or ``None`` if unqualified.
+    """Return the root a condition leaf's field names, or ``None`` if the field names no root.
 
-    ``dataset.*``/``file.*``/``topic.*``/``msgpath.*`` prefixes are recognized by the
-    query field parser; any other first segment counts as a root only when it is in
-    :data:`UNSTRIPPED_ROOTS`. An unqualified field binds to the event's default root.
+    Roboto calls this when a trigger is created or updated, through
+    :py:meth:`~roboto.domain.triggers.TriggerValidator.validate`, to check that the trigger's condition reads only
+    roots every subscribed platform event exposes, and when it evaluates a trigger's condition against a platform
+    event, to read each leaf from the right record. A field names a root when it starts with ``dataset.``, ``file.``,
+    ``topic.`` or ``msgpath.``, which return ``"dataset"``, ``"file"``, ``"topic"`` and ``"message_path"``, or when its
+    first segment is in ``UNSTRIPPED_ROOTS``, such as ``changed`` in ``changed.vehicle_id``. A field that names no root
+    reads from the subscribed event type's default root.
+
+    Args:
+        condition: Condition leaf whose field to read the root of.
+
+    Returns:
+        Root the field names, such as ``"dataset"`` or ``"changed"``, or ``None`` when it names none.
     """
     if condition.targets_dataset():
         return "dataset"
@@ -63,29 +85,39 @@ def explicit_root(condition: Condition) -> typing.Optional[str]:
 
 
 class ConditionMatcher:
-    """Evaluates a trigger condition tree against an event namespace.
+    """Evaluator of a trigger's condition against one platform event.
 
-    Reuses the query :class:`~roboto.query.Condition` comparators unchanged; only the
-    value source differs. Each leaf routes to the namespace root its field targets and
-    matches against that root's record, so roots hydrate lazily on first reference. A
-    root whose record is missing evaluates to a non-match, so ``NOT_EXISTS`` and
-    ``IS_NULL`` never match against an entity that was deleted before evaluation.
+    Roboto uses it when a trigger fires, to decide whether the trigger runs its targets; to see how a trigger's
+    condition evaluates against an event, use :py:meth:`~roboto.domain.triggers.Trigger.dry_run` instead.
+
+    Each leaf of the condition reads the record of the root its field names, or of ``default_root`` when the field names
+    none, and compares the value there with the comparators :py:class:`~roboto.query.Condition` uses in queries. A
+    root's record is loaded only when a leaf reads it. A leaf is false, whatever its comparator, when:
+
+    - Its field starts with ``topic.`` or ``msgpath.``. No platform event exposes topics or message paths.
+    - The event has no record for its root, such as when the resource was deleted before the condition ran. So the
+      :py:class:`~roboto.query.Comparator` members ``NotExists`` and ``IsNull`` do not match a deleted resource, though
+      a :py:attr:`~roboto.query.ConditionOperator.Not` group over such a leaf does.
+
+    Under ``Equals``, ``NotEquals`` and the four ordering comparators, two zoned ISO-8601 timestamps compare as instants
+    rather than as text, so ``2026-09-16T15:00:00Z`` equals ``2026-09-16T15:00:00+00:00``.
+
+    Args:
+        namespace: Namespace of the platform event to evaluate the condition against.
+        default_root: Root that a condition field with no root reads from: the subscribed event type's
+            :py:attr:`~roboto.domain.platform_events.PlatformEventDescriptor.default_root`.
     """
 
     def __init__(self, namespace: EventNamespace, default_root: str) -> None:
-        """Bind the matcher to one event namespace.
-
-        Args:
-            namespace: The event's variable namespace.
-            default_root: Root that unqualified condition fields bind to; the
-                subscribed event type's
-                :attr:`~roboto.domain.platform_events.PlatformEventDescriptor.default_root`.
-        """
         self.__namespace = namespace
         self.__default_root = default_root
 
     def matches(self, condition: typing.Optional[ConditionType]) -> bool:
-        """Return whether ``condition`` holds for the event. A ``None`` condition always matches."""
+        """Return whether a condition holds for the event.
+
+        Args:
+            condition: Condition tree to evaluate. ``None`` always matches.
+        """
         if condition is None:
             return True
         return self.__visit(condition)
@@ -98,8 +130,8 @@ class ConditionMatcher:
         raise ValueError(f"Unknown condition type: {type(condition)}")
 
     def __visit_leaf(self, condition: Condition) -> bool:
-        # No event hydrates topic/message_path roots; such leaves never match rather
-        # than falling through to the default root and matching the wrong record.
+        # No platform event exposes a topic or message path, so these leaves are false without asking the namespace
+        # for a record.
         if condition.targets_topic() or condition.targets_message_path():
             return False
         root = explicit_root(condition)
@@ -109,15 +141,14 @@ class ConditionMatcher:
         record = self.__namespace.record(root)
         if record is None:
             return False
-        # Condition.matches keeps unknown prefixes (changed./tag./invocation./...) in
-        # its lookup path while stripping known ones (dataset./file.), so nest the
-        # record one level under its root for the kept segment to resolve.
+        # The field parser strips dataset. and file. from the lookup path but keeps any other root, such as changed.,
+        # so nest the record under its root for that first segment to resolve.
         target = {root: dict(record)} if wrap_under_root else dict(record)
         return _as_instants(condition, target).matches(target)
 
 
 _ISO_INSTANT = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$")
-"""An ISO-8601 timestamp with a date, a time and a zone: what a JSON-typed record carries."""
+"""Pattern of an ISO-8601 timestamp with a date, a time and a zone, the form a timestamp takes in a record."""
 
 _CHRONOLOGICAL = frozenset(
     {
@@ -129,19 +160,18 @@ _CHRONOLOGICAL = frozenset(
         Comparator.LessThanOrEqual,
     }
 )
-"""The comparators for which two timestamps mean instants, not text."""
+"""Comparators under which two timestamps compare as instants rather than as text."""
 
 
 def _as_instants(condition: Condition, target: dict[str, typing.Any]) -> Condition:
-    """Return ``condition`` with its value parsed to a datetime when both sides are timestamps.
+    """Return ``condition`` with its value parsed to a datetime when it and the record's value are both timestamps.
 
-    Namespace records are JSON-typed, so ``file.created`` arrives as a string, and so
-    is a condition's value; as text ``...Z`` and ``...+00:00`` differ and offsets sort
-    wrongly. When the comparator is chronological and both the condition's value and
-    the record's value are zoned ISO-8601 timestamps, the condition's side becomes a
-    datetime and :meth:`Condition.matches` parses the record's side to match. String
-    comparators (``BEGINS_WITH``, ``CONTAINS`` and the rest) and any non-timestamp
-    value are left alone, so text conditions keep their text semantics.
+    Records carry timestamps as JSON strings, such as ``file.created``, and a condition's value is a string too. As
+    text, ``...Z`` and ``...+00:00`` differ and offsets sort out of order. When the comparator is in
+    ``_CHRONOLOGICAL`` and both values match ``_ISO_INSTANT``, the condition's value becomes a datetime, and
+    :py:meth:`~roboto.query.Condition.matches` then parses the record's value to compare. Any other comparator, such as
+    :py:attr:`~roboto.query.Comparator.BeginsWith` or :py:attr:`~roboto.query.Comparator.Contains`, or any value that
+    is not a zoned timestamp, leaves ``condition`` unchanged.
     """
     if condition.comparator not in _CHRONOLOGICAL:
         return condition

@@ -12,6 +12,7 @@ from ..context import CLIContext
 
 
 def show(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Print the record of the invocation with the given ID, as JSON on one line."""
     invocation = actions.Invocation.from_id(
         args.invocation_id,
         roboto_client=context.roboto_client,

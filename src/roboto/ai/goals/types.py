@@ -12,71 +12,61 @@ from ...compat import StrEnum
 
 
 class GoalType(StrEnum):
-    """Discriminator values for the :data:`AgentGoal` union.
+    """Kind of goal: what Roboto's AI must produce.
 
-    Each value pairs with exactly one :class:`pydantic.BaseModel` subclass below
-    and one server-side ``GoalHandler`` registration. The string value is the
-    canonical identifier used in persistence (``agent_session_goals.goal_type``),
-    in the Bedrock-facing achieve-tool name, and in the wire format.
+    Each member is the ``goal_type`` of one class in ``AgentGoal``.
     """
 
     DATASET_SUMMARY = "dataset_summary"
-    """Summarize a dataset and store the summary that ``Dataset.get_summary()`` returns."""
+    """Summary of a dataset (``DatasetSummaryAgentGoal``).
+
+    Roboto stores it where :py:meth:`~roboto.domain.datasets.Dataset.get_summary` returns it.
+    """
 
     DATASET_TRIAGE = "dataset_triage"
-    """Deliberate over a caller-supplied label vocabulary and apply the labels that fit (zero or more) as tags
-    on the dataset, with a per-label justification recorded in the agent session log."""
+    """Tags on a dataset, chosen from labels the caller supplies (``DatasetTriageGoal``)."""
 
     CREATE_EVENTS = "create_events"
-    """Investigate a dataset and create events on it, drawn from a caller-supplied event vocabulary;
-    optionally file each created event into a caller-supplied collection."""
+    """Events on a dataset, of kinds the caller supplies (``CreateEventsGoal``)."""
 
     SESSION_SUMMARY = "session_summary"
-    """Summarize a session and store the summary that ``Session.get_summary()`` returns."""
+    """Summary of a session (``SessionSummaryAgentGoal``).
+
+    Roboto stores it where :py:meth:`~roboto.experimental.sessions.Session.get_summary` returns it.
+    """
 
     SESSION_TRIAGE = "session_triage"
-    """Deliberate over a caller-supplied label vocabulary and apply the labels that fit (zero or more) as tags
-    on the session, with a per-label justification recorded in the agent session log."""
+    """Tags on a session, chosen from labels the caller supplies (``SessionTriageGoal``)."""
 
     SESSION_CREATE_EVENTS = "session_create_events"
-    """Investigate a session and create session events on it, drawn from a caller-supplied event vocabulary."""
+    """Session events, of kinds the caller supplies (``SessionCreateEventsGoal``)."""
 
 
 class AgentGoalStatus(StrEnum):
-    """Lifecycle of a per-turn declared goal.
+    """Status of a goal: whether Roboto's AI has achieved it.
 
-    Goals begin PENDING when registered. They transition to ACHIEVED when the
-    corresponding achieve-tool reports success, or to FAILED when the runner's
-    corrective re-prompt budget for the turn is exhausted (or when the worker
-    cannot construct an achieve-tool for the goal).
+    A goal starts ``PENDING`` when it is declared and ends ``ACHIEVED`` or ``FAILED`` with its turn.
     """
 
     PENDING = "pending"
-    """Goal has been registered but not yet completed."""
+    """Declared, and not yet achieved or failed."""
 
     ACHIEVED = "achieved"
-    """Goal's corresponding achieve-tool was invoked successfully."""
+    """The AI made the change the goal asks for."""
 
     FAILED = "failed"
-    """Goal could not be achieved within the turn's retry budget."""
+    """The turn ended without the AI achieving the goal.
+
+    Either the AI used up its retries for the turn, or Roboto could not process this kind of goal.
+    """
 
 
 class AgentGoalBase(pydantic.BaseModel):
-    """Shared base for every :data:`AgentGoal` subclass.
+    """Base class of the goals in ``AgentGoal``.
 
-    Subclasses must declare a literal-typed discriminator field, e.g.
-    ``goal_type: Literal[GoalType.MY_GOAL] = GoalType.MY_GOAL``. Two
-    machineries enforce that contract:
-
-    - :meth:`__pydantic_init_subclass__` raises ``TypeError`` at class-body
-      parse if a subclass forgets ``goal_type`` — converts a silent dispatch
-      footgun into a loud failure.
-    - :meth:`_force_discriminator_into_fields_set` marks ``goal_type`` as
-      explicitly set after construction so it survives the SDK's
-      ``model_dump_json(exclude_unset=True)`` serialization and reaches the
-      server's discriminated-union parser. Without it, default-valued
-      ``goal_type`` would be stripped on the wire and the server would 400
-      with "Request body malformed".
+    Roboto subclasses it to add a kind of goal; to declare a goal, build one of its subclasses. Defining a subclass
+    without a ``goal_type`` field raises ``TypeError``. ``goal_type`` counts as set even when left at its default, so
+    ``model_dump(exclude_unset=True)`` keeps it and Roboto can tell which kind of goal a request declares.
     """
 
     @classmethod
@@ -97,47 +87,47 @@ class AgentGoalBase(pydantic.BaseModel):
 
 
 _MAX_SUMMARY_FORMAT_SPEC_CHARS = 4000
-"""Length cap on ``summary_format_spec_prompt`` for both summary goals; keeps the prompt budget predictable."""
+"""Maximum length of a summary goal's ``summary_format_spec_prompt``, in characters."""
 
 
 class DatasetSummaryAgentGoal(AgentGoalBase):
-    """Goal: summarize a specific dataset and store the result.
+    """Goal that has Roboto's AI summarize a dataset.
 
-    The achieve-tool wired to this goal stores the summary on the dataset
-    identified by :attr:`dataset_id` and no other, where ``Dataset.get_summary()``
-    returns it. The format spec is supplied to the LLM as part of the goal
-    prompt block; the achieve-tool itself does not interpret it.
+    The AI stores the summary on the dataset ``dataset_id`` and no other, where
+    :py:meth:`~roboto.domain.datasets.Dataset.get_summary` returns it. Building the goal raises
+    ``pydantic.ValidationError`` when ``summary_format_spec_prompt`` is empty or longer than 4000 characters.
     """
 
     goal_type: Literal[GoalType.DATASET_SUMMARY] = GoalType.DATASET_SUMMARY
-    """Discriminator. Always :attr:`GoalType.DATASET_SUMMARY`."""
+    """Kind of goal, always ``GoalType.DATASET_SUMMARY``."""
 
     dataset_id: str
-    """Identifier of the dataset to summarize. The achieve-tool enforces this as an invariant."""
+    """ID of the dataset to summarize."""
 
     summary_format_spec_prompt: Optional[str] = pydantic.Field(
         default=None, min_length=1, max_length=_MAX_SUMMARY_FORMAT_SPEC_CHARS
     )
-    """Caller-provided natural-language guidance about the desired summary structure. ``None`` means use the
-    handler's opinionated default. When set, must be 1-4000 characters; an empty string is rejected so callers
-    don't accidentally suppress the default with whitespace-stripped input."""
+    """Instructions for the AI on how to structure the summary, from 1 to 4000 characters.
+
+    Roboto does not check the summary against them. ``None`` uses Roboto's default structure.
+    """
 
 
 _TRIAGE_LABEL_PATTERN = r"^[a-zA-Z0-9_\-]+$"
-"""Pattern label keys must satisfy: the characters that work cleanly both as Roboto tags
-on datasets and sessions and as enum values in the LLM-facing tool schema. ASCII
-alphanumerics plus underscore and hyphen."""
+"""Regular expression a triage label must match: ASCII letters, digits, underscores and hyphens.
+
+These characters work both as tags and as choices in the tool the AI calls to report its decisions.
+"""
 
 _MAX_TRIAGE_LABELS = 50
-"""Cap on vocabulary size; prevents runaway prompt + tool-schema bloat."""
+"""Maximum number of labels in a triage goal's ``label_vocabulary``."""
 
 _MAX_TRIAGE_DESCRIPTION_CHARS = 500
-"""Per-label description length cap; keeps the prompt budget predictable."""
+"""Maximum length of a triage label's description, in characters."""
 
 
 def _validate_triage_vocabulary(value: dict[str, str]) -> dict[str, str]:
-    """Shared entry validator for the ``label_vocabulary`` of :class:`DatasetTriageGoal` and
-    :class:`SessionTriageGoal`."""
+    """Reject a label vocabulary that breaks the rules ``DatasetTriageGoal`` states."""
     import re
 
     label_re = re.compile(_TRIAGE_LABEL_PATTERN)
@@ -162,27 +152,30 @@ def _validate_triage_vocabulary(value: dict[str, str]) -> dict[str, str]:
 
 
 class DatasetTriageGoal(AgentGoalBase):
-    """Goal: deliberate over a caller-supplied label vocabulary and apply the labels that fit.
+    """Goal that has Roboto's AI tag a dataset with the labels from a vocabulary that apply to it.
 
-    The achieve-tool requires one decision per vocabulary entry — each with
-    ``applies: bool`` plus a justification and confidence. Labels with
-    ``applies=true`` (zero or more) become tags on the dataset identified
-    by :attr:`dataset_id`; per-label reasoning lives in the agent session
-    log, not on the dataset itself.
+    The AI decides on every label in ``label_vocabulary``, giving whether it applies, a justification and a
+    confidence. Roboto adds the labels that apply, if any, to the tags of the dataset ``dataset_id`` and no other. The
+    decisions are in the goal's :py:class:`~roboto.ai.goals.DatasetTriageGoalResult`.
+
+    Building the goal raises ``pydantic.ValidationError`` when:
+
+    - ``label_vocabulary`` is empty or has more than 50 labels.
+    - A label has a character other than an ASCII letter, digit, underscore or hyphen.
+    - A label's description is blank or longer than 500 characters.
     """
 
     goal_type: Literal[GoalType.DATASET_TRIAGE] = GoalType.DATASET_TRIAGE
-    """Discriminator. Always :attr:`GoalType.DATASET_TRIAGE`."""
+    """Kind of goal, always ``GoalType.DATASET_TRIAGE``."""
 
     dataset_id: str
-    """Identifier of the dataset to triage. The achieve-tool enforces this as an invariant."""
+    """ID of the dataset to tag."""
 
     label_vocabulary: dict[str, str] = pydantic.Field(min_length=1, max_length=_MAX_TRIAGE_LABELS)
-    """Allowable labels for this triage action, mapped to descriptions. Keys are the labels the LLM may
-    choose between; values describe what each label signifies so the LLM can pick correctly. Must contain
-    at least one entry and at most :data:`_MAX_TRIAGE_LABELS`. Each key must match :data:`_TRIAGE_LABEL_PATTERN`
-    (ASCII alphanumerics, underscore, hyphen). Each description must be 1-:data:`_MAX_TRIAGE_DESCRIPTION_CHARS`
-    characters."""
+    """Labels the AI chooses from, each mapped to a description of what it means.
+
+    The AI reads each description to decide whether the label applies.
+    """
 
     @pydantic.field_validator("label_vocabulary")
     @classmethod
@@ -191,31 +184,23 @@ class DatasetTriageGoal(AgentGoalBase):
 
 
 _MAX_EVENT_FOCUS_PROMPT_CHARS = 4000
-"""Length cap on :attr:`CreateEventsGoal.event_focus_prompt`; keeps the prompt budget predictable."""
+"""Maximum length of an events goal's ``event_focus_prompt``, in characters."""
 
 _MAX_EVENT_VOCABULARY = 50
-"""Cap on :attr:`CreateEventsGoal.event_vocabulary` size; prevents runaway prompt + tool-schema
-bloat. Mirrors the conservative cap on triage labels."""
+"""Maximum number of entries in an events goal's ``event_vocabulary``."""
 
 _MAX_TAG_VOCABULARY = 50
-"""Cap on :attr:`CreateEventsGoal.tag_vocabulary` size; same rationale as :data:`_MAX_EVENT_VOCABULARY`."""
+"""Maximum number of entries in an events goal's ``tag_vocabulary``."""
 
 _MAX_VOCABULARY_KEY_CHARS = 100
-"""Per-entry key length cap for either vocabulary. Keys are reflected into the achieve-tool's enums
-and become created events' ``name`` / ``tags``; the cap keeps both bounded."""
+"""Maximum length of a key in an events goal's ``event_vocabulary`` or ``tag_vocabulary``, in characters."""
 
 _MAX_VOCABULARY_DESCRIPTION_CHARS = 500
-"""Per-entry description length cap for either vocabulary; keeps the prompt budget predictable."""
+"""Maximum length of a description in an events goal's ``event_vocabulary`` or ``tag_vocabulary``, in characters."""
 
 
 def _validate_vocabulary(value: dict[str, str], *, field_name: str) -> dict[str, str]:
-    """Shared entry validator for the vocabularies of :class:`CreateEventsGoal` and :class:`SessionCreateEventsGoal`.
-
-    Both ``event_vocabulary`` and ``tag_vocabulary`` map a short key (an event-type
-    name / a tag) to a description rendered into the prompt. Keys must be non-empty
-    and at most :data:`_MAX_VOCABULARY_KEY_CHARS`; descriptions non-empty and at most
-    :data:`_MAX_VOCABULARY_DESCRIPTION_CHARS`.
-    """
+    """Reject an event or tag vocabulary that breaks the rules ``CreateEventsGoal`` states."""
     for key, description in value.items():
         if not isinstance(key, str) or not key.strip():
             raise ValueError(f"{field_name} keys must be non-empty strings; got {key!r}.")
@@ -237,53 +222,59 @@ def _validate_vocabulary(value: dict[str, str], *, field_name: str) -> dict[str,
 
 
 class CreateEventsGoal(AgentGoalBase):
-    """Goal: investigate a dataset and create tagged events on it from fixed vocabularies.
+    """Goal that has Roboto's AI investigate a dataset and create events on it, of kinds the caller supplies.
 
-    The caller declares :attr:`event_vocabulary` — a fixed set of event types
-    (name → description) the agent may create — and, optionally, :attr:`tag_vocabulary`
-    — a fixed set of tags (tag → when-to-apply description) the agent may attach.
-    The achieve-tool constrains every submitted event's ``name`` to an
-    ``event_vocabulary`` key and every tag to a ``tag_vocabulary`` key, so the agent
-    can only file events of the declared kinds carrying the declared tags; the
-    descriptions steer which intervals qualify and which tags fit. Every created
-    event is associated with the dataset identified by :attr:`dataset_id`. When
-    :attr:`collection_id` is set, each created event is also added to that (event)
-    collection; when it is ``None``, events are created but not filed into any
-    collection. The dataset id — and the collection id when set — are
-    constructor-injected into the achieve-tool so the LLM cannot redirect the work.
+    Every event the AI creates is on the dataset ``dataset_id`` and no other, takes a key of ``event_vocabulary`` as
+    its name, and carries only tags that are keys of ``tag_vocabulary``. The descriptions in both vocabularies guide
+    the AI's choice of time spans and tags. When ``collection_id`` is set, Roboto also adds every created event to that
+    collection and no other.
+
+    Only an organization whose :py:class:`~roboto.domain.orgs.EventModel` is
+    :py:attr:`~roboto.domain.orgs.EventModel.Legacy` or ``Dual`` takes events on datasets. Declaring this goal on a
+    dataset of any other organization raises ``RobotoInvalidRequestException``; declare ``SessionCreateEventsGoal``
+    on a session instead.
+
+    Building the goal raises ``pydantic.ValidationError`` when:
+
+    - ``event_vocabulary`` is empty.
+    - Either vocabulary has more than 50 entries, a blank key, a key longer than 100 characters, or a description that
+      is blank or longer than 500 characters.
+    - ``event_focus_prompt`` is empty or longer than 4000 characters.
     """
 
     goal_type: Literal[GoalType.CREATE_EVENTS] = GoalType.CREATE_EVENTS
-    """Discriminator. Always :attr:`GoalType.CREATE_EVENTS`."""
+    """Kind of goal, always ``GoalType.CREATE_EVENTS``."""
 
     dataset_id: str
-    """Identifier of the dataset to investigate. Every created event is associated with this
-    dataset. The achieve-tool enforces this as an invariant."""
+    """ID of the dataset to investigate and create events on."""
 
     event_vocabulary: dict[str, str] = pydantic.Field(min_length=1, max_length=_MAX_EVENT_VOCABULARY)
-    """Fixed set of event types the agent may create, mapped to descriptions. Keys are the event
-    names the LLM may choose between — each becomes the ``name`` of a created event — and values
-    describe what each event type signifies so the LLM can decide which intervals qualify. Must
-    contain at least one entry and at most :data:`_MAX_EVENT_VOCABULARY`."""
+    """Names of the events the AI may create, each mapped to a description of what that kind of event marks.
+
+    The AI reads the descriptions to decide which time spans qualify.
+    """
 
     tag_vocabulary: dict[str, str] = pydantic.Field(default_factory=dict, max_length=_MAX_TAG_VOCABULARY)
-    """Fixed set of tags the agent may attach to created events, mapped to descriptions of when each
-    tag applies. For every event it creates the agent picks a subset (possibly empty) of these tags.
-    Empty (the default) means created events carry no tags. At most :data:`_MAX_TAG_VOCABULARY`
-    entries."""
+    """Tags the AI may put on the events it creates, each mapped to a description of when it applies.
+
+    The AI picks any number of them for each event. Defaults to none, so created events carry no tags.
+    """
 
     collection_id: Optional[str] = None
-    """Identifier of the collection every created event is added to. ``None`` (the default) means
-    created events are not filed into any collection. When set, the achieve-tool enforces it as an
-    invariant and the target must be an event collection."""
+    """ID of the collection to add every created event to.
+
+    It must be a collection of events (:py:attr:`~roboto.domain.collections.CollectionResourceType.Event`). ``None``
+    adds them to no collection.
+    """
 
     event_focus_prompt: Optional[str] = pydantic.Field(
         default=None, min_length=1, max_length=_MAX_EVENT_FOCUS_PROMPT_CHARS
     )
-    """Caller-provided natural-language guidance layered on top of the vocabularies (e.g. "only flag
-    intervals longer than five seconds"). ``None`` means the vocabulary descriptions alone steer the
-    agent. When set, must be 1-:data:`_MAX_EVENT_FOCUS_PROMPT_CHARS` characters; an empty string is
-    rejected so callers don't accidentally suppress the guidance with whitespace-stripped input."""
+    """Further instructions for the AI on which events to create, from 1 to 4000 characters.
+
+    For example, ``"only flag intervals longer than five seconds"``. ``None`` leaves the vocabulary descriptions as
+    the only guidance.
+    """
 
     @pydantic.field_validator("event_vocabulary")
     @classmethod
@@ -297,44 +288,48 @@ class CreateEventsGoal(AgentGoalBase):
 
 
 class SessionSummaryAgentGoal(AgentGoalBase):
-    """Goal: summarize a specific session and store the result.
+    """Goal that has Roboto's AI summarize a session.
 
-    The achieve-tool wired to this goal stores the summary on the session
-    identified by :attr:`session_id` and no other, where ``Session.get_summary()``
-    returns it. The format spec is supplied to the LLM as part of the goal
-    prompt block; the achieve-tool itself does not interpret it.
+    The AI stores the summary on the session ``session_id`` and no other, where
+    :py:meth:`~roboto.experimental.sessions.Session.get_summary` returns it. Building the goal raises
+    ``pydantic.ValidationError`` when ``summary_format_spec_prompt`` is empty or longer than 4000 characters.
     """
 
     goal_type: Literal[GoalType.SESSION_SUMMARY] = GoalType.SESSION_SUMMARY
-    """Discriminator. Always :attr:`GoalType.SESSION_SUMMARY`."""
+    """Kind of goal, always ``GoalType.SESSION_SUMMARY``."""
 
     session_id: str
-    """Identifier of the session to summarize. The achieve-tool enforces this as an invariant."""
+    """ID of the session to summarize."""
 
     summary_format_spec_prompt: Optional[str] = pydantic.Field(
         default=None, min_length=1, max_length=_MAX_SUMMARY_FORMAT_SPEC_CHARS
     )
-    """Caller-provided natural-language guidance about the desired summary structure. ``None`` means use the
-    handler's opinionated default. When set, must be 1-4000 characters."""
+    """Instructions for the AI on how to structure the summary, from 1 to 4000 characters.
+
+    Roboto does not check the summary against them. ``None`` uses Roboto's default structure.
+    """
 
 
 class SessionTriageGoal(AgentGoalBase):
-    """Goal: deliberate over a caller-supplied label vocabulary and apply the labels that fit to a session.
+    """Goal that has Roboto's AI tag a session with the labels from a vocabulary that apply to it.
 
-    The session counterpart of :class:`DatasetTriageGoal`. The achieve-tool requires one decision per
-    vocabulary entry; labels with ``applies=true`` (zero or more) become tags on the session identified
-    by :attr:`session_id`, and the per-label reasoning lives in the agent session log.
+    The session counterpart of ``DatasetTriageGoal``, which states the rules ``label_vocabulary`` must follow; building
+    this goal raises ``pydantic.ValidationError`` for the same values. Roboto adds the labels that apply, if any, to the
+    tags of the session ``session_id`` and no other. The decisions are in the goal's
+    :py:class:`~roboto.ai.goals.SessionTriageGoalResult`.
     """
 
     goal_type: Literal[GoalType.SESSION_TRIAGE] = GoalType.SESSION_TRIAGE
-    """Discriminator. Always :attr:`GoalType.SESSION_TRIAGE`."""
+    """Kind of goal, always ``GoalType.SESSION_TRIAGE``."""
 
     session_id: str
-    """Identifier of the session to triage. The achieve-tool enforces this as an invariant."""
+    """ID of the session to tag."""
 
     label_vocabulary: dict[str, str] = pydantic.Field(min_length=1, max_length=_MAX_TRIAGE_LABELS)
-    """Allowable labels for this triage action, mapped to descriptions, with the same constraints as
-    :attr:`DatasetTriageGoal.label_vocabulary`."""
+    """Labels the AI chooses from, each mapped to a description of what it means.
+
+    The AI reads each description to decide whether the label applies.
+    """
 
     @pydantic.field_validator("label_vocabulary")
     @classmethod
@@ -343,41 +338,43 @@ class SessionTriageGoal(AgentGoalBase):
 
 
 class SessionCreateEventsGoal(AgentGoalBase):
-    """Goal: investigate a session and create tagged session events on it from fixed vocabularies.
+    """Goal that has Roboto's AI investigate a session and create session events on it, of kinds the caller supplies.
 
-    The session counterpart of :class:`CreateEventsGoal`. The achieve-tool creates session events
-    (``evt_`` IDs, listed by :meth:`roboto.experimental.sessions.Session.list_events`) on the session
-    identified by :attr:`session_id` and no other. Each event may name the session's topics that it
-    concerns. As with :class:`CreateEventsGoal`, every event's ``name`` must be an :attr:`event_vocabulary`
-    key and every tag a :attr:`tag_vocabulary` key. Session events cannot be filed into collections, so
-    the goal has no ``collection_id``.
+    The session counterpart of ``CreateEventsGoal``, which states the rules both vocabularies and
+    ``event_focus_prompt`` must follow; building this goal raises ``pydantic.ValidationError`` for the same values.
+    Every event the AI creates is on the session ``session_id`` and no other, has an ID beginning with ``evt_``, and
+    is listed by :py:meth:`~roboto.experimental.sessions.Session.list_events`. Each event may name the topics of the
+    session it concerns. Session events cannot be added to collections, so the goal has no ``collection_id``.
 
-    Which of the two goals an org can declare depends on its :class:`~roboto.domain.orgs.EventModel`. This
-    goal needs an org that has session events (``dual``, ``migrating`` or ``session``);
-    :class:`CreateEventsGoal` needs one that still takes dataset events (``legacy`` or ``dual``).
+    Only an organization whose :py:class:`~roboto.domain.orgs.EventModel` is
+    ``Dual``, ``Migrating`` or ``Session`` takes session events.
     """
 
     goal_type: Literal[GoalType.SESSION_CREATE_EVENTS] = GoalType.SESSION_CREATE_EVENTS
-    """Discriminator. Always :attr:`GoalType.SESSION_CREATE_EVENTS`."""
+    """Kind of goal, always ``GoalType.SESSION_CREATE_EVENTS``."""
 
     session_id: str
-    """Identifier of the session to investigate. Every created event belongs to this session. The
-    achieve-tool enforces this as an invariant."""
+    """ID of the session to investigate and create events on."""
 
     event_vocabulary: dict[str, str] = pydantic.Field(min_length=1, max_length=_MAX_EVENT_VOCABULARY)
-    """Fixed set of event types the agent may create, mapped to descriptions, with the same constraints
-    as :attr:`CreateEventsGoal.event_vocabulary`."""
+    """Names of the events the AI may create, each mapped to a description of what that kind of event marks.
+
+    The AI reads the descriptions to decide which time spans qualify.
+    """
 
     tag_vocabulary: dict[str, str] = pydantic.Field(default_factory=dict, max_length=_MAX_TAG_VOCABULARY)
-    """Fixed set of tags the agent may attach to created events, mapped to descriptions of when each tag
-    applies, with the same constraints as :attr:`CreateEventsGoal.tag_vocabulary`. Empty (the default)
-    means created events carry no tags."""
+    """Tags the AI may put on the events it creates, each mapped to a description of when it applies.
+
+    The AI picks any number of them for each event. Defaults to none, so created events carry no tags.
+    """
 
     event_focus_prompt: Optional[str] = pydantic.Field(
         default=None, min_length=1, max_length=_MAX_EVENT_FOCUS_PROMPT_CHARS
     )
-    """Caller-provided natural-language guidance layered on top of the vocabularies, with the same
-    constraints as :attr:`CreateEventsGoal.event_focus_prompt`."""
+    """Further instructions for the AI on which events to create, from 1 to 4000 characters.
+
+    ``None`` leaves the vocabulary descriptions as the only guidance.
+    """
 
     @pydantic.field_validator("event_vocabulary")
     @classmethod
@@ -401,17 +398,10 @@ AgentGoal = Annotated[
     ],
     pydantic.Field(discriminator="goal_type"),
 ]
-"""Closed, Roboto-controlled discriminated union of all declarable agent goals.
+"""Goal of any kind: an instance of one of the six goal classes.
 
-Validated via pydantic discriminator on ``goal_type``. Add new goals by
-extending the ``Union`` and registering a corresponding ``GoalHandler``.
+The classes are ``DatasetSummaryAgentGoal``, ``DatasetTriageGoal``, ``CreateEventsGoal``, ``SessionSummaryAgentGoal``,
+``SessionTriageGoal`` and ``SessionCreateEventsGoal``.
 
-A goal is the right primitive when the caller has an upfront, verifiable
-platform mutation the turn must complete — and is willing to fail the turn
-(``AgentThreadStatus.GOALS_FAILED``) if the action doesn't happen. Goals
-power specialized agents with deterministic, directionally opinionated
-behavior. One-off LLM-discovered actions and pure reads belong as regular
-:class:`AgentTool` registrations; actions that don't need an LLM at all
-belong as direct REST endpoints. The registry is closed to keep this
-discipline visible at PR-review time.
+Pydantic picks the class from ``goal_type``. Only Roboto adds kinds of goal.
 """

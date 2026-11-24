@@ -30,38 +30,43 @@ logger = default_logger()
 
 
 class DownloadableFile(typing.TypedDict):
-    """A file to be downloaded from the Roboto Platform."""
+    """A file to download: the object that holds its content and the local path to write it to.
+
+    Items of the ``files`` argument of :py:meth:`~roboto.storage.FileService.download`.
+    """
 
     bucket_name: str
-    """Name of the bucket where the file is stored."""
+    """Name of the bucket holding the file's object."""
 
     source_uri: str
-    """Full URI of the file in cloud storage (e.g., 's3://bucket/key')."""
+    """Location of the object that holds the file's content, such as ``s3://<bucket>/<key>``."""
 
     destination_path: pathlib.Path
-    """Local path where the file should be saved."""
+    """Local path to write the file's content to."""
 
 
 class DownloadSession:
-    """Manages a batch of file downloads with shared credentials.
+    """A batch of downloads of one association's files that share read-only credentials.
 
-    Provides credential lifecycle management and async operation coordination
-    for downloading the files of one association: a dataset, a device, or an org.
-    Unlike UploadTransaction, this does not manage an API transaction since
-    downloads don't require server-side state tracking.
+    The SDK's own code uses it; to download files, use :py:meth:`~roboto.domain.datasets.Dataset.download_files`
+    or :py:meth:`~roboto.domain.files.File.download` instead. Roboto keeps no record of a session: its only
+    requests fetch credentials. To download with one:
 
-    Example:
-        >>> session = DownloadSession(
-        ...     items=[
-        ...         {"bucket_name": "bucket", "source_uri": "s3://bucket/key", "destination_path": Path("/tmp/file")}
-        ...     ],
-        ...     association=Association.dataset("ds_123"),
-        ... )
-        >>> object_store = registry.get_store_for_uri(uri, session.credential_provider)
-        >>> with object_store:
-        ...     for file in session:
-        ...         future = object_store.get(file["source_uri"], file["destination_path"])
-        ...         session.register_download(file, future)
+    1. Build an object store from the provider ``make_credential_provider`` returns.
+    2. Inside the store's ``with`` block, start each file's download and pass the future the store returns to
+       ``register_download``.
+    3. Before that block exits, wait for the downloads with ``await_downloads``, which returns the failures. Ending
+       an iteration over the session, or leaving the session's own ``with`` block, also waits, and raises
+       ``ExceptionGroup`` holding each failed download's exception.
+
+    Args:
+        items: Files to download, which iterating over the session yields.
+        association: Dataset, device, device type, or organization whose files to download. Roboto issues
+            read-only credentials for its files.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
+        caller_org_id: Organization to act in. Required when the caller belongs to more than one organization;
+            otherwise the caller's only organization.
     """
 
     def __init__(
@@ -71,14 +76,6 @@ class DownloadSession:
         roboto_client: typing.Optional[RobotoClient] = None,
         caller_org_id: typing.Optional[str] = None,
     ):
-        """Initialize a download session.
-
-        Args:
-            items: Sequence of files to download.
-            association: Association of the files to download.
-            roboto_client: Optional Roboto client for API calls.
-            caller_org_id: Optional organization ID for cross-org access.
-        """
         self.__items = items
         self.__association = association
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
@@ -93,7 +90,12 @@ class DownloadSession:
         self.__await_downloads_or_raise()
 
     def __iter__(self) -> typing.Generator[DownloadableFile, None, None]:
-        """Yield files to download."""
+        """Yield each file to download, then wait for the registered downloads.
+
+        Raises:
+            ExceptionGroup: One or more registered downloads failed. It surfaces during iteration, when the last file
+                has been yielded, and holds each failed download's exception.
+        """
         for item in self.__items:
             yield item
 
@@ -108,8 +110,21 @@ class DownloadSession:
             )
 
     def make_credential_provider(self, bucket_name: typing.Optional[str] = None) -> CredentialProvider:
-        """Return a credential provider for read-only access to the association's files."""
+        """Build a callable that fetches read-only credentials for the association's files.
 
+        Each call fetches fresh credentials from Roboto, so an object store can call it again to replace credentials
+        that expire during a long download.
+
+        Args:
+            bucket_name: Bucket whose credentials to fetch. ``None`` takes the first credentials Roboto issues.
+
+        Returns:
+            Credential provider for an object store.
+
+        Raises:
+            RobotoNotFoundException: Roboto issues no credentials for ``bucket_name``. Raised when the returned
+                function is called.
+        """
         association_id = self.__association.association_id
         credentials_route = (
             f"v1/datasets/id/{association_id}/credentials"
@@ -143,14 +158,14 @@ class DownloadSession:
         return _get_download_credentials
 
     def await_downloads(self) -> list[tuple[DownloadableFile, Exception]]:
-        """Wait for all registered downloads to complete.
+        """Wait for every registered download to finish, and return the ones that failed.
 
-        Must be called while still inside the object_store context manager,
-        since the transfer manager may be shut down when that context exits.
+        Call it before the object store's ``with`` block exits, since the store may stop its transfers on exit. Any
+        exception a download raised is logged and returned, not raised. The registered downloads are then forgotten,
+        so the next call waits only for downloads registered after this one, such as retries of the failures.
 
         Returns:
-            List of (file, exception) tuples for downloads that failed.
-            Empty list if all downloads succeeded.
+            ``(file, exception)`` pairs for the downloads that failed; empty when every download succeeded.
         """
         if not self.__pending_downloads:
             return []
@@ -169,9 +184,10 @@ class DownloadSession:
         return failed
 
     def register_download(self, file: DownloadableFile, future: FutureLike[None]) -> None:
-        """Register a pending download future.
+        """Record a started download, so that the next wait for downloads includes it.
 
-        Call this immediately after initiating each download transfer.
-        The future will be awaited when await_downloads() is called.
+        Args:
+            file: File the download writes.
+            future: Future the object store returned when the download started.
         """
         self.__pending_downloads.append((file, future))

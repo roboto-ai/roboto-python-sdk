@@ -14,18 +14,17 @@ from ...sentinels import NotSet, NotSetType
 
 
 class FeedbackSentiment(StrEnum):
-    """Overall rating direction for a piece of AI-chat feedback."""
+    """Sentiment of feedback on a message from Roboto's AI: whether the rating is positive or negative."""
 
     POSITIVE = "positive"
     NEGATIVE = "negative"
 
 
 class FeedbackCategory(StrEnum):
-    """Taxonomy of feedback categories.
+    """Category of feedback on a message from Roboto's AI: what about the message was good or bad.
 
-    Which categories are valid depends on ``sentiment`` (see
-    :func:`category_is_valid_for_sentiment`). ``OTHER`` is always permitted;
-    when ``OTHER`` is among the selected categories, ``notes`` is required.
+    Which categories feedback may carry depends on its sentiment; ``category_is_valid_for_sentiment`` checks one.
+    ``OTHER`` is valid with either sentiment, and feedback that includes it needs notes.
     """
 
     # Negative
@@ -57,6 +56,7 @@ NEGATIVE_CATEGORIES: frozenset[FeedbackCategory] = frozenset(
         FeedbackCategory.UNSAFE,
     }
 )
+"""Categories valid only on feedback with negative sentiment. ``FeedbackCategory.OTHER`` is in neither set."""
 
 POSITIVE_CATEGORIES: frozenset[FeedbackCategory] = frozenset(
     {
@@ -65,12 +65,18 @@ POSITIVE_CATEGORIES: frozenset[FeedbackCategory] = frozenset(
         FeedbackCategory.GOOD_TOOL_USE,
     }
 )
+"""Categories valid only on feedback with positive sentiment. ``FeedbackCategory.OTHER`` is in neither set."""
 
 
 def category_is_valid_for_sentiment(category: FeedbackCategory, sentiment: FeedbackSentiment) -> bool:
-    """Report whether ``category`` is a permitted choice under ``sentiment``.
+    """Return whether feedback with ``sentiment`` may carry ``category``.
 
-    ``FeedbackCategory.OTHER`` is always permitted.
+    ``FeedbackCategory.OTHER`` is valid with either sentiment. Every other category is valid with one, as
+    ``NEGATIVE_CATEGORIES`` and ``POSITIVE_CATEGORIES`` list.
+
+    Args:
+        category: Category to check.
+        sentiment: Sentiment of the feedback.
     """
     if category is FeedbackCategory.OTHER:
         return True
@@ -80,37 +86,38 @@ def category_is_valid_for_sentiment(category: FeedbackCategory, sentiment: Feedb
 
 
 class SubmitFeedbackRequest(pydantic.BaseModel):
-    """Request body for submitting feedback on an assistant message.
+    """Request body for :py:meth:`~roboto.ai.agent_thread.AgentThread.submit_feedback`.
 
-    One row per (session, message, user); resubmitting replaces the previous
-    sentiment/categories/notes rather than adding a new row.
+    A user has at most one feedback on each message, so submitting again replaces that user's ``sentiment``,
+    ``categories`` and ``notes``. Building the model raises ``pydantic.ValidationError`` when a category is not valid
+    for ``sentiment``, or when ``categories`` includes ``FeedbackCategory.OTHER`` and ``notes`` is ``None``, empty, or
+    only whitespace.
     """
 
     sentiment: FeedbackSentiment
-    """Overall rating direction."""
+    """Sentiment of the feedback."""
 
     categories: list[FeedbackCategory] = pydantic.Field(default_factory=list)
-    """Categories describing what was good or bad. Semantically a *set*: duplicates
-    are dropped and the persisted order is enum-value sort, not request order."""
+    """Categories describing what was good or bad about the message. Defaults to none.
+
+    Building the model drops duplicates and sorts the rest by value, so the order given is not kept.
+    """
 
     notes: Optional[str] = None
-    """Free-text notes. Whitespace-only input is normalised to ``None`` before
-    persistence. Required when ``FeedbackCategory.OTHER`` is selected."""
+    """Free-text notes on the message. Required when ``categories`` includes ``FeedbackCategory.OTHER``.
+
+    Building the model turns notes that are empty or only whitespace into ``None``.
+    """
 
     @pydantic.model_validator(mode="after")
     def _validate(self) -> "SubmitFeedbackRequest":
         for category in self.categories:
             if not category_is_valid_for_sentiment(category, self.sentiment):
                 raise ValueError(f"category {category.value} is not valid for sentiment {self.sentiment.value}")
-        # Categories are semantically a set. Sort by enum value so the stored
-        # list is deterministic (easier equality checks and reproducible tests).
-        # The docstring above documents this rewrite — silent dedup behind a
-        # plain-list type is a footgun if the schema doesn't say so.
+        # Sorted so that one set of categories is always stored as the same list.
         self.categories = sorted(set(self.categories))
-        # Normalise whitespace-only notes to ``None`` so the persisted column
-        # is consistent regardless of category. Without this, ``notes="   "``
-        # would store three spaces alongside a HELPFUL rating but would fail
-        # validation alongside an OTHER rating — the asymmetry confuses callers.
+        # Clear whitespace-only notes whatever the categories, so "   " is never stored with HELPFUL while
+        # being rejected with OTHER.
         if self.notes is not None and not self.notes.strip():
             self.notes = None
         if FeedbackCategory.OTHER in self.categories and self.notes is None:
@@ -119,29 +126,34 @@ class SubmitFeedbackRequest(pydantic.BaseModel):
 
 
 class AdminUpdateFeedbackRequest(pydantic.BaseModel):
-    """Triage fields editable by Roboto admins.
+    """Request body for ``PUT /v1/admin/feedback/{feedback_id}``.
 
-    Fields omitted from the request (``NotSet``) are left unchanged. Fields
-    explicitly set to ``None`` clear the column back to ``NULL``. Fields set
-    to a value overwrite the column.
+    Only Roboto administrators may send it. No SDK method sends it.
 
-    Setting ``resolved`` to ``True`` additionally stamps ``resolved_at`` and
-    ``resolved_by`` server-side; setting it back to ``False`` clears them.
-
-    ``admin_label`` is stored trimmed, and a blank label clears the column.
-    Case is kept: labels are case-sensitive.
+    A field left unset (``NotSet``) is unchanged. A request that sets no field raises
+    ``RobotoInvalidRequestException``. Building the model raises ``pydantic.ValidationError`` for a field it does not
+    define, such as a misspelled field name.
     """
 
     admin_label: Union[Optional[str], NotSetType] = NotSet
+    """Short label to sort the feedback by, such as ``"follow up"`` or ``"duplicate"``.
+
+    Stored with surrounding whitespace removed and its case kept, since labels are case-sensitive. ``None`` or a blank
+    label clears it.
+    """
+
     admin_note: Union[Optional[str], NotSetType] = NotSet
+    """Note on the feedback for Roboto administrators. ``None`` clears it."""
+
     resolved: Union[bool, NotSetType] = NotSet
+    """Whether the feedback is resolved.
+
+    ``True`` records the time and the administrator in ``AgentFeedbackRecord.resolved_at`` and
+    ``AgentFeedbackRecord.resolved_by``; ``False`` clears both.
+    """
 
     model_config = pydantic.ConfigDict(
-        # ``extra="forbid"`` rather than ``ignore`` so a misspelled field
-        # (``admin_lable`` for ``admin_label``) raises a clear validation
-        # error instead of being silently dropped. The NotSet/None semantics
-        # documented above only mean what they say if every field the caller
-        # tried to set actually reaches the model.
+        # A misspelled field (admin_lable) fails instead of being dropped, which would leave admin_label unchanged.
         extra="forbid",
         json_schema_extra=NotSetType.openapi_schema_modifier,
     )
@@ -149,142 +161,135 @@ class AdminUpdateFeedbackRequest(pydantic.BaseModel):
     @pydantic.field_validator("admin_label")
     @classmethod
     def _normalize_admin_label(cls, value: Union[Optional[str], NotSetType]) -> Union[Optional[str], NotSetType]:
-        # Labels are filtered and counted by exact value, so "dup" and "dup "
-        # would otherwise be two labels.
+        # Labels are filtered and counted by exact value, so "dup" and "dup " would otherwise be two labels.
         if isinstance(value, str):
             return value.strip() or None
         return value
 
 
 class AgentFeedbackRecord(pydantic.BaseModel):
-    """Persisted feedback record for a specific assistant message."""
+    """Data record of feedback on a message in a thread, as ``GET /v1/admin/feedback/{feedback_id}`` returns it.
+
+    Feedback is one user's rating of a message from Roboto's AI: a sentiment, categories, and optional notes. This
+    record also holds the fields Roboto administrators use to triage feedback, and only routes for Roboto
+    administrators return it; :py:meth:`~roboto.ai.agent_thread.AgentThread.submit_feedback` returns
+    ``UserFeedbackRecord``, which leaves those fields out.
+    """
 
     feedback_id: str
-    """Unique identifier for this feedback entry."""
+    """Unique ID of the feedback, beginning with ``fb_``."""
 
     thread_id: str
-    """Session the feedback was submitted against."""
+    """ID of the thread the rated message is in."""
 
     message_sequence_num: int
-    """Zero-indexed position of the assistant message within the session."""
+    """Sequence number of the rated message: its zero-based position in the thread's messages."""
 
     org_id: str
-    """Org the session belonged to at the time of submission."""
+    """ID of the organization that owns the thread. Fixed when the feedback is first submitted."""
 
     created: datetime.datetime
-    """When this feedback was first submitted."""
+    """Time the feedback was first submitted."""
 
     created_by: str
-    """User id of the submitter."""
+    """ID of the user who submitted the feedback."""
 
     modified: datetime.datetime
-    """When the submitter last updated this feedback. Equals ``created`` for untouched rows.
+    """Time the feedback was last submitted, equal to ``created`` until its submitter submits it again.
 
-    Admin triage does not bump this column — it tracks the submitter's own edits only.
+    Triage by a Roboto administrator does not change it.
     """
 
     modified_by: str
-    """User id of the submitter's last edit. Admin triage does not change this field.
+    """ID of the user who last submitted the feedback.
 
-    In practice this always equals ``created_by`` (the same user may only edit their
-    own feedback), but it exists as a distinct column for forward compatibility.
+    Always equal to ``created_by``, because submitting again replaces only the submitting user's own feedback.
     """
 
     sentiment: FeedbackSentiment
-    """Overall rating direction."""
+    """Sentiment of the feedback."""
 
     categories: list[FeedbackCategory] = pydantic.Field(default_factory=list)
-    """Categories describing the feedback. May be empty."""
+    """Categories describing what was good or bad about the message, sorted by value. Empty when none were chosen."""
 
     notes: Optional[str] = None
-    """Free-text notes from the submitter, if any."""
+    """Free-text notes on the message, or ``None`` if the submitter gave none."""
 
     admin_label: Optional[str] = None
-    """Short label an admin can attach for triage (e.g. 'follow up', 'duplicate')."""
+    """Short label a Roboto administrator attached to sort the feedback by, such as ``"follow up"``, or ``None``."""
 
     admin_note: Optional[str] = None
-    """Longer admin-only note captured during triage."""
+    """Note on the feedback for Roboto administrators, or ``None``."""
 
     resolved: bool = False
-    """Whether an admin has marked this feedback as resolved."""
+    """Whether a Roboto administrator has marked the feedback resolved."""
 
     resolved_by: Optional[str] = None
-    """Admin who marked this feedback resolved."""
+    """ID of the Roboto administrator who marked the feedback resolved, or ``None`` while it is unresolved."""
 
     resolved_at: Optional[datetime.datetime] = None
-    """When the feedback was marked resolved."""
+    """Time the feedback was marked resolved, or ``None`` while it is unresolved."""
 
 
 class UserFeedbackRecord(pydantic.BaseModel):
-    """Customer-facing projection of :class:`AgentFeedbackRecord`.
+    """Data record of feedback on a message in a thread, as Roboto returns it to the user who submitted it.
 
-    Excludes every admin-only column (``admin_label``, ``admin_note``,
-    ``resolved``, ``resolved_by``, ``resolved_at``) so routes that serve
-    an end user never return internal triage state. Use this as the return
-    type of any non-admin endpoint that surfaces feedback, including the
-    response to the submitter's own submit call.
-
-    The admin endpoints continue to return :class:`AgentFeedbackRecord`
-    directly.
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.submit_feedback` returns it. Feedback is one user's rating of a
+    message from Roboto's AI: a sentiment, categories, and optional notes. The record leaves out the fields Roboto
+    administrators use to triage feedback.
     """
 
     feedback_id: str
-    """Unique identifier for this feedback entry."""
+    """Unique ID of the feedback, beginning with ``fb_``."""
 
     thread_id: str
-    """Session the feedback was submitted against."""
+    """ID of the thread the rated message is in."""
 
     message_sequence_num: int
-    """Zero-indexed position of the assistant message within the session."""
+    """Sequence number of the rated message: its zero-based position in the thread's messages."""
 
     org_id: str
-    """Org the session belonged to at the time of submission."""
+    """ID of the organization that owns the thread. Fixed when the feedback is first submitted."""
 
     created: datetime.datetime
-    """When this feedback was first submitted."""
+    """Time the feedback was first submitted."""
 
     created_by: str
-    """User id of the submitter."""
+    """ID of the user who submitted the feedback."""
 
     modified: datetime.datetime
-    """When the submitter last updated this feedback."""
+    """Time the feedback was last submitted, equal to ``created`` until its submitter submits it again."""
 
     modified_by: str
-    """User id of the submitter's last edit."""
+    """ID of the user who last submitted the feedback.
+
+    Always equal to ``created_by``, because submitting again replaces only the submitting user's own feedback.
+    """
 
     sentiment: FeedbackSentiment
-    """Overall rating direction."""
+    """Sentiment of the feedback."""
 
     categories: list[FeedbackCategory] = pydantic.Field(default_factory=list)
-    """Categories describing the feedback. May be empty."""
+    """Categories describing what was good or bad about the message, sorted by value. Empty when none were chosen."""
 
     notes: Optional[str] = None
-    """Free-text notes from the submitter, if any."""
+    """Free-text notes on the message, or ``None`` if the submitter gave none."""
 
     @classmethod
     def from_admin_record(cls, record: AgentFeedbackRecord) -> "UserFeedbackRecord":
-        """Project an :class:`AgentFeedbackRecord` down to the user-facing shape.
+        """Build a record from ``AgentFeedbackRecord``, leaving out the fields for Roboto administrators.
 
-        Use at the boundary of any non-admin route that materialises a full
-        admin record from persistence — the projection guarantees no admin
-        triage column accidentally escapes to a customer response.
+        Roboto calls this when it returns feedback to anyone but a Roboto administrator. It copies only the fields
+        this class defines, so a field added to ``AgentFeedbackRecord`` alone never reaches the result.
 
-        The projection is driven by ``cls.model_fields`` rather than a hand
-        list of columns: a new submitter-controlled column added to both
-        records flows through automatically, and a new admin-only column on
-        ``AgentFeedbackRecord`` is silently dropped here (which is what we
-        want for privacy). The matching test asserts the admin-only field
-        set has not drifted unexpectedly.
+        Args:
+            record: Record to copy the fields from.
         """
         return cls.model_validate(record.model_dump(include=set(cls.model_fields)))
 
 
-# ``AgentFeedbackRecord`` is intentionally not exported. It carries the admin
-# triage columns (``admin_label``, ``admin_note``, ``resolved``, etc.) and is
-# only constructed inside the service for admin endpoints. Public SDK users
-# should reach for ``UserFeedbackRecord`` instead. The class remains
-# importable for internal modules but is hidden from ``import *`` and from
-# autocomplete tools that respect ``__all__``.
+# AgentFeedbackRecord stays importable but is left out: it holds the triage fields only Roboto administrators see,
+# and customers receive UserFeedbackRecord instead.
 __all__ = [
     "AdminUpdateFeedbackRequest",
     "FeedbackCategory",

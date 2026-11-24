@@ -19,49 +19,28 @@ from .record import ClientToolSpec
 
 
 class ClientTool:
-    """A client-side tool with an execution callback.
+    """A client tool together with the Python function that runs it when Roboto's AI requests the tool.
 
-    Wraps a Python callable as a tool that the Roboto agent can request the
-    client to execute. The tool's JSON schema is inferred from the callable's
-    type hints; the tool description and per-parameter descriptions are taken
-    from the function's Google-style docstring unless passed explicitly.
+    Pass client tools to :py:meth:`~roboto.ai.agent_thread.AgentThread.start` or
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.send` as ``client_tools``, or add one to a thread with
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.register_client_tool`. When the AI requests the tool,
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.run` calls the function with the AI's input as keyword arguments and
+    submits what it returns: a dictionary as it is, ``None`` as an empty dictionary, and any other value as
+    ``{"result": <value>}``. If the function raises an exception, ``run`` submits the exception's type and message as
+    an error result instead.
 
-    Most callers build ClientTools via the :py:func:`client_tool` decorator
-    or :py:meth:`ClientTool.from_function` rather than instantiating this
-    class directly.
+    Most callers build a client tool with ``client_tool`` or ``from_function``, which infer the input schema from the
+    function's type hints and docstring. A tool's name must match ``^client_[a-z][a-z0-9_]*$``, so name the function
+    ``client_<name>`` or pass ``name``.
 
-    Examples:
-        Using the decorator — descriptions come from the docstring:
+    Args:
+        fn: Function to call when the AI requests the tool.
+        name: Name of the tool, which the AI uses to request it.
+        description: Human-readable description of what the tool does, which the AI reads to decide when to use it.
+        input_schema: JSON Schema of the tool's input.
 
-        >>> @client_tool
-        ... def remember(fact: str, tags: Optional[list[str]] = None) -> str:
-        ...     \"\"\"Store a fact in long-term memory.
-        ...
-        ...     Args:
-        ...         fact: A standalone sentence worth remembering.
-        ...         tags: Optional tags for later retrieval.
-        ...     \"\"\"
-        ...     ...
-
-        Using ``Annotated[T, Field(...)]`` instead (takes precedence over the
-        docstring):
-
-        >>> from typing import Annotated
-        >>> from pydantic import Field
-        >>> @client_tool
-        ... def recall(
-        ...     query: Annotated[str, Field(description="Substring to search for.")],
-        ... ) -> str:
-        ...     \"\"\"Search long-term memory.\"\"\"
-        ...     ...
-
-        Using the factory with explicit overrides:
-
-        >>> tool = ClientTool.from_function(
-        ...     my_fn,
-        ...     name="store_fact",
-        ...     description="Store a fact in long-term memory.",
-        ... )
+    Raises:
+        pydantic.ValidationError: ``name`` does not match ``^client_[a-z][a-z0-9_]*$``.
     """
 
     def __init__(
@@ -88,32 +67,51 @@ class ClientTool:
         description: Optional[str] = None,
         input_schema: Optional[dict[str, Any]] = None,
     ) -> ClientTool:
-        """Build a ClientTool from a Python callable.
+        """Build a client tool from a Python function.
 
-        The tool's name defaults to ``fn.__name__``. The tool description
-        defaults to the summary-and-body of ``fn``'s docstring (everything
-        before the first Google-style section header like ``Args:`` or
-        ``Returns:``). Per-parameter descriptions are pulled from the
-        docstring's ``Args:`` section, and can be overridden with
-        ``typing.Annotated[T, pydantic.Field(description="...")]`` or
-        ``param: T = pydantic.Field(description="...")``.
+        Each parameter of ``fn`` becomes a property of the inferred input schema. Its description comes from the
+        ``Args:`` section of ``fn``'s docstring, unless the parameter's type hint is
+        ``typing.Annotated[T, pydantic.Field(description="...")]`` or its default is
+        ``pydantic.Field(description="...")``, which take precedence. Only a section headed ``Args:`` is read.
 
         Args:
-            fn: The callable to invoke when the tool is dispatched.
-            name: Override for the tool name (default: ``fn.__name__``).
-            description: Override for the tool description (default: the
-                docstring's summary-and-body). Required if ``fn`` has no
+            fn: Function to call when the AI requests the tool.
+            name: Name of the tool, which the AI uses to request it. ``None`` uses ``fn.__name__``.
+            description: Human-readable description of what the tool does, which the AI reads to decide when to use
+                it. ``None`` uses ``fn``'s docstring up to its first section header, such as ``Args:``.
+            input_schema: JSON Schema of the tool's input. ``None`` infers it from ``fn``'s signature, type hints, and
                 docstring.
-            input_schema: Override for the input JSON Schema (default:
-                inferred from ``fn``'s type hints and docstring).
-
-        Returns:
-            A ClientTool wrapping the given callable.
 
         Raises:
-            ValueError: If the description cannot be resolved, or if
-                ``input_schema`` is not provided and the signature cannot be
-                automatically converted (e.g. uses ``*args`` or ``**kwargs``).
+            ValueError: The description is empty, because ``description`` is empty or is ``None`` and ``fn`` has no
+                docstring text before its first section header; or ``input_schema`` is ``None`` and ``fn`` takes
+                ``*args`` or ``**kwargs``.
+            pydantic.ValidationError: The tool's name does not match ``^client_[a-z][a-z0-9_]*$``.
+            pydantic.errors.PydanticSchemaGenerationError: ``input_schema`` is ``None`` and a parameter's type hint
+                has no JSON Schema form, such as a class that is not a pydantic model or dataclass.
+
+        Examples:
+            Take the parameter's description from ``Annotated`` instead of the docstring:
+
+            >>> from typing import Annotated
+            >>> from pydantic import Field
+            >>> def client_recall(
+            ...     query: Annotated[str, Field(description="Substring to search for.")],
+            ... ) -> str:
+            ...     \"\"\"Search long-term memory.\"\"\"
+            ...     ...
+            >>> tool = ClientTool.from_function(client_recall)
+
+            Set the name and description explicitly:
+
+            >>> def store(fact: str) -> str: ...
+            >>> tool = ClientTool.from_function(
+            ...     store,
+            ...     name="client_store_fact",
+            ...     description="Store a fact in long-term memory.",
+            ... )
+            >>> tool.name
+            'client_store_fact'
         """
         resolved_name = fn.__name__ if name is None else name
         summary, param_descriptions = _split_google_docstring(inspect.getdoc(fn))
@@ -133,34 +131,25 @@ class ClientTool:
 
     @property
     def spec(self) -> ClientToolSpec:
-        """Declarative spec sent to the Roboto backend."""
+        """Specification of the tool, which the SDK sends to Roboto so that Roboto offers the tool to the AI."""
         return self._spec
 
     @property
     def name(self) -> str:
-        """Tool name surfaced to the LLM."""
+        """Name of the tool, which the AI uses to request it.
+
+        See :py:attr:`~roboto.ai.agent_thread.ClientToolSpec.name` for the form a name must take.
+        """
         return self._spec.name
 
     def __call__(self, **kwargs: Any) -> Any:
-        """Invoke the underlying callable with keyword arguments."""
+        """Call the tool's function with these keyword arguments and return its result."""
         return self._fn(**kwargs)
 
 
-# The two overloads below exist purely for type-checker precision; they have no
-# runtime effect. ``client_tool`` supports two call shapes:
-#
-#   1. Bare:       ``@client_tool`` / ``client_tool(fn)``  -> ClientTool
-#   2. With args:  ``@client_tool(name="...")``            -> decorator that
-#                                                             returns ClientTool
-#
-# The implementation's real return type is the union of those, which is accurate
-# but unhelpful at call sites -- e.g. ``tool = client_tool(fn); tool.name`` would
-# fail type-checking because the ``Callable[..., ClientTool]`` arm of the union
-# has no ``.name`` attribute. The overloads let mypy / Pyright discriminate by
-# call shape: passing a function positionally resolves to ``ClientTool``;
-# calling with only keyword arguments resolves to the inner decorator. Either
-# way, the final decorated name ends up typed as ``ClientTool`` without the
-# caller having to narrow the union manually.
+# These overloads only tell type checkers which call form returns what: client_tool(fn) and a bare @client_tool
+# return a ClientTool, and client_tool(name=...) returns a decorator that does. Without them, the declared return
+# type is the union of both, and `tool = client_tool(fn); tool.name` fails type checking.
 @typing.overload
 def client_tool(fn: collections.abc.Callable[..., Any], /) -> ClientTool: ...
 
@@ -182,24 +171,30 @@ def client_tool(
     description: Optional[str] = None,
     input_schema: Optional[dict[str, Any]] = None,
 ) -> Union[ClientTool, collections.abc.Callable[[collections.abc.Callable[..., Any]], ClientTool]]:
-    """Decorator that converts a function into a :class:`ClientTool`.
+    """Build a ``ClientTool`` from a function, as a decorator or a direct call.
 
-    Usable bare (``@client_tool``) or with keyword overrides
-    (``@client_tool(description="...")``). See :py:meth:`ClientTool.from_function`
-    for how descriptions are resolved.
+    Use it bare (``@client_tool``) to infer the tool's name, description, and input schema from the function, or with
+    keyword arguments (``@client_tool(name="...")``) to set some of them. Either way, the decorated name holds the
+    ``ClientTool``. ``ClientTool.from_function`` builds the tool and says how each value is inferred; the exceptions it
+    lists also apply, raised when the decorator is applied to the function.
 
-    Note:
-        This function is declared with two :py:func:`typing.overload` stubs
-        above so that type checkers see the decorated name as a
-        :class:`ClientTool` regardless of call form. The overloads carry no
-        runtime behavior; the implementation below handles both shapes.
+    Args:
+        fn: Function to build the tool from. ``None`` returns a decorator that takes it.
+        name: Name of the tool, which the AI uses to request it. ``None`` uses the function's name.
+        description: Human-readable description of what the tool does, which the AI reads to decide when to use it.
+            ``None`` uses the function's docstring up to its first section header, such as ``Args:``.
+        input_schema: JSON Schema of the tool's input. ``None`` infers it from the function's signature, type hints,
+            and docstring.
+
+    Returns:
+        The client tool, or, when ``fn`` is ``None``, a decorator that builds one from the function it decorates.
 
     Examples:
-        Bare — infers everything from the function, including per-parameter
-        descriptions from the docstring's ``Args:`` section:
+        Infer everything from the function, including each parameter's description from its docstring's ``Args:``
+        section:
 
         >>> @client_tool
-        ... def remember(fact: str) -> str:
+        ... def client_remember(fact: str) -> str:
         ...     \"\"\"Store a fact in long-term memory.
         ...
         ...     Args:
@@ -207,10 +202,12 @@ def client_tool(
         ...     \"\"\"
         ...     ...
 
-        With overrides:
+        Set the name and description explicitly:
 
-        >>> @client_tool(name="store_fact", description="Persist a fact.")
-        ... def _store(fact: str) -> str: ...
+        >>> @client_tool(name="client_store_fact", description="Persist a fact.")
+        ... def store(fact: str) -> str: ...
+        >>> store.name
+        'client_store_fact'
     """
 
     def wrap(f: collections.abc.Callable[..., Any]) -> ClientTool:
@@ -230,12 +227,10 @@ def _infer_schema(
     fn: collections.abc.Callable[..., Any],
     param_descriptions: Optional[dict[str, str]] = None,
 ) -> dict[str, Any]:
-    """Derive a JSON Schema for a function's parameters using pydantic.
+    """Build a JSON Schema of a function's parameters with pydantic.
 
-    Descriptions from the ``param_descriptions`` map are injected into each
-    field unless the parameter already has a description via
-    ``Annotated[T, Field(description=...)]`` or ``Field(description=...)`` as a
-    default value — those always take precedence over the docstring.
+    A parameter takes its description from ``param_descriptions`` unless its type hint or default already declares a
+    non-empty one with ``pydantic.Field(description=...)``.
     """
     if param_descriptions is None:
         param_descriptions = {}
@@ -267,11 +262,9 @@ def _infer_schema(
 
 
 def _has_description(annotation: Any, default: Any) -> bool:
-    """Return True iff a non-empty description is already declared on the field.
+    """Return whether the parameter's type hint or default declares a non-empty ``pydantic.Field`` description.
 
-    A ``Field(description="")`` is treated as absent so the docstring fallback
-    can still populate the schema — mirrors the ``if doc_description and ...``
-    check in :func:`_infer_schema`.
+    An empty description counts as none, so the docstring's description of the parameter still fills the schema.
     """
     for meta in typing.get_args(annotation):
         if isinstance(meta, pydantic.fields.FieldInfo) and meta.description:
@@ -284,18 +277,18 @@ def _has_description(annotation: Any, default: Any) -> bool:
 # ---------------------------------------------------------------------------
 # Google-style docstring parsing.
 #
-# This is deliberately a small, opinionated parser for the subset of
-# Google-style docstrings Roboto uses: a summary-and-body paragraph followed by
-# section headers like ``Args:`` / ``Returns:`` / ``Raises:``. We don't lean on
-# a dependency for this — the surface is tight enough that a targeted parser is
-# clearer than teaching a general-purpose one what we do and don't care about.
+# Reads only what a client tool needs: the text before the first section header, which becomes the tool's
+# description, and the parameter descriptions in the Args: section. Everything else in the docstring is ignored.
 # ---------------------------------------------------------------------------
 
 _ARGS_HEADER_RE = re.compile(r"^Args:\s*$")
-"""Matches the ``Args:`` section header (line-anchored, case-sensitive)."""
+"""Regular expression an ``Args:`` section header line must match, unindented and case-sensitive."""
 
 _PARAM_LINE_RE = re.compile(r"^(\w+)\s*(?:\([^)]*\))?\s*:\s*(.*)$")
-"""Matches ``name: description`` or ``name (type): description`` (type ignored)."""
+"""Regular expression a parameter line must match: ``name: description`` or ``name (type): description``.
+
+The type, if present, is ignored.
+"""
 
 _SECTION_HEADER_RE = re.compile(
     r"^("
@@ -309,19 +302,19 @@ _SECTION_HEADER_RE = re.compile(
     r"Warning|Warnings|Warns|Yields"
     r"):\s*$"
 )
-"""Matches any Google-style section header that terminates a preceding block.
+"""Regular expression any Google-style section header line must match.
 
-Kept deliberately broad so sections between the summary body and ``Args:`` do
-not leak into the tool description the LLM sees.
+It covers every Google-style section name, so that no section placed before ``Args:`` ends up in the tool
+description the AI reads.
 """
 
 
 def _split_google_docstring(docstring: Optional[str]) -> tuple[str, dict[str, str]]:
-    """Split a Google-style docstring into (summary, {param: description}).
+    """Split a Google-style docstring into its text before the first section header and its parameter descriptions.
 
-    The summary is everything before the first section header (``Args``,
-    ``Returns``, etc.), stripped of surrounding whitespace. The param
-    description map comes from the ``Args:`` section; if absent, it is empty.
+    Returns:
+        ``(summary, param_descriptions)``: the text before the first section header, stripped of surrounding
+        whitespace, and a map from parameter name to description, empty when there is no ``Args:`` section.
     """
     if not docstring:
         return "", {}
@@ -338,15 +331,14 @@ def _split_google_docstring(docstring: Optional[str]) -> tuple[str, dict[str, st
 
 
 def _parse_args_section(lines: list[str]) -> dict[str, str]:
-    """Parse the ``Args:`` section into a param-name -> description map.
+    """Parse the ``Args:`` section into a map from parameter name to description.
 
-    Param lines are expected at a consistent indent below the ``Args:`` header
-    (typically 4 spaces). Continuation lines indented deeper than the param
-    line are joined onto its description with single spaces. The section ends
-    at the next Google-style section header (at column 0), at any unrecognized
-    non-matching line, or at EOF.
+    The first parameter line sets the indent every later parameter line must have. Lines indented deeper than that
+    continue the previous parameter's description and are joined to it with single spaces. The section ends at an
+    unindented section header, at the end of the docstring, or at any other line, so that prose after the section
+    never becomes part of a description.
 
-    Returns ``{}`` if no ``Args:`` section is present.
+    Returns ``{}`` when there is no ``Args:`` section.
     """
     try:
         start = next(i for i, line in enumerate(lines) if _ARGS_HEADER_RE.match(line)) + 1
@@ -367,11 +359,8 @@ def _parse_args_section(lines: list[str]) -> dict[str, str]:
         if not stripped:
             continue
         indent = len(line) - len(line.lstrip())
-        # A section header at column 0 ends the Args section.
         if indent == 0 and _SECTION_HEADER_RE.match(stripped):
             break
-        # A param line — either the first one (establishes param_indent) or
-        # one at the established indent.
         if param_indent is None or indent == param_indent:
             match = _PARAM_LINE_RE.match(stripped)
             if match:
@@ -380,12 +369,9 @@ def _parse_args_section(lines: list[str]) -> dict[str, str]:
                 current_chunks = [match.group(2)]
                 param_indent = indent
                 continue
-        # A continuation of the previous param's description (indented deeper).
         if current_name is not None and param_indent is not None and indent > param_indent:
             current_chunks.append(stripped)
             continue
-        # Anything else (unrecognized line at or below the param indent): bail
-        # to avoid silently consuming unrelated prose.
         break
 
     flush()

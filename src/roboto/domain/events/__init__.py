@@ -4,24 +4,15 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Events domain module for the Roboto SDK.
+"""Events: annotations that tie datasets, files, topics, or message paths to a span of time, such as a takeoff.
 
-This module provides functionality for creating and managing events, which are time-anchored
-annotations that relate Roboto entities (datasets, files, topics, and message paths) to
-specific time periods. Events enable temporal analysis, data annotation, and correlation
-of activities across different data sources.
-
-The events domain includes:
-
-- Event creation and management
-- Association with datasets, files, topics, and message paths
-- Time-based data retrieval and analysis
-- Display options and metadata management
-- Event querying and filtering capabilities
+Use :py:class:`~roboto.domain.events.Event` to create, find, and update events, and to read the data of the topics
+they annotate within their time span.
 """
 
 from .event import Event
 from .operations import (
+    MAX_EVENT_NAME_BYTES,
     MAX_EVENTS_PER_DELETE_BATCH,
     CreateEventRequest,
     DeleteEventsRequest,
@@ -33,6 +24,7 @@ from .operations import (
 from .record import EventRecord
 
 __all__ = [
+    "MAX_EVENT_NAME_BYTES",
     "MAX_EVENTS_PER_DELETE_BATCH",
     "CreateEventRequest",
     "DeleteEventsRequest",

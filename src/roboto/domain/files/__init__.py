@@ -4,6 +4,12 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""Files: data items uploaded or imported to a dataset, or added to a device, device type, or organization.
+
+To find and download a file, use :py:class:`~roboto.domain.files.File`; to upload and list the files of a dataset,
+device, device type, or organization, use :py:class:`~roboto.domain.files.FileSystem`.
+"""
+
 from .file import File
 from .file_system import FileSystem
 from .lazy_lookup_file import LazyLookupFile

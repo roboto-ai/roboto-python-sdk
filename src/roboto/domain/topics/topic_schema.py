@@ -18,24 +18,12 @@ from .record import (
 
 @experimental
 class TopicSchema:
-    """Describes the field structure of a topic's messages.
+    """A topic schema: the fields that make up a topic's messages, each with its path and data type.
 
-    A topic schema is identified by a name (e.g., ``"sensor_msgs/Imu"``) and a
-    content-based checksum deterministically derived from its fields.
-    Schemas are deduplicated within an organization: topics whose fields share the same names,
-    paths, and data types reference the same schema.
+    Within an organization, a checksum of its fields identifies a schema, so topics whose messages have identical
+    fields share one schema. The schema's name, such as ``"sensor_msgs/Imu"``, is not part of that identity.
 
-    Use :py:meth:`from_id` when you already know the ``schema_id``.
-    :py:meth:`Topic.get_schema` retrieves the schema associated with a specific topic.
-
-    Examples:
-        Retrieve a schema and inspect its fields:
-
-        >>> from roboto.domain.topics import TopicSchema
-        >>> schema = TopicSchema.from_id("ts_abc123")
-        >>> print(schema.name, schema.checksum)
-        >>> for field in schema.fields:
-        ...     print(field.path_in_schema, field.data_type)
+    Get a ``TopicSchema`` from ``TopicSchema.from_id``, or from ``Topic.get_schema`` for the schema of a given topic.
     """
 
     __record: TopicSchemaRecord
@@ -48,21 +36,20 @@ class TopicSchema:
         schema_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "TopicSchema":
-        """Retrieve a schema by its ID.
+        """Fetch a topic schema and its fields by the schema's ID.
 
         Args:
-            schema_id: Unique identifier of the schema to retrieve.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-
-        Returns:
-            A :py:class:`TopicSchema` for the given ``schema_id``.
+            schema_id: Unique ID of the schema, beginning with ``ts_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: No schema with this ID exists.
+            RobotoNotFoundException: No schema has this ID.
 
         Examples:
             >>> from roboto.domain.topics import TopicSchema
-            >>> schema = TopicSchema.from_id("ts_abc123")
+            >>> schema = TopicSchema.from_id("ts_12345")
+            >>> print(schema.name, schema.checksum)
             >>> for field in schema.fields:
             ...     print(field.path_in_schema, field.data_type)
         """
@@ -87,25 +74,31 @@ class TopicSchema:
 
     @property
     def checksum(self) -> str:
-        """Content-based checksum of the schema's field set."""
+        """Checksum computed from the schema's fields; schemas with identical fields have the same checksum."""
         return self.__record.checksum
 
     @property
     def fields(self) -> list[SchemaFieldRecord]:
-        """Field definitions belonging to this schema."""
+        """Fields of the schema, one per field path."""
         return self.__fields
 
     @property
     def name(self) -> typing.Optional[str]:
-        """Informational label for the schema (e.g. ``"sensor_msgs/Imu"``). Not part of identity; may be ``None``."""
+        """Informational name of the schema, such as ``"sensor_msgs/PointCloud2"``; not part of its identity.
+
+        ``None`` if the schema has none. ``TopicSchemaRecord`` describes when Roboto replaces the name.
+        """
         return self.__record.name
 
     @property
     def record(self) -> TopicSchemaRecord:
-        """Underlying schema record."""
+        """Record of the topic schema that this instance holds."""
         return self.__record
 
     @property
     def schema_id(self) -> str:
-        """Unique identifier for this schema."""
+        """Unique ID of the schema.
+
+        It begins with ``ts_``. See ``TopicSchemaRecord.schema_id``.
+        """
         return self.__record.schema_id

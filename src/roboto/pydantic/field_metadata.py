@@ -13,9 +13,10 @@ import pydantic
 class ValidatedAgainst:
     """Field metadata naming the model a field's value is validated against while the field keeps the value as sent.
 
-    Put it in the field's ``typing.Annotated`` metadata, beside a validator that runs ``model``'s validation. Pydantic
-    ignores it. A formatter of validation errors reads it, so that a message about an error that validation raised may
-    name the fields ``model`` declares.
+    Put it in the field's ``typing.Annotated`` metadata, beside a validator that checks the value with ``model``.
+    Pydantic ignores it. Roboto reads it when it rejects a request: the error message names only the fields the
+    request's model declares, and this metadata lets it also name the fields ``model`` declares inside this field's
+    value.
     """
 
     model: type[pydantic.BaseModel]

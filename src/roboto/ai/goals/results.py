@@ -4,43 +4,12 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Typed, per-goal-type results bundling the achieve-tool invocation.
-
-A :data:`GoalResult` is the typed read shape an SDK caller gets back from
-:attr:`AgentThreadGoalView.result` once a goal has reached a terminal state
-(``ACHIEVED`` or ``FAILED`` with at least one attempted invocation). It
-bundles together:
-
-- The goal's terminal :class:`AgentGoalStatus`.
-- The exact :class:`AgentToolUseContent` the LLM submitted to satisfy the
-  goal — useful when callers need to introspect the request or correlate
-  with downstream effects.
-- The corresponding :class:`AgentToolResultContent` (when the runner
-  observed one), so callers can see the response the LLM saw.
-- Per-goal-type typed fields parsed from ``achieve_tool_use.input`` via the
-  shared :mod:`roboto.ai.goals.achieve_inputs` models, so callers get
-  ``result.summary``, ``result.label_decisions``, ``result.events`` directly
-  instead of reaching into a raw dict.
-
-The discriminated-union pattern mirrors :data:`AgentGoal` exactly: each
-concrete subclass declares ``goal_type: Literal[GoalType.X] = GoalType.X``
-and the union dispatches on that discriminator.
-
-Validation lives in the SDK, not on the wire — the server emits
-``achieve_tool_use_id`` (a pointer into the persisted message stream) and
-the SDK rebuilds the :data:`GoalResult` from messages it already holds.
-A new goal type therefore needs no API change, only a new subclass here
-plus a corresponding entry in :data:`AgentGoal`.
-"""
-
 from typing import Annotated, Literal, Optional, Union
 
 import pydantic
 
-# Pull the raw content blocks from the leaf ``core.content`` module rather
-# than ``core.record``: ``core.record`` depends on this package (it imports
-# ``AgentGoal`` for ``AgentThreadGoalRecord.to_agent_goal``), so importing
-# from it here would reintroduce a cycle. ``core.content`` sits below both.
+# Imported from core.content, not core.record: core.record imports this package, so importing it here would be
+# circular.
 from ..core.content import (
     AgentToolResultContent,
     AgentToolUseContent,
@@ -58,117 +27,119 @@ from .types import AgentGoalStatus, GoalType
 
 
 class GoalResultBase(pydantic.BaseModel):
-    """Shared base for every concrete :data:`GoalResult`.
+    """Base of every goal result: the goal's status and the tool use in which the AI submitted the result.
 
-    Subclasses must declare a literal-typed ``goal_type`` field so the
-    discriminated union can dispatch — and must also inherit from the
-    matching achieve-input model from :mod:`roboto.ai.goals.achieve_inputs`
-    so the parsed typed fields land alongside the raw blocks.
+    Roboto subclasses it once per goal type, together with the model of the fields the AI submits for that type, such
+    as :py:class:`~roboto.ai.goals.DatasetSummaryAchieveInput`. Each subclass is a member of ``GoalResult``.
     """
 
     status: AgentGoalStatus
-    """Terminal status of the goal: ``ACHIEVED`` or ``FAILED``."""
+    """Status of the goal when the thread was fetched.
+
+    While it is :py:attr:`~roboto.ai.goals.AgentGoalStatus.PENDING`, the result comes from the AI's latest attempt, and
+    a later attempt can replace it.
+    """
 
     achieve_tool_use: AgentToolUseContent
-    """The ``AgentToolUseContent`` the LLM submitted. ``input`` carries the
-    raw arguments; the parsed typed fields on the subclass are derived
-    from it."""
+    """Tool use in which the AI submitted the result.
+
+    Its ``input`` holds the submitted fields as a dictionary; the subclass's own fields, such as ``summary``, are built
+    from it.
+    """
 
     achieve_tool_result: Optional[AgentToolResultContent] = None
-    """The ``AgentToolResultContent`` the runner observed for the matching
-    ``tool_use_id``, if any. ``None`` when the runner persisted a tool_use
-    but no corresponding tool_result reached the chunk log before the turn
-    terminated."""
+    """Tool result that answers ``achieve_tool_use``, or ``None`` when the thread's messages hold none.
+
+    A failed goal whose last attempt errored before Roboto recorded its result has a tool use and no tool result.
+    """
 
 
 class DatasetSummaryGoalResult(GoalResultBase, DatasetSummaryAchieveInput):
-    """Result of a :class:`GoalType.DATASET_SUMMARY` achieve-tool invocation.
+    """Result of a dataset summary goal: the summary the AI wrote for the dataset, in ``summary``.
 
-    Exposes the LLM-submitted ``summary`` directly alongside the raw
-    ``achieve_tool_use`` / ``achieve_tool_result`` blocks.
+    The goal is a :py:class:`~roboto.ai.goals.DatasetSummaryAgentGoal`.
     """
 
     goal_type: Literal[GoalType.DATASET_SUMMARY] = GoalType.DATASET_SUMMARY
-    """Discriminator. Always :attr:`GoalType.DATASET_SUMMARY`."""
+    """Kind of goal, always :py:attr:`~roboto.ai.goals.GoalType.DATASET_SUMMARY`."""
 
 
 class TriageGoalResultBase(GoalResultBase, TriageAchieveInput):
-    """Shared base for the results of triage goals, on a dataset or a session.
+    """Base of ``DatasetTriageGoalResult`` and ``SessionTriageGoalResult``: the AI's decision on each label of a goal.
 
-    Exposes the full per-label deliberation in ``label_decisions``; use
-    :attr:`applied_labels` for the subset that became tags.
+    ``label_decisions`` holds one decision for each label in the goal's vocabulary, and ``applied_labels`` the labels
+    that apply.
     """
 
     @property
     def applied_labels(self) -> list[str]:
-        """Labels for which the LLM voted ``applies=True``.
+        """Labels the AI decided apply, in the order of ``label_decisions``.
 
-        Matches the set of tags the achieve-tool stored on the triaged dataset
-        or session. Returned in declaration order, not the (sorted) order in
-        which the achieve-tool writes them as tags; for stable ordering use
-        ``sorted(result.applied_labels)``.
+        When the goal is achieved, these are the labels Roboto added as tags to the dataset or session. Tags have no
+        order; ``sorted(result.applied_labels)`` gives a stable one.
         """
         return [d.label for d in self.label_decisions if d.applies]
 
 
 class DatasetTriageGoalResult(TriageGoalResultBase, DatasetTriageAchieveInput):
-    """Result of a :class:`GoalType.DATASET_TRIAGE` achieve-tool invocation.
+    """Result of a dataset triage goal: the AI's decision on each label, and the labels it tagged the dataset with.
 
-    :attr:`applied_labels` are the labels that became tags on the dataset.
+    The goal is a :py:class:`~roboto.ai.goals.DatasetTriageGoal`.
     """
 
     goal_type: Literal[GoalType.DATASET_TRIAGE] = GoalType.DATASET_TRIAGE
-    """Discriminator. Always :attr:`GoalType.DATASET_TRIAGE`."""
+    """Kind of goal, always :py:attr:`~roboto.ai.goals.GoalType.DATASET_TRIAGE`."""
 
 
 class CreateEventsGoalResult(GoalResultBase, CreateEventsAchieveInput):
-    """Result of a :class:`GoalType.CREATE_EVENTS` achieve-tool invocation.
+    """Result of a dataset events goal: the events the AI submitted for the dataset, in ``events``.
 
-    Exposes the list of ``EventSpec`` objects the LLM submitted. The SDK
-    does not currently surface the resulting event ids directly from this
-    result — callers wanting the created events should query the dataset's
-    events using the time bounds in :attr:`events`. (Surfacing event ids
-    here would require an API-layer round-trip back to the achieve-tool's
-    response payload; YAGNI until a caller needs it.)
+    The goal is a :py:class:`~roboto.ai.goals.CreateEventsGoal`. The result does not hold the IDs of the events Roboto
+    created; to find them, list the dataset's events with :py:meth:`~roboto.domain.events.Event.get_by_dataset` and
+    match their names and time ranges.
     """
 
     goal_type: Literal[GoalType.CREATE_EVENTS] = GoalType.CREATE_EVENTS
-    """Discriminator. Always :attr:`GoalType.CREATE_EVENTS`."""
+    """Kind of goal, always :py:attr:`~roboto.ai.goals.GoalType.CREATE_EVENTS`."""
 
 
 class SessionSummaryGoalResult(GoalResultBase, SessionSummaryAchieveInput):
-    """Result of a :class:`GoalType.SESSION_SUMMARY` achieve-tool invocation.
+    """Result of a session summary goal: the summary the AI wrote for the session, in ``summary``.
 
-    Exposes the LLM-submitted ``summary`` directly alongside the raw
-    ``achieve_tool_use`` / ``achieve_tool_result`` blocks.
+    The goal is a :py:class:`~roboto.ai.goals.SessionSummaryAgentGoal`.
     """
 
     goal_type: Literal[GoalType.SESSION_SUMMARY] = GoalType.SESSION_SUMMARY
-    """Discriminator. Always :attr:`GoalType.SESSION_SUMMARY`."""
+    """Kind of goal, always :py:attr:`~roboto.ai.goals.GoalType.SESSION_SUMMARY`."""
 
 
 class SessionTriageGoalResult(TriageGoalResultBase, SessionTriageAchieveInput):
-    """Result of a :class:`GoalType.SESSION_TRIAGE` achieve-tool invocation.
+    """Result of a session triage goal: the AI's decision on each label, and the labels it tagged the session with.
 
-    :attr:`applied_labels` are the labels that became tags on the session.
+    The goal is a :py:class:`~roboto.ai.goals.SessionTriageGoal`.
     """
 
     goal_type: Literal[GoalType.SESSION_TRIAGE] = GoalType.SESSION_TRIAGE
-    """Discriminator. Always :attr:`GoalType.SESSION_TRIAGE`."""
+    """Kind of goal, always :py:attr:`~roboto.ai.goals.GoalType.SESSION_TRIAGE`."""
 
 
 class SessionCreateEventsGoalResult(GoalResultBase, SessionCreateEventsAchieveInput):
-    """Result of a :class:`GoalType.SESSION_CREATE_EVENTS` achieve-tool invocation.
+    """Result of a session events goal: the events the AI submitted for the session, in ``events``.
 
-    Exposes the list of ``SessionEventSpec`` objects the LLM submitted. The created event IDs
-    are not included; list the session's events with
-    :meth:`roboto.experimental.sessions.Session.list_events` to find them.
+    The goal is a :py:class:`~roboto.ai.goals.SessionCreateEventsGoal`. The result does not hold the IDs of the events
+    Roboto created; to find them, list the session's events with
+    :py:meth:`~roboto.experimental.sessions.Session.list_events`.
     """
 
     goal_type: Literal[GoalType.SESSION_CREATE_EVENTS] = GoalType.SESSION_CREATE_EVENTS
-    """Discriminator. Always :attr:`GoalType.SESSION_CREATE_EVENTS`."""
+    """Kind of goal, always :py:attr:`~roboto.ai.goals.GoalType.SESSION_CREATE_EVENTS`."""
 
 
+# In the SDK, adding a goal type takes:
+# 1. A GoalType member, and an AgentGoal subclass in types.py, added to the AgentGoal union.
+# 2. A model of the fields the AI submits, in achieve_inputs.py.
+# 3. A subclass here of GoalResultBase and that model, which declares goal_type as a Literal of the new member, added
+#    to the GoalResult union.
 GoalResult = Annotated[
     Union[
         DatasetSummaryGoalResult,
@@ -180,18 +151,9 @@ GoalResult = Annotated[
     ],
     pydantic.Field(discriminator="goal_type"),
 ]
-"""Closed, Roboto-controlled discriminated union of every typed goal result.
+"""Result of a goal of any type, as :py:attr:`~roboto.ai.agent_thread.AgentThreadGoalView.result` returns it.
 
-Validated via pydantic discriminator on ``goal_type``. Mirrors the shape
-of :data:`AgentGoal` so adding a new goal type means:
-
-1. Add a new ``GoalType`` member.
-2. Add a new ``AgentGoal`` subclass in :mod:`roboto.ai.goals.types`.
-3. Add a matching achieve-input model in
-   :mod:`roboto.ai.goals.achieve_inputs`.
-4. Add a new ``GoalResult`` subclass here that inherits from both
-   :class:`GoalResultBase` and the new achieve-input model.
-
-No API or wire-schema change is needed because the SDK builds the result
-from the persisted message stream via ``achieve_tool_use_id``.
+One of ``DatasetSummaryGoalResult``, ``DatasetTriageGoalResult``, ``CreateEventsGoalResult``,
+``SessionSummaryGoalResult``, ``SessionTriageGoalResult`` or ``SessionCreateEventsGoalResult``, whichever the goal's
+``goal_type`` selects.
 """

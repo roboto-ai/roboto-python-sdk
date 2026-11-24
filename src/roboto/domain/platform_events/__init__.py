@@ -4,13 +4,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Platform events: what happened to an entity on the platform, as a record.
+"""Platform events: records of something that happened in an organization, which Roboto emits and triggers subscribe to.
 
-Distinct from :mod:`roboto.domain.events`, whose ``Event`` is a time-anchored annotation
-on robotics data. A platform event is emitted by the platform when a file is uploaded,
-a dataset is created, an invocation finishes, and so on. Triggers subscribe to them;
-outgoing integrations receive them as CloudEvents. The catalog describes each type: its
-payload model, the namespace roots it exposes, and the ``once_per`` values it supports.
+A platform event is not an event (:py:mod:`roboto.domain.events`), which is an annotation over a span of time. Use
+:py:class:`~roboto.domain.platform_events.PlatformEvent` and
+:py:class:`~roboto.domain.platform_events.PlatformEventType` to read what happened, such as a file finishing ingestion,
+:py:class:`~roboto.domain.platform_events.PlatformEventCatalog` to look up the payload and the data a trigger's
+conditions can read for each type, and :py:class:`~roboto.domain.platform_events.OncePer` to limit a trigger to firing
+once per file, dataset, or other resource a platform event names.
 """
 
 from .catalog import (

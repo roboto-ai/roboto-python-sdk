@@ -4,6 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""Metrics: numeric values recorded for sessions under metric definitions, named quantities such as peak CPU usage.
+
+A session holds at most one value per metric definition, and publishing another value replaces it. Use
+``MetricDefinition`` to create metric definitions, and ``Metric`` to publish a session's values, query them, and
+aggregate them over calendar periods.
+"""
+
 from .metric import Metric, MetricDefinition
 from .record import (
     MAX_METRIC_GROUPS,

@@ -17,6 +17,7 @@ from ..context import CLIContext
 
 
 def create(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Create a dataset from the command's arguments and print the new dataset's record as JSON."""
     dataset = datasets.Dataset.create(
         description=args.description,
         device_id=args.device_id,

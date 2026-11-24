@@ -14,9 +14,21 @@ from ..context import CLIContext
 
 
 def cancel_all(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
-    """
-    Iteratively cancel active invocations until the response returns False for has_more
-    or the configured timeout is reached.
+    """Cancel the ``--org`` organization's active invocations, and print the totals cancelled and failed.
+
+    The command repeats its request until Roboto reports none left. Active invocations are those that have not
+    completed, failed, or been cancelled. Each request cancels every queued one and a limited number of the scheduled
+    and running ones created no later than the command's start, so a scheduled or running invocation created while the
+    command runs is left alone. After each request that leaves more to cancel, the command prints that request's
+    counts.
+
+    The command stops in one of three ways, and each prints the totals cancelled and failed once it has tried to
+    cancel at least one invocation:
+
+    - Roboto reports no active invocations left.
+    - ``--timeout`` is positive and more than that many seconds have passed when the next request is due. The command
+      exits with status 2, and the usage error it prints to stderr also gives the totals.
+    - The user presses Ctrl-C, and the command exits with status 0.
     """
     start_time = utcnow()
     total_success_count = 0

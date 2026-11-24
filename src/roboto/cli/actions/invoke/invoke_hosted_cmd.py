@@ -4,8 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Hosted action invocation command."""
-
 import argparse
 import typing
 
@@ -33,11 +31,10 @@ from .input_parsing import (
 
 
 def invoke_hosted(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
-    """Queue an invocation of a platform-hosted action and print the new invocation's ID.
+    """Queue an invocation of an action in Roboto's compute environment and print the new invocation's ID.
 
-    Runs when a user invokes ``roboto actions invoke``. Returns once the platform accepts the invocation,
-    not when the action finishes running. Input flags that conflict, or that name a file path without a
-    dataset, abort with a usage error before anything is submitted.
+    It returns once Roboto accepts the invocation, not when the action finishes running. Input flags that conflict,
+    or ``--file-path`` without ``--dataset``, abort with a usage error before anything is submitted.
     """
     validate_input_specification(args, parser)
 
@@ -52,8 +49,8 @@ def invoke_hosted(args: argparse.Namespace, context: CLIContext, parser: argpars
     compute_requirements = parse_compute_requirements(args, action.compute_requirements)
     container_parameters = parse_container_overrides(args, action.container_parameters)
 
-    # Every invocation carries the CLI's --log-level (default ERROR) into the action container as
-    # ROBOTO_LOG_LEVEL, overwriting whatever the action or --env set. parse_container_overrides returns
+    # Every invocation carries the CLI's `--log-level` (default ERROR) into the action container as
+    # ROBOTO_LOG_LEVEL, overwriting whatever the action or `--env` set. parse_container_overrides returns
     # None when no container flag was given, so there may be no ContainerParameters yet to hold it.
     if container_parameters is None:
         container_parameters = actions.ContainerParameters()
@@ -68,8 +65,8 @@ def invoke_hosted(args: argparse.Namespace, context: CLIContext, parser: argpars
 
     invocation_input = parse_input_spec(args)
 
-    # --dataset is also recorded in the data source fields, which are the invocation's only record of
-    # the dataset when --file-path is omitted and parse_input_spec returns None.
+    # `--dataset` is also recorded in the data source fields, which are the invocation's only record of
+    # the dataset when `--file-path` is omitted and parse_input_spec returns None.
     data_source_id: typing.Optional[str] = None
     data_source_type: typing.Optional[actions.InvocationDataSourceType] = None
     if args.dataset_id:
@@ -94,17 +91,14 @@ def invoke_hosted(args: argparse.Namespace, context: CLIContext, parser: argpars
 
 
 def invoke_parser(parser: argparse.ArgumentParser) -> None:
-    """Setup parser for hosted invocation command."""
-
-    # Required action reference
     add_action_reference_arg(parser, required=True)
 
-    # Arguments shared with local invocation
+    # Arguments shared with `roboto actions invoke-local`.
     add_input_specification_args(parser)
     add_org_arg(parser)
     add_parameter_args(parser)
 
-    # Hosted-specific arguments
+    # Arguments only an invocation in Roboto's compute environment takes.
     parser.add_argument(
         "--timeout",
         required=False,

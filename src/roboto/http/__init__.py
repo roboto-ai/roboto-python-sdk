@@ -4,6 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""Clients and types for sending requests to Roboto over HTTP.
+
+Use :py:class:`~roboto.http.RobotoClient` to send requests to a chosen Roboto endpoint with a chosen access token or
+config profile. SDK methods that take a ``roboto_client`` default to the one client
+:py:meth:`~roboto.http.RobotoClient.from_env` builds from the environment and reuses for every call.
+"""
+
 from .constants import (
     BEARER_TOKEN_HEADER,
     CONNECTION_CONSISTENCY_HEADER,

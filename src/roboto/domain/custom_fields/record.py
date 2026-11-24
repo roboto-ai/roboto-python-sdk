@@ -18,103 +18,101 @@ from ...compat import StrEnum
 from ...warnings import experimental
 
 CUSTOM_FIELD_NAME_PATTERN = r"[a-z][a-z0-9_]{0,62}"
-"""Regular expression describing the format of a valid custom-field name.
+"""Regular expression a custom field's name must match.
 
-A custom-field name is at most 63 characters long, starts with a lowercase ASCII
-letter, and may otherwise contain lowercase ASCII letters, digits, and underscores.
-
-Unanchored, for embedding in a larger pattern; wrap as ``^{...}$`` to match a
-whole field name.
+A name is at most 63 characters long, starts with a lowercase ASCII letter, and otherwise contains only lowercase
+ASCII letters, digits, and underscores. The pattern is unanchored, for embedding in a larger one; to match a whole
+name, wrap it as ``^...$``.
 """
 
 
 class CustomFieldStatus(StrEnum):
-    """Lifecycle state of a :py:class:`~roboto.domain.custom_fields.CustomField`.
+    """Lifecycle state of a custom field, which determines what can be done with it.
 
-    The status tells a caller what they can do with the field right now. See the
-    :py:class:`~roboto.domain.custom_fields.CustomField` class docstring for the
-    full lifecycle narrative.
+    After :py:meth:`~roboto.domain.custom_fields.CustomField.create`, Roboto sets the field up and moves it from
+    ``Creating`` to ``Ready``. After :py:meth:`~roboto.domain.custom_fields.CustomField.delete`, the field is
+    ``Deleting`` until Roboto removes it. Either process can end in ``Failed`` instead.
     """
 
     Creating = "creating"
-    """The field is being set up.
+    """Roboto is still setting the field up.
 
-    Values cannot yet be assigned to entities, and the field cannot be referenced
-    in search or sort.
+    Values cannot yet be set on entities, and search cannot filter or sort by the field.
     """
 
     Ready = "ready"
-    """The field is fully available.
-
-    Values can be set on entities and the field can be used in search filters and
-    as a sort key.
-    """
+    """The field is set up. Values can be set on entities, and search can filter and sort by the field."""
 
     Deleting = "deleting"
-    """The field is on its way out. Callers should treat it as already gone."""
+    """Roboto is deleting the field.
+
+    Treat the field as already gone: values can no longer be set on it.
+    """
 
     Failed = "failed"
-    """The most recent create or delete attempt did not succeed.
+    """The field's most recent create or delete did not finish.
 
-    The field stays in this state until an operator intervenes. A field that
-    failed during creation can normally be deleted, however.
+    The field stays in this state until it is deleted or Roboto intervenes.
     """
 
 
 class TargetEntityType(StrEnum):
-    """Roboto entity type that a custom field extends.
+    """Kind of Roboto entity a custom field applies to.
 
-    Each custom field is scoped to exactly one entity type, and a given
-    ``field_name`` is unique within an ``(org_id, entity_type)`` pair.
+    Each custom field applies to one entity type, and its name is unique among its organization's fields for that
+    type.
     """
 
     Collection = "collection"
-    """Field applies to :py:class:`~roboto.domain.collections.Collection` entities."""
+    """Collections (:py:class:`~roboto.domain.collections.Collection`)."""
 
     Dataset = "dataset"
-    """Field applies to :py:class:`~roboto.domain.datasets.Dataset` entities."""
+    """Datasets (:py:class:`~roboto.domain.datasets.Dataset`)."""
 
     Device = "device"
-    """Field applies to :py:class:`~roboto.domain.devices.Device` entities."""
+    """Devices (:py:class:`~roboto.domain.devices.Device`)."""
 
     Event = "event"
-    """Field applies to :py:class:`~roboto.domain.events.Event` entities."""
+    """Events (:py:class:`~roboto.domain.events.Event`)."""
 
     Session = "session"
-    """Field applies to :py:class:`~roboto.experimental.sessions.Session` entities."""
+    """Sessions (:py:class:`~roboto.experimental.sessions.Session`)."""
 
     @property
     def url_safe_value(self) -> str:
-        """URL-encoded form of this entity type's value, suitable for embedding in a path segment."""
+        """Value of the entity type, URL-encoded for use in a request path.
+
+        :py:meth:`~roboto.domain.custom_fields.CustomField.from_name_and_entity_type` builds its request path through
+        it, so most code never calls it.
+        """
         return urllib.parse.quote_plus(self.value)
 
 
 class CustomFieldType(StrEnum):
-    """Value type of a custom field.
+    """Value type of a custom field, which determines the values it accepts and how search can filter by it.
 
-    A field's type is fixed at creation time and determines which operators are
-    supported in search and sort, as well as which Python types can be assigned
-    as values.
+    A field's type is fixed when the field is created. Search can sort by a field of any type, and can check whether
+    an entity has a value for it.
     """
 
     Boolean = "boolean"
-    """A boolean value. Supports equality filtering."""
+    """Boolean value. Search can test it for equality."""
 
     Enum = "enum"
-    """A string value drawn from a fixed set of allowed values.
+    """String value from a fixed set of allowed values. Search can test it for equality.
 
-    The allowed values are declared at creation time via :py:class:`EnumFieldOptions`.
-    Supports equality and membership filtering, plus sort.
+    The allowed values are declared by ``EnumFieldOptions`` when the field is created. Values can be added to the set
+    later, with :py:meth:`~roboto.domain.custom_fields.CustomField.add_enum_values`, but not removed from it.
     """
 
     Number = "number"
-    """A numeric value. Supports equality, range filtering, and sort."""
+    """Numeric value. Search can test it for equality and compare it against a range."""
 
     String = "string"
-    """A free-form string value. Supports equality, substring, and sort."""
+    """Free-form string value. Search can test it for equality, a substring, or a wildcard pattern."""
 
     Timestamp = "timestamp"
-    """A point in time. Supports equality, range filtering, and sort.
+    """Point in time. Search can test it for equality and compare it against a range.
 
     Values may be given as a ``datetime``, an ISO 8601 string, an ``int`` of nanoseconds since the
     Unix epoch, or a ``float``, ``decimal.Decimal`` or numeric string of seconds since it. A string
@@ -140,102 +138,114 @@ def _normalize_enum_value(value: str) -> str:
     Composes to Unicode NFC, collapses runs of whitespace to a single space, and strips
     whitespace from either end. A byte-order mark (U+FEFF) counts as whitespace.
 
-    Applied both when a field declares its allowed values and when a value is matched against
-    them, e.g. in search. The two must agree.
+    Applied to a field's allowed values when they are declared, and to a value when it is set on
+    an entity or matched in search, so that both spellings of the same value compare equal.
     """
     return _ENUM_VALUE_WHITESPACE_RUN.sub(" ", unicodedata.normalize("NFC", value)).strip()
 
 
 @experimental
 class EnumFieldOptions(pydantic.BaseModel):
-    """Configuration for an :py:attr:`CustomFieldType.Enum` custom field.
+    """Configuration of an enum custom field: the values it accepts.
 
-    Declares the set of values an enum field will accept. Required when creating
-    an enum field; unused for other field types.
+    Required when creating a field of type ``CustomFieldType.Enum``; fields of other types take no options. Building
+    the options raises ``pydantic.ValidationError`` when ``enum_values`` is empty or ``field_type`` is not ``Enum``.
+    Carried in ``CustomFieldRecord.options``,
+    :py:attr:`~roboto.domain.custom_fields.CreateCustomFieldRequest.options` and
+    :py:attr:`~roboto.domain.custom_fields.UpdateCustomFieldRequest.options`.
     """
 
     field_type: Literal[CustomFieldType.Enum] = CustomFieldType.Enum
-    """Discriminator that identifies this options payload as belonging to an enum field."""
+    """Kind of field these options configure, always ``CustomFieldType.Enum``."""
 
     enum_values: list[str] = pydantic.Field(min_length=1)
-    """Allowed values for the field. Must contain at least one value."""
+    """Values the field accepts. At least one is required."""
 
     @pydantic.model_validator(mode="after")
     def _force_discriminator_in_set_fields(self) -> EnumFieldOptions:
-        # https://github.com/pydantic/pydantic/issues/6465
+        # Mark field_type as set even when it took its default, so a dump with exclude_unset keeps the
+        # discriminator that CustomFieldOptions needs to parse the options back.
         self.__pydantic_fields_set__.add("field_type")
         return self
 
 
 CustomFieldOptions: TypeAlias = Annotated[Union[EnumFieldOptions], pydantic.Field(discriminator="field_type")]
-"""Type-specific configuration carried alongside a custom field. Currently only :py:class:`EnumFieldOptions`."""
+"""Type-specific configuration of any kind: one of ``EnumFieldOptions``.
+
+The options' ``field_type`` selects the kind.
+"""
 
 
 @experimental
 class CustomFieldRecord(pydantic.BaseModel):
-    """Wire-transmissible representation of a :py:class:`~roboto.domain.custom_fields.CustomField`.
+    """Data record of a custom field, as the Roboto API returns it.
 
-    Returned by the custom-fields API and wrapped by
-    :py:class:`~roboto.domain.custom_fields.CustomField` for ergonomic access.
-    Callers normally interact with the wrapping class rather than this record
-    directly.
+    A custom field is a typed field that an organization defines for one entity type, such as datasets: each entity
+    of that type can hold a value for it, and search can filter and sort by it.
+    :py:class:`~roboto.domain.custom_fields.CustomField` wraps this record with methods that act on the field.
     """
 
     created: datetime.datetime
-    """UTC timestamp when the field was defined."""
+    """Time the custom field was created."""
 
     created_by: str
-    """User ID that defined the field."""
+    """Principal that created the custom field, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     description: Optional[str] = None
-    """Long-form description of the field's meaning, or ``None`` if unset."""
+    """Human-readable description of the custom field, or ``None`` if it has none."""
 
     display_name: Optional[str] = None
-    """Human-readable label for the field, or ``None`` if unset."""
+    """Human-readable label of the custom field, or ``None`` if it has none."""
 
     entity_type: TargetEntityType
-    """Roboto entity type the field extends."""
+    """Kind of entity the custom field applies to. Fixed when the field is created."""
 
     field_id: str
-    """Opaque, globally unique identifier for the field."""
+    """Unique ID of the custom field, beginning with ``cf_``."""
 
     field_name: str
-    """Name of the field. Unique within ``(org_id, entity_type)`` and fixed at creation time."""
+    """Name of the custom field, unique among its organization's fields for its entity type.
+
+    Fixed when the field is created.
+    """
 
     field_type: CustomFieldType
-    """Value type of the field. Fixed at creation time."""
+    """Value type of the custom field. Fixed when the field is created."""
 
     metadata_path: Optional[str] = None
-    """Source metadata key the field was promoted from, if any. Reserved for future use."""
+    """Unused. Roboto rejects a create request that sets it, so it is always ``None``."""
 
     modified: datetime.datetime
-    """Timestamp of the field's most recent status or metadata change."""
+    """Time the custom field was last modified."""
 
     modified_by: str
-    """User ID of the most recent modifier. May be a system identity for automatic status changes."""
+    """Principal that last modified the custom field, in the same ``<type>:<id>`` form as ``created_by``.
+
+    Roboto's own system user when Roboto made the change, such as moving ``status`` to ``CustomFieldStatus.Ready``.
+    """
 
     options: Optional[CustomFieldOptions] = None
-    """Type-specific configuration.
+    """Type-specific configuration of the custom field.
 
-    Present for :py:attr:`CustomFieldType.Enum` fields; ``None`` for types that
-    take no options.
+    Set on fields of type ``CustomFieldType.Enum``; ``None`` on types that take no options.
     """
 
     org_id: str
-    """Organization that owns the field."""
+    """ID of the organization that owns the custom field."""
 
     status: CustomFieldStatus
-    """Current lifecycle status. See :py:class:`CustomFieldStatus`."""
+    """Lifecycle state of the custom field, which determines what can be done with it."""
 
     last_error: str | None = None
-    """Human-readable summary of the most recent failure, if any.
+    """Human-readable reason the custom field's most recent create or delete failed, or ``None``.
 
-    Populated when :py:attr:`status` is :py:attr:`CustomFieldStatus.Failed`, and may
-    stay set after a retry until the next failure or success.
+    Set when ``status`` becomes ``CustomFieldStatus.Failed``, and cleared when the field is deleted. Roboto sets it;
+    no request does.
     """
 
     attempts: int = 0
-    """Number of attempts the platform has made for the field's current lifecycle phase.
+    """Number of times Roboto has tried to finish the custom field's current create or delete, for diagnosis.
 
-    Diagnostic; not actionable for callers.
+    Reset to ``0`` when the field becomes ``CustomFieldStatus.Ready`` and when its deletion begins. Roboto sets it;
+    no request does.
     """

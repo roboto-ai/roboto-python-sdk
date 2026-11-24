@@ -29,11 +29,16 @@ from .record import (
 
 
 class Skill:
-    """An AI skill — a versioned, accessibility-scoped procedure the chat AI can apply.
+    """A skill: a stored, versioned procedure, written in Markdown, that Roboto's AI can apply during a conversation.
 
-    Use :py:meth:`create` to create a new skill, :py:meth:`from_id` /
-    :py:meth:`from_name` to load existing ones, and :py:meth:`list_for_org` to
-    iterate. The constructor is internal.
+    A skill belongs to one organization, and the user who created it is its author. Its
+    :py:class:`~roboto.domain.skills.SkillAccessibility` sets who can see, invoke, and edit it. Its procedure is in its
+    versions, each a :py:class:`~roboto.domain.skills.SkillVersionRecord`. A user's subscription to the skill adds it
+    to their personal skills and pins the version, if any, that the AI may apply for them without being asked.
+
+    Get a ``Skill`` from ``create``, ``from_id``, or ``from_name``. ``list_for_org`` and ``get_summary`` return
+    :py:class:`~roboto.domain.skills.SkillSummary` records instead. Each instance holds a copy of the skill's record:
+    ``update_metadata`` updates that copy from Roboto's response, and ``refresh`` fetches changes made elsewhere.
     """
 
     @classmethod
@@ -48,22 +53,35 @@ class Skill:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> Skill:
-        """Create a new skill plus its first version (version=1).
+        """Create a skill and its first version, version ``1``.
 
-        The skill is created in the caller's organization. With the default
-        :py:attr:`SkillAccessibility.Private` accessibility only the caller can
-        see, edit, or delete it. :py:attr:`SkillAccessibility.Org` makes it
-        readable by all org members (author-only to edit);
-        :py:attr:`SkillAccessibility.OrgEditable` additionally lets any member
-        who subscribes edit its versions, name, and tags. The author is
-        auto-subscribed at creation time and the new version is pinned as
-        Available to AI. Other org members must :py:meth:`subscribe` to see the
-        skill in their AI auto-invoke registry.
-        Pass ``tags`` to seed the skill's tag list at creation time;
-        later edits flow through :class:`UpdateSkillMetadataRequest`.
-        Pass ``relevant_topics`` to record the topic names v1's procedure
-        investigates; the chat AI resolves them to schemas when it loads the
-        skill (see :class:`SkillVersionRecord.relevant_topics`).
+        Roboto subscribes the author with version ``1`` pinned, so Roboto's AI can apply the skill for the author at
+        once. Other members of the organization who can see the skill must ``subscribe`` and pin a version with
+        ``set_ai_version`` before the AI applies it for them on its own.
+
+        Args:
+            name: Name of the skill, at most 120 characters, matching
+                :py:const:`~roboto.domain.skills.SKILL_NAME_PATTERN`. The name of a skill shared with the organization
+                is unique among the organization's shared skills; a private skill's name is unique among its author's
+                private skills in the organization.
+            description: Text telling the AI when to apply the skill, at most 500 characters
+                (:py:const:`~roboto.domain.skills.MAX_SKILL_DESCRIPTION_LENGTH`).
+            body: Procedure the AI follows when it applies the skill.
+            accessibility: Who can see, invoke, and edit the skill. Defaults to
+                :py:attr:`~roboto.domain.skills.SkillAccessibility.Private`, which limits all three to the author.
+            tags: Tags to set on the skill. ``None`` sets none.
+            relevant_topics: Names of the topics the first version's procedure investigates, such as ``"/imu/data"``.
+                ``None`` names none. See :py:attr:`~roboto.domain.skills.SkillVersionRecord.relevant_topics` for how
+                the AI uses them.
+            caller_org_id: Organization to create the skill in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+
+        Raises:
+            RobotoConflictException: The name is already taken, under the rules given for ``name``.
+            pydantic.ValidationError: ``name`` is longer than 120 characters or does not match ``SKILL_NAME_PATTERN``,
+                or ``description`` is longer than 500 characters.
 
         Examples:
             >>> skill = Skill.create(
@@ -74,8 +92,7 @@ class Skill:
             ...     tags=["qa-review", "triage"],
             ...     relevant_topics=["/imu/data", "/gps/fix"],
             ... )
-            >>> skill.skill_id
-            'sk_...'
+            >>> print(skill.skill_id)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.post(
@@ -98,16 +115,19 @@ class Skill:
         skill_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> Skill:
-        """Load a skill by its skill_id.
+        """Fetch a skill by its ID.
+
+        Args:
+            skill_id: ID of the skill.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: No skill with this id exists, or the caller
-                cannot see it (visibility-gated).
+            RobotoNotFoundException: No skill has this ID, or the caller cannot see it.
 
         Examples:
-            >>> skill = Skill.from_id("sk_abc123")
-            >>> skill.name
-            'qa-review'
+            >>> skill = Skill.from_id("sk_12345")
+            >>> print(skill.name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(f"v1/skills/id/{skill_id}").to_record(SkillRecord)
@@ -119,22 +139,23 @@ class Skill:
         skill_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> SkillSummary:
-        """Load one skill's summary: the skill, its latest version, and your subscription.
+        """Fetch a skill's summary: the skill, its latest version, and the caller's subscription to it.
 
-        The single-skill counterpart of :py:meth:`list_for_org`. Prefer it over
-        filtering that listing when you already know the ``skill_id`` — it costs
-        one row instead of the whole org's skills.
+        Returns the same summary ``list_for_org`` yields for this skill, without listing the organization's skills.
+
+        Args:
+            skill_id: ID of the skill.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: No skill with this id exists, or the caller
-                cannot see it (visibility-gated, same as :py:meth:`from_id`).
+            RobotoNotFoundException: No skill has this ID, or the caller cannot see it.
 
         Examples:
-            >>> summary = Skill.get_summary("sk_abc123")
-            >>> summary.latest_version.version
-            3
-            >>> summary.subscription is None  # not subscribed
-            True
+            >>> summary = Skill.get_summary("sk_12345")
+            >>> print(summary.latest_version.version)
+            >>> if summary.subscription is None:
+            ...     print("Not subscribed")
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         return roboto_client.get(f"v1/skills/id/{skill_id}/summary").to_record(SkillSummary)
@@ -146,31 +167,28 @@ class Skill:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> Skill:
-        """Load a skill by name in the caller's organization.
+        """Fetch a skill by name.
 
-        Skill names are unique within ``(org_id, accessibility)``. When both a
-        private and an org-shared skill share a name in the same org, this
-        method returns the caller's private one (the manual-invocation
-        tie-break — see :func:`SkillsRepo.get_skill_by_name`).
+        A private skill can have the same name as a skill shared with the organization. When the caller authored such
+        a private skill, this method returns it rather than the shared one.
 
         Args:
-            name: Skill name. URL-encoded by the SDK.
-            caller_org_id: Look up in this org. Defaults to the caller's
-                current org.
+            name: Name of the skill.
+            caller_org_id: Organization to look the skill up in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: No skill with this name is visible to the
-                caller in the target org.
+            RobotoNotFoundException: The organization has no skill with this name that the caller can see.
 
         Examples:
             >>> skill = Skill.from_name("qa-review")
-            >>> skill.accessibility
-            <SkillAccessibility.Org: 'org'>
+            >>> print(skill.accessibility)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
-        # Backend `unquote`s this segment, so we must encode it. Skill names are
-        # restricted to a safe charset by SKILL_NAME_PATTERN, but always encode
-        # to keep the SDK robust against any future relaxation of that rule.
+        # Roboto URL-decodes this path segment. SKILL_NAME_PATTERN admits no character that needs encoding, but
+        # encoding keeps the request valid for any name.
         encoded = urllib.parse.quote(name, safe="")
         record = roboto_client.get(
             f"v1/skills/name/{encoded}",
@@ -184,15 +202,19 @@ class Skill:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> list[str]:
-        """Return the distinct tags found on skills the caller can see in this org.
+        """List the distinct tags on the skills the caller can see in the organization, in alphabetical order.
 
-        Visibility-filtered the same way :py:meth:`list_for_org` is — private
-        skills owned by other users contribute no tags. Suitable for powering
-        a tag-autocomplete UI.
+        Tags on other users' private skills are left out.
+
+        Args:
+            caller_org_id: Organization to list the tags of. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Examples:
-            >>> Skill.list_known_tags()
-            ['qa-review', 'triage', 'experiments']
+            >>> for tag in Skill.list_known_tags():
+            ...     print(tag)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         return roboto_client.get(
@@ -207,24 +229,40 @@ class Skill:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator[SkillSummary, None, None]:
-        """Yield :class:`SkillSummary` items for every skill the caller can see in their org.
+        """List summaries of the skills the caller can see in the organization, most recently modified first.
 
-        The summary includes the latest version (MAX(version)) and the caller's
-        own subscription row when one exists. When ``scope`` is provided the
-        result is restricted to either ``Personal`` (authored or subscribed) or
-        ``Org`` (org-shared skills the caller did not author, regardless of
-        subscription state). Omit ``scope`` to receive every visible skill in
-        one stream.
+        The caller can see every skill shared with the organization, the private skills they authored, and the skills
+        that Roboto ships. Each summary holds the skill's record, its latest version, and the caller's subscription to
+        it, if any. Summaries are fetched a page at a time as you iterate.
+
+        Args:
+            scope: Which of those skills to list: :py:attr:`~roboto.domain.skills.SkillListScope.Personal` for the
+                skills the caller authored or subscribed to, :py:attr:`~roboto.domain.skills.SkillListScope.Org`
+                for the shared skills someone else authored, or
+                :py:attr:`~roboto.domain.skills.SkillListScope.Roboto` for the skills that Roboto ships. ``None``
+                lists every skill the caller can see, with the skills that Roboto ships first.
+            caller_org_id: Organization to list the skills of. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+
+        Yields:
+            :py:class:`~roboto.domain.skills.SkillSummary` of each skill.
 
         Examples:
-            List the caller's Personal-tab skills:
+            Print the skills the caller authored or subscribed to, with the version each one pins:
 
             >>> for summary in Skill.list_for_org(scope=SkillListScope.Personal):
             ...     print(summary.skill.name, summary.subscription.ai_version if summary.subscription else None)
 
-            Iterate every visible skill (Personal + Org), in one pass:
+            Collect every skill the caller can see:
 
             >>> all_visible = list(Skill.list_for_org())
+
+            List only the skills that Roboto ships:
+
+            >>> for summary in Skill.list_for_org(scope=SkillListScope.Roboto):
+            ...     print(summary.skill.name, [resource.slug for resource in summary.latest_version.resources])
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         next_token: typing.Optional[str] = None
@@ -258,57 +296,82 @@ class Skill:
 
     @property
     def skill_id(self) -> str:
+        """Unique ID of the skill, beginning with ``sk_``."""
         return self.__record.skill_id
 
     @property
     def name(self) -> str:
+        """Human-readable name of the skill.
+
+        See :py:attr:`~roboto.domain.skills.SkillRecord.name` for where it is unique.
+        """
         return self.__record.name
 
     @property
     def org_id(self) -> str:
+        """ID of the organization that owns the skill."""
         return self.__record.org_id
 
     @property
     def accessibility(self) -> SkillAccessibility:
+        """Who can see, invoke, and edit the skill."""
         return self.__record.accessibility
 
     @property
     def created_by(self) -> str:
+        """ID of the user who created the skill, its author."""
         return self.__record.created_by
 
     @property
     def tags(self) -> list[str]:
+        """Tags on the skill, such as ``"qa-review"``.
+
+        The list is a copy; change the skill's tags with ``update_metadata``, as
+        :py:attr:`~roboto.domain.skills.SkillRecord.tags` describes.
+        """
         return list(self.__record.tags)
 
     @property
     def record(self) -> SkillRecord:
+        """Record of the skill that this instance holds."""
         return self.__record
 
     def refresh(self) -> Skill:
-        """Re-fetch this skill's record from the server and return self.
+        """Fetch the skill's record from Roboto again, replacing this instance's copy.
 
-        Useful after another caller may have updated the skill — bumps the
-        local view past stale data.
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            RobotoNotFoundException: The skill has been deleted, or the caller can no longer see it.
 
         Examples:
-            >>> skill.refresh()
-            >>> skill.name  # now reflects any server-side rename
-            'qa-review'
+            >>> skill = Skill.from_id("sk_12345")
+            >>> print(skill.refresh().name)
         """
         self.__record = self.__roboto_client.get(f"v1/skills/id/{self.__record.skill_id}").to_record(SkillRecord)
         return self
 
     def update_metadata(self, request: UpdateSkillMetadataRequest) -> Skill:
-        """Update skill-level metadata (name, accessibility, tags).
+        """Update the skill's name, accessibility, or tags.
 
-        Editing the name and tags is permitted for the author and — on an
-        :py:attr:`SkillAccessibility.OrgEditable` skill — for any subscribed
-        org member. Changing ``accessibility`` is always author-only.
+        The author can change every field. On an :py:attr:`~roboto.domain.skills.SkillAccessibility.OrgEditable` skill,
+        any member of the organization subscribed to it can change the name and tags, but only the author can change
+        its accessibility. Making a shared skill private deletes every subscription to it except the author's.
 
-        Updates apply in place; the local record is replaced with the
-        server's authoritative copy.
+        Args:
+            request: Fields to change. A field left unset is unchanged.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            RobotoConflictException: The new name is already taken, or the request shares a private skill whose name
+                a shared skill already has.
+            RobotoUnauthorizedException: The request sets ``accessibility`` and the caller is not the author.
 
         Examples:
+            >>> skill = Skill.from_id("sk_12345")
             >>> skill.update_metadata(
             ...     UpdateSkillMetadataRequest(
             ...         accessibility=SkillAccessibility.Org,
@@ -323,22 +386,25 @@ class Skill:
         return self
 
     def delete(self) -> None:
-        """Hard-delete this skill. Author-only, including on ``OrgEditable`` skills.
+        """Delete the skill, with all its versions and every subscription to it.
 
-        Cascades to all versions and subscriptions. Existing chats keep any
-        fabricated ``load_skill`` tool_use / tool_result blocks they've
-        already produced — the body is captured at invocation time and
-        written into the transcript.
+        Only the author can delete a skill, whatever its accessibility. Conversations in which Roboto's AI already
+        applied the skill keep the procedure it received.
+
+        Raises:
+            RobotoUnauthorizedException: The caller is not the skill's author.
 
         Examples:
+            >>> skill = Skill.from_id("sk_12345")
             >>> skill.delete()
         """
         self.__roboto_client.delete(f"v1/skills/id/{self.__record.skill_id}")
 
     def list_versions(self) -> list[SkillVersionRecord]:
-        """List every version of this skill, newest first.
+        """List the skill's versions, highest version number first.
 
         Examples:
+            >>> skill = Skill.from_id("sk_12345")
             >>> for version in skill.list_versions():
             ...     print(version.version, version.description)
         """
@@ -347,12 +413,16 @@ class Skill:
         ).to_record_list(SkillVersionRecord)
 
     def get_version(self, version: int) -> SkillVersionRecord:
-        """Load a specific version of this skill.
+        """Fetch one version of the skill.
+
+        Args:
+            version: Number of the version.
 
         Raises:
-            RobotoNotFoundException: No such version exists.
+            RobotoNotFoundException: The skill has no version with this number.
 
         Examples:
+            >>> skill = Skill.from_id("sk_12345")
             >>> v2 = skill.get_version(2)
             >>> print(v2.body)
         """
@@ -361,18 +431,20 @@ class Skill:
         ).to_record(SkillVersionRecord)
 
     def create_version(self, request: CreateSkillVersionRequest) -> SkillVersionRecord:
-        """Add a new version to this skill. The server assigns ``MAX(version) + 1``.
+        """Create a version of the skill, numbered one higher than its highest version.
 
-        Permitted for the author and — on an :py:attr:`SkillAccessibility.OrgEditable`
-        skill — for any subscribed org member. Subscribers who pinned the previous
-        version stay on that pin until they explicitly re-pin — the new row does
-        not auto-promote.
+        The author can create versions, and so can any member of the organization subscribed to an
+        :py:attr:`~roboto.domain.skills.SkillAccessibility.OrgEditable` skill. Subscribers keep the version they
+        pinned; for Roboto's AI to apply the new version for them, each must pin it with ``set_ai_version``.
 
-        Pass ``relevant_topics`` to record the topic names this version's
-        procedure investigates; the chat AI resolves them to schemas when it
-        loads the skill (see :class:`SkillVersionRecord.relevant_topics`).
+        Args:
+            request: Description, procedure, and relevant topics of the new version.
+
+        Returns:
+            Record of the new version.
 
         Examples:
+            >>> skill = Skill.from_id("sk_12345")
             >>> v2 = skill.create_version(
             ...     CreateSkillVersionRequest(
             ...         description="Run when ...",
@@ -380,8 +452,7 @@ class Skill:
             ...         relevant_topics=["/imu/data", "/gps/fix"],
             ...     )
             ... )
-            >>> v2.version
-            2
+            >>> print(v2.version)
         """
         return self.__roboto_client.post(
             f"v1/skills/id/{self.__record.skill_id}/versions",
@@ -389,16 +460,24 @@ class Skill:
         ).to_record(SkillVersionRecord)
 
     def update_version(self, version: int, request: UpdateSkillVersionRequest) -> SkillVersionRecord:
-        """Edit fields on an existing version in place.
+        """Update a version of the skill in place.
 
-        Permitted for the author and — on an :py:attr:`SkillAccessibility.OrgEditable`
-        skill — for any subscribed org member.
+        The same users who can create versions can update them. Roboto keeps no copy of the earlier values, so
+        subscribers who pinned this version get the new content the next time Roboto's AI applies the skill for them.
+        To leave them on the current content, create a version with ``create_version`` instead.
 
-        Subscribers pinned to this version see the new body on their next AI
-        invocation; there is no per-edit revision. Use :py:meth:`create_version`
-        when callers should not be auto-migrated.
+        Args:
+            version: Number of the version to update.
+            request: Fields to change. A field left unset is unchanged.
+
+        Returns:
+            Record of the version, as updated.
+
+        Raises:
+            RobotoNotFoundException: The skill has no version with this number.
 
         Examples:
+            >>> skill = Skill.from_id("sk_12345")
             >>> skill.update_version(2, UpdateSkillVersionRequest(body="..."))
         """
         return self.__roboto_client.put(
@@ -407,64 +486,81 @@ class Skill:
         ).to_record(SkillVersionRecord)
 
     def delete_version(self, version: int) -> None:
-        """Delete a single version. If it's the last remaining version, the parent skill is removed too.
+        """Delete a version of the skill, and the skill itself when no other version remains.
 
-        Permitted for the author and — on an :py:attr:`SkillAccessibility.OrgEditable`
-        skill — for any subscribed org member. A subscribed non-author may not
-        delete the *last* remaining version: that cascades into a full skill
-        delete, which is author-only. The author has no such restriction.
+        The author can delete any version. On an :py:attr:`~roboto.domain.skills.SkillAccessibility.OrgEditable`
+        skill, any member of the organization subscribed to it can delete every version but the last: deleting the
+        last version deletes the skill, which only the author can do. Subscriptions that pinned the deleted version
+        remain, with ``ai_version`` set to ``None``.
 
-        Subscriptions pinned to the deleted version have their ``ai_version``
-        nulled out via a server-side trigger; the subscription row survives.
+        Args:
+            version: Number of the version to delete.
+
+        Raises:
+            RobotoNotFoundException: The skill has no version with this number.
+            RobotoUnauthorizedException: The version is the skill's last and the caller is not its author.
 
         Examples:
+            >>> skill = Skill.from_id("sk_12345")
             >>> skill.delete_version(1)
         """
         self.__roboto_client.delete(f"v1/skills/id/{self.__record.skill_id}/versions/{version}")
 
     def subscribe(self) -> SkillSubscriptionRecord:
-        """Subscribe to this skill — adds it to the caller's Personal tab.
+        """Subscribe the caller to the skill, adding it to their personal skills.
 
-        Idempotent: if the caller is already subscribed (or is the author), the
-        existing row is returned unchanged. New subscriptions default to
-        ``ai_version=None`` (not yet exposed to AI). Use :py:meth:`set_ai_version`
-        to enable AI auto-invocation.
+        Any caller who can see the skill can subscribe. A new subscription pins no version, so Roboto's AI applies the
+        skill only when the caller invokes it; pin a version with ``set_ai_version``. If the caller is already
+        subscribed, Roboto returns that subscription unchanged.
+
+        Returns:
+            Caller's subscription to the skill.
 
         Examples:
-            >>> sub = skill.subscribe()
-            >>> sub.ai_version is None
-            True
+            >>> skill = Skill.from_id("sk_12345")
+            >>> subscription = skill.subscribe()
+            >>> print(subscription.ai_version)
         """
         return self.__roboto_client.post(
             f"v1/skills/id/{self.__record.skill_id}/subscribe",
         ).to_record(SkillSubscriptionRecord)
 
     def unsubscribe(self) -> None:
-        """Remove the caller's subscription row — removes the skill from their Personal tab.
+        """Delete the caller's subscription to the skill, so Roboto's AI no longer applies it without being asked.
 
-        No-op if there is no subscription. Authors who unsubscribe from their own
-        skill can re-subscribe later; authorship is unchanged.
+        Does nothing if the caller is not subscribed. A caller who is not the author can no longer invoke the skill
+        and no longer sees it among their personal skills. An author who unsubscribes still sees the skill there and
+        can subscribe again.
 
         Examples:
+            >>> skill = Skill.from_id("sk_12345")
             >>> skill.unsubscribe()
         """
         self.__roboto_client.delete(f"v1/skills/id/{self.__record.skill_id}/subscribe")
 
     def set_ai_version(self, version: typing.Optional[int]) -> SkillSubscriptionRecord:
-        """Pin (or clear) which version of this skill the AI auto-invokes for the caller.
+        """Pin the version of the skill that Roboto's AI may apply for the caller without being asked.
 
-        Pass an integer to expose that exact version to AI auto-invocation; pass
-        ``None`` to disable AI auto-invocation while keeping the subscription.
-        Implicitly subscribes the caller if no row exists yet. Visibility-gated;
-        the caller does not have to be the author.
+        Subscribes the caller if they are not subscribed. Any caller who can see the skill can pin a version.
+
+        Args:
+            version: Number of the version to pin. ``None`` keeps the subscription but stops the AI from applying
+                the skill on its own; the caller can still invoke it in a chat message.
+
+        Returns:
+            Caller's subscription to the skill.
+
+        Raises:
+            RobotoNotFoundException: The skill has no version with this number.
 
         Examples:
-            Pin version 2 for AI auto-invoke:
+            Let the AI apply version 2 on its own:
 
+            >>> skill = Skill.from_id("sk_12345")
             >>> skill.set_ai_version(2)
 
-            Stop the AI from auto-invoking this skill, but stay subscribed
-            so manual chip-invocation still works:
+            Stop the AI from applying the skill on its own, but keep the subscription so the caller can still
+            invoke it in a chat message:
 
             >>> skill.set_ai_version(None)
         """

@@ -47,31 +47,22 @@ from .record import DeviceRecord
 
 
 class Device:
-    """A device is a non-human entity that can interact with Roboto on behalf of an organization.
+    """A device: a robot, upload station, or other non-human entity that interacts with Roboto programmatically.
 
-    Devices represent robots, systems, or other non-human entities that
-    need to authenticate and interact with the Roboto platform. Each device is uniquely
-    identified by a device_id within its organization and can be assigned API tokens for
-    secure authentication.
+    A device belongs to one organization, which gives it an ID, such as a serial number or asset tag, unique within
+    that organization. Access tokens from ``create_token`` let the device make requests as itself, such as creating
+    datasets and uploading files, which then record its ID. A device also has files of its own, its
+    ``configurations``, and carries tags, key-value metadata, and custom-field values.
 
-    Common kinds of device include:
+    Get a ``Device`` from ``create``, ``from_id``, or ``for_org``. To wrap a
+    :py:class:`~roboto.domain.devices.DeviceRecord` already fetched from Roboto, build a ``Device`` from it directly.
+    Methods that change the device return a new ``Device`` holding the updated record, and leave the record of the
+    instance they were called on as it was.
 
-    - Robots that upload log data directly from their onboard software
-    - Automated upload stations that collect and transmit data from multiple sources
-    - Edge computing devices that process and forward data to Roboto
-
-    Devices are associated with :py:class:`~roboto.domain.orgs.Org` entities and can create
-    :py:class:`~roboto.domain.tokens.Token` objects for authentication. The underlying data
-    is a :py:class:`DeviceRecord`, the raw record as returned by Roboto.
-
-    Device IDs are typically meaningful identifiers like serial numbers, asset tags, or
-    other organization-specific naming schemes that help identify the physical or logical
-    entity in the real world.
-
-    Note:
-        Devices cannot be instantiated directly through the constructor. Use the class
-        methods :py:meth:`create`, :py:meth:`from_id`, :py:meth:`get_or_create`, or :py:meth:`for_org`
-        to obtain Device instances.
+    Args:
+        record: Record of the device.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
     """
 
     __record: DeviceRecord
@@ -88,56 +79,49 @@ class Device:
         roboto_client: typing.Optional[RobotoClient] = None,
         device_type_id: typing.Optional[str] = None,
     ) -> "Device":
-        """Register a new device with the Roboto platform.
-
-        Creates a new device entity that can authenticate and interact with Roboto
-        on behalf of the specified organization. The device_id must be unique within
-        the organization.
+        """Create a device.
 
         Args:
-            device_id: A user-provided identifier for the device, unique within the organization.
-                This is typically a meaningful identifier like a serial number, asset tag,
-                or other organization-specific naming scheme.
-            metadata: Optional key-value pairs to associate with the device for discovery and search.
-                For example: {"model": "mk2", "serial_number": "SN001234"}.
-            tags: Optional list of tags to associate with the device for discovery and organization.
-                For example: ["production", "warehouse-a"].
-            custom_fields: Optional initial values for Ready custom fields defined on
-                Devices in the caller's org. Keys must match Ready field names; values
-                must satisfy each field's declared type.
-            caller_org_id: The organization ID to register the device under. If not specified
-                and the caller belongs to only one organization, that organization will be used.
-                Required if the caller belongs to multiple organizations.
-            roboto_client: Optional RobotoClient instance for API communication. If not provided,
-                the default client configuration will be used.
-            device_type_id: Optional ``dt_`` ID of a :py:class:`~roboto.domain.device_types.DeviceType` in the
-                same organization to assign to the device.
+            device_id: ID to give the device, such as a serial number, unique within the organization.
+                :py:func:`~roboto.domain.devices.validate_device_id` lists the IDs Roboto refuses.
+            metadata: Key-value metadata to set on the device. ``None`` sets none.
+            tags: Tags to set on the device. ``None`` sets none.
+            custom_fields: Initial values for the device's custom fields, keyed by field name. Each name must be a
+                custom field defined for devices in the organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+                field's declared type. ``None`` sets none.
+            caller_org_id: Organization to create the device in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            device_type_id: ID of a device type in the same organization to assign to the device, beginning with
+                ``dt_``. ``None`` leaves the device without one.
 
         Returns:
-            A Device instance representing the newly registered device.
+            The new device.
 
         Raises:
-            RobotoConflictException: If a device with the same device_id already exists
-                in the specified organization.
-            RobotoUnauthorizedException: If the caller lacks permission to create devices
-                in the specified organization.
-            RobotoInvalidRequestException: If the organization ID is malformed, or ``device_type_id`` is
-                given and the organization has no such device type or does not have device types enabled.
-            pydantic.ValidationError: If :py:func:`~roboto.domain.devices.validate_device_id` refuses
-                ``device_id``. Raised before anything is sent to the platform.
+            RobotoConflictException: The organization already has a device with this ``device_id``.
+            RobotoInvalidRequestException: ``device_type_id`` is given and the organization has no such device type.
+            RobotoIllegalArgumentException: A ``custom_fields`` name is not a ready custom field for devices, or its
+                value does not match the field's type.
+            pydantic.ValidationError: :py:func:`~roboto.domain.devices.validate_device_id` refuses ``device_id``.
+                Raised before anything is sent to Roboto.
 
         Examples:
-            Register a robot device:
+            Create a device in a named organization:
 
-            >>> device = Device.create(device_id="robot_001", caller_org_id="og_abc123")
-            >>> print(f"Registered device: {device.device_id}")
-            Registered device: robot_001
+            >>> device = Device.create(device_id="robot_001", caller_org_id="og_12345")
+            >>> device.device_id
+            'robot_001'
 
-            Register an upload station:
+            Create a device with tags and metadata:
 
-            >>> device = Device.create(device_id="upload_station_alpha")
-            >>> print(f"Device org: {device.org_id}")
-            Device org: og_xyz789
+            >>> device = Device.create(
+            ...     device_id="upload_station_alpha",
+            ...     tags=["production", "warehouse-a"],
+            ...     metadata={"model": "mk2", "serial_number": "SN001234"},
+            ... )
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = CreateDeviceRequest(
@@ -157,39 +141,24 @@ class Device:
     def for_org(
         cls, org_id: str, roboto_client: typing.Optional[RobotoClient] = None
     ) -> collections.abc.Generator["Device", None, None]:
-        """List all devices registered for a given organization.
+        """List the devices of an organization.
 
-        Retrieves all devices that belong to the specified organization. For organizations
-        with large numbers of devices, this method uses pagination and yields results as
-        they become available from the API.
+        Fetches the devices a page at a time, as the generator is iterated.
 
         Args:
-            org_id: The organization ID to list devices for.
-            roboto_client: Optional RobotoClient instance for API communication. If not provided,
-                the default client configuration will be used.
-
-        Returns:
-            A generator of Device objects. For organizations with many devices, this may involve
-            multiple service calls, and the generator will yield results as they become available.
-
-        Raises:
-            RobotoUnauthorizedException: If the caller lacks permission to list devices
-                in the specified organization.
-            RobotoNotFoundException: If the specified organization does not exist.
+            org_id: ID of the organization whose devices to list.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Examples:
-            List all devices in an organization:
+            Print the ID of every device in an organization:
 
-            >>> for device in Device.for_org("og_abc123"):
-            ...     print(f"Device: {device.device_id} (created: {device.created})")
-            Device: robot_001 (created: 2024-01-15 10:30:00)
-            Device: upload_station_beta (created: 2024-01-17 09:15:00)
+            >>> for device in Device.for_org("og_12345"):
+            ...     print(device.device_id)
 
-            Count devices in an organization:
+            Count the devices in an organization:
 
-            >>> device_count = sum(1 for _ in Device.for_org("og_abc123"))
-            >>> print(f"Total devices: {device_count}")
-            Total devices: 2
+            >>> device_count = sum(1 for _ in Device.for_org("og_12345"))
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -218,42 +187,22 @@ class Device:
         roboto_client: typing.Optional[RobotoClient] = None,
         org_id: typing.Optional[str] = None,
     ) -> "Device":
-        """Retrieve a device by its device ID.
-
-        Looks up and returns a Device instance for the specified device_id. The device_id
-        must be unique within the organization scope.
+        """Fetch a device by its ID.
 
         Args:
-            device_id: The device ID to look up. This is the user-provided identifier
-                that was specified when the device was created.
-            roboto_client: Optional RobotoClient instance for API communication. If not provided,
-                the default client configuration will be used.
-            org_id: The organization ID that owns the device. If not specified and the caller
-                belongs to only one organization, that organization will be used. Required if
-                the caller belongs to multiple organizations.
-
-        Returns:
-            A Device object representing the specified device.
+            device_id: ID the organization gave the device when creating it.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            org_id: Organization that owns the device. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
 
         Raises:
-            RobotoNotFoundException: If the specified device is not registered with Roboto
-                or does not exist in the specified organization.
-            RobotoUnauthorizedException: If the caller lacks permission to access the device
-                or the specified organization.
-            RobotoInvalidRequestException: If the device_id or org_id parameters are malformed.
+            RobotoNotFoundException: The organization has no device with this ID.
 
         Examples:
-            Retrieve a device by ID with explicit organization:
-
-            >>> device = Device.from_id("robot_001", org_id="og_abc123")
-            >>> print(f"Device: {device.device_id} in org {device.org_id}")
-            Device: robot_001 in org og_abc123
-
-            Retrieve a device:
-
-            >>> device = Device.from_id("upload_station_alpha")
-            >>> print(f"Found device created by: {device.created_by}")
-            Found device created by: user@example.com
+            >>> device = Device.from_id("robot_001", org_id="og_12345")
+            >>> device.org_id
+            'og_12345'
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         encoded_device_id = urllib.parse.quote(device_id, safe="")
@@ -274,32 +223,32 @@ class Device:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Device":
-        """Register a device, or return the existing one if ``device_id`` is already taken.
+        """Create a device, or fetch the existing one when the organization already has a device with this ID.
 
-        ``metadata``, ``tags``, and ``custom_fields`` are applied only by the call that registers the
-        device; a device that is already registered comes back unchanged.
+        ``metadata``, ``tags``, and ``custom_fields`` apply only to a device this call creates; an existing device
+        comes back unchanged.
 
         Args:
-            device_id: A user-provided identifier for the device, unique within the organization.
-            metadata: Optional key-value pairs to associate with the device on first registration.
-            tags: Optional tags to associate with the device on first registration.
-            custom_fields: Optional initial values for Ready custom fields, applied on first registration.
-            caller_org_id: The organization the device belongs to. Required if the caller
-                belongs to multiple organizations.
-            roboto_client: Optional RobotoClient instance for API communication.
+            device_id: ID of the device, such as a serial number, unique within the organization.
+            metadata: Key-value metadata to set on a device this call creates. ``None`` sets none.
+            tags: Tags to set on a device this call creates. ``None`` sets none.
+            custom_fields: Initial values for the custom fields of a device this call creates, keyed by field name.
+                ``None`` sets none.
+            caller_org_id: Organization to create the device in, or to fetch it from. Required when the caller
+                belongs to more than one organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The newly registered or pre-existing Device.
+            The new or existing device.
 
         Raises:
-            RobotoUnauthorizedException: If the caller lacks permission to create devices in,
-                or read devices from, the specified organization.
-            RobotoInvalidRequestException: If the organization ID is malformed.
-            pydantic.ValidationError: If :py:func:`~roboto.domain.devices.validate_device_id` refuses
-                ``device_id`` and no device with that ID is registered.
-            RobotoNotFoundException: If the device is deleted between the registration attempt
-                and the lookup that follows it. Those are two calls rather than one atomic
-                operation, so the race is possible, though unlikely.
+            RobotoIllegalArgumentException: The device is new, and a ``custom_fields`` name is not a ready custom field
+                for devices or its value does not match the field's type.
+            pydantic.ValidationError: :py:func:`~roboto.domain.devices.validate_device_id` refuses ``device_id``, and
+                the organization has no device with that ID.
+            RobotoNotFoundException: The device is deleted between the attempt to create it and the request that
+                fetches it. These are two requests, not one, so another caller can delete the device in between.
 
         Examples:
             >>> device = Device.get_or_create(device_id="aloha_001")
@@ -318,8 +267,7 @@ class Device:
         except RobotoConflictException:
             return cls.from_id(device_id, roboto_client=roboto_client, org_id=caller_org_id)
         except pydantic.ValidationError as refusal:
-            # A device registered before device IDs were checked keeps an ID that create refuses, so look it up
-            # before reporting the refusal.
+            # An existing device can have an ID that create refuses, so look the ID up before reporting the refusal.
             try:
                 return cls.from_id(device_id, roboto_client=roboto_client, org_id=caller_org_id)
             except RobotoNotFoundException:
@@ -334,49 +282,42 @@ class Device:
 
     @property
     def created(self) -> datetime.datetime:
-        """The timestamp when this device was registered with Roboto."""
+        """Time the device was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """The user ID of the person who registered this device."""
+        """Principal that created the device, as ``<type>:<id>``, such as ``user:<user_id>``."""
         return self.__record.created_by
 
     @property
     def device_id(self) -> str:
-        """
-        This device's ID. Device ID is a user-provided identifier for a device, which is unique within the
-        device's org.
-        """
+        """ID the organization gave the device, such as a serial number, unique within the organization."""
         return self.__record.device_id
 
     @property
     def device_type_id(self) -> typing.Optional[str]:
-        """The ``dt_`` ID of the device type assigned to this device, or ``None`` when it has no type."""
+        """ID of the device type assigned to the device, beginning with ``dt_``, or ``None`` if it has none."""
         return self.__record.device_type_id
 
     @property
     def encoded_device_id(self) -> str:
-        """
-        The device ID, URL-encoded. This is useful for constructing URLs to Roboto APIs which contain the device ID.
-        """
+        """Device ID, percent-encoded so that it fits in one segment of a URL path, ``/`` included."""
         return urllib.parse.quote(self.device_id, safe="")
 
     @property
     def configurations(self) -> FileSystem:
-        """Files specific to this device.
+        """Files of the device itself, such as URDFs, calibration files, manifests, and maintenance logs.
 
-        Configurations hold files such as URDFs, calibration files, manifests, and maintenance logs. Data the
-        device records goes to datasets instead: a dataset file whose ``device_id`` names this device is not one
-        of its configurations.
+        Data the device records goes to datasets instead: a dataset file whose ``device_id`` names this device is not
+        one of its configurations.
 
         A device with a device type also inherits the type's configurations. Pass ``include_inherited=True`` to
         :py:meth:`~roboto.domain.files.FileSystem.list_files` or
         :py:meth:`~roboto.domain.files.FileSystem.download_files` to include them; the other methods act on the
         device's own files only.
 
-        Raises:
-            RobotoNotReadyException: The device has no ``universal_device_id``.
+        Reading it raises ``RobotoNotReadyException`` when the device's record has no ``universal_device_id``.
         """
         if self.__record.universal_device_id is None:
             raise RobotoNotReadyException(
@@ -390,53 +331,42 @@ class Device:
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
-        """Key-value metadata pairs associated with this device."""
+        """Key-value metadata on the device."""
         return self.__record.metadata
 
     @property
     @experimental
     def custom_fields(self) -> dict[str, typing.Any]:
-        """Custom-field values defined on Devices in this org.
+        """Values of the custom fields the organization defines for devices, keyed by field name.
 
-        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` defined
-        for ``(org_id, Device)`` appears as a key. Values that have not been set
-        on this device surface as ``None`` rather than being absent. Empty when
-        no custom fields are defined for the org.
-
-        A :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is returned
-        as an ISO 8601 string.
+        Which fields appear as keys is as :py:attr:`~roboto.domain.devices.DeviceRecord.custom_fields` describes. A
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is an ISO 8601 string.
         """
         return self.__record.custom_fields
 
     @property
     def modified(self) -> datetime.datetime:
-        """The timestamp when this device record was last modified."""
+        """Time the device was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """The user ID of the person who last modified this device record."""
+        """Principal that last modified the device, in the same ``<type>:<id>`` form as ``created_by``."""
         return self.__record.modified_by
 
     @property
     def org_id(self) -> str:
-        """
-        The ID of the org to which this device belongs.
-        """
+        """ID of the organization that owns the device."""
         return self.__record.org_id
 
     @property
     def record(self) -> DeviceRecord:
-        """Underlying :py:class:`DeviceRecord` for this device.
-
-        This is the raw record as returned by Roboto and may evolve over time; prefer the public
-        :py:class:`Device` API unless you need direct access to the record.
-        """
+        """Record of the device that this instance holds."""
         return self.__record
 
     @property
     def tags(self) -> list[str]:
-        """List of tags associated with this device."""
+        """Tags on the device."""
         return self.__record.tags
 
     @experimental
@@ -450,91 +380,86 @@ class Device:
         anchor: typing.Optional[Time] = None,
         files: typing.Optional[collections.abc.Sequence[SessionFile]] = None,
     ) -> Session:
-        """Create one Session on this Device, optionally with its files, topics, and schemas.
+        """Create one session on this device, optionally with its files, topics, and schemas.
 
-        The one-session form of :py:meth:`create_sessions`, taking a single declaration's fields as arguments
-        and sharing its semantics: the Session, its file attachments, its topics, and its time ranges are
-        created together or not at all, and every file the declaration names must already be uploaded.
-        ``name`` identifies the Session within this Device, so resending the same call is safe;
-        the platform reuses the Session already registered under that name instead of creating a second one.
-        Arguments left at their defaults are left out of the request,
-        so a call that reuses an existing Session never overwrites attributes it does not name.
-        To create a Session with no name, or one spanning several Devices,
-        use :py:meth:`~roboto.experimental.sessions.Session.create`.
+        The one-session form of ``create_sessions``, taking a single declaration's fields as arguments and sharing its
+        semantics: the session, its file attachments, its topics, and its time ranges are created together or not at
+        all, and every file the declaration names must already be uploaded. ``name`` identifies the session within
+        this device, so resending the same call is safe: Roboto reuses the session already registered under that name
+        instead of creating a second one. Arguments left at their defaults are left out of the request, so a call that
+        reuses an existing session never overwrites attributes it does not name. To create a session with no name, or
+        one spanning several devices, use :py:meth:`~roboto.experimental.sessions.Session.create`.
 
-        A declaration the platform refuses raises here. Only :py:meth:`create_sessions` reports a refusal
-        instead of raising it, because only a batch has positions to trace refusals back to.
+        A declaration Roboto refuses raises its exception here, where ``create_sessions`` reports it in its response
+        instead.
 
-        Declared times are stored exactly as given, in each file's own timestamps, and read as nanoseconds
-        since the Unix epoch; the platform never invents a wall-clock time. To place the Session at the
-        wall-clock time it happened, supply ``anchor``, or call
-        :py:meth:`~roboto.experimental.sessions.Session.set_unix_offset` later.
+        Declared times are stored exactly as given, in each file's own timestamps, and read as nanoseconds since the
+        Unix epoch; Roboto never invents a wall-clock time. To place the session at the wall-clock time it happened,
+        supply ``anchor``, or call :py:meth:`~roboto.experimental.sessions.Session.set_unix_offset` later.
 
         Args:
-            name: Name of the Session, unique within this Device (max 120 characters).
-            description: Optional description of the Session.
-            metadata: Optional initial metadata.
-                Sessions are not filterable or sortable by ``metadata`` keys;
-                for queryable structured attributes, define a custom field on the ``Session`` entity type.
-            tags: Optional initial tags.
-                Sessions can be filtered by tag membership but are not sortable by tag.
-            custom_fields: Optional initial values for Ready custom fields defined on
-                Sessions in this Device's org. Keys must match Ready field names; values
-                must satisfy each field's declared type.
-            anchor: Optional wall-clock anchor, the real-world instant at which the declared data's time 0
-                occurred. An ``int`` is nanoseconds since the Unix epoch; any other
-                :py:data:`~roboto.time.Time` is read as :py:func:`~roboto.time.to_epoch_nanoseconds` reads it
-                (a ``datetime`` or ISO 8601 string is that instant; a ``float``, ``Decimal``, or numeric string
-                is seconds since the epoch). It applies to every file entry that does not carry its own
+            name: Name of the session, unique within this device, at most 120 characters.
+            description: Human-readable description of the session.
+            metadata: Key-value metadata to set on the session. Sessions cannot be filtered or sorted by metadata
+                keys; for attributes to query by, define a custom field for sessions.
+            tags: Tags to set on the session. Sessions can be filtered by tag but not sorted by tag.
+            custom_fields: Initial values for the session's custom fields, keyed by field name. Each name must be a
+                custom field defined for sessions in this device's organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+                field's declared type.
+            anchor: Wall-clock time at which the declared data's time 0 occurred. An ``int`` is nanoseconds since the
+                Unix epoch; any other :py:const:`~roboto.time.Time` is read as
+                :py:func:`~roboto.time.to_epoch_nanoseconds` reads it (a ``datetime.datetime`` or ISO 8601 string is
+                that instant; a ``float``, ``decimal.Decimal``, or numeric string is seconds since the epoch). It
+                applies to every file entry that does not carry its own
                 :py:attr:`~roboto.experimental.sessions.FileDeclaration.anchor_ns`.
-            files: Files composing this Session, with the topics whose data each one carries. Every file
-                must already be uploaded, and may appear at most once. Files can also be included after
-                creation with :py:meth:`~roboto.experimental.sessions.Session.add_file` or
-                :py:meth:`~roboto.experimental.sessions.Session.add_files`.
+            files: Files in the session, with the topics whose data each one carries. Each file must already be
+                uploaded, and may appear at most once. :py:meth:`~roboto.experimental.sessions.Session.add_file` and
+                :py:meth:`~roboto.experimental.sessions.Session.add_files` add files after creation.
 
         Returns:
-            The created Session.
+            The new session, or the existing session this device holds under ``name``.
 
         Raises:
-            TypeError: If ``anchor`` is not one of the :py:data:`~roboto.time.Time` types.
-            ValueError: If ``anchor`` is a boolean, a negative number (an ``int``, ``float``, ``Decimal``, or
+            TypeError: ``anchor`` is not one of the :py:const:`~roboto.time.Time` types.
+            ValueError: ``anchor`` is a boolean, a negative number (an ``int``, ``float``, ``decimal.Decimal``, or
                 numeric string), or a string that is neither a number of seconds nor an ISO 8601 timestamp. Raised
-                before anything is sent to the platform.
-            OverflowError: If ``anchor`` is an infinite ``float``, ``Decimal``, or string, such as ``"inf"``.
-                Raised before anything is sent to the platform.
-            pydantic.ValidationError: If ``name`` is empty or longer than 120 characters, ``anchor`` does
-                not fall after the Unix epoch or is too large for a signed 64-bit integer of nanoseconds, a
-                file appears in more than one entry, ``files`` declares more than
-                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files and topics
-                combined, or representations name one file in two storage formats. Raised while the request is
-                being built, before anything is sent to the platform.
-            RobotoInvalidRequestException: If the platform refuses the declaration, either because it
-                contradicts data the platform already holds or because it carries a value the platform
-                rejects, such as a ``custom_fields`` value that does not satisfy its field's declared
-                type. No Session, file attachment, topic, or time range is created; the topic identifiers
-                and schema definitions the declaration resolved stay stored, and a resend reuses them.
-            RobotoConflictException: If something the declaration was prepared against changed while it
-                was being written. Nothing is created; resending is the fix.
-            RobotoNotFoundException: If this Device is no longer registered, the ``file_id`` of a file entry,
-                or of a representation one of its topics lists, does not name a file in this Device's
-                organization whose status is :py:attr:`~roboto.domain.files.FileStatus.Available`,
-                or the declaration names something else that does not exist, such as a ``custom_fields`` key
-                naming a custom field the organization does not define on Sessions. Nothing is created.
-            RobotoUnauthorizedException: If the caller lacks permission to create Sessions on this Device, or
-                to edit a file the declaration declares topics on, a file it anchors, or a file a listed
-                representation names, or lacks topic edit access in this Device's organization while the
-                declaration states ``is_default_for_reads`` on a timeline source.
-            RobotoUnrecognizedErrorException: If the platform refuses the declaration under an error code
-                this SDK release does not define. Carries the code and message the platform sent.
+                before anything is sent to Roboto.
+            OverflowError: ``anchor`` is an infinite ``float``, ``decimal.Decimal``, or string, such as ``"inf"``.
+                Raised before anything is sent to Roboto.
+            pydantic.ValidationError: ``name`` is empty or longer than 120 characters, ``anchor`` does not fall after
+                the Unix epoch or is too large for a signed 64-bit integer of nanoseconds, a file appears in more than
+                one entry, ``files`` declares more than 500 files and topics combined
+                (:py:const:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST`), or representations name
+                one file in two storage formats. Raised while the request is being built, before anything is sent to
+                Roboto.
+            RobotoInvalidRequestException: Roboto refuses the declaration, either because it contradicts data Roboto
+                already holds or because it carries a value Roboto rejects, such as a ``custom_fields`` value that
+                does not satisfy its field's declared type. No session, file attachment, topic, or time range is
+                created; the topic identifiers and schema definitions the declaration resolved stay stored, and a
+                resend reuses them.
+            RobotoConflictException: Something the declaration was prepared against changed while it was being
+                written. Nothing is created; resending is the fix.
+            RobotoNotFoundException: This device is no longer registered; the ``file_id`` of a file entry, or of a
+                representation one of its topics lists, does not name a file in this device's organization whose
+                status is :py:attr:`~roboto.domain.files.FileStatus.Available`; or the declaration names something
+                else that does not exist, such as a ``custom_fields`` key naming a custom field the organization does
+                not define for sessions. Nothing is created.
+            RobotoUnauthorizedException: The caller cannot create sessions on this device, or cannot edit a file the
+                declaration declares topics on, a file it anchors, or a file a listed representation names, or lacks
+                topic edit access in this device's organization while the declaration states
+                ``is_default_for_reads`` on a timeline source.
+            RobotoUnrecognizedErrorException: Roboto refuses the declaration under an error code this SDK release
+                does not define. Carries the code and message Roboto sent.
 
         Examples:
-            Create a Session and add a file to it:
+            Create a session and add a file to it:
 
-            >>> device = Device.from_id("robot_001", org_id="og_abc123")
+            >>> device = Device.from_id("robot_001", org_id="og_12345")
             >>> session = device.create_session(name="2024-05-01_morning_run")
-            >>> session.add_file("fl_0123456789abcdef")
+            >>> session.add_file("fl_12345")
 
-            Create a Session placed at the wall-clock time it was recorded:
+            Create a session placed at the wall-clock time it was recorded:
 
             >>> import datetime
             >>> session = device.create_session(
@@ -542,8 +467,8 @@ class Device:
             ...     anchor=datetime.datetime(2024, 5, 1, 9, 30, tzinfo=datetime.timezone.utc),
             ... )
         """
-        # Building the declaration out of only the supplied arguments is what keeps the rest off the wire:
-        # the request body serializes with ``exclude_unset``.
+        # Pass SessionDeclaration only the arguments the caller supplied: the request body is serialized with
+        # exclude_unset, so the rest stay out of the request.
         optional_fields: dict[str, typing.Any] = {
             "description": description,
             "metadata": metadata,
@@ -564,71 +489,66 @@ class Device:
         self,
         sessions: collections.abc.Sequence[SessionDeclaration],
     ) -> BatchResponse[Session]:
-        """Create many Sessions on this Device, each with its files, topics, and schemas, in one call.
+        """Create many sessions on this device, each with its files, topics, and schemas, in one request.
 
-        Each call accepts up to :py:data:`~roboto.experimental.sessions.MAX_SESSIONS_PER_REQUEST`
-        declarations, one per Session (e.g. the episodes of a LeRobot dataset), and up to
-        :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files and topics combined,
-        counted across every declaration; split anything larger across several calls.
-        Every file a declaration names must already be uploaded;
-        :py:meth:`~roboto.domain.datasets.Dataset.upload_files` returns the file IDs it creates,
+        Each call accepts up to 100 declarations (:py:const:`~roboto.experimental.sessions.MAX_SESSIONS_PER_REQUEST`),
+        one per session (such as the episodes of a LeRobot dataset), and up to 500 files and topics combined
+        (:py:const:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST`), counted across every declaration;
+        split anything larger across several calls. Every file a declaration names must
+        already be uploaded; :py:meth:`~roboto.domain.datasets.Dataset.upload_files` returns the file IDs it creates,
         and files from any number of datasets may appear in one batch.
 
-        The platform decides which declarations to refuse before writing anything, then writes the rest
-        together. A declaration's Session, file attachments, topics, and time ranges are created together or
-        not at all, and a declaration the platform refuses leaves the others written as if it were absent. None
-        of the declarations is written when a failure the platform did not anticipate, such as a timeout,
-        interrupts the call, or when a Session a declaration reuses is deleted before the call completes, which
-        raises :py:class:`~roboto.exceptions.RobotoNotFoundException`. Each declaration is written as it would be
-        had the ones before it been sent as calls of their own: a later declaration anchoring data an earlier one
-        holds moves the earlier Session's time range with it. A refused declaration, or a call that fails,
-        still leaves behind the topic identifiers and schema definitions it resolved, which a resend reuses.
+        Roboto decides which declarations to refuse before writing anything, then writes the rest together. A
+        declaration's session, file attachments, topics, and time ranges are created together or not at all, and a
+        declaration Roboto refuses leaves the others written as if it were absent. None of the declarations is
+        written when a failure Roboto did not anticipate, such as a timeout, interrupts the call, or when a session a
+        declaration reuses is deleted before the call completes, which raises
+        :py:class:`~roboto.exceptions.RobotoNotFoundException`. Each declaration is written as it would be had the
+        ones before it been sent as calls of their own: a later declaration anchoring data an earlier one holds moves
+        the earlier session's time range with it. A refused declaration, or a call that fails, still leaves behind
+        the topic identifiers and schema definitions it resolved, which a resend reuses.
 
-        Check :py:attr:`~roboto.http.BatchResponse.failed` before treating the batch as done. Each entry
-        there is the :py:class:`~roboto.exceptions.RobotoDomainException` the platform refused a declaration
-        with, so ``isinstance`` tells the reasons apart; a refusal under an error code this SDK release does
-        not define arrives as :py:class:`~roboto.exceptions.RobotoUnrecognizedErrorException`.
+        Check :py:attr:`~roboto.http.BatchResponse.failed` before treating the batch as done. Each entry there is the
+        :py:class:`~roboto.exceptions.RobotoDomainException` Roboto refused a declaration with, so ``isinstance``
+        tells the reasons apart; a refusal under an error code this SDK release does not define arrives as
+        :py:class:`~roboto.exceptions.RobotoUnrecognizedErrorException`.
 
-        Resending the same call is safe. This Device plus each declaration's ``name`` identifies the Session
-        the declaration creates or reuses, so a resend fills in only what is missing rather than duplicating
-        what an earlier attempt created.
+        Resending the same call is safe. This device and each declaration's ``name`` identify the session the
+        declaration creates or reuses, so a resend fills in only what is missing rather than duplicating what an
+        earlier attempt created.
 
-        Declared times are stored exactly as given, in each file's own timestamps, and read as nanoseconds
-        since the Unix epoch; the platform never invents a wall-clock time. A recording whose timestamps
-        start at 0 therefore sits at the epoch until it is anchored. To place a Session at the wall-clock
-        time it happened, supply :py:attr:`~roboto.experimental.sessions.SessionDeclaration.anchor_ns`, or
-        call :py:meth:`~roboto.experimental.sessions.Session.set_unix_offset` later.
+        Declared times are stored exactly as given, in each file's own timestamps, and read as nanoseconds since the
+        Unix epoch; Roboto never invents a wall-clock time. A recording whose timestamps start at 0 therefore sits at
+        the epoch until it is anchored. To place a session at the wall-clock time it happened, supply
+        :py:attr:`~roboto.experimental.sessions.SessionDeclaration.anchor_ns`, or call
+        :py:meth:`~roboto.experimental.sessions.Session.set_unix_offset` later.
 
         Args:
-            sessions: One declaration per Session to create. An empty sequence returns an empty response
-                without contacting the platform.
+            sessions: One declaration per session to create. An empty sequence returns an empty response without
+                contacting Roboto.
 
         Returns:
-            A :py:class:`~roboto.http.BatchResponse` with one element per declaration, in request order,
-            holding either the Session the declaration created or why the platform refused it. A declaration
-            naming a Session this Device already holds yields that Session rather than a second one.
+            A :py:class:`~roboto.http.BatchResponse` with one element per declaration, in request order, holding
+            either the session the declaration created or why Roboto refused it. A declaration naming a session this
+            device already holds yields that session rather than a second one.
 
         Raises:
-            pydantic.ValidationError: If more than
-                :py:data:`~roboto.experimental.sessions.MAX_SESSIONS_PER_REQUEST` declarations are given, the
-                batch declares more than
-                :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` files and topics
-                combined, the same session name is declared more than once, or representations name one file
-                in two storage formats. All are enforced when the request body is constructed, before
-                anything is sent to the platform.
-            RobotoInvalidRequestException: If the batch is malformed. Nothing is created.
-            RobotoNotFoundException: If this Device is no longer registered, the ``file_id`` of a file entry,
-                or of a representation one of its topics lists, does not name a file in this Device's
-                organization whose status is :py:attr:`~roboto.domain.files.FileStatus.Available`,
-                or a Session a declaration reuses is deleted before the call completes. Nothing is created.
-            RobotoUnauthorizedException: If the caller lacks permission to create Sessions on this Device, or
-                to edit a file a declaration declares topics on, a file it anchors, or a file a listed
-                representation names, or lacks topic edit access in this Device's organization while a
-                declaration states ``is_default_for_reads`` on a timeline source.
+            pydantic.ValidationError: More than 100 declarations are given, the batch declares more than 500 files and
+                topics combined, the same session name is declared more than once, or representations name one file
+                in two storage formats. Raised while the request body is built, before anything is sent to Roboto.
+            RobotoInvalidRequestException: The batch is malformed. Nothing is created.
+            RobotoNotFoundException: This device is no longer registered; the ``file_id`` of a file entry, or of a
+                representation one of its topics lists, does not name a file in this device's organization whose
+                status is :py:attr:`~roboto.domain.files.FileStatus.Available`; or a session a declaration reuses is
+                deleted before the call completes. Nothing is created.
+            RobotoUnauthorizedException: The caller cannot create sessions on this device, or cannot edit a file a
+                declaration declares topics on, a file it anchors, or a file a listed representation names, or lacks
+                topic edit access in this device's organization while a declaration states ``is_default_for_reads``
+                on a timeline source.
 
         Examples:
-            Register two chunks of one recording as a single Session, each chunk's topic data read from the
-            chunk itself:
+            Register two chunks of one recording as a single session, each chunk's topic data read from the chunk
+            itself:
 
             >>> import pathlib
             >>> from roboto.domain.datasets import Dataset
@@ -652,7 +572,7 @@ class Device:
             ...         ),
             ...     ],
             ... )
-            >>> dataset = Dataset.from_id("ds_0123456789ab")
+            >>> dataset = Dataset.from_id("ds_12345")
             >>> device = Device.from_id("robot_001")
             >>> chunks = [pathlib.Path("recording/chunk_0000.mcap"), pathlib.Path("recording/chunk_0001.mcap")]
             >>> file_ids = dataset.upload_files(chunks)
@@ -727,49 +647,31 @@ class Device:
         description: typing.Optional[str] = None,
         api_scopes: typing.Optional[collections.abc.Collection[ApiScope]] = None,
     ) -> tuple[Token, str]:
-        """Create an authentication token for this device.
+        """Create an access token that makes requests as this device.
 
-        Generates a new API token that can be used to authenticate requests made on behalf
-        of this device. The token secret is returned only once and cannot be retrieved again,
-        so it must be stored securely by the caller.
+        Roboto returns the token's secret only in this response; it cannot be fetched again, so store it.
 
         Args:
-            expiry_days: Number of days until the token expires. Defaults to 366 days (1 year).
-                Must be a positive integer.
-            name: Human-readable name for the token. If not provided, defaults to
-                "{org_id}_{device_id}" format.
-            description: Optional description explaining the token's purpose or usage context.
-            api_scopes: Optional set of API scopes to limit the token's permissions. If not provided,
-                the token will have full access to all APIs.
+            expiry_days: Number of days the token stays valid, counted from its creation.
+            name: Human-readable name of the token. ``None`` names it ``<org_id>_<device_id>``.
+            description: Human-readable description of the token.
+            api_scopes: API scopes the token is limited to. ``None`` or an empty collection grants every scope. The
+                token cannot be granted more than the credential creating it holds.
 
         Returns:
-            A tuple containing:
-            - Token: The Token object representing the created token
-            - str: The secret token value (only available at creation time)
-
-        Raises:
-            RobotoDomainException: If token creation fails or the secret is not returned
-                by the server (this should never happen under normal circumstances).
-            RobotoUnauthorizedException: If the caller lacks permission to create tokens
-                for this device.
+            ``(token, secret)``: the new token and its secret.
 
         Examples:
-            Create a token with default settings:
+            Create a token that expires in 366 days:
 
-            >>> device = Device.from_id("robot_001", org_id="og_abc123")
+            >>> device = Device.from_id("robot_001", org_id="og_12345")
             >>> token, secret = device.create_token()
-            >>> print(f"Token created: {token.token_id}")
-            >>> print(f"Secret (save this!): {secret}")
-            Token created: to_abc123def456
-            Secret (save this!): robo_pat_abc123def456...
 
-            Create a token with custom expiry and description:
+            Create a token that expires in 30 days, with a name and description:
 
             >>> token, secret = device.create_token(
             ...     expiry_days=30, name="Monthly Upload Token", description="Token for automated monthly data uploads"
             ... )
-            >>> print(f"Token expires in 30 days: {token.token_id}")
-            Token expires in 30 days: to_def789ghi012
         """
         request = CreateTokenRequest(
             expiry_days=expiry_days,
@@ -796,41 +698,39 @@ class Device:
         )
 
     def delete(self, keep_configurations: bool = False) -> None:
-        """Delete this device from the Roboto platform.
+        """Delete the device, with its access tokens and its configurations. This cannot be undone.
 
-        Permanently removes this device, its configurations, and all associated tokens. This action cannot
-        be undone. Any tokens created for this device will be immediately invalidated.
-
-        The device's configurations (:py:attr:`configurations`) are deleted with it, every version of each file,
-        shortly after this call returns. With ``keep_configurations=True`` they move to the org's assets
+        The device's tokens are deleted with it. Its ``configurations`` are deleted shortly after this call returns,
+        every version of each file. With ``keep_configurations=True`` they move to the organization's assets
         (:py:attr:`~roboto.domain.orgs.Org.assets`) instead, under ``devices/<universal_device_id>/``, keeping their
-        file IDs and every version. Links among the device's configurations are deleted in both cases, and
-        the files they point at are left alone.
+        file IDs and every version. Links among the device's
+        configurations are deleted in both cases, and the files they point at are left alone.
 
-        Shortly after this call returns, this device's ID is also cleared from the ``device_id`` of the org's datasets
-        and of every version of the org's files, unless a device with the same ID is registered in the org before then.
+        Shortly after this call returns, Roboto also clears the device's ID from the ``device_id`` of the
+        organization's datasets and of every version of its files, unless a device with the same ID is created in the
+        organization before then.
+
+        Deleting a device that no longer exists succeeds and changes nothing.
 
         Args:
-            keep_configurations: Move the device's configurations to the org's assets instead of deleting them.
-                Requires permission to upload files to the org.
+            keep_configurations: Whether to move the device's configurations to the organization's assets instead of
+                deleting them.
 
         Raises:
-            RobotoUnauthorizedException: If the caller lacks permission to delete this device.
-            RobotoNotFoundException: If the device has already been deleted or does not exist.
+            RobotoUnauthorizedException: ``keep_configurations`` is ``True`` and the caller cannot upload files to the
+                organization.
+            RobotoConflictException: ``keep_configurations`` is ``True`` and the organization's assets hold a file,
+                not a directory, at ``devices`` or ``devices/<universal_device_id>``.
 
         Examples:
-            Delete a device after confirming its identity:
+            Delete a device and its configurations:
 
             >>> device = Device.from_id("old_robot_001")
-            >>> print(f"Deleting device: {device.device_id}")
             >>> device.delete()
-            >>> print("Device deleted successfully")
-            Deleting device: old_robot_001
-            Device deleted successfully
 
-            Delete a device but keep its configurations in the org's assets:
+            Delete a device but keep its configurations in the organization's assets:
 
-            >>> device = Device.from_id("old_robot_001")
+            >>> device = Device.from_id("old_robot_002")
             >>> device.delete(keep_configurations=True)
         """
         self.__roboto_client.delete(
@@ -841,14 +741,14 @@ class Device:
 
     @experimental
     def list_sessions(self) -> collections.abc.Generator[Session, None, None]:
-        """Iterate all Sessions attached to this Device.
+        """List the sessions on this device.
 
-        Yields results as they are returned from the server, paginating transparently.
+        Fetches the sessions a page at a time, as the generator is iterated.
 
         Examples:
-            Print the name of every Session for a Device:
+            Print the name of every session on a device:
 
-            >>> device = Device.from_id("robot_001", org_id="og_abc123")
+            >>> device = Device.from_id("robot_001", org_id="og_12345")
             >>> for session in device.list_sessions():
             ...     print(session.name)
         """
@@ -872,16 +772,17 @@ class Device:
                 break
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Device":
-        """Add or update metadata fields for this device.
+        """Set metadata keys on the device, adding new keys and overwriting existing ones.
+
+        Keys the dict does not name keep their values.
 
         Args:
-            metadata: Key-value pairs to add or update in the device's metadata.
-                Existing keys will be overwritten, new keys will be added.
+            metadata: Key-value metadata to set on the device.
 
         Returns:
-            Updated Device instance with the new metadata.
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
 
-        Example:
+        Examples:
             >>> device = Device.from_id("robot_001")
             >>> updated_device = device.put_metadata({"firmware_version": "2.1.0", "location": "warehouse-b"})
             >>> print(updated_device.metadata["firmware_version"])
@@ -890,15 +791,17 @@ class Device:
         return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(put_fields=metadata)))
 
     def put_tags(self, tags: list[str]) -> "Device":
-        """Add tags to this device.
+        """Add tags to the device, keeping its existing tags.
+
+        A tag the device already has is not added again.
 
         Args:
-            tags: List of tags to add to the device. Duplicate tags will be ignored.
+            tags: Tags to add to the device.
 
         Returns:
-            Updated Device instance with the new tags added.
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
 
-        Example:
+        Examples:
             >>> device = Device.from_id("robot_001")
             >>> updated_device = device.put_tags(["production", "warehouse-c"])
             >>> print("production" in updated_device.tags)
@@ -907,56 +810,56 @@ class Device:
         return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(put_tags=tags)))
 
     def remove_metadata(self, keys: list[str]) -> "Device":
-        """Remove metadata fields from this device.
+        """Remove metadata keys from the device.
 
         Args:
-            keys: List of metadata keys to remove from the device.
+            keys: Metadata keys to remove.
 
         Returns:
-            Updated Device instance with the specified metadata keys removed.
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
 
-        Example:
+        Examples:
             >>> device = Device.from_id("robot_001")
             >>> updated_device = device.remove_metadata(["old_field", "deprecated_key"])
         """
         return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(remove_fields=keys)))
 
     def remove_tags(self, tags: list[str]) -> "Device":
-        """Remove tags from this device.
+        """Remove tags from the device.
 
         Args:
-            tags: List of tags to remove from the device.
+            tags: Tags to remove from the device.
 
         Returns:
-            Updated Device instance with the specified tags removed.
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
 
-        Example:
+        Examples:
             >>> device = Device.from_id("robot_001")
             >>> updated_device = device.remove_tags(["old_tag", "deprecated"])
         """
         return self.update(UpdateDeviceRequest(metadata_changeset=MetadataChangeset(remove_tags=tags)))
 
     def set_device_type(self, device_type_id: typing.Optional[str]) -> "Device":
-        """Assign a device type to this device, or remove its type.
+        """Assign a device type to the device, or remove its type.
 
         The device's own configurations are unaffected. Listing them with ``include_inherited=True`` afterwards
         includes the new type's configurations, or only the device's own when the type was removed.
 
         Args:
-            device_type_id: ``dt_`` ID of a :py:class:`~roboto.domain.device_types.DeviceType` in this device's
-                organization, or ``None`` to leave the device without a type.
+            device_type_id: ID of a device type in the device's organization, beginning with ``dt_``. ``None``
+                removes the device's type.
 
         Returns:
-            Updated Device instance with the new device type.
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
 
         Raises:
-            RobotoInvalidRequestException: ``device_type_id`` is not ``None`` and the organization has no such
-                device type or does not have device types enabled.
+            RobotoInvalidRequestException: ``device_type_id`` is not ``None`` and the organization has no such device
+                type.
 
         Examples:
             >>> device = Device.from_id("robot_001")
-            >>> device.set_device_type("dt_abc123").device_type_id
-            'dt_abc123'
+            >>> device.set_device_type("dt_12345").device_type_id
+            'dt_12345'
             >>> device.set_device_type(None).device_type_id is None
             True
         """
@@ -964,69 +867,97 @@ class Device:
 
     @experimental
     def set_custom_field(self, name: str, value: typing.Any) -> "Device":
-        """Set a single custom-field value on this device.
+        """Set one custom-field value on the device.
 
-        ``name`` must be the name of a
-        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
-        field for this device's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Device`
-        entity type; ``value`` must satisfy the field's declared type.
+        Args:
+            name: Name of a custom field defined for devices in the device's organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
+            value: Value to set, which must match the field's declared type.
+
+        Returns:
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
+
+        Raises:
+            RobotoIllegalArgumentException: ``name`` is not a ready custom field for devices, or ``value`` does not
+                match its type.
+
+        Examples:
+            >>> device = Device.from_id("robot_001")
+            >>> device = device.set_custom_field("firmware_version", "2.1.0")
         """
         return self.update(UpdateDeviceRequest(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value})))
 
     @experimental
     def clear_custom_field(self, name: str) -> "Device":
-        """Clear a single custom-field value on this device to ``None``."""
+        """Clear one custom-field value on the device, so the field reads back as ``None``.
+
+        Args:
+            name: Name of a ready custom field defined for devices in the device's organization.
+
+        Returns:
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
+
+        Raises:
+            RobotoIllegalArgumentException: ``name`` is not a ready custom field for devices.
+
+        Examples:
+            >>> device = Device.from_id("robot_001")
+            >>> device.clear_custom_field("firmware_version").custom_fields["firmware_version"] is None
+            True
+        """
         return self.update(UpdateDeviceRequest(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name])))
 
     @experimental
     def set_custom_fields(self, fields: dict[str, typing.Any]) -> "Device":
-        """Set or overwrite multiple custom-field values on this device.
+        """Set several custom-field values on the device. Fields not named keep their values.
 
-        Each key must name a Ready custom field for this device's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Device`
-        entity type; each value must satisfy the field's declared type.
+        Args:
+            fields: New values keyed by field name. Each name must be a custom field defined for devices in the
+                device's organization, with status :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`,
+                and each value must match that field's declared type.
+
+        Returns:
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
+
+        Raises:
+            RobotoIllegalArgumentException: A name is not a ready custom field for devices, or a value does not match
+                its field's type.
+
+        Examples:
+            >>> device = Device.from_id("robot_001")
+            >>> device = device.set_custom_fields({"firmware_version": "2.1.0", "site": "warehouse-b"})
         """
         return self.update(UpdateDeviceRequest(custom_fields_changeset=CustomFieldChangeset(set_fields=fields)))
 
     @experimental
     def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> "Device":
-        """Clear multiple custom-field values on this device to ``None``."""
+        """Clear several custom-field values on the device, so each field reads back as ``None``.
+
+        Args:
+            names: Names of ready custom fields defined for devices in the device's organization.
+
+        Returns:
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
+
+        Raises:
+            RobotoIllegalArgumentException: A name is not a ready custom field for devices.
+
+        Examples:
+            >>> device = Device.from_id("robot_001")
+            >>> device = device.clear_custom_fields(["firmware_version", "site"])
+        """
         return self.update(UpdateDeviceRequest(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names))))
 
     def tokens(self) -> collections.abc.Sequence[Token]:
-        """Retrieve all authentication tokens associated with this device.
+        """Fetch the device's access tokens, expired ones included.
 
-        Returns a list of all tokens that have been created for this device, including
-        both active and expired tokens. The token secrets are not included in the response
-        as they are only available at creation time.
-
-        Returns:
-            A sequence of Token objects representing all tokens created for this device.
-            The sequence may be empty if no tokens have been created.
-
-        Raises:
-            RobotoUnauthorizedException: If the caller lacks permission to list tokens
-                for this device.
+        The tokens come without their secrets, which Roboto returns only from ``create_token``. At most 1,000 tokens
+        are returned.
 
         Examples:
-            List all tokens for a device:
-
             >>> device = Device.from_id("robot_001")
-            >>> tokens = device.tokens()
-            >>> for token in tokens:
-            ...     print(f"Token: {token.token_id}")
-            Token: to_abc123def456
-            Token: to_ghi789jkl012
-
-            Check if device has any tokens:
-
-            >>> device = Device.from_id("new_robot")
-            >>> if device.tokens():
-            ...     print("Device has tokens")
-            ... else:
-            ...     print("No tokens found for device")
-            No tokens found for device
+            >>> for token in device.tokens():
+            ...     print(token.token_id)
         """
         records = self.__roboto_client.get(
             f"v1/devices/id/{self.encoded_device_id}/tokens", owner_org_id=self.org_id
@@ -1034,15 +965,21 @@ class Device:
         return [Token(record=record, roboto_client=self.__roboto_client) for record in records]
 
     def update(self, request: UpdateDeviceRequest) -> "Device":
-        """Update device properties using a structured request.
+        """Update the device's properties.
 
         Args:
-            request: UpdateDeviceRequest containing the changes to apply.
+            request: Changes to apply. Each field left at its default leaves that property unchanged.
 
         Returns:
-            Updated Device instance with the changes applied.
+            A new ``Device`` holding the updated record. This instance keeps its earlier record.
 
-        Example:
+        Raises:
+            RobotoInvalidRequestException: ``request.device_type_id`` names no device type in the organization.
+            RobotoIllegalArgumentException: The custom-field changeset names a field that is not a ready custom field
+                for devices, or sets a value that does not match its field's type.
+
+        Examples:
+            >>> from roboto.domain.devices import UpdateDeviceRequest
             >>> from roboto.updates import MetadataChangeset
             >>> device = Device.from_id("robot_001")
             >>> updated_device = device.update(

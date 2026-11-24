@@ -13,25 +13,33 @@ import pydantic
 from .warnings import experimental
 
 StrSequence = typing.Union[list[str], tuple[str, ...], set[str]]
+"""Strings given as a list, tuple, or set."""
 
 
-# TODO: consider retiring this type in favor of MetadataChangeset.
 class TaglessMetadataChangeset(pydantic.BaseModel):
-    """Changeset for tagless metadata"""
+    """Changes to the metadata of a resource that has no tags, such as a topic's message path.
 
-    # Add each field in this dict if it doesn't exist, else overwrite the existing value
-    # Expands dot notation to nested objects
+    Pass one to :py:meth:`~roboto.domain.topics.Topic.update_message_path`.
+    """
+
     put_fields: typing.Optional[dict[str, typing.Any]] = None
+    """Metadata fields to set, keyed by name, each replacing any current value.
 
-    # Remove each field in this sequence if it exists
-    # Expands dot notation to nested objects
+    A key in dot notation, such as ``"calibration.gain"``, names a nested field.
+    """
+
     remove_fields: typing.Optional[StrSequence] = None
+    """Keys of metadata fields to remove, in the same dot notation. A key the metadata lacks is ignored."""
 
-    # Replace all existing metadata with the fields provided in 'put_fields'.
-    # Set by appropriate class methods.
     replace_all: bool = False
+    """Whether the changeset replaces all metadata with ``put_fields``, ignoring ``remove_fields``.
+
+    ``from_replacement_metadata`` sets it.
+    """
 
     class Builder:
+        """Builder that collects metadata fields to put and to remove into a ``TaglessMetadataChangeset``."""
+
         __put_fields: dict[str, typing.Any]
         __remove_fields: list[str]
 
@@ -40,14 +48,25 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
             self.__remove_fields = []
 
         def put_field(self, key: str, value: typing.Any) -> "TaglessMetadataChangeset.Builder":
+            """Add a metadata field to put.
+
+            Returns:
+                This builder, so that calls can be chained.
+            """
             self.__put_fields[key] = value
             return self
 
         def remove_field(self, key: str) -> "TaglessMetadataChangeset.Builder":
+            """Add the key of a metadata field to remove.
+
+            Returns:
+                This builder, so that calls can be chained.
+            """
             self.__remove_fields.append(key)
             return self
 
         def build(self) -> "TaglessMetadataChangeset":
+            """Return a changeset of the changes this builder collected."""
             changeset: collections.abc.Mapping = {
                 "put_fields": self.__put_fields,
                 "remove_fields": self.__remove_fields,
@@ -56,11 +75,29 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
 
     @classmethod
     def from_replacement_metadata(cls, metadata: dict[str, typing.Any]) -> "TaglessMetadataChangeset":
-        """Creates a changeset to replace any existing metadata with the metadata provided."""
+        """Build a changeset that replaces all of a resource's metadata with ``metadata``.
+
+        Args:
+            metadata: Metadata the resource has after the update.
+        """
 
         return cls(put_fields=metadata, replace_all=True)
 
     def apply_field_updates(self, existing_metadata: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """Return the metadata that results from applying this changeset to ``existing_metadata``.
+
+        Behaves as ``MetadataChangeset.apply_field_updates`` does.
+
+        Args:
+            existing_metadata: Current metadata of the resource. Not modified.
+
+        Returns:
+            A new dictionary of the updated metadata, or ``put_fields`` itself when ``replace_all`` is set.
+
+        Raises:
+            IndexError: A key in ``put_fields`` indexes past the end of a list before its last part.
+            ValueError: A part of a key that reaches a list is not an integer.
+        """
         if self.replace_all:
             return self.put_fields or {}
 
@@ -74,14 +111,11 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
         return updated_metadata
 
     def has_changes(self) -> bool:
-        """Checks whether applying this changeset would result in any metadata changes."""
+        """Return whether the changeset has fields to put or remove, or replaces the metadata."""
 
         return self.replace_all or any([len(self.put_fields or {}), len(self.remove_fields or [])])
 
     def __set_nested(self, obj: dict[str, typing.Any], key: str, value: typing.Any) -> None:
-        """
-        Set nested path to value using dot notation
-        """
         keys = key.split(".")
         subobj = obj
         for key in keys[:-1]:
@@ -99,10 +133,6 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
             subobj.insert(int(keys[-1]), value)
 
     def __del_nested(self, obj: dict[str, typing.Any], key: str) -> None:
-        """
-        Delete a value from nested path using dot notation
-        """
-
         def __key_in_collection(key: typing.Union[str, int], collection: collections.abc.Collection) -> bool:
             if isinstance(collection, collections.abc.MutableSequence):
                 key = int(key)
@@ -120,13 +150,11 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
                 collection.pop(int(key))
 
         keys = key.split(".")
+        # Each entry is (collection, its key in its parent, its parent); the root entry has no key or parent.
         path: list[
             tuple[
-                # subobj
                 typing.Union[collections.abc.MutableMapping, collections.abc.MutableMapping],
-                # key
                 typing.Optional[typing.Union[str, int]],
-                # parent_obj
                 typing.Optional[typing.Union[collections.abc.MutableMapping, collections.abc.MutableMapping]],
             ]
         ] = [(obj, None, None)]
@@ -142,10 +170,9 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
 
         __del_from_collection(keys[-1], path[-1][0])
 
-        # remove any now empty collections, working backwards
+        # Remove each collection the removal left empty, innermost first.
         for _, key_path, parent_obj in reversed(path):
             if key_path is None or parent_obj is None:
-                # root object
                 return
 
             if isinstance(parent_obj, collections.abc.MutableSequence):
@@ -158,26 +185,36 @@ class TaglessMetadataChangeset(pydantic.BaseModel):
                 __del_from_collection(key_path, parent_obj)
 
 
-# TODO https://roboto.atlassian.net/browse/ROBO-903, change this to a mixin model to handle tags and/or metadata
 class MetadataChangeset(pydantic.BaseModel):
-    """Changeset for metadata"""
+    """Changes to a resource's tags and metadata.
 
-    # Add each tag in this sequence if it doesn't exist
+    Pass one to an update method such as :py:meth:`~roboto.domain.datasets.Dataset.update`. Keys in ``put_fields``
+    and ``remove_fields`` may name a nested field in dot notation, such as ``"calibration.gain"``, except on
+    datasets, files and sessions, which apply each key as one top-level key.
+    """
+
     put_tags: typing.Optional[StrSequence] = None
-    # Remove each tag in this sequence if it exists
-    remove_tags: typing.Optional[StrSequence] = None
-    # Add each field in this dict if it doesn't exist, else overwrite the existing value
-    # Expands dot notation to nested objects
-    put_fields: typing.Optional[dict[str, typing.Any]] = None
-    # Remove each field in this sequence if it exists
-    # Expands dot notation to nested objects
-    remove_fields: typing.Optional[StrSequence] = None
+    """Tags to add. A tag the resource already has is not added again."""
 
-    # Controls whether the changeset will act as a wholesale replacement of existing metadata or tags.
-    # Intended for use with dedicated class factories only.
+    remove_tags: typing.Optional[StrSequence] = None
+    """Tags to remove. A tag the resource does not have is ignored."""
+
+    put_fields: typing.Optional[dict[str, typing.Any]] = None
+    """Metadata fields to set, keyed by name, each replacing any current value."""
+
+    remove_fields: typing.Optional[StrSequence] = None
+    """Keys of metadata fields to remove. A key the metadata lacks is ignored."""
+
     replace_all: bool = False
+    """Whether the changeset replaces the resource's tags and metadata with ``put_tags`` and ``put_fields``.
+
+    When set, ``remove_tags`` and ``remove_fields`` are ignored. Datasets and files ignore ``replace_all`` itself and
+    apply the rest of the changeset. ``from_metadata`` sets it.
+    """
 
     class Builder:
+        """Builder that collects tags and metadata fields to put and to remove into a ``MetadataChangeset``."""
+
         __put_tags: list[str]
         __remove_tags: list[str]
         __put_fields: dict[str, typing.Any]
@@ -190,22 +227,43 @@ class MetadataChangeset(pydantic.BaseModel):
             self.__remove_fields = []
 
         def put_tag(self, tag: str) -> "MetadataChangeset.Builder":
+            """Add a tag to put.
+
+            Returns:
+                This builder, so that calls can be chained.
+            """
             self.__put_tags.append(tag)
             return self
 
         def remove_tag(self, tag: str) -> "MetadataChangeset.Builder":
+            """Add a tag to remove.
+
+            Returns:
+                This builder, so that calls can be chained.
+            """
             self.__remove_tags.append(tag)
             return self
 
         def put_field(self, key: str, value: typing.Any) -> "MetadataChangeset.Builder":
+            """Add a metadata field to put.
+
+            Returns:
+                This builder, so that calls can be chained.
+            """
             self.__put_fields[key] = value
             return self
 
         def remove_field(self, key: str) -> "MetadataChangeset.Builder":
+            """Add the key of a metadata field to remove.
+
+            Returns:
+                This builder, so that calls can be chained.
+            """
             self.__remove_fields.append(key)
             return self
 
         def build(self) -> "MetadataChangeset":
+            """Return a changeset of the changes this builder collected."""
             changeset: collections.abc.Mapping = {
                 "put_tags": self.__put_tags,
                 "remove_tags": self.__remove_tags,
@@ -216,12 +274,37 @@ class MetadataChangeset(pydantic.BaseModel):
 
     @classmethod
     def from_metadata(cls, metadata: typing.Mapping[str, typing.Any]) -> "MetadataChangeset":
-        """Creates a changeset that will replace any existing metadata with what's provided."""
+        """Build a changeset that replaces a resource's metadata with ``metadata`` and removes all of its tags.
+
+        On datasets and files, which ignore ``replace_all``, it merges ``metadata`` into the existing metadata instead
+        and keeps the tags.
+
+        Args:
+            metadata: Metadata the resource has after the update.
+        """
         return cls(put_fields=dict(metadata), replace_all=True)
 
     def apply_field_updates(self, existing_metadata: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        """Return the metadata that results from applying this changeset to ``existing_metadata``.
+
+        Sets each field in ``put_fields``, then removes each key in ``remove_fields``, so a key in both ends up
+        removed. Each part of a dotted key names a key in a nested dictionary, which is created when missing, or an
+        index when the value reached so far is a list; setting a value at a list index inserts it there. Removing a
+        key also removes each dictionary or list the removal leaves empty, and removing a key the metadata lacks
+        changes nothing.
+
+        Args:
+            existing_metadata: Current metadata of the resource. Not modified.
+
+        Returns:
+            A new dictionary of the updated metadata, or ``put_fields`` itself when ``replace_all`` is set.
+
+        Raises:
+            IndexError: A key in ``put_fields`` indexes past the end of a list before its last part.
+            ValueError: A part of a key that reaches a list is not an integer.
+        """
         if self.replace_all:
-            return self.put_fields or {}  # should we deep-copy?
+            return self.put_fields or {}
 
         updated_metadata = copy.deepcopy(existing_metadata)
         if self.put_fields:
@@ -233,8 +316,16 @@ class MetadataChangeset(pydantic.BaseModel):
         return updated_metadata
 
     def apply_tag_updates(self, existing_tags: list[str]) -> StrSequence:
+        """Return the tags that result from applying this changeset to ``existing_tags``.
+
+        Appends each tag in ``put_tags`` that the list lacks, then removes each tag in ``remove_tags``, so a tag in
+        both ends up removed. When ``replace_all`` is set, returns ``put_tags`` itself, or an empty list.
+
+        Args:
+            existing_tags: Current tags of the resource. Not modified.
+        """
         if self.replace_all:
-            return self.put_tags or []  # should we copy?
+            return self.put_tags or []
 
         updated_tags = existing_tags.copy()
         if self.put_tags:
@@ -264,6 +355,15 @@ class MetadataChangeset(pydantic.BaseModel):
         return None if len(combined) == 0 else combined
 
     def combine(self, other: "MetadataChangeset") -> "MetadataChangeset":
+        """Return a changeset that holds the changes of both this changeset and ``other``.
+
+        Each tag and key appears once in the result, in no fixed order. When both changesets put the same field,
+        ``other``'s value wins. The result never replaces tags or metadata, even when either changeset does: its
+        ``replace_all`` is ``False``.
+
+        Args:
+            other: Changeset to merge with this one.
+        """
         return MetadataChangeset(
             put_tags=self.__combine_strseq_field(self.put_tags, other.put_tags),
             remove_tags=self.__combine_strseq_field(self.remove_tags, other.remove_tags),
@@ -272,6 +372,7 @@ class MetadataChangeset(pydantic.BaseModel):
         )
 
     def is_empty(self) -> bool:
+        """Return whether the changeset has no tags or fields to put or remove, and does not replace them."""
         return not self.replace_all and not any(
             [
                 self.put_tags,
@@ -282,9 +383,6 @@ class MetadataChangeset(pydantic.BaseModel):
         )
 
     def __set_nested(self, obj: dict[str, typing.Any], key: str, value: typing.Any) -> None:
-        """
-        Set nested path to value using dot notation
-        """
         keys = key.split(".")
         subobj = obj
         for key in keys[:-1]:
@@ -302,10 +400,6 @@ class MetadataChangeset(pydantic.BaseModel):
             subobj.insert(int(keys[-1]), value)
 
     def __del_nested(self, obj: dict[str, typing.Any], key: str) -> None:
-        """
-        Delete a value from nested path using dot notation
-        """
-
         def __key_in_collection(key: typing.Union[str, int], collection: collections.abc.Collection) -> bool:
             if isinstance(collection, collections.abc.MutableSequence):
                 key = int(key)
@@ -323,13 +417,11 @@ class MetadataChangeset(pydantic.BaseModel):
                 collection.pop(int(key))
 
         keys = key.split(".")
+        # Each entry is (collection, its key in its parent, its parent); the root entry has no key or parent.
         path: list[
             tuple[
-                # subobj
                 typing.Union[collections.abc.MutableMapping, collections.abc.MutableMapping],
-                # key
                 typing.Optional[typing.Union[str, int]],
-                # parent_obj
                 typing.Optional[typing.Union[collections.abc.MutableMapping, collections.abc.MutableMapping]],
             ]
         ] = [(obj, None, None)]
@@ -345,10 +437,9 @@ class MetadataChangeset(pydantic.BaseModel):
 
         __del_from_collection(keys[-1], path[-1][0])
 
-        # remove any now empty collections, working backwards
+        # Remove each collection the removal left empty, innermost first.
         for _, key_path, parent_obj in reversed(path):
             if key_path is None or parent_obj is None:
-                # root object
                 return
 
             if isinstance(parent_obj, collections.abc.MutableSequence):
@@ -363,24 +454,23 @@ class MetadataChangeset(pydantic.BaseModel):
 
 @experimental
 class CustomFieldChangeset(pydantic.BaseModel):
-    """Describes a set of changes to apply to an entity's custom-field values.
+    """Changes to a resource's custom field values.
 
-    Each referenced field name must be a custom field defined for the entity's type
-    in the caller's organization, and that field must be
-    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
-    Any value supplied must satisfy that field's declared type. Field names not
-    mentioned by the changeset are left unchanged. A cleared field reads back as ``None``.
+    Pass one to an update method such as :py:meth:`~roboto.domain.datasets.Dataset.update`. Each field it names must
+    be a custom field the organization defines for that kind of resource, in the
+    :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` state, and each value must match the field's
+    declared type. Fields the changeset does not name keep their values, and a cleared field reads back as ``None``.
+    Building a changeset that both sets and clears the same field raises ``pydantic.ValidationError``.
     """
 
     set_fields: typing.Optional[dict[str, typing.Any]] = None
-    """Field names to set or overwrite, mapped to their new values.
+    """Custom field values to set, keyed by field name, each replacing any current value.
 
-    Each value's Python type must match the corresponding field's declared
-    :py:class:`~roboto.domain.custom_fields.CustomFieldType`.
+    Each value's Python type must match the field's :py:class:`~roboto.domain.custom_fields.CustomFieldType`.
     """
 
     clear_fields: typing.Optional[StrSequence] = None
-    """Field names whose values should be cleared to ``None``."""
+    """Names of custom fields to clear."""
 
     @pydantic.model_validator(mode="after")
     def _reject_overlap(self) -> "CustomFieldChangeset":
@@ -392,6 +482,8 @@ class CustomFieldChangeset(pydantic.BaseModel):
         return self
 
     class Builder:
+        """Builder that collects custom fields to set and to clear into a ``CustomFieldChangeset``."""
+
         __set_fields: dict[str, typing.Any]
         __clear_fields: list[str]
 
@@ -400,14 +492,29 @@ class CustomFieldChangeset(pydantic.BaseModel):
             self.__clear_fields = []
 
         def set_field(self, name: str, value: typing.Any) -> "CustomFieldChangeset.Builder":
+            """Add a custom field value to set.
+
+            Returns:
+                This builder, so that calls can be chained.
+            """
             self.__set_fields[name] = value
             return self
 
         def clear_field(self, name: str) -> "CustomFieldChangeset.Builder":
+            """Add the name of a custom field to clear.
+
+            Returns:
+                This builder, so that calls can be chained.
+            """
             self.__clear_fields.append(name)
             return self
 
         def build(self) -> "CustomFieldChangeset":
+            """Return a changeset of the changes this builder collected.
+
+            Raises:
+                pydantic.ValidationError: The builder both sets and clears the same field.
+            """
             payload: collections.abc.Mapping = {
                 "set_fields": self.__set_fields,
                 "clear_fields": self.__clear_fields,
@@ -415,16 +522,10 @@ class CustomFieldChangeset(pydantic.BaseModel):
             return CustomFieldChangeset(**{k: v for k, v in payload.items() if v})
 
     def apply_field_updates(self, existing: dict[str, typing.Any]) -> dict[str, typing.Any]:
-        """Apply this changeset to an existing custom-field map.
+        """Return a copy of ``existing`` with ``set_fields`` set and each field in ``clear_fields`` set to ``None``.
 
         Args:
-            existing: Current custom-field name-to-value map. Not mutated.
-
-        Returns:
-            A new map reflecting the changeset. ``set_fields`` entries overwrite
-            existing values; ``clear_fields`` entries set their values to
-            ``None``. Field names not mentioned by the changeset are carried
-            through unchanged.
+            existing: Custom field values keyed by field name. Not modified.
         """
         updated = dict(existing)
         for name, value in (self.set_fields or {}).items():
@@ -434,11 +535,12 @@ class CustomFieldChangeset(pydantic.BaseModel):
         return updated
 
     def combine(self, other: "CustomFieldChangeset") -> "CustomFieldChangeset":
-        """Merge this changeset with ``other`` such that ``other`` wins on conflicts.
+        """Return a changeset with the effect of applying this changeset and then ``other``.
 
-        For any field name appearing in both ``set_fields`` maps, ``other``'s value
-        wins. A field appearing in one side's ``set_fields`` and the other side's
-        ``clear_fields`` resolves to whichever side is ``other``.
+        Where the two set or clear the same field, ``other``'s change wins.
+
+        Args:
+            other: Changeset to apply after this one.
         """
         set_combined: dict[str, typing.Any] = {}
         set_combined.update(self.set_fields or {})
@@ -457,22 +559,23 @@ class CustomFieldChangeset(pydantic.BaseModel):
         )
 
     def is_empty(self) -> bool:
-        """Return ``True`` when applying this changeset would not change any value."""
+        """Return whether the changeset sets and clears no fields."""
         return not (self.set_fields or self.clear_fields)
 
 
 class UpdateCondition(pydantic.BaseModel):
-    """
-    A condition to be applied to an update operation, succeeding only if the condition evaluates to True at update-time.
+    """Condition on a resource's current value that an update must meet to succeed.
 
-    ``value`` is compared to the resource's current value of ``key`` using ``comparator``.
-
-    This is a severely constrainted subset of the conditions supported by DynamoDB. See:
-    https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.OperatorsAndFunctions.html
+    The update succeeds only when the current value of ``key`` compares to ``value`` as ``comparator`` requires.
+    Building one with a ``comparator`` other than ``"eq"`` or ``"ne"`` raises ``pydantic.ValidationError``. No SDK
+    method or Roboto route uses this model.
     """
 
     key: str
+    """Name of the resource's field to compare."""
+
     value: typing.Any = None
-    # Comparators are tied to convenience methods exposed on boto3.dynamodb.conditions.Attr. See:
-    # https://github.com/boto/boto3/blob/5ad1a624111ed25efc81f425113fa51150516bb4/boto3/dynamodb/conditions.py#L246
+    """Value to compare the field's current value with."""
+
     comparator: typing.Literal["eq", "ne"]
+    """How the two values must compare: ``"eq"`` requires them to be equal, ``"ne"`` requires them to differ."""

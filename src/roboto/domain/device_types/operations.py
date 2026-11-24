@@ -13,34 +13,40 @@ from ...updates import MetadataChangeset
 
 
 class CreateDeviceTypeRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/device-types/create``, which creates a device type in the caller's org."""
+    """Request body for ``DeviceType.create``."""
 
     name: str
-    """Name of the device type, unique within the org."""
+    """Human-readable name of the device type, unique within its organization.
+
+    A name already taken raises ``RobotoConflictException``.
+    """
 
     description: typing.Optional[str] = None
-    """Free-text description of the device type."""
+    """Human-readable description of the device type."""
 
     metadata: dict[str, typing.Any] = pydantic.Field(default_factory=dict)
-    """Initial key-value metadata pairs to associate with the device type."""
+    """Key-value metadata to set on the device type. Defaults to none."""
 
     tags: list[str] = pydantic.Field(default_factory=list)
-    """Initial tags to associate with the device type."""
+    """Tags to set on the device type. Defaults to none."""
 
 
 class UpdateDeviceTypeRequest(pydantic.BaseModel):
-    """Request body for ``PUT /v1/device-types/id/<device_type_id>``.
+    """Request body for ``DeviceType.update``.
 
-    Fields left at their defaults change nothing.
+    A field left at its default (``NotSet`` or ``None``) is unchanged.
     """
 
     name: typing.Union[str, NotSetType] = NotSet
-    """New name for the device type, unique within its org. Cannot be cleared."""
+    """Human-readable name of the device type, unique within its organization. It cannot be cleared.
+
+    A name already taken raises ``RobotoConflictException``.
+    """
 
     description: typing.Optional[typing.Union[str, NotSetType]] = NotSet
-    """New description. ``None`` clears it."""
+    """Human-readable description of the device type. ``None`` clears it."""
 
     metadata_changeset: typing.Optional[MetadataChangeset] = None
-    """Metadata fields and tags to add, change, or remove."""
+    """Changes to the device type's tags and metadata."""
 
     model_config = pydantic.ConfigDict(json_schema_extra=NotSetType.openapi_schema_modifier)

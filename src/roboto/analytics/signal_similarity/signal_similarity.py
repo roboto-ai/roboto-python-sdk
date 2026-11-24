@@ -26,20 +26,15 @@ if typing.TYPE_CHECKING:
 
 logger = default_logger()
 
-# Query signals must be at minimum 3 values long for results to be meaningful.
 MIN_QUERY_LENGTH = 3
+"""Minimum number of rows in a query signal, below which its matches are not meaningful."""
 
 
 def _resample_sequence(
     arr: numpy.typing.NDArray,
     new_length: int,
 ) -> numpy.typing.NDArray:
-    """
-    Linearly resample a 1-D array to ``new_length`` samples via :func:`numpy.interp`.
-
-    Used to stretch or compress a query signal before similarity matching so that
-    a target subsequence of a different duration can be compared against it.
-    """
+    """Resample a 1-D array to ``new_length`` evenly spaced samples by linear interpolation."""
     np = import_optional_dependency("numpy", "analytics")
     old_idx = np.linspace(0.0, 1.0, len(arr))
     new_idx = np.linspace(0.0, 1.0, new_length)
@@ -50,11 +45,10 @@ def _resample_df(
     df: pandas.DataFrame,
     new_length: int,
 ) -> pandas.DataFrame:
-    """
-    Linearly resample each column of ``df`` to ``new_length`` rows.
+    """Resample each column of ``df`` to ``new_length`` rows by linear interpolation.
 
-    The returned DataFrame has a default integer index; the original index is discarded
-    because the time axis is being deliberately distorted.
+    The result has a default integer index, because resampling changes the rows' spacing in time and the original
+    timestamps no longer apply.
     """
     np = import_optional_dependency("numpy", "analytics")
     pd = import_optional_dependency("pandas", "analytics")
@@ -67,14 +61,9 @@ def _suppress_overlapping_matches(
     matches: list[Match],
     overlap_threshold: float = 0.5,
 ) -> list[Match]:
-    """
-    Remove duplicate matches covering the same target region.
+    """Drop each match that overlaps a closer kept match by more than ``overlap_threshold`` of the shorter one's rows.
 
-    Matches are processed in ascending distance order (best first). A candidate is
-    suppressed if it overlaps with any already-accepted match by more than
-    ``overlap_threshold`` of the shorter match's sample-index duration.
-
-    Overlap ratio is ``intersection_length / min(len_a, len_b)``.
+    Matches are considered closest first, so of two overlapping matches the closer one is kept.
     """
     accepted: list[Match] = []
     for candidate in sorted(matches, key=lambda m: m.distance):
@@ -97,13 +86,10 @@ def _suppress_overlapping_matches(
 
 
 def _coerce_to_numeric(df: pandas.DataFrame) -> pandas.DataFrame:
-    """
-    Coerce the entire pandas DataFrame to float64.
+    """Convert every column of ``df`` to float64, which stumpy requires, dropping rows that cannot be converted.
 
-    String representations of numbers (e.g., ``"1.0"``) and narrower numeric dtypes
-    (e.g., float32) are converted to float64, which stumpy requires.
-    Rows containing values that cannot be converted (e.g., arbitrary text strings) are
-    dropped and logged at ``INFO`` level with the count of dropped rows.
+    Numeric strings such as ``"1.0"`` and narrower numeric types such as float32 convert. A row with a missing value
+    or any other string is dropped, and the number of dropped rows is logged at ``INFO``.
     """
     pd = import_optional_dependency("pandas", "analytics")
     coerced = df.apply(pd.to_numeric, errors="coerce")
@@ -119,9 +105,20 @@ def _coerce_to_numeric(df: pandas.DataFrame) -> pandas.DataFrame:
 
 
 class MatchResult(typing.NamedTuple):
+    """Span of a target signal similar to a query, by row position, with its distance.
+
+    The SDK's own code uses it; to find similar signals, use
+    :py:func:`~roboto.analytics.signal_similarity.find_similar_signals` instead.
+    """
+
     start_idx: int
+    """Position of the span's first row in the target."""
+
     end_idx: int
+    """Position of the span's last row in the target."""
+
     distance: float
+    """Distance between the query and the span, before any adjustment for the query's scale factor."""
 
 
 def _find_matches(
@@ -132,8 +129,13 @@ def _find_matches(
     max_matches: typing.Optional[int] = None,
     normalize: bool = False,
 ) -> collections.abc.Sequence[MatchResult]:
-    """
-    For performing signal similarity, see :py:func:`~roboto.analytics.signal_similarity.find_similar_signals`.
+    """Find the spans of ``target`` similar to the 1-D ``query``, closest first.
+
+    ``max_distance``, ``max_matches`` and ``normalize`` act as in
+    :py:func:`~roboto.analytics.signal_similarity.find_similar_signals`, with ``max_matches`` counting this target only.
+
+    Raises:
+        ValueError: ``query`` has fewer than ``MIN_QUERY_LENGTH`` samples, or more samples than ``target``.
     """
     stumpy = import_optional_dependency("stumpy", "analytics")
 
@@ -174,8 +176,15 @@ def _find_matches_multidimensional(
     max_matches: typing.Optional[int] = None,
     normalize: bool = False,
 ) -> collections.abc.Sequence[MatchResult]:
-    """
-    For performing signal similarity, see :py:func:`~roboto.analytics.signal_similarity.find_similar_signals`.
+    """Find the spans of ``target`` similar to ``query`` over all of the query's columns, closest first.
+
+    A span's distance is the sum of its distances to the query in each column. ``max_distance``, ``max_matches`` and
+    ``normalize`` act as in :py:func:`~roboto.analytics.signal_similarity.find_similar_signals`, with ``max_matches``
+    counting this target only.
+
+    Raises:
+        ValueError: ``query`` has fewer than ``MIN_QUERY_LENGTH`` rows, a column ``target`` lacks, or more rows than
+            ``target``.
     """
     np = import_optional_dependency("numpy", "analytics")
     stumpy = import_optional_dependency("stumpy", "analytics")
@@ -195,13 +204,8 @@ def _find_matches_multidimensional(
             f"Target signal is missing the following attributes: {non_overlap}"
         )
 
-    # Accumulate summed distances for each subsequence (of length `query_signal`) within the target.
-    # The distance for each subsequence starts at 0 and is incrementally updated.
-    # Each dimension of the query signal (i.e., column in dataframe) is considered in turn:
-    # for each dimension, compute the distance profile against the corresponding dimension in the target signal,
-    # and then add that distance profile to the running total.
-    # N.b.: for a target of len N and query of len M, there are a total of N - M + 1 subsequences
-    #   (the first starts at index 0, the second at index 1, ..., the last starts at index N - M)
+    # Sum, over the query's columns, the distance from the query to each window of the target. A target of N rows
+    # and a query of M rows have N - M + 1 windows, starting at rows 0 through N - M.
     summed_distance_profile: numpy.typing.NDArray[numpy.floating] = np.zeros(len(target) - len(query) + 1)
     for column in query_dims:
         query_sequence = query[column].to_numpy()
@@ -214,7 +218,8 @@ def _find_matches_multidimensional(
     matches: list[MatchResult] = []
     for distance, start_idx in stumpy.core._find_matches(
         summed_distance_profile,
-        # https://github.com/TDAmeritrade/stumpy/blob/b7b355ce4a9450357ad207dd4f04fc8e8b4db100/stumpy/motifs.py#L533C17-L533C64
+        # The exclusion zone stumpy.match uses: after each match, skip windows that start within
+        # ceil(M / STUMPY_EXCL_ZONE_DENOM) rows of it, so one region does not yield several matches.
         excl_zone=int(np.ceil(len(query) / stumpy.core.config.STUMPY_EXCL_ZONE_DENOM)),
         max_distance=max_distance,
         max_matches=max_matches,
@@ -240,67 +245,69 @@ def find_similar_signals(
     normalize: bool = False,
     scale: typing.Optional[Scale] = None,
 ) -> collections.abc.Sequence[Match]:
-    """
-    Find subsequences of topic data (from ``haystack``) that are similar to ``needle``.
+    """Find the spans of topics' data whose values are similar to a query signal, closest first.
 
-    If ``needle`` is a dataframe with a single, non-index column,
-    single-dimensional similarity search will be performed.
-    If it instead has multiple non-index columns, multi-dimensional search will be performed.
+    Each topic's data is read at the message paths ``needle`` names, and rows of ``needle`` or of a topic's data with a
+    missing or non-numeric value are dropped first; numeric strings such as ``"1.0"`` convert. A topic's data is
+    compared with ``needle`` at every window of ``needle``'s length, and the windows closest to it are kept as matches,
+    skipping any that starts within a quarter of ``needle``'s length of a closer match. With ``max_distance`` left
+    ``None``, every topic searched yields at least one match, even when nothing in it resembles ``needle``. A progress
+    bar over the topics is printed while the search runs.
 
-    Even if there is no true similarity between the query signal and a topic's data,
-    this will always return at least one :py:class:`~roboto.analytics.signal_similarity.Match`.
-    Matches are expected to improve in quality as the topic data is more relevant to the query.
-    Matches are returned sorted in ascending order by their distance, with the best matches (lowest distance) first.
+    With ``scale``, ``needle`` is resampled to the length each scale factor gives and each topic is searched at every
+    length, which finds a motion whether it happens faster or slower than in ``needle``:
 
-    If ``max_distance`` is provided, only matches with a distance less than ``max_distance`` will be returned.
-    Given distances computed against all comparison windows in the target, this defaults to the maximum of:
-        1. the minimum distance
-        2. the mean distance minus two standard deviations
+    - A scale factor is skipped for a topic when the resampled ``needle`` would have fewer than 3 rows or more rows
+      than the topic's data.
+    - Distances are adjusted for each scale factor's length, so they compare across scale factors and with a search
+      without ``scale``. :py:attr:`~roboto.analytics.signal_similarity.Match.distance` gives the adjustment.
+      ``max_distance`` applies to the adjusted distances.
+    - Of two matches in a topic that overlap by more than half of the shorter one's rows, only the closer one is kept.
+    - :py:attr:`~roboto.analytics.signal_similarity.Match.scale` gives the scale factor of each match.
 
-    Use ``max_matches_per_topic`` to limit the number of match results contributed by a single topic.
+    Args:
+        needle: Query signal, with one column per message path, named by its message path, and one row per sample.
+            Its index is not read. With several columns, a window's distance is the sum of its distances in each
+            column.
+        haystack: Topics to search.
+        max_distance: Largest distance a match may have. ``None`` keeps, for each topic and scale factor, the matches
+            no farther than the larger of the closest match's distance and the mean distance over all windows minus
+            two standard deviations.
+        max_matches_per_topic: Maximum number of matches to return from each topic, keeping the closest. ``None``
+            returns every match. With ``scale``, it counts the topic's matches at every scale factor together.
+        normalize: Whether to rescale ``needle`` and each window of a topic's data to a mean of 0 and a standard
+            deviation of 1 before comparing them, so a match has the shape of ``needle`` whatever its offset and
+            amplitude. ``[1.0, 2.0, 3.0]`` matches ``[1000.0, 2000.0, 3000.0]`` at distance 0 with ``normalize=True``,
+            and at a distance of about 3738 without.
+        scale: Range of scale factors to resample ``needle`` by before searching. ``None`` searches with ``needle``
+            as given.
 
-    If ``normalize`` is True, values will be projected to the unit scale before matching.
-    This makes the search **amplitude-invariant** (y-axis): it matches the *shape* of the
-    signal regardless of its absolute magnitude.
-    For example, a query sequence of ``[1., 2., 3.]`` will perfectly match (distance == 0)
-    the target ``[1000., 2000., 3000.]`` if ``normalize`` is True,
-    but would have a distance of nearly 3800 if ``normalize`` is False.
+    Returns:
+        Matches from every topic, sorted by ascending
+        :py:attr:`~roboto.analytics.signal_similarity.Match.distance`.
 
-    DataFrames with string-typed columns are supported as long as all values are
-    convertible to numeric types (e.g., ``"1.0"``). Rows containing values that cannot
-    be converted are dropped with a warning.
+    Raises:
+        ValueError: Without ``scale``, ``needle`` has fewer than 3 rows (``MIN_QUERY_LENGTH``) or more rows than a
+            topic's data. With several columns, a topic's data lacks one of ``needle``'s message paths.
+        ImportError: The ``roboto[analytics]`` extra is not installed.
 
-    **Rate-invariant (multi-scale) search**
+    Examples:
+        Search a dataset's IMU topics for two seconds of angular velocity, at any speed from a tenth to ten times
+        the original:
 
-    Pass a :py:class:`~roboto.analytics.signal_similarity.Scale` to make the search
-    **rate-invariant** (x-axis / time axis): it finds the query pattern regardless of how
-    quickly or slowly it unfolds in the target. For example, a robot lifting a cup in
-    1 second and the same robot lifting a cup in 3 seconds would both be found with an
-    appropriate ``scale``.
-
-    See :py:class:`~roboto.analytics.signal_similarity.Scale` for details on configuring
-    the scale range, step count, and spacing. Well-known presets are available as class
-    attributes, e.g. ``Scale.any()``.
-
-    The scale at which each match was found is reported in :py:attr:`~roboto.analytics.signal_similarity.Match.scale`.
-
-    When ``scale`` is used, ``max_matches_per_topic`` is applied to the combined results
-    across all scales for a given topic, keeping the best (lowest-distance) matches.
-
-    **Distance normalisation in multi-scale mode**
-
-    The raw z-normalised Euclidean distance produced by MASS has range ``[0, 2·√M]``, where
-    ``M`` is the query length at a given scale.  Without correction this biases results toward
-    smaller scales (shorter queries always produce smaller raw distances).
-
-    When ``scale`` is used, every distance is multiplied by ``√N / √M`` before being
-    stored in :py:attr:`~roboto.analytics.signal_similarity.Match.distance`, where ``N`` is
-    the original needle length.  This projects all scales onto the same ``[0, 2·√N]`` range —
-    identical to the single-scale range — so that distances are directly comparable across
-    scales *and* consistent with single-scale results.  A ``max_distance`` threshold tuned on
-    single-scale search can therefore be reused without adjustment in multi-scale search.
-
-    Single-scale distances (``scale=None``) are unchanged.
+        >>> from roboto.analytics.signal_similarity import Scale, find_similar_signals
+        >>> from roboto.domain.datasets import Dataset
+        >>> from roboto.domain.topics import Topic
+        >>> imu = Topic.from_name_and_file(topic_name="/imu/data", file_id="fl_12345")
+        >>> needle = imu.get_data_as_df(
+        ...     message_paths_include=["angular_velocity"],
+        ...     start_time=1_700_000_000_000_000_000,
+        ...     end_time=1_700_000_002_000_000_000,
+        ... )
+        >>> topics = Dataset.from_id("ds_12345").get_topics(include=["/imu/data"])
+        >>> matches = find_similar_signals(needle, topics, max_matches_per_topic=3, normalize=True, scale=Scale.any())
+        >>> for match in matches[:5]:
+        ...     print(match.context.topic_id, match.start_time, match.distance)
     """
     if scale is not None:
         factors: collections.abc.Sequence[float] = scale.factors()

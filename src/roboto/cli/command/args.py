@@ -13,6 +13,17 @@ import typing
 
 
 def JsonFileOrStrType(arg):
+    """Parse a flag value as JSON, read from the file it names or from the value itself, as an argparse ``type``.
+
+    A value that names an existing file is replaced by that file's contents; any other value is parsed as JSON text.
+
+    Args:
+        arg: Value argparse read for the flag.
+
+    Raises:
+        argparse.ArgumentTypeError: The file's contents, or the value, are not valid JSON.
+        OSError: The value names a file that cannot be read.
+    """
     arg_type = "string"
 
     if os.path.isfile(arg):
@@ -29,6 +40,18 @@ def JsonFileOrStrType(arg):
 
 
 class KeyValuePairsAction(argparse.Action):
+    """Argparse action that collects ``KEY=VALUE`` flag values into a dictionary.
+
+    Pass this class as ``action=`` to ``add_argument``. Each value splits at its first ``=``, so a value may itself
+    contain ``=``. By default, a value that parses as JSON is stored parsed (``count=3`` stores the integer ``3``)
+    and any other value stays a string; passing ``parse_json=False`` to ``add_argument`` keeps every value a string.
+    Pairs from repeated uses of the flag merge into one dictionary, and a later pair replaces an earlier one with the
+    same key.
+
+    Raises:
+        SystemExit: A value has no ``=``. ``parser.error`` prints the usage text and the reason to stderr.
+    """
+
     def __init__(self, option_strings, dest, parse_json=True, **kwargs):
         self.parse_json = parse_json
         self.value_dict = {}
@@ -45,12 +68,11 @@ class KeyValuePairsAction(argparse.Action):
             return
 
         try:
-            # Normalize to list if single string (when using nargs and parameter is not specified or nargs is 1)
+            # Without nargs, argparse passes a single string instead of a list.
             if isinstance(values, str):
                 values = [values]
 
             for pair in values:
-                # Use maxsplit=1 to handle values that contain '=' characters
                 parts = pair.split("=", 1)
                 if len(parts) != 2:
                     raise ValueError(
@@ -58,7 +80,6 @@ class KeyValuePairsAction(argparse.Action):
                     )
                 key, value = parts
 
-                # Conditionally parse JSON based on the parameter
                 parsed_value = value
                 if self.parse_json:
                     try:
@@ -70,10 +91,20 @@ class KeyValuePairsAction(argparse.Action):
 
             setattr(namespace, self.dest, self.value_dict)
         except Exception as e:
+            # Any failure, such as a pair with no '=', ends parsing: parser.error prints the usage and this message,
+            # then exits with status 2.
             raise parser.error(f"Failed to parse '{self.dest}' argument '{values}': {e}")
 
 
 def ExistingPathlibPath(arg):
+    """Build a ``pathlib.Path`` from a flag value, as an argparse ``type``, rejecting a path that does not exist.
+
+    Args:
+        arg: Value argparse read for the flag.
+
+    Raises:
+        argparse.ArgumentTypeError: Nothing exists at the path.
+    """
     path = pathlib.Path(arg)
     if not path.exists():
         raise argparse.ArgumentTypeError(f"Provided path '{arg}' does not exist!")
@@ -81,10 +112,9 @@ def ExistingPathlibPath(arg):
 
 
 def NonBlankString(arg: str) -> str:
-    """argparse ``type`` that rejects an empty or whitespace-only flag value.
+    """Reject an empty or whitespace-only flag value, as an argparse ``type``.
 
-    A blank value ends argument parsing with ``error: argument <flag>: may not be blank``, which names the flag
-    the user needs to correct.
+    A blank value ends argument parsing with ``error: argument <flag>: may not be blank``.
 
     Args:
         arg: Value argparse read for the flag.
@@ -93,7 +123,7 @@ def NonBlankString(arg: str) -> str:
         ``arg`` exactly as given, including any leading or trailing whitespace.
 
     Raises:
-        argparse.ArgumentTypeError: If ``arg`` is empty or consists entirely of whitespace.
+        argparse.ArgumentTypeError: The value is empty or consists only of whitespace.
     """
     if not arg.strip():
         raise argparse.ArgumentTypeError("may not be blank")

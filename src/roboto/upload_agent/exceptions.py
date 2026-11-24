@@ -6,4 +6,7 @@
 
 
 class UploadAgentException(Exception):
-    pass
+    """The upload agent failed.
+
+    Unused: nothing in the SDK raises or subclasses this exception.
+    """

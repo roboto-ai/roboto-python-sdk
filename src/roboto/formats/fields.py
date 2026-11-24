@@ -11,14 +11,15 @@ import dataclasses
 
 @dataclasses.dataclass(frozen=True)
 class FieldSelection:
-    """A field to read out of a data file, identified by its path through the schema.
+    """A field to read out of a data file, identified by its path through the file's schema.
 
-    The :py:mod:`roboto.formats` readers take the fields to read as ``FieldSelection`` values;
+    The MCAP and Parquet readers in :py:mod:`roboto.formats`, such as :py:class:`~roboto.formats.mcap.McapReader` and
+    :py:func:`~roboto.formats.parquet.select_fields`, take the fields to read as ``FieldSelection`` values.
     :py:meth:`~roboto.domain.topics.MessagePathRecord.to_field_selection` converts a topic's message path into one.
     """
 
     path_in_schema: tuple[str, ...]
-    """Path components locating this field in the source data schema, root to leaf.
+    """Components of the field's path through the file's schema, from root to leaf.
 
     A component may contain dots, so ``("header", "stamp")`` (a ``stamp`` field nested in a ``header`` struct) and
     ``("header.stamp",)`` (a top-level column named ``header.stamp``) are different fields.

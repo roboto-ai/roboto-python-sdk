@@ -13,6 +13,7 @@ from ..context import CLIContext
 
 
 def list(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print each of the ``--org`` organization's collections as JSON, without its members."""
     for collection in Collection.list_all(
         owner_org_id=args.org,
         roboto_client=context.roboto_client,

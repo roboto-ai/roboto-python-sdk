@@ -4,12 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Validation utilities.
-
-This module handles validating parameters, organizations, and other
-invocation prerequisites.
-"""
-
 import typing
 
 from ....domain import actions, orgs
@@ -19,14 +13,11 @@ def validate_parameters(
     action_params: list[actions.ActionParameter],
     provided_params: dict[str, typing.Any],
 ) -> None:
-    """Validate that provided parameters are defined in action.
-
-    Args:
-        action_params: Parameters defined in action
-        provided_params: Parameters provided by user
+    """Reject parameter values given for parameters the action does not define.
 
     Raises:
-        ValueError: If unknown parameters are provided
+        ValueError: A key of ``provided_params`` names no parameter in ``action_params``. The message lists every such
+            name.
     """
     known_params = set(param.name for param in action_params)
     provided_param_names = set(provided_params.keys())
@@ -37,17 +28,15 @@ def validate_parameters(
 
 
 def resolve_organization(org_id: typing.Optional[str], roboto_client) -> str:
-    """Resolve organization ID from arguments or user membership.
+    """Return the ID of the organization to invoke the action in.
 
     Args:
-        org_id: Optional organization ID from command-line
-        roboto_client: Roboto client for API calls
-
-    Returns:
-        Resolved organization ID
+        org_id: ID of the organization the user named with ``--org``. ``None`` fetches the organizations the caller
+            belongs to and uses the only one.
 
     Raises:
-        Exception: If org cannot be determined
+        Exception: ``org_id`` is ``None`` and the caller belongs to no organization, or to more than one. The message
+            for more than one lists them.
     """
     if org_id is not None:
         return org_id

@@ -45,12 +45,14 @@ class RobotoSpinner:
         self._live.start()
 
     def stop(self):
-        # Use Text.from_markup to properly render rich markup in the text
+        # Replace the spinner with a check mark, which stays on screen unless the spinner is transient.
         self._live.update(Text.from_markup(f"[bold green]✓ {self._text}[/bold green]"))
         self._live.stop()
 
 
 class RobotoMultiToolSpinner:
+    """Live display of the tools Roboto's AI calls: a spinner per running call, and ✓ or ✗ per finished one."""
+
     def __init__(self, console: Console, transient: bool = False):
         self._console = console
         self._live = Live(console=console, refresh_per_second=10, transient=transient)
@@ -102,6 +104,7 @@ class RobotoMultiToolSpinner:
         self._live.start()
 
     def stop(self):
+        # A call still running when the display stops is shown as failed.
         self._failed_tools.update(self._in_progress_tools)
         self._in_progress_tools.clear()
         self._render()
@@ -121,6 +124,8 @@ class RobotoMarkdown:
     def add_content(self, content: str):
         self._content += content
 
+        # Past 1,000 characters, leave the text up to the last paragraph break printed and start a new live display
+        # for the rest, so the region Rich redraws on each update stays short.
         if len(self._content) > 1000 and "\n\n" in self._content:
             break_idx = self._content.rfind("\n\n")
             original_content = self._content[: break_idx + 2]
@@ -139,8 +144,6 @@ class RobotoMarkdown:
 
 
 def _print_welcome_banner(console: Console):
-    """Print a stylized welcome banner using rich components."""
-    # Create ASCII art with rich styling
     art_lines = [
         "      [white]@@@@@@@@@@[/white]        ",
         "   [white]@@@@@@@@@@@@@@@@[/white]     ",
@@ -173,6 +176,12 @@ def _print_welcome_banner(console: Console):
 
 
 def start(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Send each prompt the user types to one agent thread of Roboto's AI, and print the AI's replies as they arrive.
+
+    The first prompt starts the agent thread in the ``--org`` organization, and each later prompt is sent to that
+    thread. Replies print as Markdown, with a spinner while the AI thinks and one line per tool it calls. The chat ends
+    when the user enters ``quit``, ``exit``, ``q`` or ``e``, in any case, or presses Ctrl-C or Ctrl-D at the prompt.
+    """
     org_id = args.org
 
     console = Console()

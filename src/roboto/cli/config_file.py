@@ -20,6 +20,7 @@ import pydantic
 
 from ..config import (
     DEFAULT_ROBOTO_PROFILE_NAME,
+    ROBOTO_API_ENDPOINT,
     RobotoConfigFileV1,
     resolved_profile_name,
 )
@@ -29,11 +30,17 @@ _LOCK_TIMEOUT_SECONDS = 10.0
 
 
 class ConfigFileError(Exception):
-    """The config file cannot be safely read or updated. The file is left untouched."""
+    """The config file cannot be read or updated as asked, and is left untouched.
+
+    Every public function in this module raises it, with a message that says why.
+    """
 
 
 class ProfileAlreadyExistsError(ConfigFileError):
-    """The target profile exists and the caller did not ask to overwrite it."""
+    """The profile to write exists and the caller did not ask to overwrite it.
+
+    ``write_profile`` and ``check_profile_writable`` raise it.
+    """
 
     def __init__(self, config_file: pathlib.Path, profile_name: str, existing_profiles: list[str]) -> None:
         super().__init__(
@@ -47,51 +54,86 @@ class ProfileAlreadyExistsError(ConfigFileError):
 
 @dataclasses.dataclass(frozen=True)
 class ProfileWriteResult:
-    """Outcome of a successful :py:func:`write_profile` call."""
+    """Outcome of a successful ``write_profile`` call."""
 
     config_file: pathlib.Path
-    """Config file the profile was written to."""
+    """Config file the profile was written to, with any symbolic link resolved."""
 
     created_file: bool
-    """The config file did not exist before this write."""
+    """Whether the config file did not exist before this write."""
 
     profile_name: str
     """Profile the token was written to: the one the caller named, or else the file's default profile."""
 
     is_default: bool
-    """The written profile is the one used when no profile is selected."""
+    """Whether the written profile is the file's default, the one used when no profile is selected."""
 
     v0_backup: typing.Optional[pathlib.Path] = None
-    """Copy of the original file, when a legacy (V0) file was converted to the V1 format."""
+    """Copy of the original file, when a file in the earlier format was converted to the ``v1`` format."""
 
 
 @dataclasses.dataclass(frozen=True)
 class WritableProfile:
-    """A profile :py:func:`check_profile_writable` found :py:func:`write_profile` could write."""
+    """A profile ``check_profile_writable`` found ``write_profile`` could write."""
 
     exists: bool
-    """The file already has the profile."""
+    """Whether the file already has the profile."""
 
     name: str
-    """The profile's name: the one the caller named, or else the file's default profile."""
+    """Name of the profile: the one the caller named, or else the file's default profile."""
+
+
+@dataclasses.dataclass(frozen=True)
+class ConfiguredProfiles:
+    """Profiles in a config file, and the Roboto API endpoint each one sends requests to."""
+
+    default_profile: str
+    """Profile used when none is selected: the file's ``default_profile``, or else ``default``."""
+
+    endpoints: dict[str, str]
+    """Endpoint of each profile, without a trailing ``/``.
+
+    A profile that names none uses :py:const:`~roboto.config.ROBOTO_API_ENDPOINT`.
+    """
+
+
+def read_configured_profiles(config_file: pathlib.Path) -> typing.Optional[ConfiguredProfiles]:
+    """Read the profiles in the config file and their endpoints, or return ``None`` when the file does not exist.
+
+    A file in the earlier format, with no ``version`` key, is read as ``write_profile`` would convert it, without
+    changing the file.
+
+    Raises:
+        ConfigFileError: The file is not a config file this module can update.
+        OSError: The file could not be read.
+    """
+    document = _read_document(config_file)
+    if document is None:
+        return None
+
+    endpoints: dict[str, str] = {}
+    for name, profile in document.profiles.items():
+        endpoint = profile.get("endpoint") if isinstance(profile, dict) else None
+        endpoints[name] = (endpoint if isinstance(endpoint, str) and endpoint else ROBOTO_API_ENDPOINT).rstrip("/")
+    return ConfiguredProfiles(default_profile=_profile_name_or_default(document, None), endpoints=endpoints)
 
 
 def check_profile_writable(
     config_file: pathlib.Path, profile_name: typing.Optional[str], overwrite: bool, set_default: bool = False
 ) -> WritableProfile:
-    """Check, without changing anything, that :py:func:`write_profile` could write the profile now.
+    """Check, without changing anything, that ``write_profile`` could write the profile now.
 
     Lets a caller fail before doing work whose result it would then have nowhere to store. Checks the profile name,
     that the file can be read and is in a format this module can update, that an existing profile is replaced only
     with ``overwrite``, and that the file would be valid with the profile written. It takes no lock and writes nothing,
-    so :py:func:`write_profile` can still refuse if the file changes in between, if the lock times out, or if the file
-    or its directory can't be written.
+    so ``write_profile`` can still refuse if the file changes in between, if the lock times out, or if the file or its
+    directory cannot be written.
 
     Args:
         config_file: Path of the config file. A missing file passes.
         profile_name: Profile the caller intends to write. Defaults to the file's default profile.
-        overwrite: Whether the caller will pass ``overwrite=True`` to :py:func:`write_profile`.
-        set_default: Whether the caller will pass ``set_default=True`` to :py:func:`write_profile`.
+        overwrite: Whether the caller will pass ``overwrite=True`` to ``write_profile``.
+        set_default: Whether the caller will pass ``set_default=True`` to ``write_profile``.
 
     Returns:
         The profile's name, and whether the file already has it.
@@ -105,8 +147,8 @@ def check_profile_writable(
     document = _read_document(config_file)
     name = _profile_name_or_default(document, profile_name)
     exists = document is not None and name in document.profiles
-    # Edits the parsed document, which is then discarded. Any token and endpoint leave the file valid, so placeholders
-    # stand in for them.
+    # Edits the parsed document, which is then discarded. Validity does not depend on the token or endpoint, so
+    # placeholders stand in for them.
     _put_profile(config_file, document, name, "api_key", "endpoint", overwrite, set_default)
     return WritableProfile(exists=exists, name=name)
 
@@ -122,8 +164,12 @@ def write_profile(
     """Add or update one profile in a Roboto config file, preserving everything else in it.
 
     The file is edited as raw JSON, so profiles, profile settings and top-level keys this version of the SDK does not
-    model survive the write. A legacy (V0) file is converted to the V1 format; a copy of the original is kept next to
-    it. The write holds an exclusive lock and replaces the file atomically, so concurrent logins cannot lose each
+    model survive the write. A file in the earlier format, which has no ``version`` key and maps each profile name
+    directly to a ``token`` and an optional ``default_endpoint``, is converted to the ``v1`` format; a copy of the
+    original is kept next to it, named ``<file name>.bak-<timestamp>``. When ``config_file`` is a symbolic link, the
+    file it points to is written and the link is kept.
+
+    The write holds an exclusive lock and replaces the file in one rename, so concurrent logins cannot lose each
     other's profiles and a crash cannot leave a half-written file. The result is readable only by its owner.
 
     Args:
@@ -131,10 +177,10 @@ def write_profile(
         profile_name: Profile to write. Defaults to the file's default profile: the one its ``default_profile``
             names, or ``default`` when it names none.
         api_key: Personal access token to store in the profile.
-        endpoint: Roboto API endpoint to store in the profile.
-        overwrite: Replace the token and endpoint of an existing profile of the same name, keeping its other
-            settings.
-        set_default: Make this profile the default. A newly created file always defaults to its only profile.
+        overwrite: Whether to replace the token and endpoint of an existing profile of the same name, keeping its
+            other settings.
+        set_default: Whether to make this profile the default. A newly created file always defaults to its only
+            profile.
 
     Raises:
         ProfileAlreadyExistsError: The profile exists and ``overwrite`` is false.
@@ -144,7 +190,7 @@ def write_profile(
     """
     if profile_name is not None:
         _validate_profile_name(profile_name)
-    # Write the file a symlink points at: replacing the link itself would detach a dotfiles-managed config.
+    # Replacing a symbolic link itself would detach a config file that a dotfiles repository manages.
     config_file = config_file.resolve()
 
     config_file.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -153,14 +199,14 @@ def write_profile(
 
 
 def ensure_profile_org_id_settable(config_file: pathlib.Path, profile_name: typing.Optional[str] = None) -> None:
-    """Raise early, without changing anything, for most of the reasons :py:func:`set_profile_org_id` would refuse.
+    """Reject, without changing anything, a config file or profile that ``set_profile_org_id`` would refuse.
 
-    Lets a caller find out that an organization can't be saved before it asks the user to choose one. Checks that the
-    file exists, is a config file this module can update, and has the profile. It takes no lock, so
-    :py:func:`set_profile_org_id` can still refuse if the file changes in between.
+    Lets a caller find out that an organization cannot be saved before it asks the user to choose one. Checks that
+    the file exists, is a config file this module can update, and has the profile. It takes no lock and writes
+    nothing, so ``set_profile_org_id`` can still refuse if the file changes in between, if the lock times out, or if
+    the file cannot be replaced.
 
     Args:
-        config_file: Path of the config file.
         profile_name: Profile the caller intends to update. Defaults to the file's default profile.
 
     Raises:
@@ -175,24 +221,26 @@ def set_profile_org_id(
 ) -> typing.Optional[pathlib.Path]:
     """Set the default organization of one profile in an existing Roboto config file, preserving everything else in it.
 
-    The file is edited as raw JSON, locked, and replaced atomically, as :py:func:`write_profile` does,
-    and the result is readable only by its owner. A legacy (V0) file is converted to the V1 format,
-    the only one that holds an organization; a copy of the original is kept next to it.
+    The file is edited as raw JSON, locked, and replaced in one rename, and a symbolic link to it is kept, as
+    ``write_profile`` does; the result is readable only by its owner. A file in the earlier format, with no
+    ``version`` key, is converted to the ``v1`` format, the only one that holds an organization; a copy of the
+    original is kept next to it.
 
     Args:
-        config_file: Path of the config file.
-        org_id: Organization the profile's commands act in when the caller names none.
+        org_id: ID of the organization the profile's commands act in when the caller names none and
+            ``ROBOTO_ORG_ID`` is unset.
         profile_name: Profile to update. Defaults to the file's default profile.
 
     Returns:
-        Copy of the original file, when a legacy (V0) file was converted to the V1 format. Otherwise ``None``.
+        Copy of the original file, when a file in the earlier format was converted to the ``v1`` format. Otherwise
+        ``None``.
 
     Raises:
         ConfigFileError: The file is missing, is not a config file this module can update, has no such profile,
-            or the lock could not be acquired. The file is left untouched.
+            or the lock could not be acquired.
         OSError: The file could not be read or replaced. The file is left untouched.
     """
-    # Write the file a symlink points at: replacing the link itself would detach a dotfiles-managed config.
+    # Replacing a symbolic link itself would detach a config file that a dotfiles repository manages.
     config_file = config_file.resolve()
 
     with _write_lock(config_file):
@@ -209,10 +257,10 @@ def set_profile_org_id(
 @dataclasses.dataclass
 class _Document:
     raw: dict[str, typing.Any]
-    """The whole file, as V1. Unknown keys are carried through untouched."""
+    """Whole file in the ``v1`` format. Keys the SDK does not model are carried through untouched."""
 
     v0_text: typing.Optional[str] = None
-    """Contents of the V0 file this document was converted from; None when the file was already V1."""
+    """Contents of the earlier-format file this document was converted from, or ``None`` when the file was ``v1``."""
 
     @property
     def profiles(self) -> dict[str, typing.Any]:
@@ -265,14 +313,11 @@ def _put_profile(
 ) -> tuple[_Document, str, RobotoConfigFileV1]:
     """Set the token and endpoint of a profile in ``document``, or in a new document when it is ``None``.
 
-    Points ``default_profile`` at the profile in a new document or with ``set_default``, and keeps a V0 document's
-    readers on the profile they read.
-
-    Returns the document, the profile's name, and the document validated as a config file.
-
-    Raises:
-        ProfileAlreadyExistsError: The profile exists and ``overwrite`` is false.
-        ConfigFileError: The profile name is invalid, or the document would not be a valid config file.
+    Points ``default_profile`` at the profile in a new document or with ``set_default``. Otherwise, in a document
+    converted from the earlier format, keeps the default on the profile the SDK read from that file. Return the edited
+    document, the profile's name, and the document validated as a config file. Raise ``ProfileAlreadyExistsError``
+    when the profile exists and ``overwrite`` is false, and ``ConfigFileError`` when the profile name is invalid or the
+    document would not be a valid config file.
     """
     profile_name = _profile_name_or_default(document, profile_name)
     _validate_profile_name(profile_name)
@@ -316,19 +361,19 @@ def _find_profile(
 
 
 def _profile_name_or_default(document: typing.Optional[_Document], profile_name: typing.Optional[str]) -> str:
-    """Return ``profile_name``, or when it is ``None`` or empty the profile the SDK reads by default from this file."""
+    """Return ``profile_name``, or when it is ``None`` or empty, the file's ``default_profile``, or else ``default``."""
     return resolved_profile_name(profile_name, document.raw.get("default_profile") if document is not None else None)
 
 
 def _keep_v0_default_profile(document: _Document, otherwise: str) -> None:
-    # V0 readers resolve to the "default" profile; keep that. With no "default" profile, point at ``otherwise``,
-    # since a V1 file's default must name an existing profile.
+    # A file in the earlier format names no default, so the SDK read its "default" profile; keep that. With no
+    # "default" profile, point at otherwise, since a v1 file's default_profile must name an existing profile.
     has_default = DEFAULT_ROBOTO_PROFILE_NAME in document.profiles
     document.raw["default_profile"] = DEFAULT_ROBOTO_PROFILE_NAME if has_default else otherwise
 
 
 def _replace_file(config_file: pathlib.Path, document: _Document) -> typing.Optional[pathlib.Path]:
-    """Write ``document`` to ``config_file``. Returns the copy kept of the original when it was a V0 file."""
+    """Write ``document`` to ``config_file``, and return the copy kept of an original in the earlier format."""
     v0_backup = None
     if document.v0_text is not None:
         timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
@@ -366,10 +411,10 @@ def _raise_if_profile_exists(
 
 
 def _read_document(config_file: pathlib.Path) -> typing.Optional[_Document]:
-    """Parse the config file into V1 shape, or return None if it does not exist.
+    """Parse the config file into the ``v1`` format, or return ``None`` when it does not exist.
 
-    Raises ConfigFileError for anything that is not recognizably a V1 or V0 config, rather than guessing, since
-    the caller would otherwise overwrite data it does not understand.
+    Raises ``ConfigFileError`` for a file in neither the ``v1`` nor the earlier format, rather than guessing, since the
+    caller would otherwise overwrite data it does not understand.
     """
     if not config_file.exists():
         return None
@@ -420,5 +465,6 @@ def _atomic_write(path: pathlib.Path, content: str) -> None:
             os.fsync(tmp.fileno())
         os.replace(tmp_name, path)
     except BaseException:
+        # Any failure, an interrupt included, removes the temp file and re-raises.
         pathlib.Path(tmp_name).unlink(missing_ok=True)
         raise

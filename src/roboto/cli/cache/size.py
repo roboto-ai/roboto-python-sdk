@@ -12,7 +12,7 @@ from ..context import CLIContext
 
 
 def get_directory_size(path) -> int:
-    """Calculate the total size of a directory in bytes."""
+    """Compute the total size, in bytes, of every file under ``path``, at any depth."""
     total = 0
     for entry in path.rglob("*"):
         if entry.is_file():
@@ -21,6 +21,10 @@ def get_directory_size(path) -> int:
 
 
 def size(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print the total size, in bytes, of the files in the local Roboto cache directory.
+
+    When the cache directory does not exist, prints ``0`` and reports the missing directory on standard error.
+    """
     cache_dir = context.roboto_config.get_cache_dir()
 
     if not cache_dir.exists():

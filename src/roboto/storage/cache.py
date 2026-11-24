@@ -20,45 +20,48 @@ from ..logging import default_logger
 logger = default_logger()
 
 COLUMN_COUNT_LOCAL_CACHE_THRESHOLD = 10
-"""Column count at or above which an ``ADAPTIVE`` read downloads the whole file instead of streaming.
+"""Number of columns at or above which a ``CachePolicy.ADAPTIVE`` read downloads a file.
 
-Streaming projects only the requested columns but pays a per-column HTTP cost,
-so reading many columns over the network grows slow; downloading fetches the
-whole file once. 10 is the crossover: below it, streaming's wasted-bytes savings
-win; at or above it, the per-column overhead dominates and the local copy is
-reliably faster.
+Reading over HTTP fetches only the requested columns, but requests each column's bytes separately, so it slows as the
+number of columns grows. Below 10 columns, reading over HTTP is faster; from 10 on, downloading the whole file once is.
 """
 
 
 class CachePolicy(str, enum.Enum):
-    """Governs whether a fetched data file is cached to local disk before reading.
+    """Cache policy of a topic data read: whether each data file is downloaded to the local cache before it is read.
 
-    The policy applies to formats with a disk-cache path (Parquet today); a
-    format that always streams (MCAP) ignores it.
+    Applies to Parquet data files. MCAP data files are always read over HTTP, whatever the policy.
     """
 
     ALWAYS = "always"
-    """Download the file to the local cache before reading, regardless of how much of it the read projects."""
+    """Each file is downloaded to the local cache before it is read, unless a copy is already there."""
 
     ADAPTIVE = "adaptive"
-    """Reuse an already-cached file; otherwise download when the read projects enough columns
-    (:py:data:`COLUMN_COUNT_LOCAL_CACHE_THRESHOLD`) to justify it, and stream over HTTP when it does not."""
+    """A copy already in the local cache is read from there; otherwise the column count picks download or HTTP.
+
+    The file is downloaded when the read needs at least 10 columns
+    (``COLUMN_COUNT_LOCAL_CACHE_THRESHOLD``), and read over HTTP when it needs fewer.
+    """
 
     NEVER = "never"
-    """Always stream over HTTP; never write to local disk."""
+    """Every file is read over HTTP; the local cache is neither read nor written."""
 
 
 class FetchMode(enum.Enum):
-    """How a single remote file will be opened, as chosen by :py:func:`choose_fetch_mode`."""
+    """Source a remote data file is opened from, as ``choose_fetch_mode`` chooses it.
+
+    :py:meth:`~roboto.domain.topics.Topic.get_data` and :py:func:`~roboto.formats.parquet.open_parquet_file` open
+    Parquet files through it, so most code never uses it.
+    """
 
     CACHED = enum.auto()
-    """Open the already-downloaded copy in the local cache."""
+    """Copy already in the local cache."""
 
     DOWNLOAD = enum.auto()
-    """Download to the local cache, then open the downloaded copy."""
+    """Copy downloaded to the local cache for this read."""
 
     STREAM = enum.auto()
-    """Open over HTTP without writing to disk."""
+    """Remote file, read over HTTP without writing to disk."""
 
 
 def choose_fetch_mode(
@@ -66,22 +69,18 @@ def choose_fetch_mode(
     already_cached: bool,
     estimated_column_count: int,
 ) -> FetchMode:
-    """Pick the cheapest way to open a remote columnar file under a cache policy.
+    """Choose the source to open a remote data file from, under a cache policy.
 
-    A previously-downloaded file is always cheaper to open than streaming over
-    HTTP, regardless of how many columns the current read projects, so an
-    existing cached copy wins under every policy except ``NEVER`` (which never
-    touches the disk cache at all, not even to read it).
+    :py:meth:`~roboto.domain.topics.Topic.get_data` and :py:func:`~roboto.formats.parquet.open_parquet_file` choose
+    how to open each Parquet file through it, so most code never calls it. A copy already in the local cache is used
+    under every policy except ``CachePolicy.NEVER``, however many columns the read needs, because opening it makes no
+    request.
 
     Args:
-        policy: The caller's cache policy.
-        already_cached: Whether a complete copy already exists in the local cache.
-        estimated_column_count: How many columns the read is expected to project;
-            compared against :py:data:`COLUMN_COUNT_LOCAL_CACHE_THRESHOLD` under
-            ``ADAPTIVE``.
-
-    Returns:
-        The fetch mode to use.
+        policy: Cache policy of the read.
+        already_cached: Whether a usable copy of the file is already in the local cache.
+        estimated_column_count: Number of columns the read is expected to need. Under ``ADAPTIVE``, compared with
+            ``COLUMN_COUNT_LOCAL_CACHE_THRESHOLD``.
     """
     if policy is CachePolicy.NEVER:
         return FetchMode.STREAM
@@ -95,20 +94,19 @@ def choose_fetch_mode(
 
 
 def cached_file_is_current(path: pathlib.Path, expected_size: typing.Optional[int]) -> bool:
-    """Report whether the cached file can be reused instead of downloaded again.
+    """Check whether the file at a local cache path can be read instead of downloaded again.
 
-    Returns ``True`` when the file exists and either its size matches ``expected_size`` or
-    ``expected_size`` is ``None``. A size mismatch means the file's content changed since the
-    cache was written, so the cached bytes are stale and must not be reused; the file is then
-    treated as absent and re-downloaded. ``expected_size`` of ``None`` (no size reported) reuses
-    any existing file.
+    :py:func:`~roboto.formats.parquet.open_parquet_file` checks a cached copy through it before reading it, so most
+    code never calls it. The file is current when it exists and its size equals ``expected_size``, or when
+    ``expected_size`` is ``None``. A file of a different size no longer matches the remote file, so it is downloaded
+    again.
 
     Args:
         path: Local cache path to check.
-        expected_size: The backing file's current size in bytes, or ``None`` when unknown.
+        expected_size: Current size of the remote file, in bytes. ``None`` accepts a cached file of any size.
 
     Returns:
-        ``True`` when the cached file may be reused, ``False`` when it is missing or stale.
+        ``True`` when the cached file can be read; ``False`` when it is missing or its size differs.
     """
     if not path.exists():
         return False
@@ -118,26 +116,29 @@ def cached_file_is_current(path: pathlib.Path, expected_size: typing.Optional[in
 
 
 _download_locks: "weakref.WeakValueDictionary[str, threading.Lock]" = weakref.WeakValueDictionary()
-"""In-process registry of per-file download locks, keyed by absolute cache path.
+"""Download locks for this process, keyed by cache path.
 
-Dedupes concurrent downloads of the same file within a single process.
-Cross-process concurrency is handled by the atomic-rename pattern in
-``download_to_cache`` (last writer wins, but every observed file is complete),
-not by this lock.
+Threads in this process that download the same file share one lock, so the file is downloaded once. Processes do not
+share these locks; ``download_to_cache`` renames each finished download into place, so a reader in any process finds
+either no file or a complete one.
 
-Values are held weakly: while at least one caller is inside
-``download_to_cache`` for a path, that caller's local reference keeps the lock
-alive and concurrent callers share it; once the last returns, the entry is
-evicted automatically. Footprint stays bounded by in-flight downloads rather
-than by lifetime-unique paths.
+The dictionary holds its locks weakly. An entry lives while a caller of ``download_to_cache`` holds its lock and
+disappears after the last one returns, so the dictionary holds only the locks of downloads in progress.
 """
 
 _download_locks_guard = threading.Lock()
-"""Guards inserts into ``_download_locks``."""
+"""Makes the lookup and insert in ``get_download_lock`` one step, so two threads asking for one path get one lock."""
 
 
 def get_download_lock(key: str) -> threading.Lock:
-    """Return the in-process download lock for a cache path, creating it on first use."""
+    """Return this process's download lock for a cache path, creating it on first use.
+
+    ``download_to_cache`` takes its lock through it, so most code never calls it. Threads that download the same file
+    share the lock, so they wait for one another.
+
+    Args:
+        key: Cache path of the file, as a string.
+    """
     with _download_locks_guard:
         lock = _download_locks.get(key)
         if lock is None:
@@ -151,37 +152,34 @@ def download_to_cache(
     outfile: pathlib.Path,
     expected_size: typing.Optional[int] = None,
 ) -> None:
-    """Download a remote file to ``outfile`` safely under concurrency.
+    """Download a remote file to a local cache path, so that no reader ever finds a partial file there.
 
-    Acquires a per-path lock to dedupe in-process downloads, double-checks
-    existence (another thread may have completed the download while we were
-    waiting), creates the cache directory lazily, and writes via a uniquely
-    named ``.part`` file followed by :func:`os.replace`. The rename is atomic
-    on POSIX and Windows, so:
+    :py:meth:`~roboto.domain.topics.Topic.get_data` and :py:func:`~roboto.formats.parquet.open_parquet_file` download
+    files to the local cache through it, so most code never calls it. It works in these steps:
 
-    * Readers never see a partial file at ``outfile``.
-    * Two processes racing both produce a complete file; the second
-      ``os.replace`` simply overwrites the first.
-    * If the download raises, the ``.part`` file is removed and ``outfile``
-      is left untouched.
+    1. Wait for this process's lock on ``outfile``, so threads that download the same file download it once.
+    2. Return if a current copy is already at ``outfile`` (see
+       ``cached_file_is_current``); another thread may have downloaded it during the wait.
+    3. Create ``outfile``'s directory if needed, and download to a uniquely named ``.part`` file beside it.
+    4. When ``expected_size`` is given, compare the ``.part`` file's size with it. ``urllib.request.urlretrieve`` does
+       not detect a truncated body when the response has no ``Content-Length``, so this check keeps a truncated
+       download out of the cache.
+    5. Rename the ``.part`` file to ``outfile`` with ``os.replace``, which replaces it in one step on POSIX and
+       Windows. When two processes download the same file, the later rename replaces one complete file with another.
 
-    When ``expected_size`` is supplied, the written ``.part`` file's size is
-    verified against it before the atomic rename. A truncated body — which
-    :func:`urllib.request.urlretrieve` does not flag when the response carries
-    no ``Content-Length`` — fails this check, so the ``.part`` is discarded and
-    nothing is promoted to the cache: a partial download is never made sticky.
+    If the download, the size check or the rename raises, including on ``KeyboardInterrupt``, the ``.part`` file is
+    deleted, ``outfile`` is left as it was, and the exception propagates.
 
     Args:
-        url_provider: Resolves the download URL. Called only when the download
-            actually proceeds, so a signed URL is not minted for a file that
-            turns out to already be cached.
-        outfile: Final cache path for the downloaded file.
-        expected_size: The backing object's size in bytes when the server
-            reports it; ``None`` skips the completeness check.
+        url_provider: Function that returns a signed URL for the file. Called only when the file is downloaded, so no
+            URL is signed for a file already in the cache.
+        outfile: Local cache path to download the file to.
+        expected_size: Size of the remote file in bytes, as Roboto reports it. ``None`` skips the size check and
+            accepts any copy already at ``outfile``.
 
     Raises:
-        ValueError: ``expected_size`` is supplied and the downloaded file's size
-            does not match it (a truncated or otherwise incomplete download).
+        ValueError: ``expected_size`` is given and the downloaded file has a different size.
+        urllib.error.URLError: The download request fails.
     """
     lock = get_download_lock(str(outfile))
     with lock:
@@ -194,7 +192,7 @@ def download_to_cache(
         url = url_provider()
         logger.debug("Downloading file to local cache at %s", outfile)
         try:
-            urllib.request.urlretrieve(url, str(tmpfile))  # noqa: S310 — presigned S3 URL from Roboto API
+            urllib.request.urlretrieve(url, str(tmpfile))  # noqa: S310 — signed URL from Roboto
             if expected_size is not None:
                 actual_size = tmpfile.stat().st_size
                 if actual_size != expected_size:

@@ -4,13 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""DockerActionRunner for local action invocation.
-
-This module provides the DockerActionRunner class which encapsulates Docker image
-resolution, building, command construction, and container execution for local
-action invocation.
-"""
-
 import os
 import shutil
 import socket
@@ -27,10 +20,10 @@ from .workspace import Workspace
 
 
 class DockerActionRunner:
-    """Encapsulates Docker execution lifecycle for local action invocation.
+    """Runner that runs an action on this machine in a Docker container.
 
-    This class consolidates Docker image resolution, environment setup,
-    command building, and container execution into a single interface.
+    ``roboto actions invoke-local`` builds it once the workspace holds the action's parameters and input data, and
+    calls ``run``.
     """
 
     def __init__(
@@ -45,55 +38,54 @@ class DockerActionRunner:
         dry_run: bool = False,
         log_level: typing.Optional[str] = None,
     ):
-        """Initialize DockerActionRunner.
-
-        Args:
-            workspace: Workspace instance with all paths
-            action_source: ActionSource indicating where action comes from
-            org_id: Organization ID
-            dataset_id: Dataset ID for invocation
-            provided_params: User-provided parameter values
-            cleanup_workdir: Whether to clean up workdir after execution
-            roboto_config: RobotoConfig instance
-            dry_run: Whether to run in dry-run mode (gates side effects)
-            log_level: Log level for the action invocation
-        """
         self.workspace = workspace
+        """Local directories and files the action reads and writes, mounted into the container."""
+
         self.action_source = action_source
+        """Action to run: one defined in a local directory, or one fetched from Roboto."""
+
         self.org_id = org_id
+        """ID of the organization the action runs in."""
+
         self.dataset_id = dataset_id
+        """ID of the dataset passed to the action in ``ROBOTO_DATASET_ID``, a placeholder when the run names none."""
+
         self.provided_params = provided_params
+        """Parameter values given on the command line, keyed by parameter name."""
+
         self.cleanup_workdir = cleanup_workdir
+        """Whether to delete the workspace once the container exits."""
+
         self.roboto_config = roboto_config
+        """Configuration whose endpoint and API key the action uses to make requests to Roboto."""
+
         self.dry_run = dry_run
+        """Whether the action runs as a dry run, passed to it in ``ROBOTO_DRY_RUN``."""
+
         self.log_level = log_level
+        """Log level passed to the action in ``ROBOTO_LOG_LEVEL``, or ``None`` to leave it unset."""
 
     def run(self) -> None:
-        """Execute the action in a Docker container.
+        """Run the action in a Docker container and wait for it to exit.
 
-        This orchestrates the full Docker execution lifecycle:
-        1. Build Docker command (which resolves image and environment)
-        2. Execute container with cleanup
+        For an action defined in a local directory, first builds its image from the ``Dockerfile`` in that directory;
+        for one fetched from Roboto, runs the image the action names. After the container exits, deletes the secrets
+        file and, when ``cleanup_workdir`` is set, the workspace.
+
+        Raises:
+            ActionRuntimeException: A local action's directory has no ``Dockerfile`` or its image fails to build, or an
+                action fetched from Roboto names no image.
         """
         cmd = self.__build_run_command()
         self.__execute_container(cmd)
 
     def __build_run_command(self) -> list[str]:
-        """Build Docker run command with proper configuration.
+        """Build the ``docker run`` command for this run.
 
-        Resolves the Docker image and builds environment variables, then
-        constructs the full Docker run command.
-
-        Configures:
-        - Volume mounts (workspace directories and config)
-        - Environment variables (ROBOTO_* + action parameters + container env_vars)
-        - User/group settings (current user/group)
-        - Container parameters (entrypoint, command, workdir)
-
-        Returns:
-            Docker command as list of strings
+        The container runs as the current user and group, so files the action writes are owned by that user. The
+        workspace is mounted at the same path it has on this machine, so the paths in the ``ROBOTO_*`` variables
+        resolve inside the container.
         """
-        # Resolve image and build environment
         image_name = self.__resolve_image()
         env_vars = self.__build_environment()
 
@@ -108,47 +100,40 @@ class DockerActionRunner:
             f"{self.workspace.root}:{self.workspace.root}",
         ]
 
-        # Get container parameters from action source
         container_parameters = self.action_source.container_params
 
-        # Merge environment variables: runtime env_vars take precedence over container env_vars
+        # A variable the action's container parameters set is overridden when this run sets the same name.
         merged_env_vars = {}
         if container_parameters and container_parameters.env_vars:
             merged_env_vars.update(container_parameters.env_vars)
         merged_env_vars.update(env_vars)
 
-        # Add environment variables
         for key, value in merged_env_vars.items():
             cmd.extend(["-e", f"{key}={value}"])
 
-        # Add workdir if specified
         if container_parameters and container_parameters.workdir:
             cmd.extend(["-w", container_parameters.workdir])
 
-        # Add entrypoint if specified
+        # Only the first element of entry_point is passed; the rest are not.
         if container_parameters and container_parameters.entry_point:
             cmd.append("--entrypoint")
             cmd.append(container_parameters.entry_point[0])
 
-        # Add image name
         cmd.append(image_name)
 
-        # Add command if specified
         if container_parameters and container_parameters.command:
             cmd.extend(container_parameters.command)
 
         return cmd
 
     def __build_environment(self) -> dict[str, str]:
-        """Build environment variables for Docker container.
+        """Build the environment variables the action reads, with values for this run.
 
-        Determines workdir based on action source:
-        - Local actions: use action_root
-        - Platform actions: use workspace.input_dir.parent
-
-        Returns:
-            Dictionary of environment variables
+        These are the ``ROBOTO_*`` variables that name the workspace's directories and files, the organization and
+        dataset, and the endpoint and API key to make requests to Roboto with, plus one ``ROBOTO_PARAM_<name>`` for
+        each parameter value given. ``HOME`` is the workspace root.
         """
+        # No invocation exists in Roboto for a local run, so ROBOTO_INVOCATION_ID is a fixed placeholder.
         env_vars = {
             RobotoEnvKey.DatasetId.value: self.dataset_id,
             RobotoEnvKey.InputDir.value: str(self.workspace.input_dir),
@@ -166,11 +151,9 @@ class DockerActionRunner:
             "HOME": str(self.workspace.root),
         }
 
-        # Add log level if specified
         if self.log_level is not None:
             env_vars[RobotoEnvKey.LogLevel.value] = self.log_level
 
-        # Add action parameters as environment variables
         if self.provided_params:
             for param_name, param_value in self.provided_params.items():
                 env_var_name = RobotoEnvKey.for_parameter(param_name)
@@ -179,12 +162,9 @@ class DockerActionRunner:
         return env_vars
 
     def __execute_container(self, cmd: list[str]) -> None:
-        """Execute Docker container and handle cleanup.
-
-        Args:
-            cmd: Docker command to execute
-        """
-        # Determine workdir for cleanup
+        """Run ``cmd`` until the container exits, then delete the secrets file and, if asked to, the workspace."""
+        # For a local action this is the action's own directory. invoke_local sets cleanup_workdir only for a
+        # temporary workspace, which local actions never use, so that directory is never deleted.
         if self.action_source.is_local and self.action_source.action_root:
             workdir = self.action_source.action_root
         else:
@@ -194,6 +174,8 @@ class DockerActionRunner:
             try:
                 run_proc.wait()
             except KeyboardInterrupt:
+                # The user pressed Ctrl-C. Send SIGTERM to `docker run`, and kill it if it has not exited within 5
+                # seconds. The KeyboardInterrupt is not re-raised, so the command ends normally after cleanup.
                 run_proc.terminate()
                 try:
                     run_proc.wait(timeout=5)
@@ -202,35 +184,24 @@ class DockerActionRunner:
                     run_proc.kill()
                     run_proc.wait()
             finally:
-                # Always delete secrets file to avoid it sitting around on disk
+                # The secrets file holds the values of secrets the parameters name. Delete it however the run ends,
+                # so those values do not stay on disk.
                 self.workspace.secrets_file.unlink(missing_ok=True)
 
-                # Clean up workdir if requested
                 if self.cleanup_workdir and workdir.exists():
                     shutil.rmtree(workdir)
 
     def __resolve_image(self) -> str:
-        """Resolve Docker image for action execution.
+        """Return the image to run, building it first for an action defined in a local directory.
 
-        For local actions:
-        - Look for Dockerfile in action_root
-        - Build Docker image from Dockerfile
-        - Return image name/tag
-
-        For platform-fetched actions:
-        - Use action_record.uri
-        - Return image URI
-
-        Returns:
-            Docker image name/URI to use for execution.
-
-        Raises:
-            ActionRuntimeException: If image cannot be resolved.
+        A local action's image is built from the ``Dockerfile`` in its directory and tagged ``<action name>:latest``.
+        An action fetched from Roboto runs the image its record names. Raises ``ActionRuntimeException`` when a local
+        action's directory has no ``Dockerfile``, ``docker build`` fails, or an action fetched from Roboto names no
+        image.
         """
-        # Local action with Dockerfile
         if self.action_source.is_local:
             if self.action_source.action_root is None:
-                # Defensive check, should be an impossible code path
+                # Unreachable: is_local means action_root is set. The check narrows its type.
                 raise ActionRuntimeException(
                     "Failed to determine action directory for local action invocation. "
                     "Please specify a valid action directory path or run the command from within "
@@ -245,7 +216,7 @@ class DockerActionRunner:
                 )
 
             if self.action_source.action_config is None:
-                # Defensive check, should be an impossible code path
+                # Unreachable from `roboto actions invoke-local`, which loads action.json for every local action.
                 raise ActionRuntimeException(
                     f"Failed to load action configuration from {self.action_source.action_root}. "
                     f"The action.json file may be missing or invalid. "
@@ -270,7 +241,6 @@ class DockerActionRunner:
 
             return image_name
 
-        # Platform action with image_uri
         if self.action_source.action_record is not None and self.action_source.action_record.uri:
             return self.action_source.action_record.uri
 

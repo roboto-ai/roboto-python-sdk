@@ -13,6 +13,7 @@ from .shared_helpdoc import DATASET_ID_HELP
 
 
 def rename_file(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Rename or move the file ``--file-id`` names to ``--new-path``, and print its record as JSON."""
     dataset = Dataset.from_id(args.dataset_id, context.roboto_client)
     record = dataset.rename_file(args.file_id, args.new_path)
     print(record.model_dump_json(indent=2))

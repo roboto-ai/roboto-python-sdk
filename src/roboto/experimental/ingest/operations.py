@@ -21,15 +21,13 @@ from ...time import _EpochNanosecondsFromTime, _integral_to_python_int
 from .schema import Schema
 
 MAX_FILES_AND_TOPICS_PER_REQUEST = 500
-"""Cap on how many files and topics one request may name, counting each file entry and each topic
-declaration in it.
+"""Maximum number of files and topics one request may name, counting each file entry and each topic declaration.
 
-Each file and topic named costs the platform another round of writes, and a request has a fixed amount of
-time to finish them all, so a request naming more than this is refused outright rather than left to run out
-of time; split a larger batch across several calls. The request models below and in
-:py:mod:`roboto.experimental.sessions` apply the cap when the request body is constructed, and the platform
-checks it again on every call that declares files or topics, so a body built without these models is held to
-the same cap.
+Each file and topic named adds writes that Roboto must finish within the request's fixed time limit, so Roboto
+refuses a request naming more than this instead of letting it run out of time; split a larger batch across several
+calls. The request models in this module and in :py:mod:`roboto.experimental.sessions` raise
+``pydantic.ValidationError`` when built over the limit, and Roboto checks it again on every request that declares
+files or topics, so a request body built without these models is held to the same limit.
 """
 
 MESSAGE_ENVELOPE_TIMELINE_SOURCES: dict[str, tuple[TimelineSourceKind, str]] = {
@@ -37,24 +35,25 @@ MESSAGE_ENVELOPE_TIMELINE_SOURCES: dict[str, tuple[TimelineSourceKind, str]] = {
     "mcap_publish_time": ("message_publish_time", "message_publish_time"),
     "mp4_presentation_time": ("message_log_time", "presentation_time"),
 }
-"""Stored kind and stored name of each timeline source a container stamps on its records, keyed by declared ``kind``.
+"""Kind and name Roboto stores each message-envelope timeline source under, keyed by its declared ``kind``.
 
-These sources sit in the message envelope rather than in the topic's data columns. The stored kind says which of the
-envelope's two timestamps a source is, log time or publish time, and reads select a source by its stored name.
+These sources sit in the message envelope, not in the topic's data columns. The stored kind, a
+:py:const:`~roboto.domain.topics.TimelineSourceKind` value, says which of the envelope's two timestamps a source is,
+log time or publish time; a read selects a source by its stored name.
 
-MCAP log time and MP4 presentation time each name the timeline their container stamps on every record it
-holds: for MCAP, the instant the recorder wrote the record; for MP4, the instant the frame is shown. The
-platform stores one such timeline per topic schema, so the two share a stored kind, differ only in the
-name a read selects them by, and cannot both be declared on one topic.
+MCAP log time and MP4 presentation time each name the timeline a container stamps on every record it holds: for
+MCAP, the instant the recorder wrote the record; for MP4, the instant the frame is shown. Roboto stores one such
+timeline per topic schema, so the two share a stored kind, differ only in the name a read selects them by, and
+cannot both be declared on one topic.
 
-The request models in this module check each declaration against the kind and name in this table, and the
-platform stores the declaration under exactly those.
+``TopicDeclaration`` checks each declared source against this table, and Roboto stores the source under the kind
+and name the table gives.
 """
 
 _FileWindowBoundNs = typing.Annotated[
     int, pydantic.Field(ge=INT64_MIN, le=INT64_MAX), pydantic.BeforeValidator(_integral_to_python_int)
 ]
-"""An end of a file's time window, in the file's own timestamps, that takes any integer type without loss.
+"""End of a file's time window, in the file's own timestamps, that accepts any integer type without loss.
 
 The range sits before the validator because, on an optional field, pydantic writes a range that follows a
 ``BeforeValidator`` into the JSON schema as ``ge`` and ``le`` instead of ``minimum`` and ``maximum``."""
@@ -62,20 +61,20 @@ The range sits before the validator because, on an optional field, pydantic writ
 _COLUMN_TIME_SOURCE_KIND = "field"
 """``kind`` of the one declared timeline source whose timestamps sit in the topic's own data columns.
 
-Every other declared kind is a key of :py:data:`MESSAGE_ENVELOPE_TIMELINE_SOURCES`.
+Every other declared kind is a key of ``MESSAGE_ENVELOPE_TIMELINE_SOURCES``.
 """
 
 
 class _DeclaredSourceBase(pydantic.BaseModel):
     """Fields every kind of declared timeline source carries.
 
-    Every subclass declares a literal-typed ``kind`` discriminator defaulting to its own value, which is what
-    the platform routes the entry by; a subclass that omits it raises ``TypeError`` at import.
+    Every subclass declares a literal-typed ``kind`` discriminator defaulting to its own value, which Roboto routes
+    the entry by; a subclass that omits it raises ``TypeError`` at import.
 
-    That ``kind`` also says where the timestamps sit: in the topic's own data columns
-    (:py:data:`_COLUMN_TIME_SOURCE_KIND`) or in the message envelope (a key of
-    :py:data:`MESSAGE_ENVELOPE_TIMELINE_SOURCES`). Every check on a declared source reads its ``kind`` to tell those
-    two apart, so a subclass whose ``kind`` is neither raises ``TypeError`` at import.
+    That ``kind`` also says where the timestamps sit: in the topic's own data columns (``_COLUMN_TIME_SOURCE_KIND``)
+    or in the message envelope (a key of ``MESSAGE_ENVELOPE_TIMELINE_SOURCES``). Every check on a declared source
+    reads its ``kind`` to tell those two apart, so a subclass whose ``kind`` is neither raises ``TypeError`` at
+    import.
     """
 
     model_config = pydantic.ConfigDict(
@@ -84,24 +83,26 @@ class _DeclaredSourceBase(pydantic.BaseModel):
     )
 
     min_file_timestamp_ns: _FileWindowBoundNs
-    """Time of the first message this file contributes on this timeline source, in nanoseconds, as the data
-    itself carries it, stored in a signed 64-bit integer. A slice of a shared file states the bounds its own
-    data carries: a LeRobot episode whose timestamp column restarts at 0 declares bounds from 0, while a
-    slice of a video declares the presentation times its frames carry, which run from the start of the media.
+    """Time of the first message this file holds on this timeline source, in nanoseconds as the data itself carries it.
+
+    It ranges from ``-2**63`` to ``2**63 - 1``. A slice of a shared file states the bounds its own data carries: a
+    LeRobot episode whose timestamp column restarts at 0 declares bounds from 0, while a slice of a video declares the
+    presentation times its frames carry, which run from the start of the media.
 
     With no anchor covering the data, reads return these values exactly as declared. To place the data at the
-    wall-clock time it happened, supply the anchor covering that data:
+    wall-clock time it happened, set the anchor covering that data:
     :py:attr:`~roboto.experimental.sessions.FileDeclaration.anchor_ns` on the entry declaring it, or
-    :py:attr:`FileTopicDeclaration.anchor_ns` when the topics are declared on the file itself.
+    ``FileTopicDeclaration.anchor_ns`` when the topics are declared on the file itself.
 
-    The value may be negative, but once its anchor is added the data must lie between the Unix epoch and the
-    largest storable Unix-epoch nanosecond value (``2**63 - 1``): the platform refuses a declaration that would
-    place it outside that span, and a later change of anchor that would move it there. A negative value
-    therefore needs an anchor of at least its magnitude."""
+    The value may be negative, but once its anchor is added the data must lie between the Unix epoch and
+    ``2**63 - 1`` nanoseconds after it: Roboto refuses a declaration that would place it outside that span, and
+    a later change of anchor that would move it there. A negative value therefore needs an anchor of at least
+    its magnitude."""
 
     max_file_timestamp_ns: _FileWindowBoundNs
-    """Time of the last message this file contributes on this timeline source, in nanoseconds, measured and
-    stored the same way as ``min_file_timestamp_ns``."""
+    """Time of the last message this file holds on this timeline source.
+
+    It takes the same form as ``min_file_timestamp_ns``."""
 
     is_default_for_reads: typing.Union[bool, NotSetType] = NotSet
     """Whether reads that name no timeline source resolve to this one:
@@ -110,19 +111,19 @@ class _DeclaredSourceBase(pydantic.BaseModel):
        role loses it.
     2. ``False`` takes the role off this source. Once no source of a schema holds it, every read of that
        schema must name a source.
-    3. Left unset, every source already stored keeps the role it had. A schema the platform holds no source
-       of takes the source reads resolve to from this request: the one the request marks ``True``, or, when
-       it marks none, the first one the request leaves unset.
+    3. Left unset, every source already stored keeps the role it had. A schema with no stored source takes
+       the source reads resolve to from this request: the one the request marks ``True``, or, when it marks
+       none, the first one the request leaves unset.
 
     Within one request, every declaration stating this flag for a source must state the same value, and at
-    most one source of a schema may be marked ``True``; the platform refuses a request that breaks either rule
+    most one source of a schema may be marked ``True``; Roboto refuses a request that breaks either rule
     before writing anything.
 
-    A request that states this flag on any source, ``True`` or ``False``, needs the caller to have topic edit
-    access in the org that owns the files, in addition to edit access to the files themselves:
-    which source reads resolve to is shared by every file declared under the schema, not set per file.
-    The platform refuses a caller without it with :py:exc:`~roboto.exceptions.RobotoUnauthorizedException`,
-    before writing anything. A request that leaves the flag unset on every source does not need that access."""
+    A request that states this flag on any source, ``True`` or ``False``, requires the caller to be able to
+    edit topics in the organization that owns the files, as well as the files themselves, because which source
+    reads resolve to is shared by every file declared under the schema. Roboto refuses a caller without that
+    access with ``RobotoUnauthorizedException`` before writing anything. A request that leaves the flag unset
+    on every source needs no such access."""
 
     @classmethod
     def __pydantic_init_subclass__(cls, **kwargs: typing.Any) -> None:
@@ -147,7 +148,7 @@ class _DeclaredSourceBase(pydantic.BaseModel):
         """Mark ``kind`` as explicitly set so it survives ``model_dump_json(exclude_unset=True)``.
 
         Requests go out with unset fields excluded. A ``kind`` left at its subclass default would be dropped
-        from the body, and the platform would reject the entry as malformed for want of a discriminator.
+        from the body, and Roboto would reject the entry as malformed for want of a discriminator.
         """
         self.__pydantic_fields_set__.add("kind")
         return self
@@ -160,15 +161,22 @@ class _DeclaredSourceBase(pydantic.BaseModel):
 
 
 class SchemaFieldSource(_DeclaredSourceBase):
-    """Timestamps read from a column of the topic's own data, such as a ``timestamp`` field."""
+    """Timeline source whose timestamps are a field of the topic's own data, such as a ``timestamp`` field.
+
+    Carried in ``TopicDeclaration.timeline_sources``. Building it raises ``pydantic.ValidationError`` when:
+
+    - ``field_path`` is empty or has an empty name.
+    - ``min_file_timestamp_ns`` is greater than ``max_file_timestamp_ns``.
+    - Either bound is outside ``-2**63`` to ``2**63 - 1``.
+    """
 
     kind: typing.Literal["field"] = "field"
-    """Discriminator identifying this entry as timestamps read from a data column."""
+    """Kind of timeline source, always ``"field"``."""
 
     field_path: list[str] = pydantic.Field(min_length=1)
     """Path of the field holding this source's timestamps: the names from the schema root down to that field.
     The field must be declared on the topic's schema and typed
-    :py:attr:`~roboto.domain.topics.record.CanonicalDataType.Timestamp`."""
+    :py:attr:`~roboto.domain.topics.CanonicalDataType.Timestamp`."""
 
     @pydantic.model_validator(mode="after")
     def _validate_field_path(self) -> "SchemaFieldSource":
@@ -181,86 +189,97 @@ class SchemaFieldSource(_DeclaredSourceBase):
 
 
 class McapLogTimeSource(_DeclaredSourceBase):
-    """MCAP's log time: when the recorder wrote each record to the file.
+    """Timeline source whose timestamps are MCAP's log time: when the recorder wrote each record to the file.
 
-    MCAP carries these timestamps in its message envelope rather than in a data column, so this source names
-    no field.
+    MCAP carries these timestamps in its message envelope, not in a data column, so this source names no field.
+    Carried in ``TopicDeclaration.timeline_sources``. Building it raises ``pydantic.ValidationError`` when
+    ``min_file_timestamp_ns`` is greater than ``max_file_timestamp_ns``, or either is outside ``-2**63`` to
+    ``2**63 - 1``.
     """
 
     kind: typing.Literal["mcap_log_time"] = "mcap_log_time"
-    """Discriminator identifying this entry as MCAP log time."""
+    """Kind of timeline source, always ``"mcap_log_time"``."""
 
 
 class McapPublishTimeSource(_DeclaredSourceBase):
-    """MCAP's publish time: when each message was published on the bus.
+    """Timeline source whose timestamps are MCAP's publish time: when each message was published on the bus.
 
-    MCAP carries these timestamps in its message envelope rather than in a data column, so this source names
-    no field.
+    MCAP carries these timestamps in its message envelope, not in a data column, so this source names no field.
+    Carried in ``TopicDeclaration.timeline_sources``. Building it raises ``pydantic.ValidationError`` when
+    ``min_file_timestamp_ns`` is greater than ``max_file_timestamp_ns``, or either is outside ``-2**63`` to
+    ``2**63 - 1``.
     """
 
     kind: typing.Literal["mcap_publish_time"] = "mcap_publish_time"
-    """Discriminator identifying this entry as MCAP publish time."""
+    """Kind of timeline source, always ``"mcap_publish_time"``."""
 
 
 class Mp4PresentationTimeSource(_DeclaredSourceBase):
-    """Presentation time: when each frame is shown, relative to the start of the media.
+    """Timeline source whose timestamps are presentation time: when each frame is shown, from the start of the media.
 
-    These timestamps sit in the message envelope rather than in a data column, so this source names no field.
-    The platform stores it as a message-envelope timeline source named ``presentation_time``,
-    which is the name a read selects it by.
+    These timestamps sit in the message envelope, not in a data column, so this source names no field. Roboto
+    stores it as a message-envelope timeline source named ``presentation_time``, the name a read selects it by.
+    Carried in ``TopicDeclaration.timeline_sources``. Building it raises ``pydantic.ValidationError`` when
+    ``min_file_timestamp_ns`` is greater than ``max_file_timestamp_ns``, or either is outside ``-2**63`` to
+    ``2**63 - 1``.
 
     Data declared with this source is readable from an MCAP of encoded frames whose messages' log times are the
-    presentation times, when the topic lists that MCAP in :py:attr:`TopicDeclaration.representations`.
-    The MP4 itself cannot be listed, since no storage format a representation can state describes it.
-    A topic with no representations is registered, and a read of it returns no rows,
-    as :py:attr:`TopicDeclaration.representations` describes.
+    presentation times, when the topic lists that MCAP in ``TopicDeclaration.representations``. The MP4 itself
+    cannot be listed, since no storage format a representation can state describes it. A topic with no
+    representations is registered, and a read of it returns no rows.
     """
 
     kind: typing.Literal["mp4_presentation_time"] = "mp4_presentation_time"
-    """Discriminator identifying this entry as MP4 presentation time."""
+    """Kind of timeline source, always ``"mp4_presentation_time"``."""
 
 
 DeclaredTimelineSource = typing.Annotated[
     typing.Union[SchemaFieldSource, McapLogTimeSource, McapPublishTimeSource, Mp4PresentationTimeSource],
     pydantic.Field(discriminator="kind"),
 ]
-"""One timeline source a file's topic data carries, with the bounds it spans in this file."""
+"""Timeline source of any kind, with the bounds it spans in one file.
+
+One of ``SchemaFieldSource``, ``McapLogTimeSource``, ``McapPublishTimeSource`` or ``Mp4PresentationTimeSource``,
+chosen by the entry's ``kind``.
+"""
 
 
 class RepresentationDeclaration(pydantic.BaseModel):
     """One representation of a topic's data: a file a read of the topic can open, and how that file holds the data.
 
-    Listed in :py:attr:`TopicDeclaration.representations` when a topic is declared, and in
-    :py:attr:`TopicRepresentations.representations` when a topic's representations are replaced.
-    The platform does not open the file when it is listed, so what this states is taken on trust,
-    and a read of the topic that picks this representation opens ``file_id`` and decodes it as stated.
+    Carried in ``TopicDeclaration.representations`` when a topic is declared, and in
+    ``TopicRepresentations.representations`` when a topic's representations are replaced. Roboto does not open the
+    file when it is listed, so it takes what this states on trust, and a read of the topic that picks this
+    representation opens ``file_id`` and decodes it as stated. Building it raises ``pydantic.ValidationError`` when
+    ``file_id`` is empty, or ``field_path`` is an empty list or has an empty name.
 
     Every file named by a representation that is untransformed, or whose every transformation is an ``encode``,
     must hold the topic's rows:
 
-    1. At the same positions in each of those files, so a :py:attr:`TopicDeclaration.data_range` names the same
+    1. At the same positions in each of those files, so a ``TopicDeclaration.data_range`` names the same
        rows whichever one a read opens. In an MCAP, positions count only the topic's own messages.
     2. Decoding to the topic's declared schema, carrying the timestamps its timeline sources describe: not
        rebased, not converted to other units, not rounded.
 
     A representation whose file breaks either is accepted, and reads of it return the wrong rows or fail.
 
-    A representation covers the whole topic unless it states a :py:attr:`field_path`,
-    in which case it covers that field and everything under it. Its file still holds every row, each with its
-    timestamp: a read that takes fields from several files pairs those files row by row,
-    and fails when their row numbers or timestamps differ.
+    A representation covers the whole topic unless it states a ``field_path``, in which case it covers that field
+    and everything under it. Its file still holds every row, each with its timestamp: a read that takes fields from
+    several files pairs those files row by row, and fails when their row numbers or timestamps differ.
 
     Four things identify a representation among those of one topic: what it covers (the whole topic, or one field),
-    its :py:attr:`storage_format`, its :py:attr:`content_format` and its :py:attr:`transformations`.
-    Over each part of a file it is declared on, a topic holds at most one representation per combination of the four:
-    two with the same combination cannot be listed together, and one declared later takes the earlier one's place.
+    its ``storage_format``, its ``content_format`` and its ``transformations``. Over each part of a file it is
+    declared on, a topic holds at most one representation per combination of the four: two with the same
+    combination cannot be listed together, and one declared later takes the earlier one's place.
 
-    A read decodes a ``PARQUET`` representation's file as Parquet; the file needs no ``.parquet`` extension.
-    A read can decode an ``MCAP`` representation's file when all three of the following hold:
+    A read decodes a :py:attr:`~roboto.domain.topics.RepresentationStorageFormat.PARQUET` representation's file as
+    Parquet; the file needs no ``.parquet`` extension. A read can decode an
+    :py:attr:`~roboto.domain.topics.RepresentationStorageFormat.MCAP` representation's file when all three of the
+    following hold:
 
     1. The file is chunked and carries a summary section indexing those chunks.
     2. Exactly one of the file's channels carries the topic's name.
-    3. That channel's schema is in an encoding the platform can decode: ``ros1msg``, ``ros2msg``, ``ros2idl``,
+    3. That channel's schema is in an encoding Roboto can decode: ``ros1msg``, ``ros2msg``, ``ros2idl``,
        ``omgidl``, ``jsonschema``, or ``json``.
 
     A recording holding several topics is therefore read one topic at a time, each from the channel carrying
@@ -270,28 +289,34 @@ class RepresentationDeclaration(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(frozen=True, extra="ignore")
 
     file_id: str = pydantic.Field(min_length=1)
-    """File a read opens to get the topic's data: the file the topic is declared on, when its own bytes hold the
-    data, or another file of the org, such as a per-topic MCAP converted out of a PX4 ULog.
+    """File a read opens to get the topic's data.
+
+    It is the file the topic is declared on, when its own bytes hold the data, or another file in the organization,
+    such as a per-topic MCAP converted out of a PX4 ULog.
     Its status must be :py:attr:`~roboto.domain.files.FileStatus.Available`, and the caller must be able to edit it.
-    A read through the SDK or the web app downloads this file with the reader's own download permission on it,
-    and Roboto's AI tools read it for anyone who can read the topic."""
+    A read through the SDK or the Roboto web app downloads this file with the reader's own download permission on
+    it, and Roboto's AI tools read it for anyone who can read the topic."""
 
     storage_format: RepresentationStorageFormat
-    """Container ``file_id`` holds the data in. Within one request, every representation naming a file must state
-    the same format for it, whichever of the request's topics, files or sessions lists it;
-    a request stating two formats for one file is refused when it is built."""
+    """Container ``file_id`` holds the data in.
+
+    Within one request, every representation naming a file must state the same format for it, whichever of the request's
+    topics, files or sessions lists it; a request model that states two formats for one file raises
+    ``pydantic.ValidationError`` when built."""
 
     content_format: typing.Optional[str] = None
-    """Format of the data inside the container, such as ``"jpeg"`` for re-encoded images or
-    ``"compressedVideo"`` for passed-through video frames, or ``None`` when unspecified. A read names it through
-    :py:attr:`~roboto.experimental.topics.RepresentationSelector.content_format`."""
+    """Format of the data inside the container, or ``None`` when unspecified.
+
+    Examples are ``"jpeg"`` for re-encoded images and ``"compressedVideo"`` for passed-through video frames. A read
+    names it through ``roboto.experimental.topics.RepresentationSelector.content_format``."""
 
     transformations: list[str] = pydantic.Field(default_factory=list)
-    """The transformations applied to the topic's data to produce what ``file_id`` holds, in the order applied,
-    as ``"<kind>:<param>"`` descriptors such as ``["downsample:0.7", "encode:jpeg"]``;
+    """Transformations applied to the topic's data to produce what ``file_id`` holds, in the order applied.
+
+    Each is a ``"<kind>:<param>"`` string, as in ``["downsample:0.7", "encode:jpeg"]``;
     :py:class:`~roboto.domain.topics.TransformationKind` lists the kinds. Empty for untransformed data.
-    A read names them through :py:attr:`~roboto.experimental.topics.RepresentationSelector.transformations`,
-    and with no selector the platform prefers the representation with the fewest.
+    A read names them through ``roboto.experimental.topics.RepresentationSelector.transformations``,
+    and with no selector Roboto prefers the representation with the fewest.
 
     A representation can be read by row position when it is untransformed or every transformation is an ``encode``.
     One with any other transformation, such as a ``downsample``, cannot,
@@ -304,8 +329,7 @@ class RepresentationDeclaration(pydantic.BaseModel):
 
     field_path: typing.Optional[list[str]] = pydantic.Field(default=None, min_length=1)
     """Field of the topic's schema this representation covers, as the names from the schema root down to it.
-    ``None``, the same as leaving it out, makes this a representation of the whole topic;
-    an empty list and an empty name are refused.
+    ``None``, the same as leaving it out, makes this a representation of the whole topic.
 
     The path must equal the :py:attr:`~roboto.experimental.ingest.Field.path` of a field the topic's schema
     declares. That field may have fields under it, and the representation then covers those too.
@@ -315,8 +339,8 @@ class RepresentationDeclaration(pydantic.BaseModel):
     A read takes each field from the representation covering the deepest field that contains it,
     so a representation of one field supplies that field whatever its transformations,
     and the representations of the whole topic supply the rest. A read asking for untransformed data
-    (:py:meth:`RepresentationSelector.raw() <roboto.experimental.topics.RepresentationSelector.raw>`)
-    leaves out every representation that states a transformation."""
+    (``roboto.experimental.topics.RepresentationSelector.raw()``) leaves out every representation that states a
+    transformation."""
 
     @pydantic.model_validator(mode="after")
     def _validate_field_path(self) -> "RepresentationDeclaration":
@@ -333,7 +357,7 @@ def _reject_representations_alike_in_all_but_file(
 ) -> None:
     """Raise when two of one topic's representations agree on every attribute other than ``file_id``.
 
-    Over each part of a file a topic is declared on, the platform stores at most one representation per thing
+    Over each part of a file a topic is declared on, Roboto stores at most one representation per thing
     covered (the whole topic, or one field), storage format, content format and transformations,
     so it would store the second of two such representations in place of the first.
     A representation of the whole topic and a representation of one field differ in what they cover,
@@ -419,68 +443,85 @@ def _reject_files_named_in_different_storage_formats(
 
 
 class TopicDeclaration(pydantic.BaseModel):
-    """A topic a file contributes data to.
+    """Topic whose data a file carries, as a session's file entry declares it.
 
-    The platform registers the data from the declaration alone, never opening the file, so the declaration
-    states the topic's name, the structure of its rows, the bounds of every timeline source those rows
-    carry, and which part of the file they occupy.
+    Roboto registers the data from the declaration alone, without opening the file, so the declaration states the
+    topic's name, the structure of its rows, the bounds of every timeline source those rows carry, and which part
+    of the file they occupy.
 
-    List a file's topic declarations on the
-    :py:class:`~roboto.experimental.sessions.SessionFile` for that file; that entry anchors everything it
-    declares. To register a file's topic data without naming a session, through
-    :py:meth:`~roboto.domain.files.File.declare_topics`, build a :py:class:`FileTopicDeclaration` instead;
-    with no enclosing entry to anchor it, that form carries its own anchor.
+    Carried in :py:attr:`~roboto.experimental.sessions.FileDeclaration.topics`: list a file's topic declarations on
+    the :py:class:`~roboto.experimental.sessions.SessionFile` for that file, which anchors everything it declares.
+    To register a file's topic data without naming a session, through
+    :py:meth:`~roboto.domain.files.File.declare_topics`, build a ``FileTopicDeclaration`` instead; with no
+    enclosing entry to anchor it, that class carries its own anchor.
 
-    The file a topic is declared on is the one its data belongs to: the data's slices, bounds and anchors,
-    and the windows sessions hold it over, are all stated against that file. Which files a read opens to get
-    the data is a separate statement, :py:attr:`representations`, so data can belong to a file the platform
-    cannot decode (a PX4 ULog, a ROS ``.bag``, a CSV) and be read from files converted out of it.
+    The file a topic is declared on is the one its data belongs to: the data's slices, bounds and anchors, and the
+    windows sessions hold it over, are all stated against that file. Which files a read opens to get the data is a
+    separate statement, ``representations``, so data can belong to a file Roboto cannot decode (a PX4 ULog, a ROS
+    ``.bag``, a CSV) and be read from files converted out of it.
+
+    Building it raises ``pydantic.ValidationError`` when:
+
+    - ``topic_name`` or ``timeline_sources`` is empty.
+    - A ``SchemaFieldSource`` names a field the schema does not declare, or one not typed
+      :py:attr:`~roboto.domain.topics.CanonicalDataType.Timestamp`.
+    - Two timeline sources are the same source, would be selected by the same name, or are both a timeline a
+      container stamps on its records (MCAP log time and MP4 presentation time).
+    - More than one timeline source sets ``is_default_for_reads`` to ``True``.
+    - Two representations cover the same thing (the whole topic, or the same field) under the same storage format,
+      content format and transformations, or name one file under different transformations.
+    - A representation's ``field_path`` names no field of ``topic_schema``.
+    - A :py:attr:`~roboto.domain.topics.RepresentationStorageFormat.PARQUET` representation is listed on a topic
+      declaring any timeline source but ``SchemaFieldSource``: the others take their timestamps from the message
+      envelope, which a Parquet file does not have.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     topic_name: str = pydantic.Field(min_length=1)
-    """Topic this file (or slice of it) contributes data to. Topic names are unique within an org;
-    files declaring the same name contribute to the same topic."""
+    """Name of the topic whose data this file, or a slice of it, carries.
+
+    Topic names are unique within an organization, so files declaring the same name carry data for the same topic."""
 
     topic_schema: Schema
-    """Structure of the topic's data. Repeat the same schema on every file that uses it; the platform
-    stores each distinct schema once, so repetition costs nothing extra."""
+    """Structure of the topic's data.
+
+    Repeat the same schema on every file that uses it; Roboto stores each distinct schema once, so repeating it costs
+    nothing."""
 
     timeline_sources: list[DeclaredTimelineSource] = pydantic.Field(min_length=1)
-    """Timeline sources this file's topic data carries, each with its own bounds. Data timestamped several
-    ways (a message's publish time and the time the recorder wrote it, say) declares one entry per source;
-    data timestamped one way declares a list of one. Reads pick a source by name, and resolve to the one
+    """Timeline sources this file's topic data carries, each with its own bounds.
+
+    Data timestamped several ways (a message's publish time and the time the recorder wrote it, say) declares one entry
+    per source; data timestamped one way declares a list of one. Reads pick a source by name, and resolve to the one
     marked ``is_default_for_reads`` when they do not."""
 
     data_range: typing.Optional[DataRange] = None
-    """The part of the file this topic's data occupies, as ``(start, end)``: ``start`` is the first
-    covered position, and ``end`` is one past the last. Set this when one file packs a topic's data into
-    slices, such as a single episode inside a LeRobot v3 data file. Omit it when the data covers whatever
-    encloses this declaration: the slice claimed by the
-    :py:class:`~roboto.experimental.sessions.SessionFile` carrying it, or the whole file when the topics are
-    declared on the file itself through :py:meth:`~roboto.domain.files.File.declare_topics`. A range set
-    inside a :py:class:`~roboto.experimental.sessions.SessionFile` must sit within that entry's own
-    :py:attr:`~roboto.experimental.sessions.FileDeclaration.data_range`.
+    """Part of the file this topic's data occupies, as ``(start, end)``.
 
-    Values are in the file's own units: stored-row positions (counted from 0), or
-    nanoseconds of the file's media time for video. Each file uses exactly one of the two, so the pair
-    needs no unit marker; which one applies follows from the file's format. A read applies the range to the
-    file it opens, and it opens only files named by representations that can be read by row position,
-    as :py:attr:`RepresentationDeclaration.transformations` describes: each of those files must hold the same rows
-    at the same positions. Over a range, everything a topic's representations cover must be covered by ones that
-    can be read by row position; the platform refuses the declaration otherwise."""
+    ``start`` is the first covered position, and ``end`` is one past the last. Set this when one file packs a topic's
+    data into slices, such as a single episode inside a LeRobot v3 data file. Omit it when the data covers whatever
+    encloses this declaration: the slice claimed by the :py:class:`~roboto.experimental.sessions.SessionFile` carrying
+    it, or the whole file when the topics are declared on the file itself through
+    :py:meth:`~roboto.domain.files.File.declare_topics`. A range set inside a ``SessionFile`` must sit within that
+    entry's own :py:attr:`~roboto.experimental.sessions.FileDeclaration.data_range`.
+
+    Values are in the file's own units: stored-row positions (counted from 0), or nanoseconds of the file's media
+    time for video. Each file uses exactly one of the two, so the pair needs no unit marker; which one applies
+    follows from the file's format. A read applies the range to the file it opens, and it opens only files named by
+    representations that can be read by row position, as ``RepresentationDeclaration.transformations`` describes:
+    each of those files must hold the same rows at the same positions. Over a range, everything a topic's
+    representations cover must be covered by ones that can be read by row position; Roboto refuses the declaration
+    otherwise."""
 
     representations: list[RepresentationDeclaration] = pydantic.Field(default_factory=list)
-    """The files a read of this topic's data opens, each with how it holds that data.
+    """Files a read of this topic's data opens, each with how it holds that data.
     List the file the topic is declared on here, naming its ``file_id``, when its own bytes are readable;
     list other files when the data is read from them, such as the per-topic MCAPs converted out of a PX4 ULog.
-    A topic may list several, and a read picks among them by
-    :py:class:`~roboto.experimental.topics.RepresentationSelector`.
+    A topic may list several, and a read picks among them by ``roboto.experimental.topics.RepresentationSelector``.
 
     A topic with no representations is still registered: its data counts toward the bounds of every session
-    holding the file, and a read of it returns no rows, or is refused when the read's
-    :py:class:`~roboto.experimental.topics.RepresentationSelector` sets a criterion.
+    holding the file, and a read of it returns no rows, or is refused when the read's selector sets a criterion.
     A video, or a proprietary log with no file converted out of it, is declared that way.
 
     Redeclaring the topic over the same part of the file adds the representations listed to the ones it has.
@@ -495,20 +536,10 @@ class TopicDeclaration(pydantic.BaseModel):
     use :py:meth:`~roboto.domain.files.File.set_representations`.
 
     A representation of one field is stored against that field of the schema it was declared under.
-    While one is stored, the platform refuses a declaration of the topic over the same part of the file with a
-    changed :py:attr:`topic_schema`, unless the declaration lists a representation that takes the stored one's
+    While one is stored, Roboto refuses a declaration of the topic over the same part of the file with a
+    changed ``topic_schema``, unless the declaration lists a representation that takes the stored one's
     place. To change the schema, list the representation of that field again in the same declaration,
-    or remove it first with :py:meth:`~roboto.domain.files.File.set_representations`.
-
-    Refused when the model is built:
-
-    1. Two representations covering the same thing (both the whole topic, or the same field) under the same
-       storage format, content format and transformations.
-    2. Two representations naming one file under different transformations.
-    3. A representation whose :py:attr:`~RepresentationDeclaration.field_path` names no field of
-       :py:attr:`topic_schema`.
-    4. A ``PARQUET`` representation on a topic declaring any timeline source but :py:class:`SchemaFieldSource`:
-       the others take their timestamps from the message envelope, which a Parquet file does not have."""
+    or remove it first with ``File.set_representations``."""
 
     @pydantic.field_validator("representations")
     @classmethod
@@ -580,7 +611,7 @@ class TopicDeclaration(pydantic.BaseModel):
                 stored_kind, stored_name = MESSAGE_ENVELOPE_TIMELINE_SOURCES[entry.kind]
                 stored_source_key = (stored_kind,)
 
-            # The stored key identifies the timeline source the platform stores an entry as; the stored name is
+            # The stored key identifies the timeline source Roboto stores an entry as; the stored name is
             # what a read selects it by. An entry can collide with an earlier one on either without colliding on
             # the other, so both are tracked.
             earlier_kind = first_kind_by_stored_key.get(stored_source_key)
@@ -613,43 +644,51 @@ class TopicDeclaration(pydantic.BaseModel):
 
 
 class FileTopicDeclaration(TopicDeclaration):
-    """One topic a file contributes data to, declared on the file itself rather than inside a session.
+    """Topic whose data a file carries, declared on the file itself rather than inside a session.
 
-    Adds to :py:class:`TopicDeclaration` the wall-clock instant the data was captured at, which a topic
-    declared inside a session takes from the entry enclosing it.
+    Passed to :py:meth:`~roboto.domain.files.File.declare_topics`, which carries it in
+    ``DeclareTopicsRequest.topics``. Adds to ``TopicDeclaration`` the wall-clock instant the data was captured at,
+    which a topic declared inside a session takes from the entry enclosing it. Building it raises
+    ``pydantic.ValidationError`` for every value ``TopicDeclaration`` rejects, and when ``anchor_ns`` is not after
+    the Unix epoch or is greater than ``2**63 - 1``.
     """
 
     anchor_ns: typing.Optional[_EpochNanosecondsFromTime] = pydantic.Field(default=None, gt=0, le=INT64_MAX)
-    """Optional wall-clock anchor for the data this declaration names: the real-world time, in nanoseconds
-    since the Unix epoch, at which that data's time 0 occurred. Must fall after the Unix epoch, and be small
-    enough to fit in the signed 64-bit integer the platform stores it in. Also accepts any
-    :py:data:`roboto.time.Time` at runtime, read as :py:func:`roboto.time.to_epoch_nanoseconds` reads it;
-    convert with that function first to satisfy a type checker. When omitted, the data keeps the anchor it
-    already carries from an earlier declaration, and keeps an offset of 0 when it carries none: its
-    timestamps read exactly as declared.
+    """Wall-clock anchor for the data this declaration names, in nanoseconds since the Unix epoch.
 
-    An anchor covers the whole slice named by ``data_range``, not this topic alone, so every topic
-    declared over that slice moves to it; two declarations sharing a slice may not name different
-    anchors."""
+    It is the time at which that data's time 0 occurred, after the epoch and at most ``2**63 - 1``. Also accepts any
+    :py:const:`~roboto.time.Time` at runtime, read as :py:func:`~roboto.time.to_epoch_nanoseconds` reads it;
+    convert with that function first to satisfy a type checker. ``None`` keeps the anchor the data already
+    carries from an earlier declaration, or an offset of 0 when it carries none, so its timestamps read exactly
+    as declared.
+
+    An anchor covers the whole slice ``data_range`` names, not this topic alone, so every topic declared over
+    that slice moves with it; two declarations sharing a slice may not name different anchors."""
 
 
 class DeclareTopicsRequest(pydantic.BaseModel):
-    """Request body for ``POST /v1/files/id/<file_id>/topics``.
+    """Request body for :py:meth:`~roboto.domain.files.File.declare_topics`.
 
-    Registers the topic data one already-uploaded file carries, without naming a session. The platform
-    applies each declaration on its own and reports what became of each, so one it refuses leaves the
-    others in place. Nothing here is scoped to a session, so calls naming different files run
-    concurrently.
+    Registers the topic data one already-uploaded file carries, without naming a session. Roboto applies each
+    declaration on its own and reports what became of each, so one it refuses leaves the others in place. Nothing
+    here is scoped to a session, so requests naming different files run concurrently.
 
-    Resending an identical request is safe: a topic plus the slice of the file it names identifies the data a
-    declaration registers, so a resend finds what the first attempt registered and reuses it rather than
+    Resending an identical request is safe: a topic and the slice of the file it names identify the data a
+    declaration registers, so a resend finds what the first attempt registered and reuses it instead of
     registering the data twice.
+
+    Building it raises ``pydantic.ValidationError`` when:
+
+    - ``topics`` is empty or has more than 500 entries.
+    - One topic is declared twice over the same slice of the file.
+    - Two topics anchor the same slice at different instants.
+    - Representations name one file in two storage formats.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     topics: list[FileTopicDeclaration] = pydantic.Field(min_length=1, max_length=MAX_FILES_AND_TOPICS_PER_REQUEST)
-    """Topics this file contributes data to, between 1 and ``MAX_FILES_AND_TOPICS_PER_REQUEST`` per request.
+    """Topics this file carries data for, from 1 to 500 per request (``MAX_FILES_AND_TOPICS_PER_REQUEST``).
     One entry per topic and slice of the file: a file carrying one topic across three slices declares three
     entries, and a file whose rows carry four topics at once declares four entries over the same slice."""
 
@@ -683,34 +722,36 @@ class DeclareTopicsRequest(pydantic.BaseModel):
 
 
 class TopicRepresentations(pydantic.BaseModel):
-    """The complete set of representations one topic's data on a file is read from.
+    """Complete set of representations one topic's data on a file is read from.
 
-    Handed to :py:meth:`~roboto.domain.files.File.set_representations`, which leaves the topic, over the part of
-    the file ``data_range`` names, with exactly these representations.
-    :py:class:`RepresentationDeclaration` states what the file each one names must hold.
+    Passed to :py:meth:`~roboto.domain.files.File.set_representations`, which carries it in
+    ``SetRepresentationsRequest.topics`` and leaves the topic, over the part of the file ``data_range`` names, with
+    exactly these representations. ``RepresentationDeclaration`` states what the file each one names must hold.
+
+    Building it raises ``pydantic.ValidationError`` when ``topic_name`` is empty, when two representations cover
+    the same thing (the whole topic, or the same field) under the same storage format, content format and
+    transformations, or when two name one file under different transformations.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     topic_name: str = pydantic.Field(min_length=1)
-    """Topic whose representations are replaced. It must already be declared on the file."""
+    """Name of the topic whose representations are replaced. The topic must already be declared on the file."""
 
     data_range: typing.Optional[DataRange] = None
-    """The part of the file over which the topic's representations are replaced,
-    or ``None`` for data declared over the whole file.
-    It must equal a range the topic is already declared over on the file:
-    the topic's :py:attr:`TopicDeclaration.data_range`, or, for a topic that stated none inside a
+    """Part of the file over which the topic's representations are replaced.
+
+    ``None`` stands for data declared over the whole file. A range must equal a range the topic is already declared over
+    on the file: the topic's ``TopicDeclaration.data_range``, or, for a topic that stated none inside a
     :py:class:`~roboto.experimental.sessions.SessionFile`, that entry's
     :py:attr:`~roboto.experimental.sessions.FileDeclaration.data_range`."""
 
     representations: list[RepresentationDeclaration]
-    """The representations the topic ends up with; its representations not listed are removed,
-    those of one field included. An empty list removes every representation: the topic stays registered and still
-    counts toward the bounds of every session holding the file, but reads of it return no rows.
-    Two representations may not cover the same thing (both the whole topic, or the same field) under the same
-    storage format, content format and transformations, or name one file under different transformations;
-    both are refused when the model is built.
-    :py:meth:`~roboto.domain.files.File.set_representations` states what the platform refuses."""
+    """Representations the topic ends up with.
+
+    Its representations not listed are removed, those of one field included. An empty list removes every representation:
+    the topic stays registered and still counts toward the bounds of every session holding the file, but reads of it
+    return no rows. :py:meth:`~roboto.domain.files.File.set_representations` states what Roboto refuses."""
 
     @pydantic.field_validator("representations")
     @classmethod
@@ -723,19 +764,22 @@ class TopicRepresentations(pydantic.BaseModel):
 
 
 class SetRepresentationsRequest(pydantic.BaseModel):
-    """Request body for ``PUT /v1/files/id/<file_id>/representations``.
+    """Request body for :py:meth:`~roboto.domain.files.File.set_representations`.
 
-    Replaces the representations of the topics it names on one file, the one the topics were declared on.
-    The request is all or nothing: the platform checks every entry before writing any,
-    and one refused entry refuses the whole request.
+    Replaces the representations of the topics it names on one file, the one the topics were declared on. Roboto
+    checks every entry before writing any, and one refused entry refuses the whole request.
+
+    Building it raises ``pydantic.ValidationError`` when ``topics`` is empty or has more than 500 entries, lists one
+    topic and slice twice, or lists representations naming one file in two storage formats.
     """
 
     model_config = pydantic.ConfigDict(extra="ignore")
 
     topics: list[TopicRepresentations] = pydantic.Field(min_length=1, max_length=MAX_FILES_AND_TOPICS_PER_REQUEST)
-    """One entry per topic and slice whose representations to replace,
-    between 1 and ``MAX_FILES_AND_TOPICS_PER_REQUEST`` per request; split a larger set across several requests.
-    Topics not named keep their representations."""
+    """One entry per topic and slice whose representations to replace, from 1 to 500 per request.
+
+    ``MAX_FILES_AND_TOPICS_PER_REQUEST`` sets that limit; split a larger set across several requests. Topics not named
+    keep their representations."""
 
     @pydantic.model_validator(mode="after")
     def _validate_entries(self) -> "SetRepresentationsRequest":

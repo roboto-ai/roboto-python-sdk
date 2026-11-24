@@ -4,8 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""
-Core AI abstractions usable by any other submodule within module `roboto.ai`.
+"""Data models of threads with Roboto's AI: messages, their content blocks, and the events a thread yields.
+
+:py:attr:`~roboto.ai.agent_thread.AgentThread.messages` returns :py:class:`~roboto.ai.core.AgentMessage` items, and
+:py:meth:`~roboto.ai.agent_thread.AgentThread.events` yields :py:const:`~roboto.ai.core.AgentEvent` items as the AI
+responds. Pass :py:class:`~roboto.ai.core.ClientViewingContext` to :py:meth:`~roboto.ai.agent_thread.AgentThread.start`
+or :py:meth:`~roboto.ai.agent_thread.AgentThread.send` to tell the AI what the user is looking at, and
+:py:class:`~roboto.ai.core.AnalysisScope` to set the time range the AI should analyze.
 """
 
 from .content import (
@@ -77,7 +82,5 @@ __all__ = [
 ]
 
 
-# Deprecated alias for ClientViewingContext, kept for one release so existing
-# imports of ``RobotoLLMContext`` keep working through the rollout. Drop with
-# the next ``context`` -> ``client_context`` wire-format alias removal.
+# Deprecated alias for ClientViewingContext, so existing imports of RobotoLLMContext keep working.
 RobotoLLMContext = ClientViewingContext

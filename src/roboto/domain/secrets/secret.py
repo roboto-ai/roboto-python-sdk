@@ -24,21 +24,48 @@ from .record import (
 )
 
 SECRET_URI_REGEX = re.compile(r"(roboto-secret://)([^@]+)(@(\w+))?")
+"""Regular expression a secret URI must match: ``roboto-secret://<name>``, optionally followed by ``@<org_id>``."""
 
 
 @dataclasses.dataclass(frozen=True)
 class ParsedSecretName:
+    """Secret name and organization ID read from a secret URI.
+
+    ``parse_secret_uri`` returns it.
+    """
+
     name: str
+    """Name of the secret."""
+
     org_id: typing.Optional[str]
+    """ID of the organization that owns the secret, or ``None`` if the URI names none."""
 
 
 def is_secret_uri(uri: str) -> bool:
+    """Return whether a string begins with a secret URI, as ``Secret.uri`` formats one.
+
+    Roboto calls this when an action runs, to find the action parameter values that name a secret.
+
+    Args:
+        uri: String to check, such as an action parameter's value.
+    """
     return SECRET_URI_REGEX.match(uri) is not None
 
 
 def parse_secret_uri(
     uri: str,
 ) -> ParsedSecretName:
+    """Return the secret name and organization ID that a secret URI names.
+
+    Roboto calls this when an action runs, to find the secrets its parameters name. To load the secret a URI names,
+    use ``Secret.from_uri``.
+
+    Args:
+        uri: Secret URI, as ``roboto-secret://<name>`` or ``roboto-secret://<name>@<org_id>``.
+
+    Raises:
+        ValueError: ``uri`` does not begin with a secret URI.
+    """
     match = SECRET_URI_REGEX.match(uri)
     if not match:
         raise ValueError(f"Invalid secret URI: {uri}")
@@ -46,20 +73,19 @@ def parse_secret_uri(
 
 
 class Secret:
-    """A secret stored in the Roboto platform's secret management system.
+    """A secret: sensitive information, such as an API key or password, that actions can use while they run.
 
-    Secrets provide secure storage for sensitive information like API keys, passwords,
-    and other credentials that can be used by actions during execution. Each secret
-    is scoped to an organization and stored in a secure backend (currently AWS Secrets Manager).
-    The secret's value is never sent through Roboto's APIs, providing an additional
-    layer of security.
+    A secret belongs to one organization and has a name unique within it. Its value is kept in a secret store and
+    never passes through Roboto's APIs: ``read_value`` and ``update_value`` fetch short-lived credentials scoped to the
+    secret and reach the store with them directly. An action parameter whose value is the secret's ``uri`` receives
+    the secret's value when the action runs.
 
-    Secret names are unique within an organization, so a name + org_id combination
-    provides a fully qualified reference to a specific secret.
+    Get a ``Secret`` from ``create``, ``from_name``, ``from_uri``, or ``for_org``. To wrap a
+    :py:class:`~roboto.domain.secrets.SecretRecord` already fetched from Roboto, build a ``Secret`` from it directly.
 
-    Secrets cannot be instantiated directly through the constructor. Use the class
-    methods :py:meth:`create`, :py:meth:`from_name`, or :py:meth:`for_org` to
-    create or retrieve secrets.
+    Args:
+        record: Record of the secret.
+        roboto_client: Client to make requests to Roboto with.
     """
 
     @classmethod
@@ -70,44 +96,35 @@ class Secret:
         initial_value: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> Secret:
-        """Create a new secret in the Roboto platform.
-
-        Creates a new secret with the specified name and optionally sets its initial value.
-        The secret will be stored in the organization's secure secret store (AWS Secrets Manager).
+        """Create a secret, optionally with a value.
 
         Args:
-            name: Name of the secret to create. Must be unique within the organization.
-            caller_org_id: Organization ID where the secret should be created. If not
-                provided, creates the secret in the caller's organization.
-            initial_value: Optional initial value to set for the secret. If provided,
-                the secret's value will be set immediately after creation.
-            roboto_client: HTTP client for API communication. If not provided, uses
-                the default client configuration.
+            name: Name of the secret, unique within the organization it is created in.
+            caller_org_id: Organization to create the secret in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            initial_value: Value to store in the secret. It is set by ``update_value`` after the secret is created.
+                ``None`` leaves the placeholder value ``"INITIAL_VALUE_NOT_SET_BY_USER"`` until a value is set.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            A new Secret instance representing the created secret.
+            The new secret.
 
         Raises:
-            RobotoUnauthorizedException: The caller is not authorized to create secrets
-                in the specified organization.
-            RobotoConflictException: A secret with the same name already exists in the organization.
-            RobotoIllegalArgumentException: Invalid parameters provided.
-            RobotoInvalidRequestException: Malformed request.
+            RobotoConflictException: The organization already has a secret with this name.
 
         Examples:
-            Create a secret without an initial value:
+            Create a secret without a value:
 
-            >>> secret = Secret.create(name="api_key", caller_org_id="org_123")
+            >>> secret = Secret.create(name="api_key", caller_org_id="og_12345")
             >>> print(secret.name)
-            'api_key'
+            api_key
 
-            Create a secret with an initial value:
+            Create a secret with a value:
 
             >>> secret = Secret.create(
-            ...     name="database_password", caller_org_id="org_123", initial_value="super_secure_password"
+            ...     name="database_password", caller_org_id="og_12345", initial_value="super_secure_password"
             ... )
-            >>> print(secret.name)
-            'database_password'
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -130,38 +147,23 @@ class Secret:
         org_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator[Secret, None, None]:
-        """Retrieve all secrets belonging to an organization.
+        """List the secrets in an organization.
 
-        Returns a generator that yields all secrets owned by the specified organization.
-        Results are paginated automatically to handle large numbers of secrets efficiently.
+        Fetches the secrets a page at a time as the generator is consumed.
 
         Args:
-            org_id: Organization ID whose secrets should be retrieved.
-            roboto_client: HTTP client for API communication. If not provided, uses
-                the default client configuration.
+            org_id: ID of the organization whose secrets to list.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Secret instances for each secret owned by the organization.
-
-        Raises:
-            RobotoUnauthorizedException: The caller is not authorized to list secrets
-                in the specified organization.
-            RobotoNotFoundException: The specified organization does not exist.
+            Each secret the organization owns.
 
         Examples:
-            List all secrets in an organization:
+            Print the name of every secret in an organization:
 
-            >>> secrets = list(Secret.for_org(org_id="org_123"))
-            >>> for secret in secrets:
-            ...     print(f"Secret: {secret.name}")
-            Secret: api_key
-            Secret: database_password
-
-            Process secrets one at a time without loading all into memory:
-
-            >>> for secret in Secret.for_org(org_id="org_123"):
-            ...     print(f"Processing secret: {secret.name}")
-            ...     # Process each secret individually
+            >>> for secret in Secret.for_org(org_id="og_12345"):
+            ...     print(secret.name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -191,37 +193,29 @@ class Secret:
         org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> Secret:
-        """Load an existing secret by name.
+        """Fetch a secret by name.
 
-        Secret names are unique within an organization, so a name + org_id combination
-        provides a fully qualified reference to a specific secret.
+        Secret names are unique within an organization, so a name and an organization identify one secret.
 
         Args:
-            name: Name of the secret to retrieve. Must be unique within the organization.
-            org_id: Organization ID that owns the secret. If not provided, searches
-                in the caller's organization.
-            roboto_client: HTTP client for API communication. If not provided, uses
-                the default client configuration.
-
-        Returns:
-            A Secret instance representing the found secret.
+            name: Name of the secret.
+            org_id: Organization that owns the secret. Defaults to the organization the caller acts in.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoUnauthorizedException: The caller is not authorized to access the secret.
-            RobotoNotFoundException: No secret with the specified name exists in the organization.
+            RobotoNotFoundException: The organization has no secret with this name, or the caller cannot see it.
 
         Examples:
-            Load a secret from the caller's organization:
+            Fetch a secret from the organization the caller acts in:
 
             >>> secret = Secret.from_name(name="api_key")
-            >>> print(secret.name)
-            'api_key'
 
-            Load a secret from a specific organization:
+            Fetch a secret from a specific organization:
 
-            >>> secret = Secret.from_name(name="database_password", org_id="org_123")
+            >>> secret = Secret.from_name(name="database_password", org_id="og_12345")
             >>> print(f"{secret.name} in {secret.org_id}")
-            'database_password in org_123'
+            database_password in og_12345
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -239,34 +233,33 @@ class Secret:
         roboto_client: typing.Optional[RobotoClient] = None,
         fallback_org_id: typing.Optional[str] = None,
     ) -> Secret:
-        """Load an existing secret by URI.
+        """Fetch the secret a secret URI names.
+
+        Reads the name and organization from ``uri`` and fetches the secret with ``from_name``, whose failures also
+        apply.
 
         Args:
-            uri: URI of the secret to retrieve.
-            roboto_client: HTTP client for API communication. If not provided, uses
-                the default client configuration.
-            fallback_org_id: Default organization ID to use if not provided in the URI.
-
-        Returns:
-            A Secret instance representing the found secret.
+            uri: Secret URI, as ``roboto-secret://<name>`` or ``roboto-secret://<name>@<org_id>``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+                :py:meth:`~roboto.http.RobotoClient.from_env`.
+            fallback_org_id: Organization that owns the secret when ``uri`` names none. ``None`` uses the organization
+                the caller acts in.
 
         Raises:
-            RobotoUnauthorizedException: The caller is not authorized to access the secret.
-            RobotoNotFoundException: No secret with the specified name exists in the organization.
-            ValueError: The provided URI is not a valid secret URI.
+            ValueError: ``uri`` does not begin with a secret URI.
 
         Examples:
-            Load a secret from a URI:
+            Fetch a secret from a URI that names its organization:
 
-            >>> secret = Secret.from_uri("roboto-secret://api_key@org_123")
+            >>> secret = Secret.from_uri("roboto-secret://api_key@og_12345")
             >>> print(f"{secret.name} in {secret.org_id}")
-            'api_key in org_123'
+            api_key in og_12345
 
-            Load a secret from a URI with a default org ID:
+            Fetch a secret from a URI that names no organization:
 
-            >>> secret = Secret.from_uri("roboto-secret://api_key", fallback_org_id="org_123")
+            >>> secret = Secret.from_uri("roboto-secret://api_key", fallback_org_id="og_12345")
             >>> print(f"{secret.name} in {secret.org_id}")
-            'api_key in org_123'
+            api_key in og_12345
         """
         if not is_secret_uri(uri):
             raise ValueError(f"Invalid secret URI: {uri}")
@@ -284,15 +277,6 @@ class Secret:
         return self.__record == other.__record
 
     def __init__(self, record: SecretRecord, roboto_client: RobotoClient):
-        """Initialize a Secret instance.
-
-        This constructor is not intended for direct use. Use the class methods
-        :py:meth:`create`, :py:meth:`from_name`, or :py:meth:`for_org` instead.
-
-        Args:
-            record: The secret record containing metadata and configuration.
-            roboto_client: HTTP client for API communication.
-        """
         self.__record: SecretRecord = record
         self.__roboto_client: RobotoClient = roboto_client
 
@@ -301,54 +285,47 @@ class Secret:
 
     @property
     def name(self) -> str:
-        """Name of the secret.
-
-        Secret names are unique within an organization.
-        """
+        """Name of the secret, unique within its organization."""
         return self.__record.name
 
     @property
     def org_id(self) -> str:
-        """Organization ID that owns this secret."""
+        """ID of the organization that owns the secret."""
         return self.__record.org_id
 
     @property
     def record(self) -> SecretRecord:
-        """The secret record containing metadata and configuration."""
+        """Record of the secret that this instance holds.
+
+        ``refresh`` replaces it with the current one.
+        """
         return self.__record
 
     @property
     def store_type(self) -> SecretStoreType:
-        """Type of secret store backend where this secret is stored.
-
-        Currently, all secrets are stored in AWS Secrets Manager.
-        """
+        """Type of secret store that holds the secret's value."""
         return self.__record.store_type
 
     @property
     def uri(self) -> str:
-        """URI for this secret.
+        """URI that names the secret, as ``roboto-secret://<name>@<org_id>``.
 
-        This URI can be used to reference the secret in other API calls.
+        Set it as an action parameter's value to pass the secret's value to the action, or load the secret from it
+        with ``from_uri``.
         """
         return f"roboto-secret://{self.__record.name}@{self.__record.org_id}"
 
     def delete(self) -> None:
-        """Delete this secret from the Roboto platform.
+        """Delete the secret and its value.
 
-        Permanently removes the secret and its value from the secure storage backend.
-        This operation cannot be undone.
+        Roboto removes the value from the secret store with no recovery window, so it cannot be restored.
 
         Raises:
-            RobotoUnauthorizedException: The caller is not authorized to delete this secret.
             RobotoNotFoundException: The secret no longer exists.
 
         Examples:
-            Delete a secret:
-
             >>> secret = Secret.from_name("old_api_key")
             >>> secret.delete()
-            # Secret is now permanently deleted
         """
         self.__roboto_client.delete(
             f"v1/secrets/name/{self.__record.name}",
@@ -356,51 +333,38 @@ class Secret:
         )
 
     def read_value(self) -> pydantic.SecretStr:
-        """Read the value stored in this secret.
+        """Fetch the secret's value from its secret store.
 
-        Securely retrieves the secret's value from the underlying secret store (AWS Secrets Manager).
-        The operation uses temporary, scoped credentials to ensure secure access to the secret store.
+        Roboto returns short-lived credentials that can read this one secret, and the SDK reads the value from the
+        secret store with them, so the value never passes through Roboto.
 
         Returns:
-            The secret value as a pydantic.SecretStr.
+            The value, as a ``pydantic.SecretStr``, which shows ``**********`` when printed or logged.
+            ``get_secret_value()`` returns the value itself.
 
         Raises:
-            RobotoUnauthorizedException: The caller is not authorized to read this secret.
             RobotoNotFoundException: The secret no longer exists.
-            NotImplementedError: The secret uses an unsupported store type.
 
         Examples:
-            Read a secret's value:
-
             >>> secret = Secret.from_name("api_key")
-            >>> value = secret.read_value()
-            >>> print(value.get_secret_value())
-            'super_secret_api_key_value'
+            >>> api_key = secret.read_value().get_secret_value()
         """
         client = self.__boto_client_for_creds()
         res = client.get_secret_value(SecretId=self.__record.location.arn)
         return pydantic.SecretStr(res["SecretString"])
 
     def refresh(self) -> Secret:
-        """Refresh this secret's metadata from the Roboto platform.
-
-        Updates the secret's local metadata by fetching the latest information from
-        the server. This is useful to get updated timestamps or other metadata that
-        may have changed since the secret was last loaded.
+        """Fetch the secret's current record from Roboto.
 
         Returns:
-            This Secret instance with updated metadata.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoUnauthorizedException: The caller is not authorized to access this secret.
             RobotoNotFoundException: The secret no longer exists.
 
         Examples:
-            Refresh a secret's metadata:
-
             >>> secret = Secret.from_name("api_key")
             >>> secret.refresh()
-            >>> # Secret now has the latest metadata from the server
         """
         self.__record = self.__roboto_client.get(
             f"v1/secrets/name/{self.__record.name}",
@@ -409,34 +373,25 @@ class Secret:
         return self
 
     def update_value(self, new_value: str) -> Secret:
-        """Update the value stored in this secret.
+        """Replace the secret's value in its secret store.
 
-        Securely updates the secret's value in the underlying secret store (AWS Secrets Manager).
-        The operation uses temporary, scoped credentials to ensure secure access to the secret store.
+        Roboto returns short-lived credentials scoped to this one secret, and the SDK writes the value to the secret
+        store with them, so the value never passes through Roboto.
 
         Args:
-            new_value: The new value to store in the secret.
+            new_value: Value to store in the secret.
 
         Returns:
-            This Secret instance for method chaining.
+            This instance. Its record is unchanged until you fetch it again.
 
         Raises:
-            RobotoUnauthorizedException: The caller is not authorized to update this secret.
             RobotoNotFoundException: The secret no longer exists.
-            NotImplementedError: The secret uses an unsupported store type.
+            botocore.exceptions.ClientError: The caller cannot update the secret, so the credentials Roboto returns can
+                only read its value.
 
         Examples:
-            Update a secret's value:
-
             >>> secret = Secret.from_name("api_key")
             >>> secret.update_value("new_secret_api_key_value")
-            >>> # Secret value has been updated in the secure store
-
-            Chain method calls:
-
-            >>> secret = Secret.create(name="temp_key").update_value("initial_value")
-            >>> print(secret.name)
-            'temp_key'
         """
         client = self.__boto_client_for_creds()
         client.put_secret_value(SecretId=self.__record.location.arn, SecretString=new_value)

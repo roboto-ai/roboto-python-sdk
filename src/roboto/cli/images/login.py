@@ -16,6 +16,12 @@ from ..context import CLIContext
 
 
 def login(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Log Docker in to the image repository ``--repository-uri`` names, and print Docker's standard output.
+
+    Fetches temporary credentials from Roboto's private image registry that reach only that repository, and passes
+    the password to ``docker login`` on standard input, so it never appears on a command line. When ``docker login``
+    fails, the command prints a traceback and exits with status 1; Docker's standard error is captured and not shown.
+    """
     image_registry = ImageRegistry(context.roboto_client)
     permissions = Permissions(args.permissions)
     credentials = image_registry.get_temporary_credentials(args.repository_uri, permissions, org_id=args.org)

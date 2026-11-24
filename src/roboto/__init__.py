@@ -4,6 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""Python SDK for Roboto: manage and query the data Roboto stores, such as datasets, files, and topics, and run actions.
+
+The classes used most often, such as :py:class:`~roboto.domain.datasets.Dataset` and
+:py:class:`~roboto.http.RobotoClient`, can be imported from ``roboto`` directly; import everything else from its
+subpackage.
+"""
+
 from .action_runtime import (
     ActionRuntime,
     FilesChangesetFileManager,
@@ -325,4 +332,5 @@ __all__ = [
 ]
 
 
+# Importing roboto hides every warning from the urllib3 connection pool vendored in botocore.
 roboto_default_warning_behavior()

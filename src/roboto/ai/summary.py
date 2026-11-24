@@ -18,110 +18,125 @@ from ..compat import StrEnum
 
 
 class AISummaryStatus(StrEnum):
-    """
-    Status of an AI summary.
-    """
+    """Status of an AI summary's generation: whether Roboto is still writing it, finished, or failed."""
 
     Pending = "pending"
-    """The summary is being generated. Its text may be the empty string, or may be a partial result. If
-    you continually poll for the summary while it is in the pending state, you will eventually get the
-    complete summary."""
+    """Roboto is still generating the summary; its text may be empty or partial."""
 
     Complete = "complete"
-    """The summary has been generated."""
+    """Roboto finished generating the summary, or a user set its text."""
 
     Failed = "failed"
-    """The summary failed to generate."""
+    """Generation failed; the text is whatever Roboto wrote before the failure, which may be empty."""
 
 
 class AISummary(pydantic.BaseModel):
-    """
-    A wire-transmissible representation of an AI summary
+    """Data record of an AI summary of a dataset or a session, as the Roboto API returns it.
+
+    An AI summary is a description of a dataset or a session that Roboto's AI writes, or that a user sets with
+    :py:meth:`~roboto.domain.datasets.Dataset.set_summary`. A dataset or session has at most one, which each new
+    generation or ``set_summary`` call replaces; starting a generation clears its text.
+    ``StreamingAISummary`` holds this record as its ``current`` snapshot.
     """
 
     text: str
-    """The text of the summary."""
+    """Text of the summary, rendered as Markdown. Empty or partial while ``status`` is ``Pending``."""
 
     created: datetime.datetime
-    """The time at which the summary was created."""
+    """Time the summary was last written: when its generation started, completed or failed, or when a user set it."""
 
     status: AISummaryStatus
-    """The status of the summary."""
+    """Status of the summary's generation."""
 
     summary_id: str
-    """The ID of the summary."""
+    """Unique ID of the summary, beginning with ``sm_``. It stays the same when the summary is regenerated or set."""
 
 
 class StreamingAISummary(typing.Protocol):
-    """
-    A streaming interface for an AI summary.
+    """Interface to an AI summary that Roboto may still be generating, read as snapshots or as streamed text.
 
-    Roboto AI summaries are typically generated asynchronously, and can be viewed as either a point-in-time
-    partially (or fully) complete snapshot, or as a stream of characters. This class provides a single interface
-    for accessing the summary in both ways.
+    :py:meth:`~roboto.domain.datasets.Dataset.generate_summary` and
+    :py:meth:`~roboto.domain.datasets.Dataset.get_summary` return one, as do the methods of the same names on
+    :py:class:`~roboto.experimental.sessions.Session`. ``current`` returns the latest snapshot without waiting;
+    ``complete_text``, ``await_completion`` and ``text_stream`` fetch the summary from Roboto until its generation
+    finishes.
     """
 
     @property
     def complete_text(self) -> str:
-        """The complete text of the summary.
+        """Full text of the summary, once Roboto finishes generating it.
 
-        This method will block until the summary is complete.
-
-        Raises:
-            RobotoFailedToGenerateException: If the summary fails to generate,
+        Reading it waits, with no time limit, until generation finishes, and raises
+        :py:class:`~roboto.exceptions.RobotoFailedToGenerateException` if a fetch finds that generation failed. To
+        wait with a time limit, call ``await_completion``.
         """
 
     @property
     def current(self) -> typing.Optional[AISummary]:
-        """The current state of the summary.
+        """Latest snapshot of the summary, or ``None`` if none has been fetched yet.
 
-        This may be None if no summary has been generated yet.
+        Reading it neither waits nor fetches; ``await_completion`` and ``text_stream`` update it as they fetch.
         """
         ...
 
     def await_completion(self, timeout_s: typing.Optional[float] = None, poll_interval_s: float = 2) -> AISummary:
-        """Wait for the summary to complete.
+        """Wait until Roboto finishes generating the summary, and return it.
 
-        This will return instantly if the summary is already complete.
+        Returns at once, without fetching, if the summary is already complete or failed; a summary that had already
+        failed is returned, not raised.
 
         Args:
-            timeout_s: Optional timeout, in seconds, to wait for the summary to complete.
-            poll_interval_s: Polling interval, in seconds, to use when waiting for the summary.
-
-        Returns:
-            The completed summary.
+            timeout_s: Maximum time to wait, in seconds. It is checked after each fetch, so the wait can run past it
+                by about one poll interval. ``None`` waits with no limit.
+            poll_interval_s: Time to wait between fetches of the summary, in seconds.
 
         Raises:
-            RobotoFailedToGenerateException: If the summary fails to generate.
-            TimeoutError: If the timeout is reached before the summary completes.
+            RobotoFailedToGenerateException: A fetch finds that generation of the summary failed.
+            TimeoutError: The summary is still not complete after ``timeout_s`` seconds.
         """
         ...
 
     def text_stream(
         self, timeout_s: typing.Optional[float] = None, poll_interval_s: float = 2
     ) -> typing.Generator[str, None, None]:
-        """Stream the text of the summary as it is generated.
+        """Yield the summary's text as Roboto generates it.
 
-        This will yield the entire summary instantly if the summary is already complete. If the summary is not
-        complete, this will yield the text as it is generated.
+        The first chunk is all the text fetched so far. Each later chunk is the text added since the previous
+        fetch, and is empty when nothing was added. Each call starts again from the beginning of the text. If the
+        summary is already complete or failed, the generator yields its whole text once, without fetching or raising.
 
         Args:
-            timeout_s: Optional timeout, in seconds, to wait for the summary to complete.
-            poll_interval_s: Polling interval, in seconds, to use when waiting for the summary.
+            timeout_s: Maximum time to wait for generation to finish, in seconds. It is checked after each fetch, so
+                the wait can run past it by about one poll interval. ``None`` waits with no limit.
+            poll_interval_s: Time to wait between fetches of the summary, in seconds.
 
         Yields:
-            The text of the summary as it is generated.
+            Chunks of the summary's text, which together make up the full text.
 
         Raises:
-            RobotoFailedToGenerateException: If the summary fails to generate.
-            TimeoutError: If the timeout is reached before the summary completes.
+            RobotoFailedToGenerateException: A fetch finds that generation of the summary failed. It surfaces during
+                iteration, when that fetch returns.
+            TimeoutError: The summary is still not complete after ``timeout_s`` seconds. It surfaces during
+                iteration, when the first fetch to return after ``timeout_s`` seconds finds the summary still pending.
         """
         ...
 
 
 class PollingStreamingAISummary(StreamingAISummary):
-    """
-    An implementation of StreamingAISummary which polls for updates.
+    """Streaming AI summary that fetches the summary from Roboto at a fixed interval until its generation finishes.
+
+    The SDK's own code uses it; to generate or fetch a summary, use
+    :py:meth:`~roboto.domain.datasets.Dataset.generate_summary` or
+    :py:meth:`~roboto.domain.datasets.Dataset.get_summary` instead.
+
+    Args:
+        poll_fn: Function that fetches the summary's current state from Roboto. ``text_stream`` assumes each call's
+            text begins with the previous call's text, and yields only the characters past it.
+        poll_on_init: Whether to fetch the summary when the object is built. If ``False``, the first fetch happens
+            in ``await_completion`` or ``text_stream``.
+        initial_summary: Snapshot to start from, which a fetch on build replaces. With neither a snapshot nor a
+            fetch on build, ``current`` is ``None`` and ``await_completion`` raises
+            :py:class:`~roboto.exceptions.RobotoFailedToGenerateException`.
     """
 
     def __init__(
@@ -130,18 +145,6 @@ class PollingStreamingAISummary(StreamingAISummary):
         poll_on_init: bool = True,
         initial_summary: typing.Optional[AISummary] = None,
     ):
-        """Initialize a streaming AI summary.
-
-        Args:
-            poll_fn: Function to call for retrieving the latest summary state.
-                Should return an :py:class:`AISummary` object with current status and text.
-            poll_on_init: Whether to immediately poll for the latest summary upon
-                initialization. If False, polling only occurs when methods like
-                :py:meth:`text_stream` or :py:meth:`await_completion` are called.
-                Defaults to True.
-            initial_summary: Optional initial summary state. If provided, this
-                summary will be used as the starting point instead of polling immediately.
-        """
         self.__poll_fn: typing.Callable[[], AISummary] = poll_fn
         self.__summary: typing.Optional[AISummary] = initial_summary
 

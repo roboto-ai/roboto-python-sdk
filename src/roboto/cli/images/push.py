@@ -20,6 +20,20 @@ from ..terminal import print_error_and_exit
 
 
 def push(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Push a local Docker image to Roboto's image registry, creating its repository if needed, and print the image URI.
+
+    1. Exits with an error unless ``docker image inspect`` finds the image and reports its architecture as ``amd64``.
+    2. Creates the repository ``<org_id>/<repository>``, named after the local image's repository, or reuses the one
+       that already has that name. An image name with more than one colon exits with an error.
+    3. Logs Docker in to the registry with temporary read-write credentials, passing the password on standard input.
+    4. Tags the local image with the repository's URI and the same tag, ``latest`` when the local name has none, and
+       runs ``docker push``.
+    5. Checks Roboto for the tag at once, then after waits of 1, 2, 4 and so on seconds, at most 32, and exits with an
+       error if the tag has not appeared within five minutes.
+
+    The exit status of ``docker push`` is not checked, so a failed push surfaces only when step 5 gives up. Exits with
+    status 130 (128 plus SIGINT) when interrupted during the push or the wait.
+    """
     inspect_format_string = "{{ .Architecture }}"
     inspect_cmd = f"docker image inspect --format '{inspect_format_string}' {args.local_image}"
     try:

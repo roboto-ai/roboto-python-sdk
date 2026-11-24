@@ -21,11 +21,13 @@
 //     "cookiecutter~=2.5.0",
 //     "cron-converter~=1.2.1",
 //     "cryptography>=42.0.5",
+//     "dnspython~=2.9",
 //     "docker~=7.1",
 //     "duckdb~=1.4.4",
 //     "exceptiongroup>=1.0; python_version < \"3.11\"",
 //     "falkordb~=1.0",
 //     "fastmcp~=3.4",
+//     "fastparquet>=2024.11.0",
 //     "filelock~=3.15",
 //     "fsspec[http]>=2025.5.1",
 //     "httpx>=0.27",
@@ -108,7 +110,6 @@
 //   "resolve": "python-default"
 // }
 // --- END PANTS LOCKFILE METADATA ---
-
 {
   "allow_builds": true,
   "allow_prereleases": false,
@@ -1492,6 +1493,97 @@
           "artifacts": [
             {
               "algorithm": "sha256",
+              "hash": "f8ef6760bda6a0b69b380421043485b5ff2359ec9df603cae93bf6054a98c50d",
+              "url": "https://files.pythonhosted.org/packages/fa/69/deabbd2b16963d6c0f9ee8c35cecad06bd9178881e81ce3e3caf1ea01851/cramjam-2.14.0-cp313-cp313-musllinux_1_2_x86_64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "050095380dc01a7f3dc2b8bcd9de2cbf4a208a8aab32301c760ea3c280d641bd",
+              "url": "https://files.pythonhosted.org/packages/21/78/bfb048f7fcf70192081ad834e7bbde59af716bbdd4d2410ffd39357db068/cramjam-2.14.0.tar.gz"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "eda8ec9164e2d306c89ca291fe956c4e117d0604c97a105401208358774858d2",
+              "url": "https://files.pythonhosted.org/packages/25/76/81948b424cd599899389bdb28a6ef7aff2108ad1e9aa4aa93923761f9c79/cramjam-2.14.0-cp313-cp313-musllinux_1_2_i686.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "9944ea8c2b14cf15c49e3d75494256dd244a7b3e13efa564ecfc986fdde5de9c",
+              "url": "https://files.pythonhosted.org/packages/27/b6/40616f0260898ba788b4158b6b9f85fb8d0406cb6373ede32043f9c9d019/cramjam-2.14.0-cp313-cp313-manylinux_2_34_riscv64.manylinux_2_39_riscv64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "a7b97febf597c1830755807a6dfb148eea1f6fc56dce4db4c7f2e069fc5cdc44",
+              "url": "https://files.pythonhosted.org/packages/33/02/b47c68e6fa9fdf4f34e700c5f601694df4fc68420395f04989d12a29cf14/cramjam-2.14.0-cp313-cp313-manylinux_2_28_ppc64le.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "2ec755fefcd26eca939a4308b9c38645f01f159eb86333686bba8aee6e65b9e4",
+              "url": "https://files.pythonhosted.org/packages/43/6d/1da721ff7683b428e4498bf8a16a9a938a90d522f7bc721983381844f512/cramjam-2.14.0-cp313-cp313-macosx_10_13_x86_64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "78db3e5c7983be47b0602f4a1a7a8b5675375347f1b7a3f399d2a1f1bb1601cb",
+              "url": "https://files.pythonhosted.org/packages/5a/ae/a4b3488655fdc19e98b4402fa030434acdae16e6cb112fda3528682ef646/cramjam-2.14.0-cp313-cp313-musllinux_1_2_aarch64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "e1d752b565818735410b577c219be003d6a5b8ac9a2b7989010940d294a2333e",
+              "url": "https://files.pythonhosted.org/packages/5e/8e/3a888df0ef44fe5238934207e3a92e729dc2314f790db1b6393eb9481efc/cramjam-2.14.0-cp313-cp313-manylinux_2_28_x86_64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "a813213ae673621212847336f445cda1bd08a67c2d066a82862eb2a66e254d1e",
+              "url": "https://files.pythonhosted.org/packages/6e/49/d0ec65b2d07313fcb13e6d2ea1a2fcd6522255fdf3f7cf660ce6452d2194/cramjam-2.14.0-cp313-cp313-macosx_11_0_arm64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "913320378bb7e9959a9c69b9fcb772d2c2d8db2930945748c2c8519bec8a554d",
+              "url": "https://files.pythonhosted.org/packages/7e/da/24e847ab5ea77ab63d83f31cb499d34618f480e9deab5540ad7e0cb82ac0/cramjam-2.14.0-cp313-cp313-manylinux_2_31_armv7l.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "fdec3c775b0ad18eda9154b25a386de09ce26a6a2f3eea764b107b4864cd008e",
+              "url": "https://files.pythonhosted.org/packages/b4/d5/886b9a4c0ee00a4fa337d2856b88248b017d03c55ce6437f2c3b7326e86b/cramjam-2.14.0-cp313-cp313-macosx_10_13_universal2.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "69391a3e48ba042b81e2e73395a40de4ad488e000ac80620e9d15a45c79d67da",
+              "url": "https://files.pythonhosted.org/packages/b9/e7/d479ddda69e946eb31a2191d29baa9e45d0587b534fe009de3d4abc49788/cramjam-2.14.0-cp313-cp313-manylinux_2_28_i686.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "6bd5ae72915ef414d73f09a3b6216e386acfa40432d5bf9bfd8e3a553a999041",
+              "url": "https://files.pythonhosted.org/packages/c2/92/9a55c9a6f8c9d12463e5a400709e64f34de69bd561af07fa805f12b9f25d/cramjam-2.14.0-cp313-cp313-musllinux_1_2_armv7l.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "83776e5ac5fd2446d247fced50b8edc3d83245ea058ec56f29711d41185a88fc",
+              "url": "https://files.pythonhosted.org/packages/df/9f/d70f99bc5e32a4437c07a508519baa382554ba899e0af64d62436c5ab33d/cramjam-2.14.0-cp313-cp313-manylinux_2_28_s390x.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "4cfa1e7530b721bd06720418594f79ba3ca3047bffd5bca44ea39b517d7b2ad4",
+              "url": "https://files.pythonhosted.org/packages/e6/d8/9d7d4ef62a62a664b2dfc0e47badb1a6c28fd83fb251a0d77168ee8982d2/cramjam-2.14.0-cp313-cp313-manylinux_2_28_aarch64.whl"
+            }
+          ],
+          "project_name": "cramjam",
+          "requires_dists": [
+            "black==26.3.1; extra == \"dev\"",
+            "cramjam-pure-rust==2.14.0; extra == \"pure-rust\"",
+            "hypothesis>=6.165.10; extra == \"dev\"",
+            "numpy; extra == \"dev\"",
+            "pytest-benchmark; extra == \"dev\"",
+            "pytest-xdist; extra == \"dev\"",
+            "pytest>=9.0.3; extra == \"dev\""
+          ],
+          "requires_python": ">=3.11",
+          "version": "2.14.0"
+        },
+        {
+          "artifacts": [
+            {
+              "algorithm": "sha256",
               "hash": "a31c71223cc71f07f9af2533af50c4cf1b910a85a730dd06a00aed053ea250fe",
               "url": "https://files.pythonhosted.org/packages/62/f8/1698a37dd13fc120a96a062c10dba11cade6ebb71b68a14ee177032b4b61/cron_converter-1.2.2-py3-none-any.whl"
             },
@@ -2209,6 +2301,61 @@
           ],
           "requires_python": ">=3.10",
           "version": "3.4.11"
+        },
+        {
+          "artifacts": [
+            {
+              "algorithm": "sha256",
+              "hash": "d33f24cef35dbe50b561037e17a401d5d1e720ef16beef645d26c364d14f9729",
+              "url": "https://files.pythonhosted.org/packages/c4/45/abbecd4b7328598ad91855c1287a30da04aaa6162ec8d3f0c193f69d94f7/fastparquet-2026.9.0-cp313-cp313-musllinux_1_2_x86_64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "257b8d1fc5dd63d9f7f741e940e731e717d4261768c9a98fc94cba2969bfd151",
+              "url": "https://files.pythonhosted.org/packages/3a/78/e0ad750fa8c4c017ec213287a70341c91b57dfb6d6295e335e8147d8030f/fastparquet-2026.9.0-cp313-cp313-musllinux_1_2_i686.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "823b73b9da2f0a3e4351ecd126863d4f049d53a3a5ebb38f20c71e9df9e56c8f",
+              "url": "https://files.pythonhosted.org/packages/64/45/40aa92ba672b7286d5367d4d46a107ccd6c84c7e30f5f50a2e7eaecbe534/fastparquet-2026.9.0-cp313-cp313-macosx_10_13_universal2.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "ea891cd19a5461c0e5f99fec357eb43e1a564301eac73c112bff8d7f4f394bf1",
+              "url": "https://files.pythonhosted.org/packages/76/46/40672e52963c1e459af3b0665adb7cc978a02ac3176c7b25b0cedb8b6633/fastparquet-2026.9.0-cp313-cp313-macosx_11_0_arm64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "dd42bc5172befa008f686db4938867bd27f629a09967d5259c9b60325a46c99b",
+              "url": "https://files.pythonhosted.org/packages/c1/b6/430be3eb1ab45271a8043fc762c83efb36d7e0ea15696327d03c730f9e32/fastparquet-2026.9.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "a3e8ac8275c00cd736f63d7f3c92395bf33639ea38e298dbcdd18f96c7c9b60f",
+              "url": "https://files.pythonhosted.org/packages/c7/c0/15648e3084d85f85f802c7d0a61e9f1ae084c4ab46f0a1a17cdef05aace8/fastparquet-2026.9.0-cp313-cp313-manylinux1_i686.manylinux_2_28_i686.manylinux_2_5_i686.whl"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "bdf391e7d212707c884ad0ea6047719b7a1b2b4642b8d79d223b4d745f3bd4bb",
+              "url": "https://files.pythonhosted.org/packages/dd/8a/931300515567b64646c54d3a03484db1c588b14c0f1128c9f60e04b2fb14/fastparquet-2026.9.0.tar.gz"
+            },
+            {
+              "algorithm": "sha256",
+              "hash": "a664c9599a5f604277f874a7f09e7672237b8d7b2cc92a16e6d9cb22a8357801",
+              "url": "https://files.pythonhosted.org/packages/fe/84/b4141242ea04d177c094257742115bb09ae25f896ecec0d3264196ba6c35/fastparquet-2026.9.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl"
+            }
+          ],
+          "project_name": "fastparquet",
+          "requires_dists": [
+            "cramjam>=2.3",
+            "fsspec",
+            "numpy",
+            "packaging",
+            "pandas>=1.5.0",
+            "python-lzo; extra == \"lzo\""
+          ],
+          "requires_python": ">=3.10",
+          "version": "2026.9.0"
         },
         {
           "artifacts": [
@@ -9031,11 +9178,13 @@
     "cookiecutter~=2.5.0",
     "cron-converter~=1.2.1",
     "cryptography>=42.0.5",
+    "dnspython~=2.9",
     "docker~=7.1",
     "duckdb~=1.4.4",
     "exceptiongroup>=1.0; python_version < \"3.11\"",
     "falkordb~=1.0",
     "fastmcp~=3.4",
+    "fastparquet>=2024.11.0",
     "filelock~=3.15",
     "fsspec[http]>=2025.5.1",
     "httpx>=0.27",

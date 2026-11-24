@@ -4,15 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Execute a read plan: decode each partition's files and yield the topic's rows as RecordBatches.
-
-:py:func:`execute_read_plan` lists the steps of a read. This module holds the projected paths, the leaf-most paths,
-assigning scan tasks and grouping them by file, reading the partitions in plan order, and naming array elements.
-Decoding each file lives in :py:mod:`~roboto.experimental.topics.decode`,
-combining a split partition in :py:mod:`~roboto.experimental.topics.split_partition`,
-and the output schema in that module and :py:mod:`~roboto.experimental.topics.batch_transforms`.
-"""
-
 from __future__ import annotations
 
 import collections
@@ -54,19 +45,20 @@ if typing.TYPE_CHECKING:
 
 
 SchemaFieldPaths = typing.Callable[[str], collections.abc.Iterable[FieldPath]]
-"""Returns the path of every field a schema declares, given the schema's id."""
+"""Function that looks up a topic schema by its ID, and returns the path of every field the schema declares."""
 
 _MAX_PARTITION_WORKERS = 32
-"""Most partitions decoded at once, which also caps how many decoded partitions are buffered in memory.
+"""Maximum number of partitions decoded at once, which also bounds how many decoded partitions wait in memory.
 
-Decoding a partition waits mostly on the network (fetching a signed URL, then ranged GETs), so this is 32 whatever
-the CPU count: the cap on ``ThreadPoolExecutor``'s default thread count, ``min(32, CPU count + 4)``."""
+Decoding a partition waits mostly on the network, for a signed URL and then for ranged GET requests, so the number
+does not depend on the CPU count. It is the upper limit of ``concurrent.futures.ThreadPoolExecutor``'s default
+thread count, ``min(32, CPU count + 4)``."""
 
 _MAX_FILE_WORKERS = 8
-"""Most files of one split partition opened and decoded at once.
+"""Maximum number of a split partition's files opened and decoded at once.
 
-Kept small because each split partition read in the partition pool starts its own pool of up to this many threads,
-so up to :py:data:`_MAX_PARTITION_WORKERS` times this many threads decode files at once."""
+Each split partition read in the partition pool starts its own pool of up to this many threads, so up to
+``_MAX_PARTITION_WORKERS`` times this many threads decode files at once; the number is small for that reason."""
 
 
 _SCAN_TASK_FILE_ATTRIBUTES: tuple[tuple[str, typing.Callable[[ReadPlanScanTask], object]], ...] = (
@@ -74,23 +66,21 @@ _SCAN_TASK_FILE_ATTRIBUTES: tuple[tuple[str, typing.Callable[[ReadPlanScanTask],
     ("transformations", lambda task: tuple(task.transformations)),
     ("topic name", lambda task: task.topic_name),
 )
-"""What the scan tasks on one file must agree on, in the order a disagreement is looked for."""
+"""Attributes the scan tasks on one file must agree on, each with its name in error messages, in the order compared."""
 
 
 def projected_paths(plan: ReadPlan, schema_field_paths: SchemaFieldPaths) -> list[FieldPath]:
     """Return the field paths ``plan`` projects.
 
     A projection that lists its fields gives their paths. A projection of every field (``projection.all``) gives
-    every field the plan's schema declares, fetched through ``schema_field_paths``. This is the only case that fetches
-    them, and a plan with no scan task in any partition fetches nothing and gives no paths.
-
-    Args:
-        plan: The read plan the service resolved.
-        schema_field_paths: Returns the path of every field a schema declares, given the schema's id.
+    every field the plan's schema declares, looked up through ``schema_field_paths``. Only that case calls
+    ``schema_field_paths``, and a plan with no scan task in any partition does not call it and returns no paths.
+    Pass the result to ``execute_read_plan`` as ``projected``.
 
     Raises:
-        RobotoReadPlanExecutionException: With kind ``plan-without-schema``, when the plan projects every field of its
-            schema, a partition has a scan task, and the plan names no schema.
+        RobotoReadPlanExecutionException: The plan projects every field of its schema, a partition has a scan task,
+            and the plan names no schema. Its ``kind`` is
+            :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.PLAN_WITHOUT_SCHEMA`.
     """
     if not plan.projection.all:
         return [field.path for field in plan.projection.fields or ()]
@@ -108,10 +98,10 @@ def projected_paths(plan: ReadPlan, schema_field_paths: SchemaFieldPaths) -> lis
 def leaf_most_paths(paths: collections.abc.Iterable[FieldPath]) -> list[FieldPath]:
     """Return the paths among ``paths`` that have no descendant among them.
 
-    A projection lists a struct and its children as separate fields; reading the struct would read every child,
-    including one the projection leaves out, so only the leaf-most paths are read. The empty path, which names the
-    schema root, and duplicates are dropped. The paths are sorted by their components, each compared by Unicode code
-    point.
+    A projection lists a struct and each of its projected children as separate fields. Reading the struct would read
+    every child, including one the projection leaves out, so the read takes only these paths. The empty path, which
+    names the schema root, and duplicates are dropped. The paths are sorted by their components, each compared by
+    Unicode code point.
     """
     ordered = sorted({tuple(path) for path in paths if path})
     return [
@@ -125,22 +115,29 @@ def assign_scan_tasks(
     partition: ReadPlanPartition,
     leaf_most: collections.abc.Sequence[FieldPath],
 ) -> list[ScanTaskGroup]:
-    """Return the groups of ``partition``'s scan tasks that supply the leaf-most paths ``leaf_most``.
+    """Return ``partition``'s scan tasks grouped by file, with the fields each file supplies for ``leaf_most``.
 
-    A path's supplier is the highest-precedence scan task whose subtree contains it; a task without a subtree
-    contains every field. Ties go to the later task in plan order. A task whose subtree lies strictly inside a path,
-    and which is the supplier of its own subtree, supplies that subtree. Each supplied field excludes only the
-    outermost supplied fields strictly inside it.
+    These rules choose the scan task that supplies each field:
 
-    The tasks on one file form one group whatever their precedence, so each file is opened once. Groups come in order
-    of their lowest precedence, ties in the order each file first appears among the scan tasks. A group that supplies
-    nothing is dropped, unless every group supplies nothing; then the first group is kept, and its file gives only the
-    row number and timestamp columns.
+    1. A path of ``leaf_most`` comes from the highest-precedence scan task whose subtree contains it. A task with no
+       subtree contains every field, and the later task in plan order wins a tie.
+    2. A task whose subtree lies strictly inside such a path, and which rule 1 would choose for its own subtree,
+       supplies that subtree.
+    3. Each supplied field leaves out only the outermost supplied fields strictly inside it.
+
+    All the tasks on one file form one group whatever their precedence, so each file is opened once. Groups are
+    ordered by the lowest precedence among their tasks, and groups that tie keep the order in which their files first
+    appear among the scan tasks. A group that supplies nothing is dropped, unless every group supplies nothing; then
+    only the first group is kept, and its file gives only the row number and timestamp columns.
+
+    Args:
+        partition: Partition whose scan tasks to group. It has at least one scan task.
+        leaf_most: Projected paths with no other projected path inside them, as ``leaf_most_paths`` returns them.
 
     Raises:
-        RobotoReadPlanExecutionException: With kind ``inconsistent-scan-tasks-on-file``, when scan tasks on one file
-            disagree on its format, transformations or topic name; with kind ``projected-field-in-no-scan-task``, when
-            no scan task contains a path of ``leaf_most``.
+        RobotoReadPlanExecutionException: Scan tasks on one file disagree on its format, transformations or topic
+            name (``kind`` is :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.INCONSISTENT_SCAN_TASKS_ON_FILE`),
+            or no scan task contains a path of ``leaf_most`` (``kind`` is ``PROJECTED_FIELD_IN_NO_SCAN_TASK``).
     """
     tasks = partition.scan_tasks
     subtrees = [task.subtree.path if task.subtree is not None else () for task in tasks]
@@ -169,8 +166,6 @@ def assign_scan_tasks(
                 f'containing the projected field "{".".join(path)}".',
                 kind=ReadPlanExecutionErrorKind.PROJECTED_FIELD_IN_NO_SCAN_TASK,
             )
-        # The path itself is a supplied field of its supplier, and so is each subtree strictly inside it whose own task
-        # is that subtree's supplier.
         supplied = [(path, supplier)] + [
             (subtree, index)
             for index, subtree in enumerate(subtrees)
@@ -203,61 +198,63 @@ def execute_read_plan(
     projected: collections.abc.Sequence[FieldPath],
     open_file_decoder: FileDecoderOpener,
 ) -> collections.abc.Generator["pyarrow.RecordBatch", None, None]:
-    """Decode the files a read plan names and yield the topic's rows as RecordBatches.
+    """Decode the files a read plan names and yield the topic's rows as Arrow record batches.
 
     A read takes these steps:
 
-    1. Projected paths: ``projected``, from :py:func:`projected_paths`.
-    2. Leaf-most paths (:py:func:`leaf_most_paths`).
-    3. Assign scan tasks (:py:func:`assign_scan_tasks`).
-    4. Group by file (:py:func:`assign_scan_tasks`).
-    5. Decode each file, through the decoders ``open_file_decoder`` opens.
-    6. Combine a split partition (:py:class:`~roboto.experimental.topics.split_partition.SplitPartition`).
-    7. Output schema (:py:func:`~roboto.experimental.topics.batch_transforms.topic_data_schema`).
-    8. Partitions: read in plan order, each one's schema checked against the first partition's when its files open,
-       before any of its rows.
-    9. Name array elements, on each batch step 8 yields: each named array column carries its element names as field
-       metadata (:py:data:`~roboto.experimental.topics.batch_transforms.ELEMENT_NAMES_FIELD_METADATA_KEY`), narrowed
-       to the elements a projected field selects. A narrowed array renumbers its elements from 0, in element order.
+    1. Take the projected paths, ``projected``, from ``projected_paths``.
+    2. Keep the projected paths with no other projected path inside them (``leaf_most_paths``).
+    3. Choose the scan task that supplies each of those paths (``assign_scan_tasks``).
+    4. Group each partition's scan tasks by file (``assign_scan_tasks``).
+    5. Open and decode each file, through the decoders ``open_file_decoder`` opens.
+    6. Combine the files of a split partition, one whose scan tasks read more than one file, into the partition's
+       rows (``SplitPartition``).
+    7. Build the output schema (``topic_data_schema``).
+    8. Read the partitions in plan order, checking each one's schema against the first partition's when its files
+       open, before any of its rows.
+    9. Name the array elements in each batch step 8 yields. Each named array column stores its element names as field
+       metadata, under ``ELEMENT_NAMES_FIELD_METADATA_KEY``, narrowed to the elements a projected field selects. A
+       narrowed array numbers its elements from 0, in element order.
 
-    Each partition yields only the rows inside its own :py:attr:`~roboto.experimental.topics.ReadPlanPartition.window`,
-    which can be narrower than the plan's: a read scoped to a Session that holds a file over part of its time span
-    returns that part of the file and nothing else.
+    Each partition yields only the rows inside its own ``ReadPlanPartition.window``, which can be narrower than the
+    plan's: a read scoped to a session that holds a file over part of its time span returns that part of the file and
+    nothing else.
 
-    Partitions without scan tasks are skipped, and one
-    :py:class:`~roboto.experimental.topics.UnreadableTopicPartitionsWarning` names them before any row. Partitions are
-    yielded in plan order and their rows are never interleaved; within a partition, rows keep their stored order.
-    Nothing is sorted by time or deduplicated, so a consumer that needs rows in time order sorts them.
+    Partitions without scan tasks are skipped, and one ``UnreadableTopicPartitionsWarning`` names them before any
+    row. Partitions are yielded in plan order and their rows are never interleaved; within a partition, rows keep
+    their stored order. Nothing is sorted by time or deduplicated, so a consumer that needs rows in time order sorts
+    them.
 
     A plan with one partition to read yields its rows as they are decoded. A plan with several decodes up to 32
     partitions at once and holds each partition's rows until it is yielded. A split partition's files are decoded in
     full before their rows are combined.
 
     Args:
-        plan: The read plan the service resolved.
-        projected: The field paths the plan projects, from :py:func:`projected_paths`.
-        open_file_decoder: Opens the decoder of one scan task group's file.
+        projected: Field paths the plan projects, as ``projected_paths`` returns them.
 
     Yields:
-        RecordBatches with the columns of :py:func:`~roboto.experimental.topics.batch_transforms.topic_data_schema`:
-        the row number, the timestamp in absolute Unix-epoch nanoseconds, then one value column per projected
-        top-level field, sorted by name comparing Unicode code points. A batch holds the rows of one partition only;
-        batch sizes and boundaries are otherwise arbitrary. A named array keeps its stored type, unless the projection
-        selects some of its elements; it is then a fixed-size list of those elements in element order.
+        Record batches with the columns of ``topic_data_schema``: the row number, the timestamp in nanoseconds since
+        the Unix epoch, then one value column per projected top-level field, sorted by name comparing Unicode code
+        points. A batch holds the rows of one partition only; batch sizes and boundaries are otherwise arbitrary. A
+        named array keeps its stored type, unless the projection selects some of its elements; it is then a
+        fixed-size list of those elements in element order.
 
     Raises:
-        RobotoReadPlanExecutionException: With the kind of the step that refuses the plan:
-            ``projected-field-in-no-scan-task`` or ``inconsistent-scan-tasks-on-file`` (steps 3 and 4);
-            ``field-split-inside-non-struct`` or ``scan-task-row-mismatch`` (step 6);
-            ``partition-schema-mismatch``, when a partition's files give the read a different schema than the first
-            partition's, raised before any error in that partition's rows and even when it has no rows in the window
-            (step 8);
-            ``element-count-mismatch``, when a named array holds a different number of elements than it has names:
-            for one stored as a fixed-size list, when the partition's files open, before any of its rows and even
-            when it has no rows in the window; for a variable-length list, at the first such row (step 9);
-            and the kinds ``open_file_decoder`` and its decoders raise, such as ``unsupported-format``,
-            ``unsupported-timestamp``, ``invalid-timestamp``, ``field-not-in-file`` and ``data-range-not-in-file``
-            (step 5).
+        RobotoReadPlanExecutionException: A step refuses the plan. It surfaces during iteration, when the read reaches
+            the partition at fault, after the rows of every earlier partition. Its ``kind``, a
+            :py:class:`~roboto.exceptions.ReadPlanExecutionErrorKind`, names the reason:
+
+            - ``PROJECTED_FIELD_IN_NO_SCAN_TASK`` or ``INCONSISTENT_SCAN_TASKS_ON_FILE``, from steps 3 and 4.
+            - ``UNSUPPORTED_FORMAT``, ``UNSUPPORTED_TIMESTAMP``, ``INVALID_TIMESTAMP``, ``FIELD_NOT_IN_FILE``,
+              ``DATA_RANGE_NOT_IN_FILE``, or another kind ``open_file_decoder`` and its decoders raise, from step 5.
+            - ``FIELD_SPLIT_INSIDE_NON_STRUCT`` or ``SCAN_TASK_ROW_MISMATCH``, from step 6.
+            - ``PARTITION_SCHEMA_MISMATCH``, from step 8, when a partition's files give the read a different schema
+              than the first partition's. It is raised before any error in that partition's rows, and even when the
+              partition has no rows in the window.
+            - ``ELEMENT_COUNT_MISMATCH``, from step 9, when a named array holds a different number of elements than
+              it has names. For an array stored as a fixed-size list, it is raised when the partition's files open,
+              before any of its rows and even when it has no rows in the window; for a variable-length list, at the
+              first such row.
     """
     partitions = [partition for partition in plan.partitions if partition.scan_tasks]
     if len(partitions) < len(plan.partitions):
@@ -301,17 +298,20 @@ def execute_read_plan(
 
 @dataclasses.dataclass(frozen=True)
 class _NamedArrayColumn:
-    """How step 9 names one top-level array column."""
+    """Element names of one top-level named array column, and the elements the projection selects."""
 
     element_names: tuple[str, ...]
-    """Every element's name, in element order."""
+    """Name of every element, in element order."""
 
     selected: typing.Optional[tuple[str, ...]]
-    """The elements the projection selects, or ``None`` for every element."""
+    """Names of the elements the projection selects, or ``None`` for every element."""
 
 
 def _named_arrays(plan: ReadPlan) -> dict[str, _NamedArrayColumn]:
-    """Return each named array of the plan's schema by its top-level column name."""
+    """Return the top-level named arrays of the plan's schema, keyed by column name.
+
+    A named array nested inside a struct is left out, so its column carries no element names.
+    """
     if plan.schema_ is None:
         return {}
     selected = {tuple(field.path): field.elements for field in plan.projection.fields or ()}
@@ -327,9 +327,10 @@ def _refuse_fixed_size_named_arrays_of_another_width(
     named_arrays: collections.abc.Mapping[str, _NamedArrayColumn],
     partition: ReadPlanPartition,
 ) -> None:
-    """Raise ``element-count-mismatch`` for a named array a partition stores as a fixed-size list of another width.
+    """Reject a named array that a partition stores as a fixed-size list with a width other than its number of names.
 
-    A fixed-size list's width is part of its type, so the mismatch is known when the partition's files open.
+    A fixed-size list's width is part of its type, so the mismatch is found when the partition's files open, before
+    any row is decoded. It raises ``RobotoReadPlanExecutionException`` with kind ``ELEMENT_COUNT_MISMATCH``.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
     for field in value_fields:
@@ -352,16 +353,15 @@ def _with_element_names(
 ) -> "pyarrow.RecordBatch":
     """Return ``batch`` with each named array column narrowed to its selected elements and carrying their names.
 
-    Raises:
-        RobotoReadPlanExecutionException: With kind ``element-count-mismatch``, when a row of a named array stored as
-            a variable-length list holds a different number of elements than the array has names.
+    It raises ``RobotoReadPlanExecutionException`` with kind ``ELEMENT_COUNT_MISMATCH`` when a row of a named array
+    stored as a variable-length list holds a different number of elements than the array has names.
     """
     if not any(name in named_arrays for name in batch.schema.names):
         return batch
     pa = import_optional_dependency("pyarrow", "analytics")
 
-    # The timestamp and row number columns are named to avoid only the projected fields, so one of them can take the
-    # name of a named array the read leaves out.
+    # The timestamp and row number columns take names no projected field has, but one of them can still have the name
+    # of a named array the read leaves out, so they are skipped by position.
     marked = {timestamp_column_index(batch.schema), row_number_column_index(batch.schema)}
     fields = list(batch.schema)
     columns = list(batch.columns)
@@ -390,8 +390,11 @@ def _refuse_rows_of_another_width(
     width: int,
     partition: ReadPlanPartition,
 ) -> None:
-    """Raise ``element-count-mismatch`` at the first row of the list ``column`` that holds other than ``width``
-    elements; a null row holds none and passes."""
+    """Reject the first row of the list ``column`` that holds other than ``width`` elements.
+
+    A null row is not checked. It raises ``RobotoReadPlanExecutionException`` with kind ``ELEMENT_COUNT_MISMATCH``,
+    naming the row number of that row.
+    """
     pc = import_optional_dependency("pyarrow.compute", "analytics")
     lengths = pc.list_value_length(column)
     first_mismatch = pc.index(pc.not_equal(lengths, width), True).as_py()
@@ -409,13 +412,16 @@ def _refuse_rows_of_another_width(
 
 
 def _list_elements(column: "pyarrow.Array", positions: collections.abc.Sequence[int]) -> "pyarrow.Array":
-    """Return a fixed-size list of the elements at ``positions`` of each list in ``column``, null where it is null."""
+    """Build a fixed-size list array of the elements at ``positions`` in each list of ``column``.
+
+    A row is null where ``column`` is null.
+    """
     np = import_optional_dependency("numpy", "analytics")
     pa = import_optional_dependency("pyarrow", "analytics")
     pc = import_optional_dependency("pyarrow.compute", "analytics")
 
     elements = [pc.list_element(column, position) for position in positions]
-    # Interleave the per-position columns, so the values of row r are elements[0][r], elements[1][r], ...
+    # Interleave the per-position arrays, so the values of row r are elements[0][r], elements[1][r], ...
     interleaved = pa.concat_arrays(elements).take(
         np.arange(len(column) * len(positions)).reshape(len(positions), len(column)).T.ravel()
     )
@@ -428,7 +434,7 @@ def _list_elements(column: "pyarrow.Array", positions: collections.abc.Sequence[
 
 @dataclasses.dataclass(frozen=True)
 class _OpenedPartition:
-    """A partition whose files are open: its value columns, and its rows, which can be decoded once."""
+    """Partition whose files are open: the fields of its value columns, and a function that decodes its rows once."""
 
     value_fields: list["pyarrow.Field"]
     batches: typing.Callable[[], collections.abc.Iterator["pyarrow.RecordBatch"]]
@@ -436,21 +442,22 @@ class _OpenedPartition:
 
 @dataclasses.dataclass(frozen=True)
 class _PartitionRows:
-    """A partition's value columns, known when its files open, and its decoded rows."""
+    """Fields of a partition's value columns, known when its files open, and its decoded rows."""
 
     value_fields: list["pyarrow.Field"]
     batches: list["pyarrow.RecordBatch"]
 
     decode_error: typing.Optional[Exception] = None
-    """The error that stopped decoding the partition's rows, which the read raises only after checking the partition's
-    schema; ``batches`` is then empty."""
+    """Error that stopped decoding the partition's rows, or ``None`` when decoding finished.
+
+    ``batches`` is empty when it is set. ``execute_read_plan`` raises it only after it checks the partition's schema."""
 
 
 def _check_consistent(partition: ReadPlanPartition, file_tasks: collections.abc.Sequence[ReadPlanScanTask]) -> None:
-    """Raise ``inconsistent-scan-tasks-on-file`` unless the scan tasks on one file agree on how to read it.
+    """Reject scan tasks on one file that disagree on how to read it.
 
-    The attributes are compared in the order format, transformations, topic name, and the error names the first
-    one on which any task differs from the file's first task.
+    The error has kind ``INCONSISTENT_SCAN_TASKS_ON_FILE`` and names the first attribute of
+    ``_SCAN_TASK_FILE_ATTRIBUTES`` on which any task differs from the file's first task.
     """
     first, *others = file_tasks
     disagreement = next(
@@ -482,9 +489,9 @@ def _read_in_plan_order(
     read: typing.Callable[[ReadPlanPartition], _PartitionRows],
     partitions: collections.abc.Sequence[ReadPlanPartition],
 ) -> collections.abc.Iterator[_PartitionRows]:
-    """Read ``partitions``, up to :py:data:`_MAX_PARTITION_WORKERS` at once, and yield them in their order."""
-    # A sliding window of reads in flight: submit on the right, wait on the oldest on the left, refill its slot, then
-    # yield. Waiting in submission order, not as reads complete, keeps the partitions in plan order.
+    """Read ``partitions``, up to ``_MAX_PARTITION_WORKERS`` at once, and yield their rows in the order given."""
+    # Keep up to _MAX_PARTITION_WORKERS reads running: wait on the oldest, start the next partition's read in its
+    # place, then yield the oldest's rows. Waiting in submission order, not as reads complete, keeps plan order.
     remaining = iter(partitions)
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=min(_MAX_PARTITION_WORKERS, len(partitions)))
     try:
@@ -496,7 +503,8 @@ def _read_in_plan_order(
             in_flight.extend(executor.submit(read, partition) for partition in itertools.islice(remaining, 1))
             yield rows
     finally:
-        # A read that fails, or a consumer that stops early, leaves no queued read to start.
+        # When a read raises or the consumer stops iterating, cancel the reads not yet started and wait for the
+        # running ones, so no read outlives the generator. The exception still propagates.
         executor.shutdown(wait=True, cancel_futures=True)
 
 
@@ -508,9 +516,9 @@ def _open_partition(
 ) -> collections.abc.Iterator[_OpenedPartition]:
     """Open the files of a partition with a scan task, and close them when the context exits, however it exits.
 
-    Opening raises the errors found before any row is decoded, such as ``projected-field-in-no-scan-task``,
-    ``field-not-in-file`` or ``field-split-inside-non-struct``; an error in the partition's rows is raised while
-    decoding them.
+    Opening raises the errors found before any row is decoded, such as those of kind
+    ``PROJECTED_FIELD_IN_NO_SCAN_TASK``, ``FIELD_NOT_IN_FILE`` or ``FIELD_SPLIT_INSIDE_NON_STRUCT``; an error in the
+    partition's rows is raised while decoding them.
     """
     groups = assign_scan_tasks(partition, leaf_most)
     if len(groups) == 1:
@@ -519,8 +527,8 @@ def _open_partition(
         return
 
     # A split partition: its scan tasks form more than one group, so its rows are read from more than one file.
-    # Its files are opened, and later decoded, concurrently so their network waits overlap, and every decoder that
-    # opened is closed however the read ends, including when another file fails to open.
+    # Its files are opened, and later decoded, concurrently so their network waits overlap. Every decoder that opened
+    # is closed however the read ends, including when another file fails to open and its exception propagates.
     with (
         contextlib.ExitStack() as decoders_to_close,
         concurrent.futures.ThreadPoolExecutor(max_workers=min(_MAX_FILE_WORKERS, len(groups))) as executor,
@@ -551,8 +559,9 @@ def _read_partition(
 ) -> _PartitionRows:
     """Open the files of a partition with a scan task, and decode all its rows.
 
-    An error opening the files propagates. An error decoding the rows is kept in the result, with the value columns
-    known at open, so the read checks the partition's schema before it raises the error.
+    An error opening the files propagates. Any ``Exception`` raised while decoding the rows is kept in the result,
+    with the value columns known at open, so ``execute_read_plan`` checks the partition's schema before it raises the
+    error.
     """
     with _open_partition(partition, leaf_most, open_file_decoder) as opened:
         try:

@@ -4,19 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Saved metrics dashboards for visualizing an organization's data on the Roboto platform.
+"""Dashboards: saved pages of metrics in the Roboto web app.
 
-A dashboard is a named JSON document describing the sections, cards, and time
-parameters the web UI renders, stored on the platform so it can be reopened and
-shared. The platform stores that document verbatim and never interprets it: the
-definition is self-describing, carrying its own schema version for whichever
-client understands the schema. Ownership (``owner_principal_id``) is
-the sole source of truth for visibility: a dashboard owned by the org principal is
-shared with every member of the owning organization, while one owned by a user
-principal is personal (visible only to that user). Create and update requests
-express the choice via the ``accessibility`` knob, which the server folds into
-ownership. Dashboard names must be unambiguous for each viewer within their
-organization.
+Each dashboard is a name and a JSON definition of what the page shows, owned either by its organization or by the
+user who created it. ``DashboardRecord`` holds a dashboard, ``CreateDashboardRequest`` and ``UpdateDashboardRequest``
+create and update one, and ``DashboardAccessibility`` sets who can view it. Every class here is experimental, and may
+change or be removed without notice. Send the models to the routes under ``/v1/metrics/dashboards`` with
+:py:class:`~roboto.http.RobotoClient`. No SDK method sends or returns these models.
 """
 
 from .operations import (

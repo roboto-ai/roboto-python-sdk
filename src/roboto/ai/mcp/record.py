@@ -13,178 +13,225 @@ from ...compat import StrEnum
 
 
 class McpServerStatus(StrEnum):
-    """Status of a registered MCP server."""
+    """Status of an MCP server registration: whether Roboto's AI can use the server."""
 
     ACTIVE = "active"
-    """Server is registered and ready for use."""
+    """Ready for use. Roboto's AI calls only servers with this status."""
 
     PENDING_SETUP = "pending_setup"
-    """Server registration is in progress (e.g., awaiting Dynamic Client Registration)."""
+    """Unused. Roboto registers every server as ``ACTIVE`` and never changes its status."""
 
     ERROR = "error"
-    """Server registration encountered an error."""
+    """Unused. Roboto registers every server as ``ACTIVE`` and never changes its status."""
 
 
 class McpTokenStatus(StrEnum):
-    """Status of a user's OAuth token for an MCP server."""
+    """Status of a user's OAuth connection to an MCP server: whether Roboto can still get an access token from it."""
 
     VALID = "valid"
-    """Token is valid and can be used for requests."""
+    """Roboto can get an access token from the connection.
+
+    An access token past its expiry keeps this status until Roboto next needs it, when Roboto renews it with the
+    connection's refresh token or changes the status.
+    """
 
     EXPIRED = "expired"
-    """Access token has expired. May be refreshable via refresh token."""
+    """The access token expired and the connection has no refresh token to renew it, so the user must connect again."""
 
     REFRESH_FAILED = "refresh_failed"
-    """Refresh token failed. User must re-authorize."""
+    """Renewing the access token with the connection's refresh token failed, so the user must connect again."""
 
 
 class McpServerRecord(pydantic.BaseModel):
-    """A registered external MCP server. May be global or scoped to specific orgs."""
+    """Data record of a registered MCP server, as ``GET /v1/mcp/servers/{server_id}`` returns it.
+
+    ``POST /v1/mcp/servers`` and ``GET /v1/mcp/servers`` also return it. An MCP server is an external server that
+    offers tools over the Model Context Protocol (MCP), which Roboto's AI can call in the organizations the server is
+    registered for. An organization administrator registers a server for their own organization; a Roboto
+    administrator can register one for several organizations, or for every organization. Users connect to it with
+    OAuth (:py:class:`~roboto.ai.mcp.McpTokenRecord`), or Roboto's AI uses a token the organization sets
+    (:py:class:`~roboto.ai.mcp.McpServerOrgCredentialRecord`).
+    """
 
     server_id: str
-    """Unique identifier for this server registration."""
+    """Unique ID of the MCP server, beginning with ``mcp_``."""
 
     display_name: str
-    """User-friendly display name (e.g., 'GitHub', 'GitLab')."""
+    """Human-readable name of the MCP server, such as ``GitHub``."""
 
     server_url: str
-    """MCP server Streamable HTTP endpoint URL."""
+    """URL of the server's MCP endpoint, which Roboto connects to over MCP's Streamable HTTP transport."""
 
     oauth_issuer_url: str
-    """OAuth2 authorization server URL for this MCP server."""
+    """URL of the OAuth 2.0 authorization server that issues tokens for the MCP server."""
 
     client_id: str
-    """OAuth2 client ID."""
+    """OAuth client ID Roboto presents to the authorization server. Roboto never returns the client secret."""
 
     scopes: list[str] = pydantic.Field(default_factory=list)
-    """OAuth2 scopes requested during authorization."""
+    """OAuth scopes Roboto requests when a user connects the server. An empty list requests no particular scopes."""
 
     status: McpServerStatus
-    """Current status of the server registration."""
+    """Status of the MCP server registration."""
 
     registration_mode: str = "dcr"
-    """How this server was registered: 'dcr' or 'manual'."""
+    """How Roboto got its OAuth client for the server, as the value of a :py:class:`~roboto.ai.mcp.RegistrationMode`.
+
+    - ``"dcr"``: Roboto registered itself with the authorization server through OAuth Dynamic Client Registration.
+    - ``"manual"``: whoever registered the server supplied the client ID and secret.
+    """
 
     extra_auth_params: dict[str, str] = pydantic.Field(default_factory=dict)
-    """Extra query parameters appended to the OAuth authorization URL (e.g. audience for Atlassian)."""
+    """Further query parameters Roboto adds to the authorization URL when a user connects the server.
+
+    Some providers require one, such as Atlassian's ``audience``. They cannot override the OAuth parameters Roboto
+    sets itself.
+    """
 
     org_ids: list[str] = pydantic.Field(default_factory=list)
-    """Org IDs this server is scoped to. Empty = global (visible to all orgs)."""
+    """IDs of the organizations the MCP server is registered for. Empty when every organization can use it.
+
+    A response to a request made in one organization lists only that organization, even when the server is registered
+    for others too. Only the routes for Roboto administrators list every organization.
+    """
 
     allowed_tools: typing.Optional[dict[str, bool]] = None
-    """Map of tool name to enabled flag. None = not yet configured (auto-populates on first discovery).
-    Keys are all known tools from the server; True = allowed, False = blocked."""
+    """Each tool name the server offers, mapped to ``True`` if Roboto's AI may call it or ``False`` if it is blocked.
+
+    ``None`` until Roboto's AI first loads the server's tools. On that first load, Roboto fills it in. If any of the
+    server's tools carries MCP's ``readOnlyHint`` annotation, only tools annotated read-only are allowed; otherwise
+    every tool is. A tool missing from the map, such as one the server added later, is blocked. Only a Roboto
+    administrator can change it.
+    """
 
     created: datetime.datetime
-    """Timestamp when this server was registered."""
+    """Time the MCP server was registered."""
 
     created_by: str
-    """User who first registered this server."""
+    """Principal that registered the MCP server, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     modified: datetime.datetime
-    """Timestamp when this server record was last modified."""
+    """Time the MCP server was last modified. Changing the organizations it is registered for does not update it."""
 
     modified_by: str
-    """User who last modified this server record."""
+    """Principal that last modified the MCP server, in the same ``<type>:<id>`` form as ``created_by``.
+
+    It is ``system`` when Roboto filled in ``allowed_tools``.
+    """
 
 
 class McpTokenRecord(pydantic.BaseModel):
-    """Per-user, per-org OAuth token metadata for an MCP server.
+    """Data record of a user's OAuth connection to an MCP server, as ``GET /v1/mcp/tokens`` returns it.
 
-    Token values (access_token, refresh_token) are never exposed — this record
-    contains only status metadata for display in the UI.
+    ``POST /v1/mcp/oauth/callback`` also returns it, when the user finishes connecting the server. A user connects a
+    server separately in each organization, and Roboto's AI then calls the server's tools as that user. The record
+    holds the connection's status only; Roboto never returns its access or refresh token.
     """
 
     server_id: str
-    """Server this token is for."""
+    """ID of the MCP server the user connected."""
 
     user_id: str
-    """User who authorized this token."""
+    """ID of the user who connected the server, which for a person is their email address."""
 
     org_id: str
-    """Org context this token is scoped to."""
+    """ID of the organization the connection belongs to."""
 
     token_status: McpTokenStatus
-    """Current status of the token."""
+    """Status of the connection."""
 
     expires_at: typing.Optional[datetime.datetime] = None
-    """When the access token expires, if known."""
+    """Time the access token expires, or ``None`` if the authorization server did not say."""
 
     scopes: list[str] = pydantic.Field(default_factory=list)
-    """Scopes granted by this token."""
+    """OAuth scopes the authorization server granted, or the MCP server's requested scopes when it did not list them."""
 
     created: datetime.datetime
-    """Timestamp when this token was first created."""
+    """Time the user connected the server in this organization."""
 
     modified: datetime.datetime
-    """Timestamp when this token was last refreshed or modified."""
+    """Time the connection was last modified, as when Roboto renewed its access token or changed its status."""
 
 
 class McpServerOrgContextRecord(pydantic.BaseModel):
-    """Per-org context for an MCP server.
+    """Data record of an organization's instructions to Roboto's AI about an MCP server.
 
-    Org admins set this plaintext to provide the AI with org-specific
-    instructions about how the server should be used (e.g., which repos,
-    project names, conventions).
+    ``GET /v1/mcp/servers/{server_id}/context`` returns it, and ``PUT /v1/mcp/servers/{server_id}/context`` returns
+    it after setting the instructions. An organization administrator writes the instructions, such as which
+    repositories or project names to use, and Roboto's AI reads them in every chat in the organization, whether or
+    not the user has connected the server.
     """
 
     server_id: str
-    """Server this context applies to."""
+    """ID of the MCP server the instructions are for."""
 
     org_id: str
-    """Org that owns this context."""
+    """ID of the organization that owns the instructions."""
 
     context: str
-    """Plaintext context injected into the AI system prompt."""
+    """Plain-text instructions for Roboto's AI, at most 4000 characters. An empty string gives Roboto's AI none."""
 
     created: datetime.datetime
+    """Time the instructions were first set."""
+
     created_by: str
+    """Principal that first set the instructions, as ``<type>:<id>``, such as ``user:<user_id>``."""
+
     modified: datetime.datetime
+    """Time the instructions were last set."""
+
     modified_by: str
+    """Principal that last set the instructions, in the same ``<type>:<id>`` form as ``created_by``."""
 
 
 class McpToolInfo(pydantic.BaseModel):
-    """Describes a tool discovered from a remote MCP server."""
+    """A tool an MCP server offers to Roboto's AI.
+
+    No SDK method or Roboto route uses this model.
+    """
 
     name: str
-    """Tool name as reported by the MCP server."""
+    """Name of the tool, as the MCP server reports it."""
 
     description: str
     """Human-readable description of the tool."""
 
     input_schema: dict[str, typing.Any]
-    """JSON Schema describing the tool's input parameters."""
+    """JSON Schema of the tool's input parameters."""
 
     server_id: str
-    """Server this tool belongs to."""
+    """ID of the MCP server that offers the tool."""
 
 
 class McpServerOrgCredentialRecord(pydantic.BaseModel):
-    """An org-wide bearer token for an MCP server.
+    """Data record of an organization's own token for an MCP server, as ``GET /v1/mcp/org-credentials`` returns it.
 
-    AI chat calls the server with this token for org members who have no working OAuth connection of
-    their own to it, and for service users (non-human callers, such as agents launched by triggers).
-    The record names the org secret that holds the token and never contains the token itself.
+    ``PUT /v1/mcp/servers/{server_id}/org-credential`` also returns it. An organization administrator sets the token
+    by naming one of the organization's secrets that holds it. Roboto's AI calls the server with it for members who
+    have not connected the server themselves or must connect again, and for callers that are not people, such as
+    agents a trigger starts. The record names the secret and never holds the token.
     """
 
     server_id: str
-    """Server this token authenticates against."""
+    """ID of the MCP server the token is for."""
 
     org_id: str
-    """Org that owns this token."""
+    """ID of the organization that owns the token."""
 
     secret_name: str
-    """Name of the org secret holding the token. Calls to the server send its value as
-    ``Authorization: Bearer <token>``."""
+    """Name of the :py:class:`~roboto.domain.secrets.Secret` that holds the token.
+
+    Roboto reads the secret's value each time it calls the server, and sends it as ``Authorization: Bearer <token>``.
+    """
 
     created: datetime.datetime
-    """Timestamp when an org admin first set an org token for this server."""
+    """Time the organization's token for this server was first set."""
 
     created_by: str
-    """User who first set an org token for this server."""
+    """Principal that first set the token, as ``<type>:<id>``, such as ``user:<user_id>``."""
 
     modified: datetime.datetime
-    """Timestamp when an org admin last chose the secret. Changing the secret's value does not update it."""
+    """Time an organization administrator last chose the secret. Changing the secret's value does not update it."""
 
     modified_by: str
-    """User who last chose the secret."""
+    """Principal that last chose the secret, in the same ``<type>:<id>`` form as ``created_by``."""

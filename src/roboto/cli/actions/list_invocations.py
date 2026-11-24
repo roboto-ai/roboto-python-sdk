@@ -27,6 +27,11 @@ from ..context import CLIContext
 
 
 def invocation_serializer(obj: typing.Any) -> typing.Any:
+    """Build the JSON-compatible form ``roboto actions list-invocations`` prints for an invocation.
+
+    The command passes it to ``json.dumps`` as ``default``. The form holds the invocation's ID, its creation time in
+    ISO 8601, and the name of its current status.
+    """
     if isinstance(obj, actions.Invocation):
         return {
             "invocation_id": obj.id,
@@ -34,11 +39,16 @@ def invocation_serializer(obj: typing.Any) -> typing.Any:
             "status": str(obj.current_status),
         }
 
-    # The default behavior for json.dumps(default=) is to throw a TypeError
+    # json.dumps expects default to raise TypeError for an object it cannot serialize.
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
 def list_invocations(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Print the invocations of an action in the ``--org`` organization as a JSON array, newest first.
+
+    An invocation matches when the action it ran has the reference's name, and its digest and owning organization
+    when the reference gives them.
+    """
     conditions = [
         Condition(
             field="provenance.action.name",

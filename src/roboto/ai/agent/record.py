@@ -18,90 +18,90 @@ from ..core import AnalysisScope
 
 
 class TemplateVariableType(StrEnum):
-    """How a variable's value is interpreted when an agent is launched.
+    """Type of a template variable's value: how Roboto checks it when the agent is launched.
 
-    Substitution itself is type-agnostic: every value is spliced in as a string. The
-    type drives two things a caller can observe — the Roboto web app picks a richer
-    input control (dataset picker, device picker), and a typed value is checked for
-    existence when the agent is launched, so a bad id is rejected up front rather than
-    inside the agent's first tool call.
+    Every value fills its placeholders as text, whatever its type. When the agent is launched, Roboto checks that the
+    resource an ID-typed value names exists in the agent's organization, and rejects the launch before it starts a
+    thread when it does not. The Roboto web app offers a picker for a dataset or collection ID, and a text box for any
+    other type.
     """
 
     STRING = "string"
-    """Free-form text. The default; renders as a plain text input. No existence
-    check (no entity to check against)."""
+    """Free-form text, which Roboto does not check."""
 
     DATASET_ID = "dataset_id"
-    """A Roboto dataset identifier. UI renders a dataset picker; invoke-time
-    validator asserts the dataset exists in the caller's org."""
+    """ID of a dataset."""
 
     DEVICE_ID = "device_id"
-    """A Roboto device identifier. UI renders a device picker; invoke-time
-    validator asserts the device is registered in the caller's org."""
+    """ID of a device."""
 
     COLLECTION_ID = "collection_id"
-    """A Roboto collection identifier. UI renders a collection picker; invoke-time
-    validator asserts the collection exists in the caller's org."""
+    """ID of a collection."""
 
     SESSION_ID = "session_id"
-    """A Roboto session identifier. Invoke-time validator asserts the session exists
-    in the caller's org."""
+    """ID of a session."""
 
 
 class AgentSubject(StrEnum):
-    """The kind of entity an agent is launched on.
+    """Subject of an agent: the kind of resource it is launched on.
 
-    An agent acts on a dataset or on a session, never both: its goals all act on the same kind of
-    entity, and the Roboto web app offers the matching picker when the agent is launched. Roboto
-    works the subject out from the agent's goals and variables rather than storing it; see
-    :func:`~roboto.ai.agent.infer_agent_subject`.
+    An agent acts on a dataset or on a session, never both, because all of its goals must act on the same kind of
+    resource. Roboto works the subject out from the agent's goals and variables, with
+    :py:func:`~roboto.ai.agent.infer_agent_subject`, instead of storing it.
     """
 
     DATASET = "dataset"
-    """The agent is launched on a dataset."""
+    """Datasets (:py:class:`~roboto.domain.datasets.Dataset`)."""
 
     SESSION = "session"
-    """The agent is launched on a session."""
+    """Sessions (:py:class:`~roboto.experimental.sessions.Session`)."""
 
 
 class TemplateVariable(pydantic.BaseModel):
-    """A named slot in an :class:`AgentRecord` that must be filled before the
-    agent can be invoked.
+    """Variable of an agent: a named value that each launch fills into the agent's ``{{name}}`` placeholders.
 
-    Variables are declared up-front rather than inferred from the body so that
-    the invoke UI can render typed inputs (dataset pickers, etc.) and so that
-    a typo in the body (``{{dataste.id}}``) surfaces as a save-time validation
-    error rather than a silent extra prompt at invoke time. The declared set
-    and the set of placeholders parsed from the body must match exactly - see
-    :meth:`AgentRecord._validate_variables_match_placeholders`.
+    Carried in ``AgentRecord.variables``. Because an agent declares its variables instead of Roboto inferring them
+    from its placeholders, the Roboto web app can show a typed input for each one, and a misspelled placeholder fails
+    when the agent is saved instead of when it is launched.
+
+    Building it raises ``pydantic.ValidationError`` when:
+
+    - ``name`` does not match :py:const:`~roboto.templating.VARIABLE_NAME_RE`.
+    - ``required`` is ``False`` and ``default`` is ``None``.
+    - ``collection_content_type`` is set and ``type`` is not ``TemplateVariableType.COLLECTION_ID``.
     """
 
     name: str
-    """Lookup key for substitution. Must match :data:`~roboto.templating.VARIABLE_NAME_RE`;
-    see that pattern for the dotted-name namespace convention. Two variables sharing
-    a prefix (``dataset.id`` + ``dataset.name``) without an upstream expander
-    produce two unlinked inputs at invoke time — that's a UI-authoring footgun,
-    not an SDK contract."""
+    """Name of the variable, which the agent's request template writes as ``{{name}}``. Unique within the agent.
+
+    A dotted name such as ``dataset.id`` is one name: ``dataset.id`` and ``dataset.name`` are two unrelated variables
+    with two inputs at launch.
+    """
 
     type: TemplateVariableType = TemplateVariableType.STRING
-    """UI hint for the invoke page. See :class:`TemplateVariableType`."""
+    """Type of the variable's value, which decides how Roboto checks it at launch. Defaults to free-form text."""
 
     description: Optional[str] = None
-    """Human-readable explanation rendered next to the input on the invoke page."""
+    """Human-readable description of the variable, shown next to its input in the Roboto web app's launch form."""
 
     required: bool = True
-    """If ``True`` the resolver raises :class:`UnresolvedAgentVariablesError`
-    when no value is supplied and no :attr:`default` is set."""
+    """Whether a launch must have a value for the variable.
+
+    A launch that leaves the variable out uses ``default``, and :py:meth:`~roboto.ai.agent.Agent.launch` raises
+    ``RobotoInvalidRequestException`` when there is none. ``False`` requires a ``default``.
+    """
 
     default: Optional[str] = None
-    """Default value substituted when the caller omits the variable. Coerced
-    to ``str``; types are a UI concern."""
+    """Value used when a launch leaves the variable out, or ``None`` if the variable has none."""
 
     collection_content_type: Optional[CollectionResourceType] = None
-    """Only meaningful when :attr:`type` is :attr:`TemplateVariableType.COLLECTION_ID`: constrains
-    the invoke-page collection picker to collections holding this resource type (e.g. ``event``
-    collections for a create-events goal). ``None`` leaves the picker unconstrained. Must be ``None``
-    for every other variable type — see :meth:`_validate_resolvable`."""
+    """Kind of resource a collection must hold to appear in the Roboto web app's collection picker for this variable.
+
+    For example, a variable for a goal that creates events can require event collections. ``None`` offers every
+    collection.
+
+    Roboto does not check it at launch. Used only with ``TemplateVariableType.COLLECTION_ID``.
+    """
 
     @pydantic.field_validator("name")
     @classmethod
@@ -117,11 +117,6 @@ class TemplateVariable(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def _validate_resolvable(self) -> "TemplateVariable":
-        """Reject two malformed shapes: ``required=False`` paired with
-        ``default=None`` (an optional variable with no default has no resolution
-        path at invoke time), and a :attr:`collection_content_type` set on a
-        variable whose :attr:`type` is not ``COLLECTION_ID`` (the annotation only
-        has meaning for the collection picker)."""
         if not self.required and self.default is None:
             raise ValueError(
                 f"TemplateVariable {self.name!r}: an optional variable must carry a default "
@@ -136,72 +131,68 @@ class TemplateVariable(pydantic.BaseModel):
 
 
 class AgentRecord(pydantic.BaseModel):
-    """A pre-filled :class:`StartAgentThreadRequest` plus declared variables.
+    """Data record of an agent, as the Roboto API returns it.
 
-    An :class:`AgentRecord` captures *most* of what an :class:`AgentThread`
-    needs to start - system prompt, model profile, seeded messages, declared
-    goals - and leaves a small set of named holes that callers must fill at
-    invoke time. The canonical example is a triage agent whose goal carries a
-    fixed ``label_vocabulary`` but a ``{{dataset.id}}`` placeholder, so the
-    same agent can be re-run against many datasets without re-declaring the
-    vocabulary.
+    An agent is an AI worker an organization defines and runs on its data: a saved request to start a thread, with
+    typed ``{{name}}`` placeholders, optionally paired with goals. Each launch fills the placeholders with its own
+    values and starts a thread, so one agent, such as a triage agent with a fixed label vocabulary and a dataset ID
+    placeholder, can run on many datasets. :py:class:`~roboto.ai.agent.Agent` wraps this record with methods that act
+    on the agent.
 
-    The record's main invariant - enforced by
-    :meth:`_validate_variables_match_placeholders` - is that the set of
-    ``{{...}}`` placeholders found anywhere in :attr:`request_template`
-    equals exactly ``{v.name for v in variables}``. A mismatch fails at
-    save time so stale invoke forms can't paper over typos.
+    Building it raises ``pydantic.ValidationError`` when:
+
+    - ``variables`` and the placeholders in ``request_template`` do not name the same set of variables.
+    - Two variables share a name.
+    - A dictionary key in ``request_template`` holds a placeholder.
     """
 
     agent_id: str
-    """Canonical handle. Generated server-side (``agt_<short>``); stable across renames."""
+    """Unique ID of the agent, beginning with ``agt_``."""
 
     org_id: str
-    """Organization that owns the agent. All CRUD and invoke calls must
-    come from a member of this org."""
+    """ID of the organization that owns the agent."""
 
     name: str
-    """Human-readable display name. Mutable. Unique per ``(org_id, name)`` -
-    enforced at the persistence layer, not on the record."""
+    """Human-readable name of the agent, unique within its organization."""
 
     description: Optional[str] = None
-    """Free-form description rendered on the agents list and detail pages."""
+    """Human-readable description of the agent, or ``None`` if it has none."""
 
     request_template: StartAgentThreadRequest
-    """The body that will be cloned and resolved into a real
-    :class:`StartAgentThreadRequest` at invoke time. Any string leaf may
-    contain ``{{name}}`` placeholders; non-string fields cannot be templated,
-    because substitution visits string leaves only."""
+    """Request that starts each of the agent's threads, with ``{{name}}`` placeholders where launch values go.
+
+    A placeholder can appear anywhere in a string value, but not in a dictionary key, and fields of other types cannot
+    hold one. Each launch fills the placeholders and starts a thread with the resulting
+    :py:class:`~roboto.ai.agent_thread.StartAgentThreadRequest`.
+    """
 
     variables: list[TemplateVariable] = pydantic.Field(default_factory=list)
-    """Declared variables. The set of names here must equal the set of
-    placeholder names parsed from :attr:`request_template`."""
+    """Variables of the agent, exactly one for each placeholder name in ``request_template``."""
 
     created: datetime.datetime
-    """Wall-clock time the record was first persisted."""
+    """Time the agent was created."""
 
     created_by: str
-    """User id of the agent's original author."""
+    """ID of the user who created the agent."""
 
     modified: datetime.datetime
-    """Wall-clock time of the most recent successful update."""
+    """Time the agent was last modified."""
 
     modified_by: str
-    """User id who applied the most recent update; equals :attr:`created_by`
-    on records that have not been edited since creation."""
+    """ID of the user who last modified the agent."""
 
     subject: Optional[AgentSubject] = None
-    """The kind of entity the agent is launched on, or ``None`` for an agent with no subject, such as a chat
-    agent that takes no dataset or session ID. Roboto computes it from :attr:`request_template` and
-    :attr:`variables` each time it returns the record (see :func:`~roboto.ai.agent.infer_agent_subject`); it
-    is not stored, and create and update requests do not take it."""
+    """Kind of resource the agent is launched on, or ``None`` for an agent with no subject.
+
+    A chat agent that takes no dataset or session ID, for example, has no subject.
+
+    Roboto computes it from ``request_template`` and ``variables`` with
+    :py:func:`~roboto.ai.agent.infer_agent_subject` each time it returns the record. It is not stored, and create and
+    update requests do not take it.
+    """
 
     @pydantic.model_validator(mode="after")
     def _validate_variables_match_placeholders(self) -> "AgentRecord":
-        """Raise ``ValueError`` if declared variables don't match the body's
-        placeholders. Three failure modes: a placeholder is referenced but
-        not declared, a variable is declared but not referenced, or two
-        variables share a name."""
         body_placeholders = extract_placeholders(self.request_template)
         declared = {v.name for v in self.variables}
 
@@ -230,43 +221,58 @@ class AgentRecord(pydantic.BaseModel):
 
 
 def extract_placeholders(body: StartAgentThreadRequest) -> set[str]:
-    """Return every ``{{name}}`` placeholder referenced anywhere in ``body``.
+    """Return the name of every ``{{name}}`` placeholder in the string values of ``body``.
 
-    Walks the JSON form of the request rather than the Pydantic model so the
-    traversal is type-agnostic - placeholders inside ``label_vocabulary``
-    values, message text, system prompt, etc. all get picked up without
-    needing per-field logic. Only string *values* are scanned; dict keys are
-    intentionally ignored so key-collision footguns never arise.
+    Scans every string value in the request's JSON form, such as message text, the system prompt, and the values of a
+    goal's label vocabulary.
+
+    Args:
+        body: Request to scan, such as an agent's request template.
+
+    Raises:
+        ValueError: A dictionary key in ``body`` holds a placeholder.
     """
     return collect_placeholders(body.model_dump(mode="json"))
 
 
 class CreateAgentRequest(pydantic.BaseModel):
-    """Wire payload for ``POST /v1/ai/agents``.
+    """Request body for :py:meth:`~roboto.ai.agent.Agent.create`.
 
-    The server fills :attr:`AgentRecord.agent_id`, ``org_id``,
-    ``created_by``, ``created``, ``modified``, and ``modified_by`` from the
-    caller's identity; everything else comes from this request.
+    Roboto sets the agent's ID, organization, and creation and modification fields.
     """
 
     name: str
+    """Human-readable name of the agent, unique within its organization."""
+
     description: Optional[str] = None
+    """Human-readable description of the agent. ``None`` sets none."""
+
     request_template: StartAgentThreadRequest
+    """Request that starts each of the agent's threads, as ``AgentRecord.request_template`` describes."""
+
     variables: list[TemplateVariable] = pydantic.Field(default_factory=list)
+    """Variables of the agent, exactly one for each placeholder name in ``request_template``. Defaults to none."""
 
 
 class UpdateAgentRequest(pydantic.BaseModel):
-    """Wire payload for ``PUT /v1/ai/agents/<agent_id>``.
+    """Request body for :py:meth:`~roboto.ai.agent.Agent.update`.
 
-    Uses the :class:`NotSetType` sentinel to distinguish "field omitted" from
-    "field explicitly set to ``None``" so partial updates don't accidentally
-    null out unrelated fields.
+    A field left unset (``NotSet``) is unchanged. Roboto checks the agent's variables against its placeholders after
+    applying the update, so a request that changes the placeholders in ``request_template`` must also send the
+    matching ``variables``.
     """
 
     name: Union[str, NotSetType] = NotSet
+    """Human-readable name of the agent, unique within its organization."""
+
     description: Union[Optional[str], NotSetType] = NotSet
+    """Human-readable description of the agent. ``None`` clears it."""
+
     request_template: Union[StartAgentThreadRequest, NotSetType] = NotSet
+    """Request that starts each of the agent's threads, as ``AgentRecord.request_template`` describes."""
+
     variables: Union[list[TemplateVariable], NotSetType] = NotSet
+    """Variables of the agent, exactly one for each placeholder name in ``request_template``."""
 
     model_config = pydantic.ConfigDict(
         extra="ignore",
@@ -275,33 +281,31 @@ class UpdateAgentRequest(pydantic.BaseModel):
 
 
 class LaunchAgentRequest(pydantic.BaseModel):
-    """Wire payload for ``POST /v1/ai/agents/<agent_id>/launch``.
+    """Request body for :py:meth:`~roboto.ai.agent.Agent.launch`.
 
-    The route resolves the named agent, substitutes ``values`` into its
-    body, and starts a new :class:`AgentThread` whose visibility comes from
-    :attr:`visibility` and whose ``created_from_agent_id`` points back at
-    the source agent.
+    Roboto fills ``values`` into the agent's request template and starts a thread in the agent's organization, whose
+    ``created_from_agent_id`` names the agent.
     """
 
     values: dict[str, str] = pydantic.Field(default_factory=dict)
-    """Variable name to caller-supplied value. Keys must match declared
-    :class:`TemplateVariable` names; values are coerced to ``str`` before
-    being spliced into placeholders."""
+    """Value of each variable, keyed by variable name. A variable left out uses its default. Defaults to none.
+
+    A key that names no variable of the agent raises ``RobotoInvalidRequestException``.
+    """
 
     visibility: ThreadVisibility = ThreadVisibility.ORG
-    """Visibility of the resulting :class:`AgentThread`. Invoke-time wins:
-    this value overrides whatever the agent's ``request_template.visibility``
-    field carries. Agents cannot pin visibility — authors who need to convey
-    recommended visibility do so in the agent's ``description``. Defaults to
-    ``ORG`` because agents exist to share workflows across teammates;
-    ``PRIVATE`` is an explicit opt-out per invocation."""
+    """Visibility of the new thread, which replaces the ``visibility`` in the agent's request template.
+
+    Defaults to :py:attr:`~roboto.ai.agent_thread.ThreadVisibility.ORG`, which lets every member of the organization
+    read the thread. ``PRIVATE`` limits it to the user who launches the agent.
+    """
 
     analysis_scope: Optional[AnalysisScope] = None
-    """Optional :class:`~roboto.ai.core.AnalysisScope` for the resulting
-    thread. When provided, it is zipper-merged onto whatever the agent's
-    ``request_template.analysis_scope`` field carries: each dimension the
-    caller set wins, and the rest inherit from the template. When ``None``,
-    the authored template's scope (usually none) is left untouched."""
+    """Data the new thread analyzes, combined with the ``analysis_scope`` in the agent's request template.
+
+    Each field set here replaces the template's, and each field left ``None`` keeps the template's. ``None`` keeps the
+    template's scope unchanged.
+    """
 
 
 __all__ = [

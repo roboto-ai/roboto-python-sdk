@@ -35,45 +35,51 @@ from .events import (
 from .once_per import OncePer
 
 OncePerProjection = typing.Callable[[PlatformEvent], str]
-"""Projects a :class:`PlatformEvent` onto the token string that identifies what the
-trigger fires once per (e.g. the dataset id for ``once_per=dataset``).
+"""Function that reads a platform event, and returns the value a trigger fires once per, such as the dataset's ID.
 
-A projection reads the event payload and nothing else: one event in, one string out,
-with no lookup against platform state. A ``once_per`` value can only name what the
-event itself already identifies, so there is no "once per file in the dataset this
-event is about". ``once_per`` only collapses repeats; it never fans one event out
-into several runs, and a trigger dispatches each of its targets at most once per
-event.
+A projection reads the event's payload and nothing else: one event in, one string out, with no request to Roboto. A
+``once_per`` value can therefore name only what the event itself identifies; there is no "once per file in the dataset
+this event is about". ``once_per`` only collapses repeated events into one run of each target; it never fans one event
+out into several runs, and a trigger runs each of its targets at most once per event.
 """
 
 
 ENVELOPE_ROOT = "envelope"
-"""Namespace root served from the platform event's own envelope: its id, source, subject,
-type, time, and org, plus the payload as published under ``data``. Reserved: no event type
-may expose it as an entity root."""
+"""Root of the trigger condition and template fields that read the platform event itself.
+
+These fields read the event's ``id``, ``source``, ``subject``, ``type``, ``time`` and ``org_id``, and under ``data``
+its payload as published. No descriptor may list this root in ``exposed_roots``.
+"""
 
 TRIGGER_ROOT = "trigger"
-"""Namespace root describing the trigger being evaluated. Reserved for the consumer; no
-event type may expose it as an entity root."""
+"""Root of the trigger condition and template fields that read the trigger being evaluated.
+
+No descriptor may list this root in ``exposed_roots``.
+"""
 
 RESERVED_ROOTS = frozenset({ENVELOPE_ROOT, TRIGGER_ROOT})
-"""Roots the evaluation namespace serves itself. A descriptor claiming one would be
-silently shadowed by the envelope or the trigger, so construction rejects it."""
+"""Roots Roboto fills in for every event, which no descriptor may list in ``exposed_roots``.
+
+They are ``ENVELOPE_ROOT`` and ``TRIGGER_ROOT``. The event or the trigger would hide a descriptor's root of the same
+name, so a descriptor that lists one in ``exposed_roots`` raises ``ValueError``.
+"""
 
 DATASET_ROOT = "dataset"
-"""Namespace root naming a dataset. An event exposing it is about a dataset or about
-something within one, so a consumer may reach that dataset's files from the event."""
+"""Root of the fields that read the dataset an event is about or happened within.
+
+An action target's ``required_inputs`` and ``additional_inputs`` patterns match that dataset's files, so a trigger may
+set them only when every event it fires for exposes this root.
+"""
 
 
 def _subject_id(event: PlatformEvent, field: str) -> str:
-    """Read one identifier off the event's own payload — a projection's only input.
+    """Return one identifier from the event's payload, the only input a projection has.
 
     Raises:
-        ValueError: The payload carries no such identifier, so this ``once_per`` value
-            names nothing the event names. Normally unreachable: :class:`PlatformEvent`
-            validation binds ``data`` to the payload model registered for ``type``, and
-            only ``once_per`` values that model supports are registered in the
-            descriptor.
+        ValueError: The payload has no string field named ``field``. Not raised for the default catalog's
+            projections: validating a :py:class:`~roboto.domain.platform_events.PlatformEvent` parses ``data`` with
+            the payload model registered for its type, and each of those descriptors registers only projections its
+            payload model supports.
     """
     value = getattr(event.data, field, None)
     if not isinstance(value, str):
@@ -105,56 +111,65 @@ def _annotation_event_id(event: PlatformEvent) -> str:
 
 
 SubjectProjection = typing.Callable[[PlatformEvent], RobotoUri]
-"""The CloudEvents ``subject``: the entity an event is about, as a ``roboto://`` URI.
-A pure function of the payload on the same terms as :data:`OncePerProjection` — it can
-only name an entity the event already carries."""
+"""Function that reads a platform event, and returns the ``roboto://`` URI of the entity it is about.
+
+That URI is the event's CloudEvents ``subject``. Like ``OncePerProjection``, it reads only the payload, so it can name
+only an entity the event itself identifies.
+"""
 
 
 @dataclasses.dataclass(frozen=True)
 class PlatformEventDescriptor:
-    """Everything the trigger system knows about one platform event type.
+    """Description of one platform event type: its payload, the fields triggers can read, and its ``once_per`` values.
 
-    Immutable. Carries the payload model the envelope validates against, the namespace
-    roots the event exposes to conditions and target templates, the default root
-    unqualified condition fields bind to, the entity the event is about, and the
-    :class:`OncePer` values the event supports (as projections from an event to its
-    dedup token value).
+    A root is the first segment of a field path in a trigger's condition or target templates, such as ``dataset`` in
+    ``dataset.metadata.vehicle_id``. A descriptor lists the roots its event type exposes and the root a condition field
+    with no root reads from. It also maps each :py:class:`~roboto.domain.platform_events.OncePer` value the event type
+    supports to a ``OncePerProjection``, which computes the value a trigger with that ``once_per`` fires once per.
 
-    Every ``once_per`` value is declared as an :data:`OncePerProjection`, a pure
-    function of the event payload, so a descriptor can only offer what the payload
-    itself names.
-    No descriptor can resolve one event into several subjects, which is what holds
-    dispatch at one per target per event.
+    Raises:
+        ValueError: ``default_root`` is not in ``exposed_roots``, ``once_per_projections`` has no entry for
+            :py:attr:`~roboto.domain.platform_events.OncePer.Occurrence`, or ``exposed_roots`` includes a root in
+            ``RESERVED_ROOTS``.
     """
 
     event_type: PlatformEventType
-    """The event type this descriptor describes."""
+    """Event type this descriptor describes."""
 
     payload_model: type[pydantic.BaseModel]
-    """Model of :attr:`PlatformEvent.data` for this event type."""
+    """Pydantic model of :py:attr:`~roboto.domain.platform_events.PlatformEvent.data` for this event type."""
 
     exposed_roots: frozenset[str]
-    """Namespace roots (``dataset``, ``file``, ``changed``, ...) this event exposes."""
+    """Roots this event type exposes to trigger conditions and target templates.
+
+    Examples are ``dataset``, ``file`` and ``changed``.
+    """
 
     default_root: str
-    """Root that unqualified condition fields bind to. Always one of :attr:`exposed_roots`."""
+    """Root that a condition field with no root reads from. Always one of ``exposed_roots``."""
 
     once_per_projections: collections.abc.Mapping[OncePer, OncePerProjection]
-    """Supported ``once_per`` values, each mapped to the projection that yields its
-    token. Key presence defines legality; every event supports :attr:`OncePer.Occurrence`."""
+    """``once_per`` values this event type supports, each mapped to its projection.
+
+    A value absent from the keys is unsupported, and every event type supports
+    :py:attr:`~roboto.domain.platform_events.OncePer.Occurrence`.
+    """
 
     subject_type: RobotoUriType
-    """The kind of entity this event is about — its CloudEvents ``subject``. The payload
-    carries that entity's id under ``{subject_type}_id``, and may say more about it, such
-    as the version a file was at. The rest is context around the entity: the upload
-    transaction a file arrived in, or the applied changeset."""
+    """Kind of entity this event is about, its CloudEvents ``subject``.
+
+    The payload carries that entity's ID under ``<subject_type>_id`` and may say more about it, such as the version a
+    file was at. The rest of the payload is context around the entity, such as the upload transaction a file arrived in
+    or the metadata changes applied.
+    """
 
     subscribable: bool = True
-    """Whether a trigger may name this type in an
-    :class:`~roboto.domain.triggers.EventSubscription`. ``False`` for occurrences
-    delivered to a single trigger rather than broadcast to subscribers — the schedule
-    tick — which still carry a descriptor so their tokens and namespaces are built the
-    same way."""
+    """Whether a trigger may name this event type in an :py:class:`~roboto.domain.triggers.EventSubscription`.
+
+    ``False`` for an event Roboto delivers to a single trigger rather than to every subscriber, such as a trigger's
+    schedule reaching one of its minutes. Such an event type still has a descriptor, so its ``once_per`` values and
+    roots work the same way.
+    """
 
     def __post_init__(self) -> None:
         if self.default_root not in self.exposed_roots:
@@ -176,18 +191,25 @@ class PlatformEventDescriptor:
 
     @property
     def supported_once_per(self) -> frozenset[OncePer]:
-        """The :class:`OncePer` values this event type supports."""
+        """:py:class:`~roboto.domain.platform_events.OncePer` values this event type supports."""
         return frozenset(self.once_per_projections)
 
     def supports_once_per(self, once_per: OncePer) -> bool:
-        """Return whether ``once_per`` is legal for this event type."""
+        """Return whether this event type supports ``once_per``.
+
+        Args:
+            once_per: Value to check.
+        """
         return once_per in self.once_per_projections
 
     def subject(self, event: PlatformEvent) -> RobotoUri:
         """Return the ``roboto://`` URI of the entity ``event`` is about.
 
+        Args:
+            event: Event to name the subject of. Must be of this descriptor's event type.
+
         Raises:
-            ValueError: ``event`` is not of this descriptor's event type.
+            ValueError: ``event`` is of another event type.
         """
         if event.type is not self.event_type:
             raise ValueError(
@@ -197,18 +219,19 @@ class PlatformEventDescriptor:
         return RobotoUri(self.subject_type, _subject_id(event, f"{self.subject_type.value}_id"))
 
     def idempotency_token(self, event: PlatformEvent, once_per: OncePer) -> str:
-        """Return the dedup token for ``event`` at ``once_per``.
+        """Return the token that identifies ``event`` for a trigger that fires once per ``once_per``.
 
-        Two events that project onto the same token dispatch the same target of the
-        same trigger at most once.
+        A trigger runs each of its targets at most once for all the events that share a token.
 
         Args:
-            event: The event to project. Must be of this descriptor's type.
+            event: Event to compute the token for. Must be of this descriptor's event type.
             once_per: What the trigger fires once per.
 
+        Returns:
+            Token of the form ``<event type>|<once_per>:<value>``, such as ``file.uploaded|dataset:ds_12345``.
+
         Raises:
-            ValueError: ``event`` is of a different type, or ``once_per`` is not
-                supported by this event type.
+            ValueError: ``event`` is of another event type, or this event type does not support ``once_per``.
         """
         if event.type is not self.event_type:
             raise ValueError(
@@ -226,23 +249,21 @@ class PlatformEventDescriptor:
 
 
 class PlatformEventCatalog:
-    """Descriptors for platform event types, looked up by type.
+    """Set of platform event descriptors, at most one per event type, looked up by type.
 
-    Everything that varies by event type — payload model, exposed roots, default root,
-    dedup projections — hangs off the :class:`PlatformEventDescriptor` objects
-    registered here. :data:`DEFAULT_PLATFORM_EVENT_CATALOG` registers every member of
-    :class:`PlatformEventType`; a caller may build a catalog over a subset.
+    Everything that varies by event type, such as the payload model, the roots and the ``once_per`` values, is on the
+    ``PlatformEventDescriptor`` registered for it. ``DEFAULT_PLATFORM_EVENT_CATALOG`` registers every
+    :py:class:`~roboto.domain.platform_events.PlatformEventType`; you may build a catalog of a subset. Iterating a
+    catalog yields its descriptors, and ``event_type in catalog`` tests whether one is registered for ``event_type``.
+
+    Args:
+        descriptors: Descriptors to register, at most one per event type.
+
+    Raises:
+        ValueError: Two descriptors share an event type.
     """
 
     def __init__(self, descriptors: collections.abc.Iterable[PlatformEventDescriptor]) -> None:
-        """Register ``descriptors``, rejecting duplicates.
-
-        Args:
-            descriptors: The descriptors this catalog serves, at most one per event type.
-
-        Raises:
-            ValueError: Two descriptors share an event type.
-        """
         self.__descriptors: dict[PlatformEventType, PlatformEventDescriptor] = {}
         for descriptor in descriptors:
             if descriptor.event_type in self.__descriptors:
@@ -258,6 +279,9 @@ class PlatformEventCatalog:
     def descriptor(self, event_type: PlatformEventType) -> PlatformEventDescriptor:
         """Return the descriptor for ``event_type``.
 
+        Args:
+            event_type: Event type to look up.
+
         Raises:
             ValueError: No descriptor is registered for ``event_type``.
         """
@@ -267,7 +291,10 @@ class PlatformEventCatalog:
         return descriptor
 
     def exposed_roots(self, event_type: PlatformEventType) -> frozenset[str]:
-        """Return the namespace roots ``event_type`` exposes.
+        """Return the roots ``event_type`` exposes to trigger conditions and target templates.
+
+        Args:
+            event_type: Event type to look up.
 
         Raises:
             ValueError: No descriptor is registered for ``event_type``.
@@ -279,7 +306,7 @@ class PlatformEventCatalog:
         return frozenset(descriptor.event_type for descriptor in self if descriptor.subscribable)
 
     def namespace_roots(self) -> frozenset[str]:
-        """Return the union of every registered event type's exposed roots."""
+        """Return every root that at least one registered event type exposes."""
         roots: set[str] = set()
         for descriptor in self:
             roots |= descriptor.exposed_roots
@@ -362,8 +389,8 @@ DEFAULT_PLATFORM_EVENT_CATALOG = PlatformEventCatalog(
             payload_model=DatasetTagAddedPayload,
             exposed_roots=frozenset({"dataset", "tag"}),
             default_root="dataset",
-            # Tags are added to a dataset repeatedly over its life; a per-dataset grain
-            # would fire on the first addition and swallow every later one.
+            # Tags are added to a dataset many times over its life. Once per dataset would
+            # fire on the first addition and drop every later one.
             once_per_projections={
                 OncePer.Occurrence: _event_id,
             },
@@ -396,8 +423,8 @@ DEFAULT_PLATFORM_EVENT_CATALOG = PlatformEventCatalog(
             payload_model=SessionIngestedPayload,
             exposed_roots=frozenset({"session"}),
             default_root="session",
-            # Each announcement is its own occurrence, so a trigger fires again when a changed
-            # session is ingested again; ingestion_number tells the announcements apart.
+            # Each time a session's changed files are all ingested again is a new event, with a
+            # higher ingestion_number, so a trigger fires again.
             once_per_projections={
                 OncePer.Occurrence: _event_id,
             },
@@ -430,8 +457,8 @@ DEFAULT_PLATFORM_EVENT_CATALOG = PlatformEventCatalog(
             payload_model=ScheduleFiredPayload,
             exposed_roots=frozenset({"schedule"}),
             default_root="schedule",
-            # The scheduler vends the occurrence id deterministically from (trigger,
-            # scheduled minute), so once per occurrence dedupes a re-delivered tick.
+            # Roboto builds the event's ID from the trigger and the scheduled minute, so once
+            # per occurrence fires once even when the same minute is delivered twice.
             once_per_projections={
                 OncePer.Occurrence: _event_id,
             },
@@ -440,16 +467,23 @@ DEFAULT_PLATFORM_EVENT_CATALOG = PlatformEventCatalog(
         ),
     ]
 )
-"""The catalog of every :class:`PlatformEventType`, used wherever a caller does not
-supply its own (envelope payload binding, trigger validation, evaluation)."""
+"""Catalog with a descriptor for every :py:class:`~roboto.domain.platform_events.PlatformEventType`.
+
+Roboto uses it to parse each event's payload, and to validate and evaluate triggers wherever no other catalog is given.
+"""
 
 
 def event_catalog_manifest(catalog: PlatformEventCatalog = DEFAULT_PLATFORM_EVENT_CATALOG) -> dict[str, typing.Any]:
-    """The catalog as the web UI's TypeScript mirror reads it: per event type, its roots,
-    default root, supported grains, subject type, and whether a trigger may subscribe.
+    """Build a JSON-serializable summary of ``catalog``, keyed by event type.
 
-    ``event_catalog.json`` in this package is this function's output, written by
-    ``scripts/gen_trigger_manifests.py`` and drift-checked by a test on each side.
+    ``event_catalog.json`` in this package holds its output for the default catalog, which the Roboto web app mirrors.
+
+    Args:
+        catalog: Catalog to summarize. Defaults to ``DEFAULT_PLATFORM_EVENT_CATALOG``.
+
+    Returns:
+        Dictionary that maps each event type to its ``roots``, ``default_root``, supported ``once_per`` values,
+        ``subject_type``, and whether a trigger may subscribe to it (``subscribable``).
     """
     return {
         descriptor.event_type.value: {

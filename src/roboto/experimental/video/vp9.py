@@ -4,42 +4,31 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Minimal VP9 bitstream inspection.
-
-VP9 has no Annex B framing: a message payload is one raw frame (possibly a
-superframe, whose index trails the payload — so byte 0 always starts the
-first frame). This module parses only the fixed-position leading bits of the
-uncompressed frame header (VP9 Bitstream Specification section 6.2) needed
-for keyframe detection; the decoder reads everything else from the stream.
-"""
-
 from __future__ import annotations
 
 _FRAME_MARKER = 0b10
 _SYNC_CODE = bytes([0x49, 0x83, 0x42])
 
-# The header bits read here span at most 9 bits, followed by the 24-bit sync
-# code — under 5 bytes. Real frames are orders of magnitude larger; anything
-# shorter cannot be a decodable frame.
+# At most 9 header bits come before the 24-bit sync code, so 5 bytes hold a keyframe header's 33 bits.
 _MIN_HEADER_BYTES = 5
 
 
 def _read_bit(data: bytes, position: int) -> int:
+    """Return bit ``position`` of ``data``, counting from the most significant bit of byte 0."""
     return (data[position // 8] >> (7 - position % 8)) & 0x01
 
 
 def is_keyframe(data: bytes) -> bool:
-    """Whether the VP9 frame is a keyframe (intra-only, clean decoder entry point).
+    """Return whether a VP9 frame is a keyframe, a point decoding can start from.
 
-    A keyframe has ``frame_type`` KEY_FRAME in its uncompressed header and is
-    confirmed by the frame sync code. ``show_existing_frame`` payloads (which
-    re-display an already decoded frame) are never keyframes.
+    A compressed-video message holds one VP9 frame with no framing around it. When it holds a superframe, several
+    frames followed by an index of their sizes, the first frame still starts at byte 0, and it is the frame read.
+    Only the leading bits of its uncompressed header (section 6.2 of the VP9 Bitstream Specification) are read: the
+    frame is a keyframe when its frame marker is ``0b10``, ``show_existing_frame`` is 0, ``frame_type`` is
+    ``KEY_FRAME``, and the frame sync code follows. Data shorter than 5 bytes is not a keyframe.
 
     Args:
-        data: One frame's raw VP9 bytes.
-
-    Returns:
-        True when the frame is a keyframe.
+        data: Bytes of one VP9 frame or superframe.
     """
     if len(data) < _MIN_HEADER_BYTES:
         return False
@@ -56,14 +45,13 @@ def is_keyframe(data: bytes) -> bool:
 
     if read(2) != _FRAME_MARKER:
         return False
-    profile = read(1) | (read(1) << 1)
+    profile = read(1) | (read(1) << 1)  # profile_low_bit, then profile_high_bit
     if profile == 3:
         read(1)  # reserved_zero
-    if read(1) == 1:  # show_existing_frame: re-display, not a new frame
+    if read(1) == 1:  # show_existing_frame: shows a decoded frame again
         return False
     if read(1) != 0:  # frame_type: 0 = KEY_FRAME
         return False
     read(2)  # show_frame, error_resilient_mode
-    # frame_sync_code confirms this really is a keyframe header and not
-    # arbitrary bytes that happened to match the flag bits.
+    # frame_sync_code rejects data whose leading bits match a keyframe header by chance.
     return read(24) == int.from_bytes(_SYNC_CODE, "big")

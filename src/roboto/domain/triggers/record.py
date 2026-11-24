@@ -16,95 +16,124 @@ from .targets import TriggerTargetSpec
 
 
 class ManagedByKind(StrEnum):
-    """What kind of thing in Roboto manages a trigger."""
+    """Kind of owner that manages a trigger in place of the organization's members."""
 
     System = "system"
-    """Roboto installed the trigger to run a platform feature."""
+    """Roboto, which installed the trigger to run one of its own features, such as computing session metrics."""
 
     IngestionRule = "ingestion_rule"
-    """An ingestion rule owns the trigger and is its only edit surface."""
+    """Ingestion rules (``roboto.experimental.ingestion_rules.IngestionRuleRecord``).
+
+    Each rule owns the trigger that ingests the files the rule matches.
+    """
 
 
 class ManagedBy(pydantic.BaseModel):
-    """The owner of a trigger whose definition is managed by something other than the org's members.
+    """Owner that manages a trigger's definition in place of the organization's members.
 
-    No managed trigger can be deleted, or have its definition changed, through the triggers API.
-    Org members may enable or disable a system-managed trigger. A trigger owned by an ingestion
-    rule may not be enabled, disabled, edited or deleted directly: change the rule instead, e.g.
-    turn its auto-ingest off. An org has at most one trigger per owner.
+    A managed trigger cannot be deleted, or have its definition changed, through
+    :py:class:`~roboto.domain.triggers.Trigger`. Members of the organization can still enable or disable a trigger
+    Roboto manages. A trigger an ingestion rule owns cannot be enabled, disabled, edited or deleted directly; change
+    the rule instead, such as by turning its auto-ingest off. An organization has at most one trigger per owner.
+
+    Carried in ``TriggerRecord.managed_by``.
     """
 
     model_config = pydantic.ConfigDict(frozen=True)
 
     kind: ManagedByKind
-    """What kind of thing manages the trigger."""
+    """Kind of owner that manages the trigger."""
 
     id: str
-    """Which one: for :attr:`ManagedByKind.System`, the platform feature's key (e.g.
-    ``"session_metrics"``); for :attr:`ManagedByKind.IngestionRule`, the rule's id."""
+    """ID of the owner, whose meaning depends on the owner's kind.
+
+    For ``ManagedByKind.System``, it is the key of the Roboto feature, such as ``"session_metrics"``; for
+    ``ManagedByKind.IngestionRule``, it is the rule's ID.
+    """
 
 
 class TriggerRecord(pydantic.BaseModel):
-    """Wire-transmissible representation of a trigger.
+    """Data record of a trigger, as the Roboto API returns it.
 
-    A firing source (a platform event subscription or a schedule), an optional
-    condition over the firing's namespace, and the targets to dispatch on a match.
-    Cross-field rules — exposed roots, ``once_per`` legality, template placeholders —
-    are enforced when the trigger is saved, by
-    :class:`~roboto.domain.triggers.TriggerValidator`.
+    A trigger is a rule that responds to activity in an organization. It has a firing source (a subscription to
+    platform events, or a schedule), an optional condition over the variables a firing exposes, and the targets to
+    run when the condition holds. :py:class:`~roboto.domain.triggers.Trigger` wraps this record with methods that act
+    on the trigger, and exposes it as :py:attr:`~roboto.domain.triggers.Trigger.record`.
 
-    Triggered work runs as the organization's actions service user; a trigger cannot
-    run its targets as anyone else.
+    When a trigger is saved, Roboto checks the rules that span its fields with
+    :py:class:`~roboto.domain.triggers.TriggerValidator`: the condition references only variables every subscribed
+    platform event exposes, :py:attr:`~roboto.domain.triggers.EventSubscription.once_per` is legal for every
+    subscribed event, and every target template placeholder resolves. A trigger's targets run as its organization's
+    service user, never as the user who created the trigger.
     """
 
     trigger_id: str
-    """Unique identifier for the trigger."""
+    """Unique ID of the trigger."""
 
     org_id: str
-    """Organization that owns the trigger and whose events it sees."""
+    """ID of the organization that owns the trigger.
+
+    An event-fired trigger fires only on that organization's platform events.
+    """
 
     name: str
-    """Human-readable name. Unique within :attr:`org_id`."""
+    """Human-readable name of the trigger, unique within its organization."""
 
     enabled: bool = True
-    """Whether the trigger is active."""
+    """Whether the trigger is enabled. A disabled trigger does not fire."""
 
     fires_on: TriggerSource
-    """What makes the trigger fire: an :class:`~roboto.domain.triggers.EventSubscription`
-    (which also carries ``once_per``) or a :class:`~roboto.domain.triggers.Schedule`."""
+    """What makes the trigger fire: a subscription to platform events, or a schedule.
+
+    The value is an :py:class:`~roboto.domain.triggers.EventSubscription`, which also carries
+    :py:attr:`~roboto.domain.triggers.EventSubscription.once_per`, or a
+    :py:class:`~roboto.domain.triggers.Schedule`.
+    """
 
     condition: typing.Optional[ConditionType] = None
-    """Optional predicate over the firing's namespace; the trigger fires only when it
-    holds. Same :class:`~roboto.query.Condition` wire format the query system uses."""
+    """Condition over the variables a firing exposes, which must hold for the trigger to run its targets.
+
+    It takes the :py:class:`~roboto.query.Condition` format Roboto's queries use. ``None`` runs the targets on every
+    firing.
+    """
 
     targets: list[TriggerTargetSpec]
-    """What the trigger dispatches when it fires, in order. At least one; each
-    ``target_id`` is unique within the trigger."""
+    """Targets the trigger runs when it fires. At least one; each ``target_id`` is unique within the trigger."""
 
     engine: str = "v1"
-    """Which engine evaluates this trigger: ``"v2"`` for the events/``once_per``/targets
-    engine this module models (every trigger, once a deployment has cut over),
-    ``"v1"`` for a trigger the older ``causes``/``for_each`` engine still evaluates,
-    projected onto this shape. Server-assigned and read-only; no request model
-    carries it. Defaults to ``"v1"`` for a response that omits it, which is what a
-    Roboto deployment older than the field sends."""
+    """Trigger model Roboto evaluates the trigger with, ``"v2"`` or ``"v1"``.
+
+    ``"v2"`` is the model of this package; ``"v1"`` is the deprecated ``causes``/``for_each`` model of
+    :py:class:`~roboto.domain.actions.Trigger`.
+
+    Roboto sets it; no request does. It defaults to ``"v1"`` when a response omits it, as a response from a
+    Roboto deployment that predates the field does.
+    """
 
     managed_by: typing.Optional[ManagedBy] = None
-    """The owner of the trigger's definition when it is not the org's members, e.g. the
-    ingestion rule the trigger ingests files for; ``None`` for a trigger a user created.
-    Server-assigned and read-only; no request model carries it."""
+    """Owner that manages the trigger's definition, or ``None`` if the organization's members manage it.
+
+    One such owner is the ingestion rule the trigger ingests files for. Roboto sets it; no request does.
+    """
 
     created: datetime.datetime
-    """Timestamp when the trigger was created."""
+    """Time the trigger was created."""
 
     created_by: str
-    """User ID who created the trigger."""
+    """ID of the user who created the trigger.
+
+    Roboto's own system user when Roboto made the change.
+    """
 
     modified: datetime.datetime
-    """Timestamp when the trigger was last modified."""
+    """Time the trigger was last modified."""
 
     modified_by: str
-    """User ID who last modified the trigger."""
+    """ID of the user who last modified the trigger.
+
+    Roboto's own system user when Roboto made the change. Roboto modifies a trigger when it disables the trigger,
+    such as after one of its targets' actions was deleted.
+    """
 
 
 __all__ = ["ManagedBy", "ManagedByKind", "TriggerRecord"]

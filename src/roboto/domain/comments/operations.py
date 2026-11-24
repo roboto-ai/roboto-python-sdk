@@ -10,28 +10,29 @@ from .record import CommentEntityType
 
 
 class CreateCommentRequest(pydantic.BaseModel):
-    """Request payload for creating a new comment.
-
-    This model defines the required information to create a comment
-    on a Roboto platform entity.
-    """
+    """Request body for :py:meth:`~roboto.domain.comments.Comment.create`."""
 
     entity_type: CommentEntityType
-    """Type of entity to attach the comment to."""
+    """Type of the resource to comment on."""
 
     entity_id: str
-    """Unique identifier of the entity to attach the comment to."""
+    """ID of the resource to comment on, such as ``ds_12345`` for a dataset."""
 
     comment_text: str
-    """Text content of the comment, may include `@mention` syntax."""
+    """Text of the comment.
+
+    A mention, written ``@[<display_name>](<user_id>)``, adds that user to the comment's ``mentions`` and notifies
+    them, by email unless their settings turn off comment-mention emails. Every user mentioned other than the caller
+    must belong to the caller's organization; otherwise Roboto raises ``RobotoUnauthorizedException``.
+    """
 
 
 class UpdateCommentRequest(pydantic.BaseModel):
-    """Request payload for updating an existing comment.
-
-    This model defines the information that can be modified when
-    updating a comment.
-    """
+    """Request body for :py:meth:`~roboto.domain.comments.Comment.update_comment`."""
 
     comment_text: str
-    """Updated text content of the comment, may include `@mention` syntax."""
+    """New text of the comment, which replaces the old text.
+
+    Mentions take the same form as in ``CreateCommentRequest.comment_text``. Only users the previous text did not
+    mention are notified.
+    """

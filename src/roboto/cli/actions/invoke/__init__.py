@@ -4,7 +4,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Action invocation commands for hosted and local execution."""
+"""Commands that run an action.
+
+To run it in Roboto's compute environment, use ``invoke_hosted_command`` (``roboto actions invoke``); to run it on
+this machine in a Docker container, use ``invoke_local_command`` (``roboto actions invoke-local``).
+"""
 
 from .invoke_hosted_cmd import (
     invoke_hosted_command,

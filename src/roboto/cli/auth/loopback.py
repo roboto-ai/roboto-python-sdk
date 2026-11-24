@@ -88,35 +88,41 @@ main {{ display: flex; flex-direction: column; align-items: center; gap: 2.5rem;
 
 
 class LoginTimeoutError(Exception):
-    """Raised when no accepted callback arrives before the timeout."""
+    """No callback the listener accepts arrived before the timeout.
+
+    ``LoopbackCallbackServer.wait_for_result`` raises it.
+    """
 
 
 @dataclasses.dataclass(frozen=True)
 class CallbackResult:
-    """Outcome of the web app's redirect: exactly one of ``code`` and ``error`` is set."""
+    """Outcome of the Roboto web app's redirect: exactly one of ``code`` and ``error`` is set."""
 
     code: typing.Optional[str]
-    """Authorization code to redeem for a token. None when the user denied the request."""
+    """Authorization code to redeem for a token, or ``None`` when the web app reported an error."""
 
     error: typing.Optional[str]
-    """Error reported by the web app, such as ``access_denied``. None on approval."""
+    """Error the web app reported, such as ``access_denied``, or ``None`` when the user approved the request."""
 
 
 class LoopbackCallbackServer:
-    """HTTP listener on 127.0.0.1 for the web app's redirect after the user approves or denies the credential request.
+    """HTTP listener on 127.0.0.1 for the browser's redirect after the user approves or denies a credential request.
 
-    Accepts the first ``GET /callback`` whose ``state`` matches ``expected_state`` and rejects everything else,
-    so a page in another tab that guesses the port cannot inject a code. The server never logs requests, since
-    their query strings carry the authorization code. The port is bound on construction, so :py:attr:`redirect_uri`
-    is usable before the listener starts. Use as a context manager: requests are served inside the ``with`` block and
-    the listener stops on exit.
+    The Roboto web app sends the browser to ``redirect_uri``. The listener accepts the first ``GET /callback`` whose
+    ``state`` matches ``expected_state`` and rejects everything else, so a page in another tab that guesses the port
+    cannot inject a code. It never logs requests, since their query strings carry the authorization code. The port is
+    bound on construction, so ``redirect_uri`` is usable before the listener starts. Use it as a context manager:
+    requests are served inside the ``with`` block, and the listener stops on exit.
 
     Args:
         expected_state: Value the redirect must echo back in its ``state`` parameter.
-        port: Port to bind. 0 lets the operating system pick a free one.
+        port: Port to bind. ``0`` lets the operating system pick a free one.
         request_timeout: Seconds a connection may take to send its request before it is dropped. Requests are
             served one at a time, so without this limit any local process could hold a connection open and keep
             the browser's redirect from ever being read.
+
+    Raises:
+        OSError: The port cannot be bound, for example because another process holds it.
     """
 
     def __init__(self, expected_state: str, port: int = 0, request_timeout: float = 5.0) -> None:
@@ -158,10 +164,10 @@ class LoopbackCallbackServer:
         """Block until an accepted callback arrives.
 
         Args:
-            timeout: Seconds to wait. None waits indefinitely.
+            timeout: Seconds to wait. ``None`` waits indefinitely.
 
         Returns:
-            The accepted callback's code, or the error the web app reported.
+            The accepted callback, holding its authorization code or the error the web app reported.
 
         Raises:
             LoginTimeoutError: No accepted callback arrived within ``timeout``.
@@ -171,14 +177,15 @@ class LoopbackCallbackServer:
         return self.__result
 
     def __accept(self, query: dict[str, list[str]]) -> typing.Optional[CallbackResult]:
-        """Record the callback if it is the first one with the expected state; return it, or None if rejected."""
+        """Record the first callback with the expected state and a code or error; return it, or ``None`` if rejected."""
         state = _single_value(query, "state")
         if state is None or not hmac.compare_digest(state.encode(), self.__expected_state.encode()):
             return None
 
         code = _single_value(query, "code")
         error = _single_value(query, "error")
-        # HTTPServer handles one request at a time, so no other callback can slip in between this check and the set.
+        # HTTPServer handles one request at a time, so no other callback can arrive between this check and the
+        # assignment below.
         if (code is None and error is None) or self.__result is not None:
             return None
 
@@ -187,7 +194,7 @@ class LoopbackCallbackServer:
         return self.__result
 
     def __handler_class(self) -> type[http.server.BaseHTTPRequestHandler]:
-        # Bound here: written inside Handler, `__accept` would be name-mangled to `_Handler__accept`.
+        # Bound here: written inside Handler, __accept would be name-mangled to _Handler__accept.
         accept = self.__accept
         request_timeout = self.__request_timeout
 
@@ -240,7 +247,7 @@ class LoopbackCallbackServer:
 
 
 def _single_value(query: dict[str, list[str]], key: str) -> typing.Optional[str]:
-    """Return the parameter's value if it appears exactly once and is non-empty, else None."""
+    """Return the parameter's value if it appears exactly once and is non-empty, else ``None``."""
     values = query.get(key, [])
     if len(values) != 1 or not values[0]:
         return None

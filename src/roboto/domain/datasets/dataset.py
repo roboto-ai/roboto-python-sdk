@@ -59,30 +59,27 @@ logger = default_logger()
 
 
 class Dataset:
-    """Represents a dataset within the Roboto platform.
+    """A dataset: a container of files in a directory structure, usually from one robot activity such as a flight.
 
-    A dataset is a logical container for files organized in a directory structure.
-    Datasets are the primary organizational unit in Roboto, typically containing
-    files from a single robot activity such as a drone flight, autonomous vehicle
-    mission, or sensor data collection session. However, datasets are versatile
-    enough to serve as a general-purpose assembly of files.
+    A dataset belongs to one organization and can name the device its data came from. Its files are
+    :py:class:`~roboto.domain.files.File` objects, reached through ``files`` or the file methods on this class.
+    Ingestion extracts topics from those files, which ``get_topics`` lists. A session can include files from one or
+    more datasets.
+    A dataset also carries tags, key-value metadata, custom-field values, and an optional AI summary.
 
-    Datasets provide functionality for:
+    Get a ``Dataset`` from ``create``, ``create_if_not_exists``, ``from_id``, or ``query``. To wrap a
+    :py:class:`~roboto.domain.datasets.DatasetRecord` already fetched from Roboto, build a ``Dataset`` from it
+    directly. Each instance holds a copy of the dataset's record: methods that change the dataset's properties update
+    that copy from Roboto's response, and ``refresh`` fetches changes made elsewhere.
 
-    - File upload and download operations
-    - Metadata and tag management
-    - File organization and directory operations
-    - Topic data access and analysis
-    - AI-powered content summarization
-    - Integration with automated workflows and triggers
-
-    Files within a dataset can be processed by actions, visualized in the web interface,
-    and searched using the query system. Datasets inherit access permissions from
-    their organization and can be shared with other users and systems.
-
-    The Dataset class serves as the primary interface for dataset operations in the
-    Roboto SDK, providing methods for file management, metadata operations, and
-    content analysis.
+    Args:
+        record: Record of the dataset.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
+        file_service: Transfers file contents to and from storage. Built from ``roboto_client`` if omitted.
+        content_mode: Whether ``record`` includes the dataset's metadata.
+            :py:attr:`~roboto.query.QueryContentMode.RecordOnly` makes the first ``get_metadata`` call fetch the
+            full record. ``None`` means ``record`` includes it.
     """
 
     __roboto_client: RobotoClient
@@ -103,50 +100,51 @@ class Dataset:
         roboto_client: typing.Optional[RobotoClient] = None,
         create_device_if_missing: bool = False,
     ) -> Dataset:
-        """Create a new dataset in the Roboto platform.
-
-        Creates a new dataset with the specified properties and returns a Dataset
-        instance for interacting with it. The dataset will be created in the caller's
-        organization unless a different organization is specified.
+        """Create a dataset.
 
         Args:
-            description: Optional human-readable description of the dataset.
-            metadata: Optional key-value metadata pairs to associate with the dataset.
-            name: Optional short name for the dataset (max 120 characters).
-            tags: Optional list of tags for dataset discovery and organization.
-            device_id: Optional identifier of the device that generated this data.
-            custom_fields: Optional initial values for Ready custom fields defined on
-                Datasets in the caller's org. Keys must match Ready field names; values
-                must satisfy each field's declared type.
-            caller_org_id: Organization ID to create the dataset in. Required for multi-org users.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-            create_device_if_missing: If True, and a device_id is provided that does not
-                exist in the organization, a new device will be created automatically. If False,
-                and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
-                will be raised.
+            description: Human-readable description of the dataset.
+            metadata: Key-value metadata to set on the dataset. ``None`` sets none.
+            name: Human-readable name of the dataset, at most 120 characters. Roboto does not require names to be
+                unique.
+            tags: Tags to set on the dataset. ``None`` sets none.
+            device_id: ID of the device that produced the dataset's data. ``None`` records the calling device when
+                a device makes the request, and no device otherwise.
+            custom_fields: Initial values for the dataset's custom fields, keyed by field name. Each name must be a
+                custom field defined for datasets in the organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+                field's declared type. ``None`` sets none.
+            caller_org_id: Organization to create the dataset in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            create_device_if_missing: Whether to create the device named by ``device_id`` when the organization has
+                no such device, then create the dataset again. When ``False``, a missing device raises
+                :py:class:`~roboto.exceptions.RobotoDeviceNotFoundException`.
 
         Returns:
-            Dataset instance representing the newly created dataset.
+            The new dataset.
 
         Raises:
-            RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
-                a device registered with Roboto for the organization.
-            RobotoInvalidRequestException: Invalid dataset parameters.
-            RobotoUnauthorizedException: Caller lacks permission to create datasets.
+            RobotoDeviceNotFoundException: ``device_id`` names no device in the organization, and
+                ``create_device_if_missing`` is ``False``.
+            RobotoIllegalArgumentException: A ``custom_fields`` name is not a ready custom field for datasets, or its
+                value does not match the field's type.
 
         Examples:
+            Create a dataset with a name, tags, and metadata:
+
             >>> dataset = Dataset.create(
             ...     name="Highway Test Session",
             ...     description="Autonomous vehicle highway driving test data",
             ...     tags=["highway", "autonomous", "test"],
             ...     metadata={"vehicle_id": "vehicle_001", "test_type": "highway"},
             ... )
-            >>> print(dataset.dataset_id)
-            ds_abc123
 
-            >>> # Create minimal dataset
+            Create an empty dataset with no properties set:
+
             >>> dataset = Dataset.create()
-            >>> print(f"Created dataset: {dataset.dataset_id}")
+            >>> print(dataset.dataset_id)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = CreateDatasetRequest(
@@ -191,55 +189,50 @@ class Dataset:
         roboto_client: typing.Optional[RobotoClient] = None,
         create_device_if_missing: bool = False,
     ) -> Dataset:
-        """Create a dataset if no existing dataset matches the specified query.
+        """Fetch the first dataset that matches a RoboQL query, creating one when none matches.
 
-        Searches for existing datasets using the provided RoboQL query. If a matching
-        dataset is found, returns that dataset. If no match is found, creates a new
-        dataset with the specified properties and returns it.
+        A matching dataset is returned unchanged: the other arguments apply only to a dataset this call creates.
 
-        Concurrent calls with the same ``match_roboql_query`` in one organization create
-        one dataset between them: the service runs them one at a time from the search
-        through the create. Calls with different queries are not serialized, even when
-        both queries would match the same dataset.
+        Concurrent calls with the same ``match_roboql_query`` in one organization create one dataset between them,
+        because Roboto runs them one at a time from the search through the create. Calls with different queries are
+        not run one at a time, even when both queries would match the same dataset.
 
-        The dataset created must match ``match_roboql_query``. If ``name``, ``tags`` or
-        ``metadata`` describe a dataset the query does not match, every later call creates
-        another one. When several datasets match, which one is returned is not defined unless
-        the query ends with a ``SORT BY`` clause.
+        The dataset created must match ``match_roboql_query``. If ``name``, ``tags`` or ``metadata`` describe a
+        dataset the query does not match, every later call creates another one. When several datasets match, which
+        one is returned is not defined unless the query ends with a ``SORT BY`` clause.
 
         Args:
-            match_roboql_query: RoboQL query string to search for existing datasets.
-                If this query matches any dataset, that dataset will be returned
-                instead of creating a new one.
-            description: Optional human-readable description of the dataset.
-            metadata: Optional key-value metadata pairs to associate with the dataset.
-            name: Optional short name for the dataset (max 120 characters).
-            tags: Optional list of tags for dataset discovery and organization.
-            device_id: Optional identifier of the device that generated this data.
-            custom_fields: Optional initial values for ``Ready`` custom fields defined on
-                Datasets in ``caller_org_id``. Keys must match Ready field names; values
-                must satisfy each field's declared type. Ignored when an existing dataset
-                matches ``match_roboql_query`` — the existing record is returned unchanged.
-            caller_org_id: Organization ID to create the dataset in. Required for multi-org users.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-            create_device_if_missing: If True, and a device_id is provided that does not
-                exist in the organization, a new device will be created automatically. If False,
-                and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
-                will be raised.
+            match_roboql_query: RoboQL query that looks for an existing dataset in the organization.
+            description: Human-readable description of the dataset.
+            metadata: Key-value metadata to set on the dataset. ``None`` sets none.
+            name: Human-readable name of the dataset, at most 120 characters.
+            tags: Tags to set on the dataset. ``None`` sets none.
+            device_id: ID of the device that produced the dataset's data. ``None`` records the calling device when
+                a device makes the request, and no device otherwise.
+            custom_fields: Initial values for the dataset's custom fields, keyed by field name. Each name must be a
+                custom field defined for datasets in the organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+                field's declared type. ``None`` sets none.
+            caller_org_id: Organization to search and to create the dataset in. Required when the caller belongs to
+                more than one organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            create_device_if_missing: Whether to create the device named by ``device_id`` when the organization has
+                no such device, then make the call again. When ``False``, a missing device raises
+                :py:class:`~roboto.exceptions.RobotoDeviceNotFoundException`.
 
         Returns:
-            Dataset instance representing either the existing matched dataset or the newly created dataset.
+            The matching dataset, or the new dataset when none matched.
 
         Raises:
-            RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
-                a device registered with Roboto for the organization.
-            RobotoInvalidRequestException: Invalid dataset parameters or malformed RoboQL query.
-            RobotoServiceUnavailableException: Other calls with the same query kept this one waiting for more
-                than 10 seconds, after the SDK's own retries. Calling again is safe.
-            RobotoUnauthorizedException: Caller lacks permission to create datasets or search existing ones.
+            RobotoDeviceNotFoundException: No dataset matched, ``device_id`` names no device in the organization,
+                and ``create_device_if_missing`` is ``False``.
+            RobotoIllegalArgumentException: No dataset matched, and a ``custom_fields`` name is not a ready custom
+                field for datasets, or its value does not match the field's type.
+            RobotoInvalidRequestException: ``match_roboql_query`` is not a valid RoboQL query.
 
         Examples:
-            Create a dataset only if no dataset with specific metadata exists:
+            Create a dataset unless one with this metadata value exists:
 
             >>> dataset = Dataset.create_if_not_exists(
             ...     match_roboql_query="dataset.metadata.vehicle_id = 'vehicle_001'",
@@ -248,18 +241,15 @@ class Dataset:
             ...     metadata={"vehicle_id": "vehicle_001", "test_type": "highway"},
             ...     tags=["vehicle_001", "highway"],
             ... )
-            >>> print(dataset.dataset_id)
-            ds_abc123
 
-            Create a dataset only if no dataset with specific tags exists:
+            Create a dataset unless one with this tag exists. The new dataset carries the tag, so later calls
+            return it:
 
             >>> dataset = Dataset.create_if_not_exists(
             ...     match_roboql_query="dataset.tags CONTAINS 'unique_session_id_xyz'",
             ...     name="Unique Test Session",
             ...     tags=["unique_session_id_xyz", "test"],
             ... )
-            >>> # If a dataset with tag 'unique_session_id_xyz' already exists,
-            >>> # that dataset is returned instead of creating a new one
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = CreateDatasetIfNotExistsRequest(
@@ -299,28 +289,19 @@ class Dataset:
 
     @classmethod
     def from_id(cls, dataset_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> Dataset:
-        """Create a Dataset instance from a dataset ID.
-
-        Retrieves dataset information from the Roboto platform using the provided
-        dataset ID and returns a Dataset instance for interacting with it.
+        """Fetch a dataset by its ID.
 
         Args:
-            dataset_id: Unique identifier for the dataset.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-
-        Returns:
-            Dataset instance representing the requested dataset.
+            dataset_id: Unique ID of the dataset, beginning with ``ds_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoDatasetNotFoundException: Dataset with the given ID does not exist.
-            RobotoUnauthorizedException: Caller lacks permission to access the dataset.
+            RobotoDatasetNotFoundException: No dataset has this ID.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> print(dataset.name)
-            'Highway Test Session'
-            >>> print(len(list(dataset.list_files())))
-            42
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(f"v1/datasets/{dataset_id}").to_record(DatasetRecord)
@@ -333,24 +314,25 @@ class Dataset:
         roboto_client: typing.Optional[RobotoClient] = None,
         owner_org_id: typing.Optional[str] = None,
     ) -> collections.abc.Generator["Dataset", None, None]:
-        """Query datasets using a specification with filters and pagination.
+        """List the datasets in an organization that match a query specification.
 
-        Searches for datasets matching the provided query specification. Results are
-        returned as a generator that automatically handles pagination, yielding Dataset
-        instances as they are retrieved from the API.
+        Fetches one page of results at a time as the generator advances, and writes each page's token to
+        ``spec.after`` to request the next.
 
         Args:
-            spec: Query specification with filters, sorting, and pagination options.
-                If None, returns all accessible datasets.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-            owner_org_id: Organization ID to scope the query. If None, uses caller's org.
+            spec: Conditions, sort order, and page size of the query. Each condition's field must be a
+                :py:class:`~roboto.domain.datasets.DatasetRecord` field, or a dotted path that starts with one, such
+                as ``metadata.software_version``. ``None`` lists every dataset in the organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            owner_org_id: Organization whose datasets to list. Defaults to the organization the caller acts in.
 
         Yields:
-            Dataset instances matching the query specification.
+            Datasets that match ``spec``, with their metadata.
 
         Raises:
-            ValueError: Query specification references unknown dataset attributes.
-            RobotoUnauthorizedException: Caller lacks permission to query datasets.
+            ValueError: ``spec`` names a field that is not a dataset record field. It surfaces on the first
+                iteration, before any request.
 
         Examples:
             >>> from roboto.query import Comparator, Condition, QuerySpecification
@@ -358,9 +340,7 @@ class Dataset:
             ...     condition=Condition(field="name", comparator=Comparator.Contains, value="Roboto")
             ... )
             >>> for dataset in Dataset.query(spec):
-            ...     print(f"Found dataset: {dataset.name}")
-            Found dataset: Roboto Test
-            Found dataset: Other Roboto Test
+            ...     print(dataset.dataset_id, dataset.name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         spec = spec if spec is not None else QuerySpecification(limit=DEFAULT_PAGE_SIZE)
@@ -368,8 +348,7 @@ class Dataset:
         known = set(DatasetRecord.model_fields.keys())
         actual = set()
         for field in spec.fields():
-            # Support dot notation for nested fields
-            # E.g., "metadata.SoftwareVersion"
+            # A dotted field such as "metadata.SoftwareVersion" is checked by its first segment.
             if "." in field:
                 actual.add(field.split(".")[0])
             else:
@@ -397,10 +376,10 @@ class Dataset:
                 break
 
     def __eq__(self, other: object) -> bool:
+        """Return whether ``other`` is a ``Dataset`` whose record equals this one's, ignoring ``metadata``."""
         if not isinstance(other, Dataset):
             return False
 
-        # Only compare core dataset entity fields
         exclude_meta: dict[str, typing.Any] = {"metadata": dict()}
         return self.record.model_copy(update=exclude_meta) == other.record.model_copy(update=exclude_meta)
 
@@ -421,55 +400,34 @@ class Dataset:
 
     @property
     def created(self) -> datetime.datetime:
-        """Timestamp when this dataset was created.
-
-        Returns the UTC datetime when this dataset was first created in the Roboto platform. This property is immutable.
-        """
+        """Time the dataset was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """Identifier of the user who created this dataset.
-
-        Returns the identifier of the person or service which originally created this dataset in the Roboto platform.
-        """
+        """Principal that created the dataset, as ``<type>:<id>``, such as ``user:<user_id>``."""
         return self.__record.created_by
 
     @property
     def dataset_id(self) -> str:
-        """Unique identifier for this dataset.
-
-        Returns the globally unique identifier assigned to this dataset when it was
-        created. This ID is immutable and used to reference the dataset across the
-        Roboto platform. It is always prefixed with 'ds_' to distinguish it from other
-        Roboto resource IDs.
-        """
+        """Unique ID of the dataset, beginning with ``ds_``."""
         return self.__record.dataset_id
 
     @property
     def description(self) -> typing.Optional[str]:
-        """Human-readable description of this dataset.
-
-        Returns the optional description text that provides details about the dataset's
-        contents, purpose, or context. Can be None if no description was provided.
-        """
+        """Human-readable description of the dataset, or ``None`` if it has none."""
         return self.__record.description
 
     @property
     def device_id(self) -> typing.Optional[str]:
-        """Identifier of the device that generated this data.
-
-        Returns the optional identifier of the device that generated the data
-        contained within this dataset. Can be None if the dataset was not
-        generated by a device.
-        """
+        """ID of the device the dataset's data came from, or ``None`` if none was given."""
         return self.__record.device_id
 
     @property
     def files(self) -> FileSystem:
-        """The files associated with this dataset.
+        """Files and directories of the dataset.
 
-        The file methods on ``Dataset`` delegate here, so ``dataset.upload_files(...)`` and
+        The file methods on ``Dataset`` call the same methods on this object, so ``dataset.upload_files(...)`` and
         ``dataset.files.upload_files(...)`` are the same call.
         """
         return FileSystem(
@@ -481,14 +439,10 @@ class Dataset:
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
-        """Custom metadata associated with this dataset.
+        """Copy of the key-value metadata on the dataset.
 
-        Returns a copy of the dataset's metadata dictionary containing arbitrary
-        key-value pairs for storing custom information. Supports nested structures
-        and dot notation for accessing nested fields.
-
-        Note: this attribute is kept for backward compatibility. Prefer :py:meth:`get_metadata()`,
-        since metadata may need to be loaded on-demand from the server.
+        Reading it can make a request, as ``get_metadata`` describes. Prefer that method, which returns the same value
+        and shows the request at the call site.
         """
 
         return self.get_metadata()
@@ -496,28 +450,28 @@ class Dataset:
     @property
     @experimental
     def custom_fields(self) -> dict[str, typing.Any]:
-        """Custom-field values defined on Datasets in this org.
+        """Values of the custom fields the organization defines for datasets, keyed by field name.
 
-        Every ``Ready`` :py:class:`~roboto.domain.custom_fields.CustomField` defined
-        for ``(org_id, Dataset)`` appears as a key. Values that have not been set
-        on this dataset surface as ``None`` rather than being absent. Empty when
-        no custom fields are defined for the org.
-
-        A :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is returned
-        as an ISO 8601 string.
+        :py:attr:`~roboto.domain.datasets.DatasetRecord.custom_fields` says which fields appear as keys. A
+        :py:attr:`~roboto.domain.custom_fields.CustomFieldType.Timestamp` value is an ISO 8601 string.
         """
         return self.__record.custom_fields
 
     def get_metadata(self) -> dict[str, typing.Any]:
-        """Return custom metadata associated with this dataset.
+        """Return a copy of the key-value metadata on the dataset.
 
-        Returns a copy of the dataset's metadata dictionary containing arbitrary
-        key-value pairs for storing custom information. Supports nested structures
-        and dot notation for accessing nested fields.
+        Nested metadata comes back as nested dictionaries. When this instance was loaded without metadata, as
+        :py:meth:`~roboto.roboto_search.RobotoSearch.find_datasets` does by default, the first call fetches the
+        dataset's full record from Roboto, replacing this instance's copy.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> metadata = dataset.get_metadata()
+            >>> metadata.get("vehicle_id")
         """
 
         if self.__content_mode is not QueryContentMode.RecordWithMeta:
-            # Force metadata to be fetched from the DB.
+            # This instance was built from a record without metadata; fetch the full record once.
             self.refresh()
             self.__content_mode = QueryContentMode.RecordWithMeta
 
@@ -525,58 +479,38 @@ class Dataset:
 
     @property
     def modified(self) -> datetime.datetime:
-        """Timestamp when this dataset was last modified.
-
-        Returns the UTC datetime when this dataset was most recently updated.
-        This includes changes to metadata, tags, description, or other properties.
-        """
+        """Time the dataset was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """Identifier of the user or service which last modified this dataset.
-
-        Returns the identifier of the person or service which most recently updated
-        this dataset's metadata, tags, description, or other properties.
-        """
+        """Principal that last modified the dataset, in the same ``<type>:<id>`` form as ``created_by``."""
         return self.__record.modified_by
 
     @property
     def name(self) -> typing.Optional[str]:
-        """Human-readable name of this dataset.
+        """Human-readable name of the dataset, at most 120 characters, or ``None`` if it has none.
 
-        Returns the optional display name for this dataset. Can be None if no name was provided during creation. For
-        users whose organizations have their own idiomatic internal dataset IDs, it's recommended to set the name to
-        the organization's internal dataset ID, since the Roboto dataset_id property is randomly generated.
+        :py:attr:`~roboto.domain.datasets.DatasetRecord.name` says whether names must be unique.
         """
         return self.__record.name
 
     @property
     def org_id(self) -> str:
-        """Organization identifier that owns this dataset.
-
-        Returns the unique identifier of the organization that owns and has
-        primary access control over this dataset.
-        """
+        """ID of the organization that owns the dataset."""
         return self.__record.org_id
 
     @property
     def record(self) -> DatasetRecord:
-        """Underlying data record for this dataset.
+        """Record of the dataset that this instance holds.
 
-        Returns the raw :py:class:`~roboto.domain.datasets.DatasetRecord` that contains
-        all the dataset's data fields. This provides access to the complete dataset
-        state as stored in the platform.
+        ``refresh`` replaces it with the current one.
         """
         return self.__record
 
     @property
     def tags(self) -> list[str]:
-        """List of tags associated with this dataset.
-
-        Returns a copy of the list of string tags that have been applied to this
-        dataset for categorization and filtering purposes.
-        """
+        """Copy of the tags on the dataset."""
         return self.__record.tags.copy()
 
     def create_directory(
@@ -587,35 +521,33 @@ class Dataset:
         parent_path: typing.Optional[pathlib.Path] = None,
         origination: typing.Optional[str] = None,
     ) -> DirectoryRecord:
-        """Create a directory within the dataset.
+        """Create a directory in the dataset.
+
+        It calls :py:meth:`~roboto.domain.files.FileSystem.create_directory`, whose failures also apply.
 
         Args:
             name: Name of the directory to create.
-            error_if_exists: If True, raises an exception if the directory already exists.
-            parent_path: Path of the parent directory. If None, creates the directory in the root of the dataset.
-            origination: Optional string describing the source or context of the directory creation.
-            create_intermediate_dirs: If True, creates intermediate directories in the path if they don't exist.
-                If False, requires all parent directories to already exist.
-
-        Raises:
-            RobotoConflictException: If the directory already exists and error_if_exists is True.
-            RobotoUnauthorizedException: If the caller lacks permission to create the directory.
-            RobotoInvalidRequestException: If the directory name is invalid or the parent path does not exist
-                (when create_intermediate_dirs is False).
+            error_if_exists: Whether to raise when the directory already exists.
+            create_intermediate_dirs: Whether to create missing directories in ``parent_path``. When ``False``,
+                every directory in ``parent_path`` must already exist.
+            parent_path: Path of the parent directory, relative to the dataset's root. ``None`` creates the
+                directory at the root.
+            origination: Free-form description of what created the directory. ``None`` records the
+                ``ROBOTO_ENV`` environment variable if set, and otherwise ``roboto`` followed by the SDK version.
 
         Returns:
-            DirectoryRecord of the created directory.
+            Record of the created directory.
 
         Examples:
-            Create a simple directory:
+            Create a directory at the dataset's root:
 
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset.from_id(...)
+            >>> import pathlib
+            >>> dataset = Dataset.from_id("ds_abc123")
             >>> directory = dataset.create_directory("foo")
             >>> print(directory.relative_path)
             foo
 
-            Create a directory with intermediate directories:
+            Create a directory and any missing directories above it:
 
             >>> directory = dataset.create_directory(
             ...     name="final",
@@ -624,7 +556,6 @@ class Dataset:
             ... )
             >>> print(directory.relative_path)
             path/to/deep/final
-
         """
         return self.files.create_directory(
             name=name,
@@ -647,46 +578,51 @@ class Dataset:
         tags: typing.Optional[collections.abc.Sequence[str]] = None,
         custom_fields: typing.Optional[dict[str, typing.Any]] = None,
     ) -> Session:
-        """Create a Session populated with files from this dataset.
+        """Create a session in the dataset's organization that includes the dataset's files.
 
-        By default, every file in the dataset is added to the new Session.
-        ``include_patterns`` / ``exclude_patterns`` narrow that set using the
-        same gitignore-style syntax as :py:meth:`Dataset.list_files`.
+        A session is an operational time window of a device. The new session includes every file of the dataset
+        that ``include_patterns`` and ``exclude_patterns`` select, each over its whole time range.
 
         Args:
-            name: Short display name for the Session (max 120 characters).
-            device_ids: Devices to attach to the Session. Defaults to no
-                devices.
-            include_patterns: Gitignore-style patterns selecting which files
-                to include. Same syntax as :py:meth:`Dataset.list_files`.
-            exclude_patterns: Gitignore-style patterns selecting which files
-                to exclude. Takes precedence over ``include_patterns``.
-            description: Optional description of the Session.
-            metadata: Optional initial metadata.
-                Sessions are not filterable or sortable by ``metadata`` keys;
-                for queryable structured attributes, define a custom field on the ``Session`` entity type.
-            tags: Optional initial tags.
-                Sessions can be filtered by tag membership but are not sortable by tag.
-            custom_fields: Optional initial values for Ready custom fields defined on
-                Sessions in this dataset's org. Keys must match Ready field names; values
-                must satisfy each field's declared type.
+            name: Human-readable name of the session, at most 120 characters.
+            device_ids: IDs of the devices to attach to the session. ``None`` attaches none.
+            include_patterns: Gitignore-style patterns for the files to include, as in ``list_files``. ``None`` or
+                an empty list includes every file.
+            exclude_patterns: Gitignore-style patterns for the files to leave out. Takes precedence over
+                ``include_patterns``.
+            description: Human-readable description of the session.
+            metadata: Key-value metadata to set on the session. Sessions cannot be filtered or sorted by
+                metadata keys; for a queryable attribute, define a custom field for sessions instead.
+            tags: Tags to set on the session. Sessions can be filtered by tag but not sorted by tag.
+            custom_fields: Initial values for the session's custom fields, keyed by field name. Each name must be a
+                custom field defined for sessions in the dataset's organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+                field's declared type.
 
         Returns:
-            The newly created Session.
+            The new :py:class:`~roboto.experimental.sessions.Session`.
+
+        Raises:
+            RobotoDomainException: Roboto refused a file, or a request failed. Unless the session could not be
+                deleted (see the note below), no session is left behind, so calling again is safe.
+
+        Note:
+            This method calls :py:meth:`~roboto.experimental.sessions.Session.create`, then
+            :py:meth:`~roboto.experimental.sessions.Session.add_files` once per batch of at most 500 files
+            (:py:const:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST`). Every file goes in or
+            none does: when any batch fails or Roboto refuses any file, the session is deleted before the exception
+            propagates. If deleting it fails too, such as on a network error, the session is left holding the
+            files added so far; that failure is logged, and the caller sees the original exception.
 
         Examples:
+            Include every file of the dataset:
+
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> session = dataset.create_session("flight-2026-04-23-001")
 
-        Notes:
-            Convenience wrapper around :py:meth:`Session.create` followed by :py:meth:`Session.add_files`.
-            A dataset may hold more files than one add request accepts: the files are sent in consecutive
-            requests of at most :py:data:`~roboto.experimental.ingest.MAX_FILES_AND_TOPICS_PER_REQUEST` each.
-            Every file goes in or none does: if any add request fails, or the platform refuses any one file, the
-            partially populated Session is deleted before the exception propagates, so the call is safe to
-            retry. If that cleanup fails too (e.g. a transient network error), the Session is left behind
-            holding whatever files did go in; the cleanup failure is logged, and the original exception is
-            what the caller sees.
+            Include only the dataset's MCAP files:
+
+            >>> session = dataset.create_session("flight-2026-04-23-002", include_patterns=["**/*.mcap"])
         """
         session_files = [
             SessionFile(file_id=file.file_id)
@@ -722,24 +658,18 @@ class Dataset:
         return session
 
     def delete(self) -> None:
-        """Delete this dataset from the Roboto platform.
+        """Delete the dataset, with its files and their topics. This cannot be undone.
 
-        Permanently removes the dataset and all its associated files, metadata, and topics. This operation cannot
-        be undone.
+        Files uploaded through Roboto are also deleted from storage, whether they are stored in a Roboto-managed
+        bucket or in a bucket the organization provides. Files imported from such a bucket with
+        :py:meth:`~roboto.domain.files.File.import_batch` stay in the bucket; only their records are deleted from
+        Roboto.
 
-        Files uploaded through Roboto are deleted from S3 as well, whether they are stored in a Roboto-managed bucket
-        or in a bring-your-own bucket. Files imported from such a bucket (see
-        :py:meth:`roboto.domain.files.File.import_batch`) are not deleted from S3; only their records and metadata
-        are deleted from Roboto.
-
-        Raises:
-            RobotoDatasetNotFoundException: Dataset does not exist or has already been deleted.
-            RobotoUnauthorizedException: Caller lacks permission to delete the dataset.
+        Deleting a dataset that no longer exists succeeds and changes nothing.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> dataset.delete()
-            # Dataset and all its files are now permanently deleted
         """
         self.__roboto_client.delete(f"v1/datasets/{self.dataset_id}")
 
@@ -748,33 +678,28 @@ class Dataset:
         include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
     ) -> None:
-        """Delete files from this dataset based on pattern matching.
+        """Delete the dataset's files that match the given patterns.
 
-        Deletes files that match the specified include patterns while excluding
-        those that match exclude patterns. Uses gitignore-style pattern matching
-        for flexible file selection.
+        Deletes the matching files one request per file, so when one request fails, the files deleted before it
+        stay deleted. It calls :py:meth:`~roboto.domain.files.FileSystem.delete_files`, whose failures also apply.
 
         Args:
-            include_patterns: List of gitignore-style patterns for files to include.
-                If None or empty, all files are considered for deletion. An empty list is
-                treated as no filter (all files), not as "include nothing".
-            exclude_patterns: List of gitignore-style patterns for files to exclude
-                from deletion. Takes precedence over include patterns. If None or empty,
-                no files are excluded.
+            include_patterns: Gitignore-style patterns for the files to delete. ``None`` or an empty list selects
+                every file.
+            exclude_patterns: Gitignore-style patterns for files to keep. Takes precedence over
+                ``include_patterns``. ``None`` or an empty list keeps none.
 
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to delete files.
-
-        Notes:
-            Pattern matching follows gitignore syntax. See https://git-scm.com/docs/gitignore
-            for detailed pattern format documentation.
+        Note:
+            Patterns follow the gitignore format described at https://git-scm.com/docs/gitignore.
 
         Examples:
+            Delete every PNG file except those under a ``back_camera`` directory:
+
             >>> dataset = Dataset.from_id("ds_abc123")
-            >>> # Delete all PNG files except those in back_camera directory
             >>> dataset.delete_files(include_patterns=["**/*.png"], exclude_patterns=["**/back_camera/**"])
 
-            >>> # Delete all log files
+            Delete every log file:
+
             >>> dataset.delete_files(include_patterns=["**/*.log"])
         """
         self.files.delete_files(include_patterns, exclude_patterns)
@@ -786,33 +711,28 @@ class Dataset:
         exclude_patterns: typing.Optional[list[str]] = None,
         print_progress: bool = True,
     ) -> list[tuple[FileRecord, pathlib.Path]]:
-        """Download files from this dataset to a local directory.
+        """Download the dataset's files that match the given patterns to a local directory.
 
-        Downloads files that match the specified patterns to the given local directory.
-        The directory structure from the dataset is preserved in the download location.
-        If the output directory doesn't exist, it will be created.
+        Each file is saved at its path relative to the dataset's root, under ``out_path``. It calls
+        :py:meth:`~roboto.domain.files.FileSystem.download_files`, whose failures also apply.
 
         Args:
-            out_path: Local directory path where files should be downloaded.
-            include_patterns: List of gitignore-style patterns for files to include.
-                If None or empty, all files are downloaded. An empty list is treated as
-                no filter (all files), not as "include nothing".
-            exclude_patterns: List of gitignore-style patterns for files to exclude
-                from download. Takes precedence over include patterns. If None or empty,
-                no files are excluded.
-            print_progress: Whether to show a progress bar during download.
+            out_path: Local directory to download into. Created, with any missing parents, if it does not exist.
+            include_patterns: Gitignore-style patterns for the files to download. ``None`` or an empty list selects
+                every file.
+            exclude_patterns: Gitignore-style patterns for files to skip. Takes precedence over
+                ``include_patterns``. ``None`` or an empty list skips none.
+            print_progress: Whether to show a progress bar during the download.
 
         Returns:
-            List of tuples containing (FileRecord, local_path) for each downloaded file.
+            One ``(record, local_path)`` pair per downloaded file.
 
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to download files.
-
-        Notes:
-            Pattern matching follows gitignore syntax. See https://git-scm.com/docs/gitignore
-            for detailed pattern format documentation.
+        Note:
+            Patterns follow the gitignore format described at https://git-scm.com/docs/gitignore.
 
         Examples:
+            Download the dataset's bag files, except those under a ``test`` directory:
+
             >>> import pathlib
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> downloaded = dataset.download_files(
@@ -821,9 +741,9 @@ class Dataset:
             ...     exclude_patterns=["**/test/**"],
             ... )
             >>> print(f"Downloaded {len(downloaded)} files")
-            Downloaded 5 files
 
-            >>> # Download all files
+            Download every file:
+
             >>> all_files = dataset.download_files(pathlib.Path("/tmp/all_files"))
         """
         return self.files.download_files(out_path, include_patterns, exclude_patterns, print_progress)
@@ -833,29 +753,23 @@ class Dataset:
         relative_path: typing.Union[str, pathlib.Path],
         version_id: typing.Optional[int] = None,
     ) -> File:
-        """Get a File instance for a file at the specified path in this dataset.
+        """Fetch the dataset's file at a path.
 
-        Retrieves a file by its relative path within the dataset. Optionally
-        retrieves a specific version of the file.
+        It calls :py:meth:`~roboto.domain.files.FileSystem.get_file_by_path`, whose failures also apply.
 
         Args:
-            relative_path: Path of the file relative to the dataset root.
-            version_id: Specific version of the file to retrieve. If None, gets the latest version.
-
-        Returns:
-            File instance representing the file at the specified path.
-
-        Raises:
-            RobotoNotFoundException: File at the given path does not exist in the dataset.
-            RobotoUnauthorizedException: Caller lacks permission to access the file.
+            relative_path: Path of the file, relative to the dataset's root.
+            version_id: Version of the file to fetch. ``None`` fetches the latest version.
 
         Examples:
+            Fetch the latest version of a file:
+
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> file = dataset.get_file_by_path("logs/session1.bag")
             >>> print(file.file_id)
-            file_xyz789
 
-            >>> # Get specific version
+            Fetch version 1 of a file:
+
             >>> old_file = dataset.get_file_by_path("data/sensors.csv", version_id=1)
             >>> print(old_file.version)
             1
@@ -863,40 +777,31 @@ class Dataset:
         return self.files.get_file_by_path(relative_path, version_id)
 
     def generate_summary(self) -> StreamingAISummary:
-        """Generate a new AI summary for this dataset.
+        """Start generating a new AI summary of the dataset.
 
-        Creates a new AI-generated summary that analyzes the dataset's content,
-        structure, and metadata. The summary generation is asynchronous and can
-        be monitored through the returned StreamingAISummary object.
+        Roboto generates the summary in the background. This method returns once generation has started; the
+        returned object fetches the rest of the summary from Roboto when you wait for it or stream its text.
 
         Returns:
-            StreamingAISummary object that provides access to the summary as it
-            is being generated. The summary starts in pending status and can be
-            monitored for completion.
-
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to generate summaries
-                for this dataset.
+            The summary being generated, which starts in the
+            :py:attr:`~roboto.ai.summary.AISummaryStatus.Pending` state.
 
         Examples:
-            Generate a summary and wait for completion:
+            Generate a summary and wait for its full text:
 
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> summary = dataset.generate_summary()
-            >>> complete_text = summary.complete_text
-            >>> print(complete_text)
-            'This dataset contains 42 files with sensor data from highway driving tests...'
+            >>> print(summary.complete_text)
 
-            Generate a summary and stream the text as it's generated:
+            Print the text as it is generated:
 
-            >>> dataset = Dataset.from_id("ds_abc123")
             >>> summary = dataset.generate_summary()
             >>> for text_chunk in summary.text_stream():
             ...     print(text_chunk, end="", flush=True)
 
-            Check summary status without blocking:
+            Check the summary's state without waiting:
 
-            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> from roboto.ai.summary import AISummaryStatus
             >>> summary = dataset.generate_summary()
             >>> if summary.current and summary.current.status == AISummaryStatus.Complete:
             ...     print("Summary is ready!")
@@ -910,25 +815,15 @@ class Dataset:
         )
 
     def get_summary(self) -> StreamingAISummary:
-        """Retrieve this dataset's existing AI summary.
-
-        Returns the dataset's current AI summary if one exists. Reading never
-        generates a summary as a side effect: a dataset that has never been
-        summarized raises :class:`RobotoNotFoundException` rather than implicitly
-        kicking off — and paying for — generation. Call :meth:`generate_summary`
-        to create one explicitly.
+        """Fetch the dataset's latest AI summary, without generating one.
 
         Returns:
-            StreamingAISummary wrapping the dataset's existing summary. If a
-            generation kicked off elsewhere is still in flight, the returned
-            summary is ``Pending``; poll it via ``await_completion`` or
-            ``text_stream``.
+            The dataset's latest summary. If its generation is still running, the summary is
+            :py:attr:`~roboto.ai.summary.AISummaryStatus.Pending`; its ``await_completion`` and ``text_stream``
+            methods wait for the rest.
 
         Raises:
-            RobotoNotFoundException: This dataset has no AI summary yet. Call
-                :meth:`generate_summary` to create one.
-            RobotoUnauthorizedException: Caller lacks permission to access summaries
-                for this dataset.
+            RobotoNotFoundException: The dataset has no AI summary. Call ``generate_summary`` to create one.
 
         Examples:
             Get the existing summary, generating one first if there is none:
@@ -940,12 +835,9 @@ class Dataset:
             ... except RobotoNotFoundException:
             ...     summary = dataset.generate_summary()
             >>> print(summary.complete_text)
-            'This dataset contains 42 files with sensor data from highway driving tests...'
 
             Check whether a summary exists without generating one:
 
-            >>> from roboto.exceptions import RobotoNotFoundException
-            >>> dataset = Dataset.from_id("ds_abc123")
             >>> try:
             ...     summary = dataset.get_summary()
             ...     print(summary.complete_text)
@@ -956,14 +848,13 @@ class Dataset:
 
     @experimental
     def get_sessions(self) -> collections.abc.Generator[Session, None, None]:
-        """Iterate over Sessions that include at least one file from this dataset.
+        """List the sessions that include at least one of the dataset's files.
 
-        A Session may draw files from one or more datasets; this method
-        yields every Session whose current-version file list intersects
-        this dataset.
+        A session is an operational time window of a device, and can include files from several datasets.
 
         Yields:
-            Each matching Session. Pagination is handled automatically.
+            Each :py:class:`~roboto.experimental.sessions.Session` that includes a file of this dataset, fetched
+            a page at a time as the generator advances.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
@@ -977,41 +868,36 @@ class Dataset:
         include: typing.Optional[collections.abc.Sequence[str]] = None,
         exclude: typing.Optional[collections.abc.Sequence[str]] = None,
     ) -> collections.abc.Generator[Topic, None, None]:
-        """Get all topics associated with files in this dataset, with optional filtering.
+        """List the topics of the dataset's files, optionally filtered by name.
 
-        Retrieves all topics that were extracted from files in this dataset during
-        ingestion. If multiple files have topics with the same name (e.g., chunked
-        files with the same schema), they are returned as separate topic objects.
-
-        Topics can be filtered by name using include/exclude patterns. Topics specified
-        on both the inclusion and exclusion lists will be excluded.
-
-        Note:
-            This method returns topics WITHOUT message_paths populated (for performance).
-            The message_paths list will be empty. If you need message_paths, iterate
-            through files and call file.get_topics() instead.
+        A topic is a sequence of structured time-series data from one file, usually extracted by ingestion. When
+        several files have a topic with the same name, such as files split from one recording, each file's topic is
+        yielded separately.
 
         Args:
-            include: If provided, only topics with names in this sequence are yielded.
-            exclude: If provided, topics with names in this sequence are skipped.
-                Takes precedence over include list.
+            include: Exact topic names to yield. ``None`` yields every topic.
+            exclude: Exact topic names to skip. Takes precedence over ``include``. ``None`` skips none.
 
         Yields:
-            Topic instances associated with files in this dataset, filtered according to the parameters.
+            Each of the dataset's :py:class:`~roboto.domain.topics.Topic` objects that the filters admit.
+
+        Note:
+            The topics come without message paths: each topic's ``message_paths`` is empty. To get them, call
+            :py:meth:`~roboto.domain.files.File.get_topics` on each file instead.
 
         Examples:
+            List every topic:
+
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> for topic in dataset.get_topics():
-            ...     print(f"Topic: {topic.name}")
-            Topic: /camera/image
-            Topic: /imu/data
-            Topic: /gps/fix
+            ...     print(topic.name)
 
-            >>> # Only get camera topics
+            List only the camera topics:
+
             >>> camera_topics = list(dataset.get_topics(include=["/camera/image", "/camera/info"]))
-            >>> print(f"Found {len(camera_topics)} camera topics")
 
-            >>> # Exclude diagnostic topics
+            List every topic except diagnostics:
+
             >>> data_topics = list(dataset.get_topics(exclude=["/diagnostics"]))
         """
 
@@ -1025,56 +911,46 @@ class Dataset:
             yield topic
 
     def get_topic_time_bounds(self) -> TopicTimeBounds:
-        """Get the earliest start and latest end across every topic in this dataset.
+        """Fetch the earliest start time and latest end time across every topic in the dataset.
 
-        The same aggregate you would reach by folding ``start_time`` and ``end_time`` over
-        :py:meth:`get_topics`, computed server-side in one request instead of one per page of
-        topics. Reach for it when you want the dataset's time extent and not the topics
-        themselves.
+        Returns the same values as taking the minimum ``start_time`` and maximum ``end_time`` over ``get_topics``, in
+        one request instead of one per page of topics.
 
         Returns:
-            Bounds in nanoseconds since the Unix epoch. Both fields are None for a dataset
-            whose files hold no topics, and either is None when no topic in the dataset
-            carries that timestamp.
+            Bounds in nanoseconds since the Unix epoch. Both are ``None`` when the dataset's files hold no topics,
+            and either is ``None`` when no topic in the dataset has that bound.
 
         Raises:
-            RobotoNotFoundException: Dataset does not exist.
-            RobotoUnauthorizedException: Caller lacks permission to access the dataset.
+            RobotoNotFoundException: The dataset does not exist.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> bounds = dataset.get_topic_time_bounds()
             >>> print(bounds.start_time, bounds.end_time)
-            1722870127699468923 1722870187004821001
         """
         return self.__roboto_client.get(f"v1/datasets/{self.dataset_id}/topics/time-bounds").to_record(TopicTimeBounds)
 
     def get_topics_by_file(
         self, relative_path: typing.Union[str, pathlib.Path]
     ) -> collections.abc.Generator[Topic, None, None]:
-        """Get all topics associated with a specific file in this dataset.
+        """List the topics of the dataset's file at a path.
 
-        Retrieves all topics that were extracted from the specified file during
-        ingestion. This is a convenience method that combines file lookup and
-        topic retrieval.
+        Equivalent to ``dataset.get_file_by_path(relative_path).get_topics()``. The file is looked up when this
+        method is called, before the first topic is fetched.
 
         Args:
-            relative_path: Path of the file relative to the dataset root.
+            relative_path: Path of the file, relative to the dataset's root.
 
         Yields:
-            Topic instances associated with the specified file.
+            Each :py:class:`~roboto.domain.topics.Topic` of the file.
 
         Raises:
-            RobotoNotFoundException: File at the given path does not exist in the dataset.
-            RobotoUnauthorizedException: Caller lacks permission to access the file or its topics.
+            RobotoNotFoundException: The dataset has no file at this path.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> for topic in dataset.get_topics_by_file("logs/session1.bag"):
-            ...     print(f"Topic: {topic.name}")
-            Topic: /camera/image
-            Topic: /imu/data
-            Topic: /gps/fix
+            ...     print(topic.name)
         """
         file = self.get_file_by_path(relative_path)
         return file.get_topics()
@@ -1082,14 +958,14 @@ class Dataset:
     def list_directories(
         self,
     ) -> collections.abc.Generator[DirectoryRecord, None, None]:
-        """Yield every directory in this dataset, at any depth.
+        """List every directory in the dataset, at any depth.
+
+        It calls :py:meth:`~roboto.domain.files.FileSystem.list_directories`, whose failures also apply.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> for directory in dataset.list_directories():
             ...     print(directory.relative_path)
-            logs
-            logs/session1
         """
         yield from self.files.list_directories()
 
@@ -1098,44 +974,37 @@ class Dataset:
         include_patterns: typing.Optional[list[str]] = None,
         exclude_patterns: typing.Optional[list[str]] = None,
     ) -> collections.abc.Generator[File, None, None]:
-        """List files in this dataset with optional pattern-based filtering.
+        """List the dataset's files that match the given patterns.
 
-        Returns all files in the dataset that match the specified include patterns
-        while excluding those that match exclude patterns. Uses gitignore-style
-        pattern matching for flexible file selection.
+        It calls :py:meth:`~roboto.domain.files.FileSystem.list_files`, whose failures also apply.
 
         Args:
-            include_patterns: List of gitignore-style patterns for files to include.
-                If None or empty, all files are considered. An empty list is treated as
-                no filter (all files), not as "include nothing".
-            exclude_patterns: List of gitignore-style patterns for files to exclude.
-                Takes precedence over include patterns. If None or empty, no files are excluded.
+            include_patterns: Gitignore-style patterns for the files to list. ``None`` or an empty list selects
+                every file.
+            exclude_patterns: Gitignore-style patterns for files to leave out. Takes precedence over
+                ``include_patterns``. ``None`` or an empty list leaves out none.
 
         Yields:
-            File instances that match the specified patterns.
+            Each matching :py:class:`~roboto.domain.files.File`, fetched a page at a time as the generator
+            advances.
 
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to list files.
-
-        Notes:
-            Pattern matching follows gitignore syntax. See https://git-scm.com/docs/gitignore
-            for detailed pattern format documentation.
+        Note:
+            Patterns follow the gitignore format described at https://git-scm.com/docs/gitignore. A file appears
+            here shortly after its upload completes, not at once.
 
         Examples:
+            List every file:
+
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> for file in dataset.list_files():
             ...     print(file.relative_path)
-            logs/session1.bag
-            data/sensors.csv
-            images/camera_001.jpg
 
-            >>> # List only image files, excluding back camera
+            List the image files, except those under a ``back_camera`` directory:
+
             >>> for file in dataset.list_files(
             ...     include_patterns=["**/*.png", "**/*.jpg"], exclude_patterns=["**/back_camera/**"]
             ... ):
             ...     print(file.relative_path)
-            images/front_camera_001.jpg
-            images/side_camera_001.jpg
         """
         yield from self.files.list_files(include_patterns, exclude_patterns)
 
@@ -1143,18 +1012,13 @@ class Dataset:
         self,
         metadata: dict[str, typing.Any],
     ) -> None:
-        """Add or update metadata fields for this dataset.
+        """Set metadata keys on the dataset, adding new keys and overwriting existing ones.
 
-        Sets each key-value pair in the provided dictionary as dataset metadata.
-        If a key doesn't exist, it will be created. If it exists, the value will
-        be overwritten. Keys must be strings and dot notation is supported for
-        nested keys.
+        Keys the dict does not name keep their values. A dotted key such as ``"weather.condition"`` sets
+        ``condition`` inside the nested ``weather`` object.
 
         Args:
-            metadata: Dictionary of metadata key-value pairs to add or update.
-
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to update the dataset.
+            metadata: Key-value metadata to set on the dataset.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
@@ -1166,10 +1030,8 @@ class Dataset:
             ...         "weather.temperature": 25,
             ...     }
             ... )
-            >>> print(dataset.metadata["vehicle_id"])
-            'vehicle_001'
-            >>> print(dataset.metadata["weather"]["condition"])
-            'sunny'
+            >>> print(dataset.get_metadata()["weather"]["condition"])
+            sunny
         """
         self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
 
@@ -1177,15 +1039,12 @@ class Dataset:
         self,
         tags: StrSequence,
     ) -> None:
-        """Add tags to this dataset.
+        """Add tags to the dataset, keeping its existing tags.
 
-        Keeps the dataset's existing tags. A tag the dataset already has is not added again.
+        A tag the dataset already has is not added again.
 
         Args:
             tags: Tags to add to the dataset.
-
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to update the dataset.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
@@ -1199,24 +1058,19 @@ class Dataset:
         )
 
     def refresh(self) -> Dataset:
-        """Refresh this dataset instance with the latest data from the platform.
+        """Replace this instance's record with the dataset's current record from Roboto.
 
-        Fetches the current state of the dataset from the Roboto platform and updates
-        this instance's data. Useful when the dataset may have been modified by other
-        processes or users.
+        Use it to see changes that other users or processes made after this instance was loaded.
 
         Returns:
-            This Dataset instance with refreshed data.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoDatasetNotFoundException: Dataset no longer exists.
-            RobotoUnauthorizedException: Caller lacks permission to access the dataset.
+            RobotoDatasetNotFoundException: The dataset no longer exists.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
-            >>> # Dataset may have been updated by another process
-            >>> refreshed_dataset = dataset.refresh()
-            >>> print(f"Current file count: {len(list(refreshed_dataset.list_files()))}")
+            >>> print(dataset.refresh().tags)
         """
         self.__record = self.__roboto_client.get(f"v1/datasets/{self.dataset_id}").to_record(DatasetRecord)
         return self
@@ -1225,13 +1079,15 @@ class Dataset:
         self,
         metadata: StrSequence,
     ) -> None:
-        """
-        Remove each key in this sequence from dataset metadata if it exists.
-        Keys must be strings. Dot notation is supported for nested keys.
+        """Remove metadata keys from the dataset. Keys the dataset does not have are ignored.
 
-        Example:
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset(...)
+        A dotted key such as ``"baz.qux"`` removes ``qux`` from inside the nested ``baz`` object.
+
+        Args:
+            metadata: Metadata keys to remove.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
             >>> dataset.remove_metadata(["foo", "baz.qux"])
         """
         self.update(metadata_changeset=MetadataChangeset(remove_fields=metadata))
@@ -1240,58 +1096,113 @@ class Dataset:
         self,
         tags: StrSequence,
     ) -> None:
-        """Remove each tag in this sequence if it exists"""
+        """Remove tags from the dataset. Tags the dataset does not have are ignored.
+
+        Args:
+            tags: Tags to remove from the dataset.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.remove_tags(["draft"])
+            >>> "draft" in dataset.tags
+            False
+        """
         self.update(metadata_changeset=MetadataChangeset(remove_tags=tags))
 
     @experimental
     def set_custom_field(self, name: str, value: typing.Any) -> Dataset:
-        """Set a single custom-field value on this dataset.
+        """Set one custom-field value on the dataset.
 
-        ``name`` must be the name of a
-        :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready` custom
-        field for this dataset's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Dataset`
-        entity type; ``value`` must satisfy the field's declared type.
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            name: Name of a custom field defined for datasets in the dataset's organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
+            value: Value to set, which must match the field's declared type.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.set_custom_field("flight_count", 12)
         """
         return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
 
     @experimental
     def clear_custom_field(self, name: str) -> Dataset:
-        """Clear a single custom-field value on this dataset to ``None``."""
+        """Clear one custom-field value on the dataset, so the field reads back as ``None``.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            name: Name of a ready custom field defined for datasets in the dataset's organization.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.clear_custom_field("flight_count").custom_fields["flight_count"] is None
+            True
+        """
         return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
 
     @experimental
     def set_custom_fields(self, fields: dict[str, typing.Any]) -> Dataset:
-        """Set or overwrite multiple custom-field values on this dataset.
+        """Set several custom-field values on the dataset. Fields not named keep their values.
 
-        Each key must name a Ready custom field for this dataset's org and the
-        :py:class:`~roboto.domain.custom_fields.TargetEntityType.Dataset`
-        entity type; each value must satisfy the field's declared type.
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            fields: New values keyed by field name. Each name must be a custom field defined for datasets in the
+                dataset's organization, with status :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`,
+                and each value must match that field's declared type.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.set_custom_fields({"drone_id": "DJI-X", "flight_count": 12})
         """
         return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=fields))
 
     @experimental
     def clear_custom_fields(self, names: collections.abc.Sequence[str]) -> Dataset:
-        """Clear multiple custom-field values on this dataset to ``None``."""
+        """Clear several custom-field values on the dataset, so each field reads back as ``None``.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            names: Names of ready custom fields defined for datasets in the dataset's organization.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.clear_custom_fields(["drone_id", "flight_count"])
+        """
         return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))
 
     def set_device_id(self, device_id: typing.Optional[str], create_device_if_missing: bool = False) -> Dataset:
-        """
-        Set the device ID for this dataset.
+        """Set or clear the device the dataset's data came from.
+
+        It calls ``update``, whose failures also apply.
 
         Args:
-            device_id: The device ID to set for this dataset. If None, the device association will be cleared.
-            create_device_if_missing: If True, and a device_id is provided that does not
-                exist in the organization, a new device will be created automatically. If False,
-                and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
-                will be raised.
+            device_id: ID of a device in the dataset's organization. ``None`` clears the dataset's device.
+            create_device_if_missing: Whether to create the device named by ``device_id`` when the organization has
+                no such device, then update the dataset again. When ``False``, a missing device raises
+                :py:class:`~roboto.exceptions.RobotoDeviceNotFoundException`.
 
         Returns:
-            This Dataset instance with refreshed data.
+            This instance, with its record updated from Roboto's response.
 
-        Raises:
-            RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
-                a device registered with Roboto for the organization this dataset is being created in.
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.set_device_id("rover-01", create_device_if_missing=True)
         """
         return self.update(
             device_id=device_id,
@@ -1299,17 +1210,21 @@ class Dataset:
         )
 
     def set_summary(self, summary: str) -> Dataset:
-        """Explicitly set the AI summary text for this dataset.
+        """Replace the dataset's AI summary with the given text.
 
-        This method is intended to be used in cases where an action or other active component is able to generate
-        a more specialized summary than `Dataset::generate_summary` would, and you want to make that summary
-        canonical from the perspective of the UI and `Dataset::get_summary`.
+        Use it when an action or other process can write a more specific summary than ``generate_summary`` would.
+        The text becomes the summary that ``get_summary`` returns and the Roboto web app shows.
 
         Args:
-            summary: The summary text to set for this dataset. This text will be rendered as Markdown, and can include
-            specialized roboto:// entity links for rich UI linking.
+            summary: Text of the summary, rendered as Markdown. It can include ``roboto://`` links to Roboto
+                resources, which the Roboto web app renders as links.
+
         Returns:
-            This Dataset instance for method chaining.
+            This instance. Its record is unchanged until you fetch it again.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.set_summary("Highway drive, 42 minutes, no disengagements.")
         """
         self.__roboto_client.put(
             f"v1/datasets/{self.dataset_id}/summary",
@@ -1319,24 +1234,23 @@ class Dataset:
         return self
 
     def to_association(self) -> Association:
+        """Return an association that refers to the dataset, for APIs that take one.
+
+        Examples:
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> dataset.to_association().association_id
+            'ds_abc123'
+        """
         return Association.dataset(self.dataset_id)
 
     def to_dict(self) -> dict[str, typing.Any]:
-        """Convert this dataset to a dictionary representation.
-
-        Returns the dataset's data as a JSON-serializable dictionary containing
-        all dataset attributes and metadata.
-
-        Returns:
-            Dictionary representation of the dataset data.
+        """Return the record this instance holds, as a JSON-compatible dictionary.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
             >>> dataset_dict = dataset.to_dict()
-            >>> print(dataset_dict["name"])
-            'Highway Test Session'
-            >>> print(dataset_dict["metadata"])
-            {'vehicle_id': 'vehicle_001', 'test_type': 'highway'}
+            >>> dataset_dict["dataset_id"]
+            'ds_abc123'
         """
         return self.__record.model_dump(mode="json")
 
@@ -1349,49 +1263,45 @@ class Dataset:
         create_device_if_missing: bool = False,
         custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None,
     ) -> Dataset:
-        """Update this dataset's properties.
-
-        Updates various properties of the dataset including name, description,
-        and metadata. Only specified parameters are updated; others remain unchanged.
+        """Update the dataset's properties. Arguments left unset leave their property unchanged.
 
         Args:
-            description: New description for the dataset. Set to None to clear the description.
-            device_id: New device ID for the dataset. Set to None to clear the device association.
-            metadata_changeset: Metadata changes to apply (add, update, or remove fields/tags).
-            name: New name for the dataset. Set to None to clear the name.
-            create_device_if_missing: If True, and a device_id is provided that does not
-                exist in the organization, a new device will be created automatically. If False,
-                and a device_id is provided that does not exist, a RobotoDeviceNotFoundException
-                will be raised.
-            custom_fields_changeset: Changes to apply to Ready custom-field values on this
-                dataset. Field names not referenced by the changeset are left unchanged.
+            description: Human-readable description of the dataset. ``None`` clears it.
+            device_id: ID of the device that produced the dataset's data, which must be in the dataset's
+                organization. ``None`` clears it.
+            metadata_changeset: Changes to the dataset's tags and metadata.
+            name: Human-readable name of the dataset, at most 120 characters. ``None`` clears it.
+            create_device_if_missing: Whether to create the device named by ``device_id`` when the organization has
+                no such device, then update the dataset again. When ``False``, a missing device raises
+                :py:class:`~roboto.exceptions.RobotoDeviceNotFoundException`.
+            custom_fields_changeset: Changes to the dataset's custom-field values. Fields the changeset does not
+                name keep their values. ``None`` changes none.
 
         Returns:
-            Updated Dataset instance with the new properties.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoDeviceNotFoundException: A device_id has been provided in this request, but was not found as
-                a device registered with Roboto for the organization.
-            RobotoUnauthorizedException: Caller lacks permission to update the dataset.
+            RobotoDeviceNotFoundException: ``device_id`` names no device in the dataset's organization, and
+                ``create_device_if_missing`` is ``False``.
+            RobotoIllegalArgumentException: The custom-field changeset names a field that is not a ready custom
+                field for datasets, or sets a value that does not match its field's type.
 
         Examples:
+            Rename the dataset and change its description:
+
             >>> dataset = Dataset.from_id("ds_abc123")
-            >>> updated_dataset = dataset.update(
-            ...     name="Updated Highway Test Session", description="Updated description with more details"
-            ... )
-            >>> print(updated_dataset.name)
-            'Updated Highway Test Session'
+            >>> dataset.update(name="Updated Highway Test Session", description="Updated description")
+            >>> print(dataset.name)
+            Updated Highway Test Session
 
-            >>> # Update with metadata changes
+            Set a metadata key:
+
             >>> from roboto.updates import MetadataChangeset
-            >>> changeset = MetadataChangeset(put_fields={"processed": True})
-            >>> updated_dataset = dataset.update(metadata_changeset=changeset)
+            >>> dataset.update(metadata_changeset=MetadataChangeset(put_fields={"processed": True}))
 
-            >>> # Clear the device association
-            >>> updated_dataset = dataset.update(device_id=None)
+            Clear the dataset's device and description:
 
-            >>> # Clear the description
-            >>> updated_dataset = dataset.update(description=None)
+            >>> dataset.update(device_id=None, description=None)
         """
         request = remove_not_set(
             UpdateDatasetRequest(
@@ -1426,22 +1336,18 @@ class Dataset:
         return self
 
     def rename_directory(self, old_path: str, new_path: str) -> DirectoryRecord:
-        """Rename or move a directory within this dataset.
+        """Rename or move a directory in the dataset.
 
-        Both ``old_path`` and ``new_path`` are relative to the dataset root. Pass a
-        ``new_path`` with fewer path components to move the directory up the tree, or
-        a different leaf name at the same depth to rename in place.
+        Both paths are relative to the dataset's root. A ``new_path`` with fewer components moves the directory up
+        the tree; a different last component at the same depth renames it in place. It calls
+        :py:meth:`~roboto.domain.files.FileSystem.rename_directory`, whose failures also apply.
 
         Args:
-            old_path: Current relative path of the directory (e.g. ``"logs/session1"``).
-            new_path: Target relative path of the directory (e.g. ``"session1"`` to move up one level).
+            old_path: Current path of the directory, such as ``"logs/session1"``.
+            new_path: New path of the directory, such as ``"session1"`` to move it up one level.
 
         Returns:
-            Updated :py:class:`~roboto.domain.files.DirectoryRecord` reflecting the new path.
-
-        Raises:
-            RobotoNotFoundException: No directory exists at ``old_path``.
-            RobotoInvalidRequestException: ``new_path`` conflicts with an existing node or contains a cycle.
+            Record of the directory at its new path.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
@@ -1450,32 +1356,22 @@ class Dataset:
         return self.files.rename_directory(old_path, new_path)
 
     def rename_file(self, file_id: str, new_path: str) -> FileRecord:
-        """Rename or move a file within this dataset.
+        """Rename or move a file in the dataset.
 
-        ``new_path`` is relative to the dataset root. Pass a path with fewer components
-        to move the file up the tree, a different name at the same depth to rename in
-        place, or a path under a different directory to move sideways.
-
-        The file's storage URI is unchanged; only the logical location in the dataset
-        hierarchy moves.
+        The file keeps its ID and versions; only its path changes. It calls
+        :py:meth:`~roboto.domain.files.FileSystem.rename_file`, whose failures also apply.
 
         Args:
             file_id: ID of the file to rename or move.
-            new_path: Target relative path for the file within this dataset
-                (e.g. ``"file.bag"`` to move to the root, or ``"other_dir/file.bag"``
-                to move into an existing directory).
+            new_path: New path of the file, relative to the dataset's root, such as ``"file.bag"`` to move it to
+                the root or ``"other_dir/file.bag"`` to move it into an existing directory.
 
         Returns:
-            Updated :py:class:`~roboto.domain.files.FileRecord` reflecting the new path.
-
-        Raises:
-            RobotoNotFoundException: No file with ``file_id`` exists.
-            RobotoInvalidRequestException: ``new_path`` conflicts with an existing file,
-                the parent directory does not exist, or the move would create a cycle.
+            Record of the file at its new path.
 
         Examples:
             >>> dataset = Dataset.from_id("ds_abc123")
-            >>> record = dataset.rename_file("file_xyz789", "file.bag")
+            >>> record = dataset.rename_file("fl_xyz789", "file.bag")
             >>> record.relative_path
             'file.bag'
         """
@@ -1491,29 +1387,38 @@ class Dataset:
         print_progress: bool = True,
         device_id: typing.Optional[str] = None,
     ) -> None:
-        """
-        Uploads all files and directories recursively from the specified directory path. You can use
-        `include_patterns` and `exclude_patterns` to control what files and directories are uploaded, and can
-        use `delete_after_upload` to clean up your local filesystem after the uploads succeed.
+        """Upload every file under a local directory, at any depth, to the dataset.
 
-        Example:
-            >>> from roboto import Dataset
-            >>> dataset = Dataset(...)
+        Each file is uploaded to its path relative to ``directory_path``, so the dataset mirrors the local layout.
+        It calls :py:meth:`~roboto.domain.files.FileSystem.upload_directory`, whose failures also apply.
+
+        Args:
+            directory_path: Local directory whose files to upload.
+            include_patterns: Gitignore-style patterns for the files to upload. ``None`` uploads every file; an
+                empty list uploads none.
+            exclude_patterns: Gitignore-style patterns for files to skip. Takes precedence over
+                ``include_patterns``.
+            delete_after_upload: Whether to delete each uploaded local file once every upload has succeeded.
+                Directories are kept.
+            max_batch_size: Maximum number of files per upload batch. Each batch finishes uploading before the
+                next starts.
+            print_progress: Whether to show a progress bar during the upload.
+            device_id: ID of the device that produced the files' data.
+
+        Note:
+            Patterns follow the gitignore format described at https://git-scm.com/docs/gitignore#_pattern_format,
+            but each is matched against a file's name only, not its path under ``directory_path``. A pattern
+            naming a directory, such as ``"__pycache__/"``, matches no file.
+
+        Examples:
+            Upload a directory, skipping compiled Python and log files:
+
+            >>> import pathlib
+            >>> dataset = Dataset.from_id("ds_abc123")
             >>> dataset.upload_directory(
             ...     pathlib.Path("/path/to/directory"),
-            ...     exclude_patterns=[
-            ...         "__pycache__/",
-            ...         "*.pyc",
-            ...         "node_modules/",
-            ...         "**/*.log",
-            ...     ],
+            ...     exclude_patterns=["*.pyc", "*.log"],
             ... )
-
-        Notes:
-            - Both `include_patterns` and `exclude_patterns` follow the 'gitignore' pattern format described
-              in https://git-scm.com/docs/gitignore#_pattern_format.
-            - If both `include_patterns` and `exclude_patterns` are provided, files matching
-              `exclude_patterns` will be excluded even if they match `include_patterns`.
         """
         self.files.upload_directory(
             directory_path,
@@ -1532,27 +1437,24 @@ class Dataset:
         print_progress: bool = True,
         device_id: typing.Optional[str] = None,
     ) -> File:
-        """
-        Upload a single file to the dataset.
-        If `file_destination_path` is not provided, the file will be uploaded to the top-level of the dataset.
+        """Upload one local file to the dataset.
+
+        It calls :py:meth:`~roboto.domain.files.FileSystem.upload_file`, whose failures also apply.
 
         Args:
             file_path: Local file to upload.
-            file_destination_path: Destination path within the dataset. Defaults to the file's
-                own name at the dataset's top level.
-            print_progress: Whether to display an upload progress bar.
-            device_id: Optional identifier of the device that generated this data.
+            file_destination_path: Path within the dataset to upload the file to. ``None`` uploads it to the
+                dataset's root under its own name.
+            print_progress: Whether to show a progress bar during the upload.
+            device_id: ID of the device that produced the file's data.
 
         Returns:
-            The file record the upload created.
+            The uploaded file. Its record is fetched from Roboto the first time it is read.
 
-        Raises:
-            RobotoInternalException: The upload reported success without reporting a file ID.
-
-        Example:
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset(...)
-            >>> dataset.upload_file(
+        Examples:
+            >>> import pathlib
+            >>> dataset = Dataset.from_id("ds_abc123")
+            >>> file = dataset.upload_file(
             ...     pathlib.Path("/path/to/file.txt"),
             ...     file_destination_path="foo/bar.txt",
             ... )
@@ -1567,33 +1469,32 @@ class Dataset:
         print_progress: bool = True,
         device_id: typing.Optional[str] = None,
     ) -> dict[pathlib.Path, str]:
-        """Upload multiple files to the dataset.
+        """Upload several local files to the dataset.
 
-        If ``file_destination_paths`` is not provided, files will be uploaded to the top-level of the dataset.
+        It calls :py:meth:`~roboto.domain.files.FileSystem.upload_files`, whose failures also apply.
 
         Args:
             files: Local files to upload.
-            file_destination_paths: Mapping from local path to destination path within the dataset.
-                Files not in the mapping upload to the dataset's top level under their own name.
-            max_batch_size: Maximum number of files per upload transaction.
-            print_progress: Whether to display an upload progress bar.
-            device_id: Optional identifier of the device that generated this data.
+            file_destination_paths: Path within the dataset to upload each local file to, keyed by local path.
+                A file not in the mapping is uploaded to the dataset's root under its own name.
+            max_batch_size: Maximum number of files per upload batch. Each batch finishes uploading before the
+                next starts.
+            print_progress: Whether to show a progress bar during the upload.
+            device_id: ID of the device that produced the files' data.
 
         Returns:
-            Mapping from each uploaded local path to the ID of the file record it created.
+            ID of the file each local path was uploaded as, keyed by local path.
 
         Examples:
             >>> import pathlib
-            >>> from roboto.domain import datasets
-            >>> dataset = datasets.Dataset.from_id("ds_abc123")
+            >>> dataset = Dataset.from_id("ds_abc123")
             >>> file_ids = dataset.upload_files(
             ...     [pathlib.Path("/path/to/file.txt")],
             ...     file_destination_paths={
             ...         pathlib.Path("/path/to/file.txt"): "foo/bar.txt",
             ...     },
             ... )
-            >>> file_ids[pathlib.Path("/path/to/file.txt")]
-            'fl_0123456789abcdef'
+            >>> print(file_ids[pathlib.Path("/path/to/file.txt")])
         """
         return self.files.upload_files(files, file_destination_paths, max_batch_size, print_progress, device_id)
 

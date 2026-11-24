@@ -35,8 +35,20 @@ from ..validation import (
 
 
 def determine_updates(action_config: actions.ActionConfig, existing_action: actions.Action) -> collections.abc.Mapping:
-    """Create an updates dict matching Action::update kwargs from an ActionConfig and an existing Action."""
+    """Build the keyword arguments to update an existing action so that it matches an action config.
 
+    The result holds only the properties that differ, as keyword arguments to
+    :py:meth:`~roboto.domain.actions.Action.update`. The config's metadata, tags, and parameters replace the action's:
+    anything the action has and the config lacks is removed, and every entry in the config is put again, so the result
+    always includes a changeset when the config has any metadata, tags, or parameters. A
+    ``requires_downloaded_inputs`` of ``None`` in the config leaves the action's setting unchanged.
+
+    When the config inherits from an action reference with no owner, this sets the reference's owner to the existing
+    action's organization, changing ``action_config`` in place.
+
+    Returns:
+        Keyword arguments for ``Action.update``; empty when nothing differs.
+    """
     updates: dict[str, typing.Any] = dict()
     if action_config.compute_requirements != existing_action.compute_requirements:
         updates["compute_requirements"] = action_config.compute_requirements
@@ -63,22 +75,18 @@ def determine_updates(action_config: actions.ActionConfig, existing_action: acti
     existing_keys = existing_action.record.metadata.keys()
     new_keys = action_config.metadata.keys()
 
-    # Remove keys that are in the existing metadata but not in the new metadata
     for key in existing_keys - new_keys:
         metadata_changeset_builder.remove_field(key)
 
-    # Add/overwrite keys that are in the new metadata
     for key in new_keys:
         metadata_changeset_builder.put_field(key, action_config.metadata[key])
 
     existing_tags = set(existing_action.record.tags)
     new_tags = set(action_config.tags)
 
-    # Remove tags that are in the existing tags but not in the new tags
     for tag in existing_tags - new_tags:
         metadata_changeset_builder.remove_tag(tag)
 
-    # Add tags that are in the new tags
     for tag in new_tags:
         metadata_changeset_builder.put_tag(tag)
 
@@ -90,11 +98,9 @@ def determine_updates(action_config: actions.ActionConfig, existing_action: acti
     existing_params = {param.name for param in existing_action.record.parameters}
     new_params = {param.name for param in action_config.parameters}
 
-    # Remove parameters that are in the existing parameters but not in the new parameters
     for param_name in existing_params - new_params:
         parameter_changeset_builder.remove_parameter(param_name)
 
-    # Add/overwrite parameters that are in the new parameters
     for param in action_config.parameters:
         parameter_changeset_builder.put_parameter(param)
 
@@ -116,6 +122,12 @@ def determine_updates(action_config: actions.ActionConfig, existing_action: acti
 
 
 def create(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Create an action from a config file and CLI arguments, or update the action with that name, and print its record.
+
+    CLI arguments override the config file's values, except that ``--metadata`` and ``--tag`` add to the config file's
+    metadata and tags. When the ``--org`` organization already has an action with the name, the command asks before
+    updating it, unless ``--yes`` is given, and changes only the properties that differ.
+    """
     config: typing.Optional[actions.ActionConfig] = None
     if args.action_config_file:
         with pydantic_validation_handler("Action config file"):
@@ -138,7 +150,7 @@ def create(args: argparse.Namespace, context: CLIContext, parser: argparse.Argum
     parameters = config.parameters if config else list()
     if args.parameter:
         cli_param_names = {param.name for param in args.parameter}
-        # replace any existing parameters with the same name
+        # Drop the config file's parameters that share a name with a `--parameter`.
         parameters = [param for param in parameters if param.name not in cli_param_names]
         parameters.extend(args.parameter)
 
@@ -173,7 +185,6 @@ def create(args: argparse.Namespace, context: CLIContext, parser: argparse.Argum
 
     image_uri = None
     if config_with_overrides.docker_config:
-        # Build docker image and push it to Roboto's Docker register
         print_error_and_exit(
             [
                 "Support for building and pushing Docker images as part of Action creation is forthcoming.",

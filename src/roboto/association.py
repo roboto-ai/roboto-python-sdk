@@ -20,26 +20,54 @@ from .exceptions import (
 
 
 class AssociationType(enum.Enum):
-    """AssociationType is the Roboto domain entity type of the association."""
+    """Kind of Roboto entity an association refers to."""
 
     Dataset = "dataset"
+    """Datasets (:py:class:`~roboto.domain.datasets.Dataset`)."""
+
     Device = "device"
+    """Devices (:py:class:`~roboto.domain.devices.Device`)."""
+
     DeviceType = "device_type"
+    """Device types (``roboto.domain.device_types.DeviceType``)."""
+
     File = "file"
+    """Files (:py:class:`~roboto.domain.files.File`)."""
+
     Topic = "topic"
+    """Topics (:py:class:`~roboto.domain.topics.Topic`)."""
+
     MessagePath = "message_path"
+    """Message paths (:py:class:`~roboto.domain.topics.MessagePath`)."""
+
     Org = "org"
+    """Organizations (:py:class:`~roboto.domain.orgs.Org`)."""
 
 
 class Association(pydantic.BaseModel):
-    """Use to declare an association between two Roboto entities."""
+    """A reference to one Roboto entity, such as a dataset, file, or topic, by its type and ID.
+
+    SDK methods take associations to name the entities they act on or annotate, such as the datasets and files an
+    event annotates or the file whose topic to fetch. Build one with a class method such as ``dataset`` or
+    ``from_id``.
+    """
 
     URL_ENCODING_SEP: typing.ClassVar[str] = ":"
+    """Separator between the type, ID, and version in an encoded association."""
 
     @staticmethod
     def group_by_type(
         associations: collections.abc.Collection[Association],
     ) -> collections.abc.Mapping[AssociationType, collections.abc.Sequence[Association]]:
+        """Group associations by their type.
+
+        Args:
+            associations: Associations to group.
+
+        Returns:
+            Each type present in ``associations``, mapped to its associations in their input order. A type with no
+            associations is absent.
+        """
         response: dict[AssociationType, list[Association]] = {}
 
         for association in associations:
@@ -51,7 +79,18 @@ class Association(pydantic.BaseModel):
 
     @classmethod
     def from_url_encoded_value(cls, encoded: str) -> Association:
-        """Reverse of Association::url_encode."""
+        """Parse an association from the form ``url_encode`` returns.
+
+        The parsed association has no ``parent``.
+
+        Args:
+            encoded: URL-quoted ``<type>:<id>`` or ``<type>:<id>:<version>``, where ``<type>`` is an
+                ``AssociationType`` value such as ``file``.
+
+        Raises:
+            RobotoIllegalArgumentException: ``<type>`` is not an ``AssociationType`` value.
+            ValueError: ``encoded`` has no ``:`` separator, or its version is not an integer.
+        """
         unquoted = urllib.parse.unquote_plus(encoded)
 
         association_type, association_id, *rest = unquoted.split(cls.URL_ENCODING_SEP)
@@ -78,6 +117,25 @@ class Association(pydantic.BaseModel):
         message_path_ids: typing.Optional[collections.abc.Collection[str]] = None,
         throw_on_empty: bool = False,
     ) -> list[Association]:
+        """Combine associations and lists of entity IDs into one list of associations.
+
+        Duplicates are kept.
+
+        Args:
+            associations: Associations to include as given. ``None`` includes none.
+            dataset_ids: IDs of datasets to include. ``None`` includes none.
+            file_ids: IDs of files to include, each with no version. ``None`` includes none.
+            topic_ids: IDs of topics to include. ``None`` includes none.
+            message_path_ids: IDs of message paths to include. ``None`` includes none.
+            throw_on_empty: Whether to raise ``RobotoInvalidRequestException`` when the result would be empty.
+
+        Returns:
+            ``associations``, then one association for each dataset ID, file ID, message path ID, and topic ID, in that
+            order.
+
+        Raises:
+            RobotoInvalidRequestException: ``throw_on_empty`` is true and every other argument is empty or ``None``.
+        """
         coalesced: list[Association] = []
 
         if associations:
@@ -102,31 +160,23 @@ class Association(pydantic.BaseModel):
 
     @classmethod
     def from_id(cls, association_id: str) -> Association:
-        """Infer the association type from the ID prefix.
+        """Build an association from an entity's ID, taking its type from the ID's prefix.
 
-        Roboto IDs follow the pattern ``{prefix}_{random_chars}`` where the prefix
-        indicates the entity type:
+        The prefixes and the types they map to:
 
-        - ``ds_`` → Dataset
-        - ``fl_`` → File
-        - ``tp_`` → Topic
-        - ``mp_`` → MessagePath
-        - ``dv_`` → Device
-        - ``og_`` → Org
-        - ``dt_`` → DeviceType
+        - ``ds_``: datasets.
+        - ``fl_``: files, with no version.
+        - ``tp_``: topics.
+        - ``mp_``: message paths.
+        - ``dv_``: devices.
+        - ``og_``: organizations.
+        - ``dt_``: device types.
 
         Args:
-            association_id: A Roboto entity ID with a recognized prefix.
-
-        Returns:
-            An Association with the inferred type.
+            association_id: ID of a dataset, file, topic, message path, device, organization, or device type.
 
         Raises:
-            RobotoIllegalArgumentException: If the ID prefix is not recognized.
-
-        Example:
-            >>> Association.from_id("ds_abc123")
-            Association(association_id='ds_abc123', association_type=AssociationType.Dataset)
+            RobotoIllegalArgumentException: ``association_id`` begins with none of these prefixes.
         """
         prefix_to_type = {
             "ds_": AssociationType.Dataset,
@@ -149,52 +199,50 @@ class Association(pydantic.BaseModel):
 
     @classmethod
     def dataset(cls, dataset_id: str) -> Association:
+        """Build an association with a dataset.
+
+        Args:
+            dataset_id: ID of the dataset, beginning with ``ds_``.
+        """
         return cls(association_id=dataset_id, association_type=AssociationType.Dataset)
 
     @classmethod
     def device(cls, universal_device_id: str) -> Association:
-        """Create an association with a device.
+        """Build an association with a device.
 
         Args:
-            universal_device_id: The device's Roboto-assigned ``dv_`` ID
-                (:py:attr:`~roboto.domain.devices.DeviceRecord.universal_device_id`), not its
-                customer-chosen ``device_id``.
-
-        Examples:
-            >>> Association.device("dv_abc123")
-            Association(association_id='dv_abc123', association_type=<AssociationType.Device: 'device'>, ...)
+            universal_device_id: ID of the device, beginning with ``dv_``
+                (:py:attr:`~roboto.domain.devices.DeviceRecord.universal_device_id`), not the ``device_id`` the
+                organization gave it.
         """
         return cls(association_id=universal_device_id, association_type=AssociationType.Device)
 
     @classmethod
     def device_type(cls, device_type_id: str) -> Association:
-        """Create an association with a device type.
+        """Build an association with a device type.
 
         Args:
-            device_type_id: The device type's Roboto-assigned ``dt_`` ID
-                (:py:attr:`~roboto.domain.device_types.DeviceTypeRecord.device_type_id`), not its name.
-
-        Examples:
-            >>> Association.device_type("dt_abc123")
-            Association(association_id='dt_abc123', association_type=<AssociationType.DeviceType: 'device_type'>, ...)
+            device_type_id: ID of the device type, beginning with ``dt_``, not its name.
         """
         return cls(association_id=device_type_id, association_type=AssociationType.DeviceType)
 
     @classmethod
     def org(cls, org_id: str) -> Association:
-        """Create an association with an organization.
+        """Build an association with an organization.
 
         Args:
-            org_id: The organization's ID.
-
-        Examples:
-            >>> Association.org("og_abc123")
-            Association(association_id='og_abc123', association_type=<AssociationType.Org: 'org'>, ...)
+            org_id: ID of the organization, beginning with ``og_``.
         """
         return cls(association_id=org_id, association_type=AssociationType.Org)
 
     @classmethod
     def file(cls, file_id: str, version: typing.Optional[int] = None):
+        """Build an association with a file, or with one version of it.
+
+        Args:
+            file_id: ID of the file, beginning with ``fl_``.
+            version: Version of the file. ``None`` names no version.
+        """
         return cls(
             association_id=file_id,
             association_type=AssociationType.File,
@@ -203,32 +251,41 @@ class Association(pydantic.BaseModel):
 
     @classmethod
     def topic(cls, topic_id: str):
+        """Build an association with a topic.
+
+        Args:
+            topic_id: ID of the topic, beginning with ``tp_``.
+        """
         return cls(association_id=topic_id, association_type=AssociationType.Topic)
 
     @classmethod
     def msgpath(cls, msgpath_id: str) -> Association:
+        """Build an association with a message path.
+
+        Args:
+            msgpath_id: ID of the message path, beginning with ``mp_``.
+        """
         return cls(association_id=msgpath_id, association_type=AssociationType.MessagePath)
 
     association_id: str
-    """Roboto identifier"""
+    """ID of the entity the association refers to."""
 
     association_type: AssociationType
-    """association_type is the Roboto domain entity type of the association."""
+    """Kind of entity ``association_id`` identifies."""
 
     association_version: typing.Union[int, None] = None
-    """association_version is the Roboto domain entity version of the association, if it exists."""
+    """Version of the entity, or ``None`` if the association names no version. Only files have versions."""
 
     parent: typing.Optional[Association] = None
-    """
-    The next level up in the hierarchy of this association. A message path's parent is its topic,
-    a topic's parent is its file, and a file's parent is its dataset.
+    """Association with the entity one level up: a message path's topic, a topic's file, or a file's dataset.
 
-    The absense of a parent in an Association object doesn't necessarily mean that a parent doesn't exist; parents
-    are only provided when they're easily computable in the context of a given request.
+    ``None`` does not mean the entity has no parent. Roboto sets ``parent`` only in some responses, such as the
+    ``associations`` of an event.
     """
 
     @property
     def dataset_id(self) -> typing.Optional[str]:
+        """ID of the dataset the association refers to or its ``parent`` chain reaches, or ``None`` if neither."""
         if self.is_dataset:
             return self.association_id
 
@@ -239,6 +296,7 @@ class Association(pydantic.BaseModel):
 
     @property
     def file_id(self) -> typing.Optional[str]:
+        """ID of the file the association refers to or its ``parent`` chain reaches, or ``None`` if neither."""
         if self.is_file:
             return self.association_id
 
@@ -249,34 +307,42 @@ class Association(pydantic.BaseModel):
 
     @property
     def is_dataset(self) -> bool:
+        """Whether the association is with a dataset."""
         return self.association_type == AssociationType.Dataset
 
     @property
     def is_device(self) -> bool:
+        """Whether the association is with a device."""
         return self.association_type == AssociationType.Device
 
     @property
     def is_device_type(self) -> bool:
+        """Whether the association is with a device type."""
         return self.association_type == AssociationType.DeviceType
 
     @property
     def is_file(self) -> bool:
+        """Whether the association is with a file."""
         return self.association_type == AssociationType.File
 
     @property
     def is_msgpath(self) -> bool:
+        """Whether the association is with a message path."""
         return self.association_type == AssociationType.MessagePath
 
     @property
     def is_org(self) -> bool:
+        """Whether the association is with an organization."""
         return self.association_type == AssociationType.Org
 
     @property
     def is_topic(self) -> bool:
+        """Whether the association is with a topic."""
         return self.association_type == AssociationType.Topic
 
     @property
     def message_path_id(self) -> typing.Optional[str]:
+        """ID of the message path the association refers to, or ``None`` if it refers to another kind of entity."""
         if self.is_msgpath:
             return self.association_id
 
@@ -284,6 +350,7 @@ class Association(pydantic.BaseModel):
 
     @property
     def topic_id(self) -> typing.Optional[str]:
+        """ID of the topic the association refers to or its ``parent`` chain reaches, or ``None`` if neither."""
         if self.is_topic:
             return self.association_id
 
@@ -293,8 +360,13 @@ class Association(pydantic.BaseModel):
         return None
 
     def url_encode(self) -> str:
-        """Association encoded in a URL path segment ready format."""
+        """Encode the association as one URL path segment.
 
+        The segment is ``<type>:<id>``, or ``<type>:<id>:<version>`` when ``association_version`` is set, where
+        ``<type>`` is the ``AssociationType`` value such as ``file``. It is quoted with
+        ``urllib.parse.quote_plus``, so each ``:`` becomes ``%3A``. ``parent`` is left out.
+        ``from_url_encoded_value`` parses it back.
+        """
         parts = [
             self.association_type.value,
             self.association_id,

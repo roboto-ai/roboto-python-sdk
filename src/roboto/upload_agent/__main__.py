@@ -30,10 +30,19 @@ logger = default_logger()
 logging.basicConfig(format="%(asctime)s [%(levelname)s]: %(message)s", datefmt="%Y-%m-%dT%H:%M:%S%z")
 
 agent_config_file = DEFAULT_ROBOTO_DIR / "upload_agent.json"
+"""Path of the upload agent's settings file, which ``configure`` writes and ``run`` reads."""
+
 agent_config_lockfile = DEFAULT_ROBOTO_DIR / "tmp" / "upload_agent.lock"
+"""Path of the lock file that stops two runs of the upload agent on one machine from uploading at the same time."""
 
 
 def configure():
+    """Prompt for the upload agent's settings and write them to ``~/.roboto/upload_agent.json``.
+
+    ``roboto-agent configure`` calls this. It asks for the name of the upload config file to look for, whether to
+    delete files once they are uploaded, and at least one directory to scan, and asks before overwriting an existing
+    settings file.
+    """
     if not DEFAULT_ROBOTO_DIR.is_dir():
         print(
             f"Roboto config directory {DEFAULT_ROBOTO_DIR} has not been created yet, creating it now\n",
@@ -101,6 +110,13 @@ def configure():
 
 
 def configure_subcommand(args: argparse.Namespace) -> None:
+    """Run ``configure``.
+
+    ``roboto-agent configure`` calls this.
+
+    Args:
+        args: Ignored.
+    """
     configure()
 
 
@@ -109,6 +125,27 @@ def run(
     merge_uploads: bool,
     default_roboto_upload_file: typing.Optional[pathlib.Path] = None,
 ) -> None:
+    """Upload, once, the directories in the search paths that hold an upload config file.
+
+    ``roboto-agent run`` calls this. It reads the settings ``configure`` wrote to ``~/.roboto/upload_agent.json`` and
+    makes its requests with credentials from the environment. While it holds ``~/.roboto/tmp/upload_agent.lock``, it:
+
+    1. Writes an upload config file into each non-empty directory one level under a search path that has no upload
+       config, in-progress, or completed file, when ``auto_create_upload_configs`` is set.
+    2. Uploads each directory that holds an upload config file, with its subdirectories, and logs how many datasets
+       it created.
+
+    It logs an error and uploads nothing when the settings file is missing or cannot be parsed, or when
+    ``default_roboto_upload_file`` is given without ``auto_create_upload_configs``. When another run holds the lock
+    for more than one second, it logs that the agent is already running and returns.
+
+    Args:
+        auto_create_upload_configs: Whether to write upload config files into new directories before uploading.
+        merge_uploads: Whether to upload every directory into one new dataset instead of one dataset per directory.
+        default_roboto_upload_file: Upload config file whose contents the written upload config files copy. Only
+            valid with ``auto_create_upload_configs``. ``None`` uses ``~/.roboto/default_roboto_upload.json`` when it
+            exists, and an empty upload config otherwise.
+    """
     if default_roboto_upload_file is not None and not auto_create_upload_configs:
         logger.error("--default-upload-config can only be used with --auto-create-upload-configs")
         return
@@ -163,6 +200,17 @@ def run_forever(
     merge_uploads: bool,
     default_roboto_upload_file: typing.Optional[pathlib.Path] = None,
 ) -> None:
+    """Call ``run`` repeatedly, waiting ``scan_period_seconds`` after each run finishes, until the user presses Ctrl+C.
+
+    ``roboto-agent run --forever`` calls this. Ctrl+C stops it even in the middle of a run, and it then returns
+    without raising ``KeyboardInterrupt``.
+
+    Args:
+        scan_period_seconds: Seconds to wait after one run finishes before starting the next.
+        auto_create_upload_configs: Passed to ``run``.
+        merge_uploads: Passed to ``run``.
+        default_roboto_upload_file: Passed to ``run``.
+    """
     print(
         "Starting roboto-agent in run forever mode, press Ctrl+C to stop.",
         file=sys.stdout,
@@ -183,6 +231,13 @@ def run_forever(
 
 
 def run_subcommand(args: argparse.Namespace) -> None:
+    """Run the upload agent once, or with ``--forever``, repeatedly with 30-second waits.
+
+    ``roboto-agent run`` calls this.
+
+    Args:
+        args: Parsed command-line arguments of ``roboto-agent run``.
+    """
     if args.forever:
         run_forever(
             scan_period_seconds=30,
@@ -199,6 +254,11 @@ def run_subcommand(args: argparse.Namespace) -> None:
 
 
 def main():
+    """Parse the ``roboto-agent`` command line, set the log level, and run the chosen subcommand.
+
+    ``roboto-agent`` and ``python -m roboto.upload_agent`` call this. It prints the help and returns when no
+    subcommand is given.
+    """
     parser = argparse.ArgumentParser(
         prog="roboto-agent",
         description="Upload agent for managing automatic dataset uploads to Roboto based on configuration.",
@@ -276,8 +336,6 @@ def main():
         log_level = logging.INFO
     elif args.verbose == 1:
         log_level = logging.WARNING
-
-    # Default to INFO if no verbosity or quiet flags are provided
     else:
         log_level = logging.INFO
 

@@ -4,17 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Message-content primitive value types shared across the ``roboto.ai`` layer.
-
-These are the leaf building blocks of :attr:`AgentMessage.content`. They live
-here — below both :mod:`roboto.ai.core.record` and :mod:`roboto.ai.goals` —
-so the goals layer can reference the raw tool-call blocks (to carry them on a
-:data:`GoalResult`) without importing from ``core.record``. That keeps the
-``roboto.ai`` import graph a DAG: ``core.content`` depends only on
-:mod:`roboto.ai.core.context` (itself a leaf with no ``roboto.ai`` imports of
-its own); ``goals`` and ``core.record`` both depend down onto ``core.content``.
-"""
-
 import typing
 from typing import Any, Optional, Union
 
@@ -25,146 +14,134 @@ from .context import ClientViewingContext
 
 
 class AgentContentType(StrEnum):
-    """Enumeration of different types of content within agent messages.
-
-    Defines the various content types that can be included in agent messages.
-    """
+    """Kind of a content block in a message."""
 
     TEXT = "text"
-    """Plain text content from users or AI responses."""
+    """Text blocks (``AgentTextContent``), from the caller or from Roboto's AI."""
 
     TOOL_USE = "tool_use"
-    """Tool invocation requests from the AI assistant."""
+    """Tool uses (``AgentToolUseContent``): requests from Roboto's AI to run a tool."""
 
     TOOL_RESULT = "tool_result"
-    """Results returned from tool executions."""
+    """Tool results (``AgentToolResultContent``): what a tool returned when it ran."""
 
     ERROR = "error"
-    """Error information when message generation fails."""
+    """Errors (``AgentErrorContent``): why generating a message failed or stopped."""
 
     DELETED = "deleted"
-    """Tombstone marking a content block elided by compression.
+    """Placeholders (``AgentDeletedContent``) for blocks Roboto removed from what it sends to the AI model.
 
-    Appears only inside a ``DELETED``-tier compressed variant. Both producers —
-    message-tier compression dropping a pure-filler text run, and the
-    cross-message deletion pass dropping a whole tool exchange — store their
-    output at the DELETED tier, so a message carrying one is always a DELETED-tier
-    variant. Never in the verbatim ``original`` thread the SDK and UI read."""
+    Messages Roboto returns never contain one."""
 
     CLIENT_CONTEXT = "client_context"
-    """What the caller was looking at when they composed the message this block sits on.
-
-    Superseded shape: the same payload used to be persisted as a whole ROBOTO-role message whose
-    text was a ``<ctx>...</ctx>`` marker (ENG-2185). Readers still accept that form for threads
-    written before this type existed; nothing emits it any more."""
+    """Viewing context (``AgentClientContextEntry``): what the caller had open when they sent the message."""
 
     COMPRESSION_FILLER = "compression_filler"
-    """Stand-in block for a message that has nothing left to send to the model (see
-    :class:`AgentCompressionFillerContent`). Never in the verbatim ``original`` thread the SDK and UI read."""
+    """Stand-ins (``AgentCompressionFillerContent``) for messages left empty in what Roboto sends to the AI model.
+
+    Messages Roboto returns never contain one."""
 
 
 class AgentTextContent(pydantic.BaseModel):
-    """Text content within an agent message."""
+    """Text block of a message, from the caller or from Roboto's AI."""
 
     text: str
-    """The actual text content of the message."""
+    """Text of the block."""
 
     def __str__(self) -> str:
         return self.text
 
 
 class AgentToolUseContent(pydantic.BaseModel):
-    """Tool usage request content within an agent message."""
+    """Tool use block of a message: a request from Roboto's AI to run a tool."""
 
     content_type: typing.Literal[AgentContentType.TOOL_USE] = AgentContentType.TOOL_USE
+    """Kind of content block, always ``AgentContentType.TOOL_USE``."""
     tool_name: str
-    """Name of the tool the LLM is requesting to invoke."""
+    """Name of the tool the AI asks to run."""
     tool_use_id: str
-    """Unique identifier for this tool invocation, used to correlate with its result."""
+    """Unique ID of the tool use, which the tool's result carries as its ``tool_use_id``."""
     input: Optional[dict[str, Any]] = None
-    """Parsed tool input parameters chosen by the LLM (provider-agnostic)."""
-    raw_request: Optional[dict[str, Any]] = None
-    """Raw, unparsed request payload for this tool invocation."""
-    answered_by_server: bool = False
-    """Whether the server answers this call to a client-side tool itself, instead of handing it to the client.
+    """Input the AI chose for the tool, in a form that does not depend on the AI model the thread runs on.
 
-    ``True`` when the server refused the call. The server then writes an error result for it, so the client must not
-    run the tool: the server rejects a submission of client tool results that includes a result for this tool use.
+    ``None`` on tool uses recorded before Roboto stored it."""
+    raw_request: Optional[dict[str, Any]] = None
+    """Request to run the tool, in the AI model's format.
+
+    Roboto removes it from threads it returns; only ``GET /v1/ai/threads/{thread_id}/tool-use/{tool_use_id}``
+    (:py:class:`~roboto.ai.agent_thread.AgentToolDetailResponse`) keeps it."""
+    answered_by_server: bool = False
+    """Whether Roboto answers this call to a client tool itself, instead of handing it to the caller.
+
+    ``True`` when Roboto refused the call. Roboto then records an error result for it, so the caller must not run the
+    tool: client tool results submitted with a result for this tool use raise ``RobotoInvalidRequestException``.
     :py:meth:`~roboto.ai.agent_thread.AgentThread.run` skips such tool uses when it runs client tools. Always ``False``
-    on a call to a server-side tool."""
+    on a call to a tool Roboto runs."""
 
 
 class AgentArtifactRecord(pydantic.BaseModel):
-    """One file a tool run produced, as reported in :attr:`AgentToolResultContent.artifacts`.
+    """File a tool produced while it ran.
 
-    An inline summary with no URL; to download the file, request an
-    :class:`~roboto.ai.agent_thread.record.AgentToolArtifactResponse`.
+    Carried in ``AgentToolResultContent.artifacts``. Holds no URL. To download the file, request
+    ``GET /v1/ai/threads/{thread_id}/tool-use/{tool_use_id}/artifacts/{name}``, which returns
+    :py:class:`~roboto.ai.agent_thread.AgentToolArtifactResponse`.
     """
 
     name: str
-    """The artifact's filename, as reported in the tool result's ``outputs`` field."""
+    """Name of the file, as the tool reported it. It can include a directory, such as ``plots/a.png``."""
 
     bytes: int
     """Size of the file, in bytes."""
 
     content_type: str
-    """MIME type the tool reported for the file."""
+    """Media type the tool reported for the file."""
 
     status: str
-    """Outcome of producing the file (e.g. ``"uploaded"``, ``"too_large"``).
+    """What became of the file, such as ``"uploaded"`` (stored, and downloadable) or ``"too_large"``.
 
-    Reported even when the file's bytes were not kept. The vocabulary is tool-specific and not
-    constrained by the SDK.
+    Present even when Roboto did not keep the file. Each tool defines its own values.
     """
 
 
 class AgentToolResultContent(pydantic.BaseModel):
-    """Tool execution result content within an agent message."""
+    """Tool result block of a message: what a tool returned when it ran for a tool use."""
 
     content_type: typing.Literal[AgentContentType.TOOL_RESULT] = AgentContentType.TOOL_RESULT
+    """Kind of content block, always ``AgentContentType.TOOL_RESULT``."""
     tool_name: str
-    """Name of the tool that was executed."""
+    """Name of the tool that ran."""
     tool_use_id: str
-    """Identifier of the tool invocation this result corresponds to."""
+    """ID of the tool use this result answers, as ``AgentToolUseContent.tool_use_id`` gives it."""
     runtime_ms: int
-    """Wall-clock execution time of the tool in milliseconds."""
+    """Wall-clock time the tool took to run, in milliseconds."""
     status: str
-    """Outcome of the tool execution (e.g. 'success', 'error')."""
+    """Outcome of the tool run, such as ``"success"`` or ``"error"``."""
     artifacts: Optional[list[AgentArtifactRecord]] = None
-    """Files this tool run produced.
+    """Files the tool produced while it ran, or ``None`` when the tool's output lists none.
 
-    Unlike :attr:`raw_response`, kept on thread reads, so clients can offer downloads without fetching
-    each tool result. Populated from any tool payload's ``outputs`` field.
+    Roboto reads them from the ``outputs`` field of the tool's output. Unlike ``raw_response``, kept in threads Roboto
+    returns, so a client can offer downloads without fetching each tool result.
     """
 
     payload: Optional[Union[str, dict[str, Any], list[Any]]] = None
-    """What the tool returned: free-form text, or a JSON object or array of structured data.
+    """What the tool returned: text, or a JSON object or array.
 
-    Independent of any model provider's wire format (provider-agnostic, like
-    :py:attr:`AgentToolUseContent.input`). ``None`` on results written before this field
-    existed; use :py:meth:`resolve_payload` to read old and new results uniformly."""
+    Its form does not depend on the AI model the thread runs on. ``None`` when the result holds no text or JSON output.
+    A result recorded before Roboto stored this field can hold its output only in ``raw_response``;
+    ``resolve_payload`` reads it from either field."""
     raw_response: Optional[dict[str, Any]] = None
-    """Legacy provider-formatted response envelope (Bedrock ``toolResult`` shape).
+    """Deprecated. Result of the tool in the AI model's format, a ``toolResult`` object.
 
-    Kept so results written before :py:attr:`payload` existed remain readable; deprecated
-    for new readers, who should call :py:meth:`resolve_payload` instead of parsing this
-    field.
-
-    Populated only where the server-side envelope is in scope: threads read over the
-    API arrive with this field stripped (and, for legacy rows, with :py:attr:`payload`
-    synthesized from it server-side before the strip), so API/SDK readers should not
-    expect it."""
+    Read ``payload``, or call ``resolve_payload``, instead. Roboto removes this field from threads it returns, after
+    filling ``payload`` from it when ``payload`` is empty; only
+    ``GET /v1/ai/threads/{thread_id}/tool-use/{tool_use_id}``
+    (:py:class:`~roboto.ai.agent_thread.AgentToolDetailResponse`) keeps it."""
 
     def resolve_payload(self) -> Optional[Union[str, dict[str, Any], list[Any]]]:
-        """Return what the tool returned, whichever field carries it.
-
-        Prefers :py:attr:`payload`. Results written before that field existed carry only
-        the legacy envelope, from which the equivalent value is reconstructed via
-        :py:func:`synthesize_tool_result_payload`.
+        """Return what the tool returned, from ``payload``, or from ``raw_response`` when ``payload`` is ``None``.
 
         Returns:
-            The tool's text or JSON output, or ``None`` when neither field carries a
-            recognizable value.
+            The tool's text or JSON output, or ``None`` when neither field holds one.
         """
         if self.payload is not None:
             return self.payload
@@ -174,32 +151,28 @@ class AgentToolResultContent(pydantic.BaseModel):
 def synthesize_tool_result_payload(
     raw_response: Optional[dict[str, Any]],
 ) -> Optional[Union[str, dict[str, Any], list[Any]]]:
-    """Reconstruct a tool result's text or JSON output from its legacy response envelope.
+    """Build a tool result's text or JSON output from its ``raw_response``.
 
-    Reads both shapes tool results were persisted with before
-    :py:attr:`AgentToolResultContent.payload` existed:
+    Roboto calls this when it records a tool result, and when it returns a result recorded before it stored
+    ``AgentToolResultContent.payload``. To read a result's output, use ``AgentToolResultContent.resolve_payload``
+    instead.
 
-    - The provider envelope: a ``toolResult`` object whose ``content`` list carries the
-      output as a ``text`` or ``json`` block, followed at most by image attachments.
-    - A bare output dict with no ``toolResult`` key at all — the shape client-submitted
-      results and fabricated skill-invocation results persisted, where the dict *is* the
-      tool's output and is returned as the payload verbatim.
+    It reads two forms of ``raw_response``:
 
-    A ``json`` value of the exact single-key form ``{"items": [...]}`` — the wrapper
-    applied because the model provider rejected a top-level array — is unwrapped back to
-    the bare array. This unwrap is heuristic: a tool that genuinely returned a
-    single-key ``{"items": [...]}`` dict is indistinguishable from the wrapper here and
-    synthesizes as the bare array. Writers that still hold the tool's true return value
-    should persist :py:attr:`AgentToolResultContent.payload` directly rather than round-
-    tripping through this function.
+    - A dictionary with a ``toolResult`` key, whose ``content`` list holds the output. The first ``text`` or ``json``
+      block in the list is the output.
+    - A dictionary with no ``toolResult`` key, which is the tool's output itself and comes back unchanged.
+
+    A ``json`` value of exactly ``{"items": [...]}`` comes back as the bare list, because Roboto wraps a tool's
+    top-level array that way, which the AI model's format does not accept. A tool that itself returned a dictionary
+    whose only key is ``items``, holding a list, therefore also comes back as that list.
 
     Args:
-        raw_response: The legacy value, as carried by
-            :py:attr:`AgentToolResultContent.raw_response`. ``None`` is accepted.
+        raw_response: Value of ``AgentToolResultContent.raw_response``. ``None`` returns ``None``.
 
     Returns:
-        The tool's text or JSON output, or ``None`` when the value is absent, is a
-        malformed envelope, or is an envelope carrying no text or JSON block.
+        The tool's text or JSON output, or ``None`` when ``raw_response`` is ``None`` or empty, its ``toolResult`` is
+        not a dictionary holding a ``content`` list, or the list holds no text or JSON output.
     """
     if not raw_response:
         return None
@@ -227,65 +200,54 @@ def synthesize_tool_result_payload(
 
 
 class AgentErrorContent(pydantic.BaseModel):
-    """Error content within an agent message.
-
-    Used when message generation fails due to an error or is cancelled by the user.
-    """
+    """Error block of a message: why Roboto's AI failed to generate the message, or that it was cancelled."""
 
     content_type: typing.Literal[AgentContentType.ERROR] = AgentContentType.ERROR
+    """Kind of content block, always ``AgentContentType.ERROR``."""
     error_message: str
-    """User-friendly error message describing what went wrong."""
+    """Human-readable description of what went wrong."""
 
     error_code: Optional[str] = None
-    """Optional error code for programmatic handling."""
+    """Code naming the kind of error, such as ``"TURN_CANCELLED"``, or ``None`` if Roboto gave none."""
 
 
 class AgentDeletedContent(pydantic.BaseModel):
-    """Tombstone for a content block removed by compression.
+    """Placeholder for a content block Roboto removed from the shortened copy of a thread it sends to the AI model.
 
-    Carries no payload — its presence records that a block once occupied this
-    slot, and it converts to ``None`` at the Bedrock boundary so the block drops
-    from the LLM payload. Produced when compression drops a block — a pure-filler
-    text run at message compression, or a whole redundant tool exchange in the
-    cross-message deletion pass — and stored only at the ``DELETED`` tier, so a
-    message carrying one is always a DELETED-tier variant. A message reduced to
-    nothing but tombstones does not drop: it is replaced with a single
-    :class:`AgentCompressionFillerContent` so it keeps its role and turn. The
-    verbatim ``original`` thread (what the SDK and UI render) never contains one.
+    Holds nothing but its kind. Roboto shortens a long thread so it fits the AI model's context window, removing
+    blocks the AI model no longer needs, such as filler text or a tool use and its result that later messages make
+    redundant. A message left with only placeholders gets one ``AgentCompressionFillerContent`` instead, so it keeps
+    its place and sender in the conversation. Messages Roboto returns, and the Roboto web app shows, never contain one.
     """
 
     content_type: typing.Literal[AgentContentType.DELETED] = AgentContentType.DELETED
+    """Kind of content block, always ``AgentContentType.DELETED``."""
 
 
 class AgentCompressionFillerContent(pydantic.BaseModel):
-    """Stands in for the content of a message that was shortened away when a long conversation was condensed for the
-    model.
+    """Stand-in for the content of a message Roboto emptied in the copy of a thread it sends to the AI model.
 
-    Carries no payload. It occurs only in the condensed copies of messages the platform sends to the model: the
-    messages of a thread as the SDK returns them, and as the web UI shows them, never contain one.
+    Holds nothing but its kind, and keeps the message's place and sender in that copy. Messages Roboto returns, and
+    the Roboto web app shows, never contain one.
     """
 
     content_type: typing.Literal[AgentContentType.COMPRESSION_FILLER] = AgentContentType.COMPRESSION_FILLER
+    """Kind of content block, always ``AgentContentType.COMPRESSION_FILLER``."""
 
 
 class AgentClientContextEntry(pydantic.BaseModel):
-    """The caller's attached viewing context, carried on their own message.
+    """What the caller had open when they sent a message, carried as a block on that message.
 
-    Replaces a ``<ctx>{json}</ctx>`` marker persisted as a separate ROBOTO-role message. That shape
-    made every consumer regex a JSON blob back out of prose it had serialized itself -- four
-    parsers across two languages -- and relied on the ROBOTO role to keep the marker out of the
-    chat view. It also put the context on a non-USER message, which the compression deletion pass
-    collapses wholesale inside a resolved task's interior, so the context silently disappeared from
-    compressed history.
-
-    As a block on the user's own message it is a typed field, invisible to text renderers (no
-    ``text`` field), and safe from that collapse -- USER turns are never dropped.
+    Roboto adds it when the caller passes ``client_context`` to :py:meth:`~roboto.ai.agent_thread.AgentThread.start`
+    or :py:meth:`~roboto.ai.agent_thread.AgentThread.send`. It has no ``text`` field, so text renderers skip it, and
+    Roboto keeps it when it shortens a long thread for the AI model.
     """
 
     content_type: typing.Literal[AgentContentType.CLIENT_CONTEXT] = AgentContentType.CLIENT_CONTEXT
+    """Kind of content block, always ``AgentContentType.CLIENT_CONTEXT``."""
 
     context: ClientViewingContext
-    """What the caller had open: attached datasets, files, and visualizer state."""
+    """What the caller had open, such as datasets, files, and visualizer state."""
 
 
 AgentContent: typing.TypeAlias = Union[
@@ -297,7 +259,12 @@ AgentContent: typing.TypeAlias = Union[
     AgentCompressionFillerContent,
     AgentClientContextEntry,
 ]
-"""Type alias for all possible content types within agent messages."""
+"""Content block of any kind: one of the content block models.
+
+The models are ``AgentTextContent``, ``AgentToolUseContent``, ``AgentToolResultContent``, ``AgentErrorContent``,
+``AgentDeletedContent``, ``AgentCompressionFillerContent`` and ``AgentClientContextEntry``. Each but
+``AgentTextContent`` names its kind in ``content_type``.
+"""
 
 
 AGENT_CONTENT_MODEL_BY_TYPE: dict[AgentContentType, type[AgentContent]] = {
@@ -308,12 +275,9 @@ AGENT_CONTENT_MODEL_BY_TYPE: dict[AgentContentType, type[AgentContent]] = {
     AgentContentType.COMPRESSION_FILLER: AgentCompressionFillerContent,
     AgentContentType.CLIENT_CONTEXT: AgentClientContextEntry,
 }
-"""The model class for each JSON-serialized content type, keyed by discriminator.
+"""Model of each kind of content block other than text, keyed by its ``content_type``.
 
-Excludes :attr:`AgentContentType.TEXT`, whose payload is persisted as raw text
-rather than a serialized model. Every other member of :data:`AgentContent`
-carries a ``content_type`` discriminator and round-trips through
-``model_dump_json`` / ``model_validate_json``; driving both serialization
-directions off this one map keeps them symmetric, so a member added to the union
-without a home here fails loudly instead of being silently dropped on write or
-reconstructed without its payload on read."""
+Roboto reads this map when it stores a message's content blocks and when it reads them back, so a kind of block
+missing from it fails both ways instead of being dropped. ``AgentContentType.TEXT`` is left out because a text block
+has no ``content_type`` field.
+"""

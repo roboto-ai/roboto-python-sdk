@@ -8,18 +8,25 @@ import pydantic
 
 
 class PromptRequest(pydantic.BaseModel):
-    """
-    A generic request intended for a natural-language powered endpoint which accepts a human-readable prompt.
+    """Request body for ``POST /v1/query/convert/nlp-to-roboql``.
+
+    Roboto's AI writes a RoboQL query from the prompt and returns it as
+    :py:class:`~roboto.query.QualifiedRoboqlQuery`.
     """
 
     prompt: str
-    """The prompt to send to the AI model."""
+    """Natural-language description of what to search for."""
 
 
 class SetSummaryRequest(pydantic.BaseModel):
-    """
-    A request to set the summary of an entity.
+    """Request body that replaces the AI summary of a dataset or a session.
+
+    Sent by :py:meth:`~roboto.domain.datasets.Dataset.set_summary` and
+    :py:meth:`~roboto.experimental.sessions.Session.set_summary`.
     """
 
     summary: str
-    """The summary to set."""
+    """Text of the summary, rendered as Markdown.
+
+    It can include ``roboto://`` links to Roboto resources, which the Roboto web app renders as links.
+    """

@@ -4,11 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Combine the files of a split partition into the partition's rows.
-
-Each combined row holds every projected top-level field that a file decoded, and each file gives the fields it supplies.
-"""
-
 from __future__ import annotations
 
 import collections.abc
@@ -34,21 +29,34 @@ if typing.TYPE_CHECKING:
 
 
 class SplitPartition:
-    """A split partition, read through one file decoder per scan task group.
+    """Combiner of a split partition's files into its rows, through one file decoder per scan task group.
 
-    A split partition's scan tasks, grouped by file, form more than one scan task group, so its rows are read from more
-    than one file. Several scan tasks on one file are one group, read as one file. The groups, and so the file
-    decoders, are ordered by the lowest precedence among their scan tasks.
+    A split partition is a partition whose scan tasks, grouped by file, form more than one scan task group, so its rows
+    are read from more than one file. Several scan tasks on one file form one group, read as one file. The groups, and
+    so the file decoders, are ordered by the lowest precedence among their scan tasks.
 
-    Each top-level field is made from the files' decoded columns by these rules:
+    Each combined row holds every top-level field some file decoded, and each file gives the fields it supplies. Each
+    top-level field is made from the files' decoded columns by these rules:
 
-    * A field one file decoded is taken whole from it.
-    * A field several files decoded must be a struct in each of them, and is a struct combined from theirs. Its fields
-      are the names :py:meth:`~roboto.experimental.topics.decode.FileDecoder.struct_field_names` gives for the struct
-      in those files, in the order the first of them stores them, then any name that file lacks, in the next such
-      file's order. A name none of those files decoded is dropped, and each other field is made by these same rules
-      from the files that decoded it. The combined struct is valid in a row where any of those files has it valid.
-    * A top-level name no file decoded has no column.
+    - A field one file decoded is taken whole from it.
+    - A field several files decoded must be a struct in each of them, and is a struct combined from theirs. Its fields
+      are the names ``FileDecoder.struct_field_names`` gives for the struct in those files, in the order the first of
+      them stores them, then any name that file lacks, in the next such file's order. A name none of those files
+      decoded is dropped, and each other field is made by these same rules from the files that decoded it. The
+      combined struct is valid in a row where any of those files has it valid, and in a row where one file has it
+      null, every field taken from that file is null.
+    - A top-level name no file decoded has no column.
+
+    Args:
+        topic_part_id: ID of the partition, used in error messages.
+        file_decoders: One opened decoder per scan task group's file, in the groups' order.
+        top_level_names: Names of the value columns to give the read, in order: the first component of each projected
+            path that has no other projected path inside it. A name no file decoded gets no column.
+
+    Raises:
+        RobotoReadPlanExecutionException: With kind
+            :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.FIELD_SPLIT_INSIDE_NON_STRUCT`, when a field is in
+            several files' decoded columns and one of them stores it as other than a struct, such as a list or a map.
     """
 
     def __init__(
@@ -57,18 +65,6 @@ class SplitPartition:
         file_decoders: collections.abc.Sequence[FileDecoder],
         top_level_names: collections.abc.Sequence[str],
     ) -> None:
-        """Describe how to combine ``file_decoders``, one per scan task group, in the groups' order.
-
-        Args:
-            topic_part_id: The partition's id, for error messages.
-            file_decoders: One opened decoder per scan task group's file, in the groups' order.
-            top_level_names: The names of the value columns to give the read, in order: the first component of each
-                leaf-most path. A name that no file decoded gets no column.
-
-        Raises:
-            RobotoReadPlanExecutionException: With kind ``field-split-inside-non-struct``, when a field is in several
-                files' decoded columns and one of them stores it as other than a struct.
-        """
         self.__topic_part_id = topic_part_id
         self.__file_schemas = [topic_data_schema(decoder.value_fields) for decoder in file_decoders]
         decoded_by_name = {
@@ -88,7 +84,7 @@ class SplitPartition:
 
     @property
     def value_fields(self) -> list["pyarrow.Field"]:
-        """The combined partition's value columns, one per top-level name some file decoded, in the order given."""
+        """Value columns of the combined rows, one per top-level name some file decoded, in the order of those names."""
         return [source.field for source in self.__sources]
 
     def combine(
@@ -96,17 +92,21 @@ class SplitPartition:
     ) -> collections.abc.Iterator["pyarrow.RecordBatch"]:
         """Combine each file decoder's rows, paired in stored order, into the partition's rows.
 
-        Row numbers and timestamps come from the file of the first scan task group. The combined batches have the
-        columns of :py:func:`~roboto.experimental.topics.batch_transforms.topic_data_schema` over
-        :py:attr:`value_fields`.
+        Row numbers and timestamps come from the file of the first scan task group. Each batch has the schema
+        ``topic_data_schema`` builds from ``value_fields``: the row number, the timestamp, then the value columns.
 
         Args:
-            file_batches: Each file decoder's batches, in the order of the file decoders.
+            file_batches: Batches of each file decoder, in the order of the file decoders.
+
+        Yields:
+            One batch holding every row, or nothing when the files hold no rows.
 
         Raises:
-            RobotoReadPlanExecutionException: With kind ``scan-task-row-mismatch``, when the files do not hold the same
-                rows: the same row numbers and timestamps in the same order. The message names the first row that
-                differs, including when one file runs out of rows before another.
+            RobotoReadPlanExecutionException: With kind
+                :py:attr:`~roboto.exceptions.ReadPlanExecutionErrorKind.SCAN_TASK_ROW_MISMATCH`, when the files do not
+                hold the same rows: the same row numbers and timestamps in the same order. The message names the first
+                row that differs, including when one file runs out of rows before another. It surfaces on the first
+                iteration.
         """
         pa = import_optional_dependency("pyarrow", "analytics")
 
@@ -137,7 +137,7 @@ class SplitPartition:
         other_row_numbers: "pyarrow.Array",
         other_timestamps: "pyarrow.Array",
     ) -> None:
-        """Raise ``scan-task-row-mismatch`` unless two files hold the same rows, naming the first that differs."""
+        """Reject two files that hold different rows, naming the first row that differs."""
         pc = import_optional_dependency("pyarrow.compute", "analytics")
 
         length = min(len(row_numbers), len(other_row_numbers))
@@ -166,17 +166,20 @@ class SplitPartition:
 
 @dataclasses.dataclass(frozen=True)
 class _FieldSource:
-    """How one output field is made from the file decoders' decoded columns."""
+    """Description of how one value column, or a field inside one, is made from the files' decoded columns."""
 
     field: "pyarrow.Field"
+    """Field as the combined rows hold it."""
 
     positions: dict[int, int]
-    """The field's position in each file whose decoded columns hold it, keyed by the file's index among the decoders:
-    among the file's value columns for a top-level field, else among its parent's fields in that file."""
+    """Position of the field in each file whose decoded columns hold it, keyed by the file's index among the decoders:
+    among the file's value columns for a top-level field, otherwise among its parent struct's fields in that file."""
 
     children: typing.Optional[tuple[_FieldSource, ...]] = None
-    """For a struct combined from several files, how each of its fields is made; ``None`` for a field taken whole from
-    its one file."""
+    """How each field of a struct combined from several files is made, in the struct's order.
+
+    ``None`` for a field taken whole from its one file.
+    """
 
 
 def _field_source(
@@ -185,10 +188,10 @@ def _field_source(
     path: FieldPath,
     fields: dict[int, tuple[int, "pyarrow.Field"]],
 ) -> _FieldSource:
-    """How the field at ``path`` is made from the files whose decoded columns hold it,
-    given its position and field in each.
+    """Build the ``_FieldSource`` of the field at ``path`` from the files whose decoded columns hold it.
 
-    ``fields`` is keyed by the file's index among the file decoders, in ascending order.
+    ``fields`` gives the field's position and ``pyarrow.Field`` in each such file, keyed by the file's index among
+    ``file_decoders``, in ascending order.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
 
@@ -229,10 +232,10 @@ def _combined(
     data_at: typing.Callable[[int, int], "pyarrow.Array"],
     length: int,
 ) -> "pyarrow.Array":
-    """The array of ``source``'s field over ``length`` rows, where ``data_at`` gives the array at a position in a file.
+    """Build the array of ``source``'s field over ``length`` rows.
 
-    A field taken from a file is null wherever that file has its parent struct null, since
-    ``pyarrow.compute.struct_field`` makes a child null wherever its parent is.
+    ``data_at(file, position)`` returns the array at ``position`` in the file at index ``file``. Each child is taken
+    with ``pyarrow.compute.struct_field``, which makes it null wherever its parent struct is null.
     """
     pa = import_optional_dependency("pyarrow", "analytics")
     pc = import_optional_dependency("pyarrow.compute", "analytics")
@@ -244,7 +247,7 @@ def _combined(
 
     valid = functools.reduce(pc.or_, (pc.is_valid(array) for array in own.values()), pa.repeat(False, length))
     if not source.children:
-        # StructArray.from_arrays cannot take the length of a struct without fields from its fields.
+        # StructArray.from_arrays takes its length from its children, so build a fieldless struct one row at a time.
         return pa.array([{} if is_valid else None for is_valid in valid.to_pylist()], type=pa.struct([]))
 
     def child_data_at(file: int, position: int) -> "pyarrow.Array":
@@ -258,6 +261,6 @@ def _combined(
 
 
 def _value_columns(table: "pyarrow.Table") -> list["pyarrow.Array"]:
-    """A decoded table's value columns: every column but the row number and timestamp columns, in order."""
+    """Return a decoded table's value columns: every column but the row number and timestamp columns, in order."""
     marked = {row_number_column_index(table.schema), timestamp_column_index(table.schema)}
     return [table.column(index).combine_chunks() for index in range(table.num_columns) if index not in marked]

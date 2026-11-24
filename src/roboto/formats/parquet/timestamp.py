@@ -20,6 +20,11 @@ if typing.TYPE_CHECKING:
 
 
 def is_timestamp_like(arrow_type: "pyarrow.DataType") -> bool:
+    """Return whether ``arrow_type`` can hold a timestamp: a timestamp, integer, decimal or floating-point type.
+
+    Args:
+        arrow_type: Arrow type to check.
+    """
     pa = import_optional_dependency("pyarrow", "ingestion")
 
     return any(
@@ -33,44 +38,80 @@ def is_timestamp_like(arrow_type: "pyarrow.DataType") -> bool:
 
 
 def is_timezone_aware(arrow_type: "pyarrow.DataType") -> bool:
+    """Return whether ``arrow_type`` is an Arrow timestamp type with a time zone.
+
+    Args:
+        arrow_type: Arrow type to check.
+    """
     pa = import_optional_dependency("pyarrow", "ingestion")
 
     return pa.types.is_timestamp(arrow_type) and typing.cast("pyarrow.TimestampType", arrow_type).tz is not None
 
 
 def time_unit_from_timestamp_type(timestamp_type: "pyarrow.TimestampType") -> TimeUnit:
+    """Return the unit an Arrow timestamp type records its values in.
+
+    Args:
+        timestamp_type: Arrow timestamp type to read the unit of.
+    """
     return TimeUnit(timestamp_type.unit)
 
 
 @dataclasses.dataclass
 class Timestamp:
-    """
-    The timestamp field of a Parquet file, the field holding each row's timestamp.
-    Serves as both a descriptor of that field and as a utility for projecting its values to other time units.
+    """Timestamp field of a Parquet file: the field that holds each row's timestamp, and the unit of its values.
 
-    Note:
-        This is not intended as a public API.
+    The SDK's own code uses it; to read a topic's data, use :py:meth:`~roboto.domain.topics.Topic.get_data` instead.
+    :py:func:`~roboto.formats.parquet.extract_timestamp_field` builds it,
+    :py:func:`~roboto.formats.parquet.should_read_row_group` takes it to skip row groups outside a time range, and
+    :py:func:`~roboto.formats.parquet.extract_timestamps` takes it to convert the field's values to nanoseconds since
+    the Unix epoch.
     """
 
     field: "pyarrow.Field"
-    unit_hint: typing.Optional[str]
-    """Unit the stored values are recorded in, used when the Arrow type does not carry one.
+    """Arrow field that holds the timestamp, found at ``path`` in the file's schema."""
 
-    Taken from the ``Unit`` metadata of the timestamp's :py:class:`~roboto.domain.topics.MessagePathRecord`,
-    or from the read plan's :py:attr:`~roboto.experimental.topics.ReadPlanTimestamp.unit`.
-    ``None`` when the unit is unknown.
+    unit_hint: typing.Optional[str]
+    """Unit of the stored values, or ``None`` if it is unknown.
+
+    A :py:class:`~roboto.time.TimeUnit` value, such as ``"ms"``. ``unit`` reads it when the field's Arrow type
+    carries no unit, as with an integer, decimal or floating-point field. Callers take it from the timestamp message
+    path's :py:attr:`~roboto.domain.topics.MessagePathMetadataWellKnown.Unit` metadata, or from
+    ``roboto.experimental.topics.ReadPlanTimestamp.unit``.
     """
+
     path: tuple[str, ...]
-    """Path components locating the timestamp field in the file's schema, root to leaf, through structs only."""
+    """Names of the fields that lead from the schema's root to the timestamp field, through structs only."""
+
     column_index: int
-    """The timestamp's position among the file's leaf columns,
-    which is the index of its column chunk in every row group."""
+    """Index of the timestamp's column chunk in every row group: its position among the file's leaf columns."""
 
     def to_epoch_nanoseconds(self, timestamp: Time) -> int:
+        """Convert a value of the timestamp field to nanoseconds since the Unix epoch.
+
+        A numeric ``timestamp`` is read as a number of ``unit_hint``, even when the field's Arrow type carries its own
+        unit. :py:func:`~roboto.time.to_epoch_nanoseconds` does the conversion, and its failures also apply.
+
+        Args:
+            timestamp: Value of the timestamp field, such as the minimum or maximum in a row group's statistics.
+
+        Raises:
+            Exception: ``unit_hint`` is ``None``.
+            NotImplementedError: ``unit_hint`` is not a :py:class:`~roboto.time.TimeUnit` value.
+        """
         unit = self.__unit_from_hint()
         return to_epoch_nanoseconds(timestamp, unit)
 
     def unit(self) -> TimeUnit:
+        """Return the unit of the timestamp's values.
+
+        The unit comes from the field's Arrow type when it is a timestamp type, and from ``unit_hint`` otherwise.
+
+        Raises:
+            Exception: The field's Arrow type is not a timestamp type and ``unit_hint`` is ``None``.
+            NotImplementedError: The unit is read from ``unit_hint``, which is not a :py:class:`~roboto.time.TimeUnit`
+                value.
+        """
         pa = import_optional_dependency("pyarrow", "analytics")
         if pa.types.is_timestamp(self.field.type):
             timestamp_type = typing.cast("pyarrow.TimestampType", self.field.type)
@@ -98,12 +139,35 @@ class Timestamp:
 
 @dataclasses.dataclass
 class TimestampInfo:
+    """Timestamp column of a Parquet file being stored as a topic, with its unit and the range of its values.
+
+    :py:meth:`~roboto.formats.parquet.ParquetParser.extract_timestamp_info` returns it, and
+    :py:func:`~roboto.formats.parquet.generate_message_path_requests` takes it.
+    :py:meth:`~roboto.domain.topics.Topic.create_from_df` uses both to set a new topic's message paths and time range.
+    Import it from ``roboto.formats.parquet.timestamp``.
+    """
+
     field: "pyarrow.Field"
+    """Arrow field of the timestamp column."""
+
     unit: TimeUnit
+    """Unit of the column's values."""
+
     start_time: typing.Optional[typing.Union[int, float, datetime.datetime]]
+    """Earliest value in the column, or ``None`` if the column holds no values.
+
+    A ``datetime.datetime`` or a number of ``unit``.
+    """
+
     end_time: typing.Optional[typing.Union[int, float, datetime.datetime]]
+    """Latest value in the column, in the same form as ``start_time``, or ``None`` if the column holds no values."""
 
     def start_time_ns(self) -> typing.Optional[int]:
+        """Return ``start_time`` in nanoseconds since the Unix epoch, or ``None`` if it is ``None``.
+
+        A ``datetime.datetime`` is converted through a floating-point number of seconds, so the result can be off by a
+        few hundred nanoseconds. A fraction of a nanosecond is dropped.
+        """
         if self.start_time is None:
             return None
 
@@ -113,6 +177,10 @@ class TimestampInfo:
         return int(self.start_time * self.unit.nano_multiplier())
 
     def end_time_ns(self) -> typing.Optional[int]:
+        """Return ``end_time`` in nanoseconds since the Unix epoch, or ``None`` if it is ``None``.
+
+        It is converted the same way as by ``start_time_ns``.
+        """
         if self.end_time is None:
             return None
 

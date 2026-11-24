@@ -104,6 +104,17 @@ ASCII_ART = """
 def construct_parser(
     context: typing.Optional[CLIContext] = None,
 ) -> argparse.ArgumentParser:
+    """Build the parser of the ``roboto`` command, with every command group, including those CLI extensions add.
+
+    Args:
+        context: Context the commands run with, which ``entry`` fills in after parsing the command line. ``None``
+            builds a parser for reading only, such as for listing the commands: any command except ``roboto setup``
+            and ``roboto upgrade`` then raises ``ValueError`` when it runs.
+
+    Raises:
+        ValueError: A CLI extension adds a command group whose name another command group already has, or adds a
+            command to a command group that does not exist.
+    """
     parser = argparse.ArgumentParser(
         prog="roboto",
         description=(
@@ -186,7 +197,6 @@ def construct_parser(
         required=False,
     )
 
-    # https://bugs.python.org/issue29298
     subcommands = parser.add_subparsers(dest="function")
 
     for command_set in sorted(
@@ -196,9 +206,9 @@ def construct_parser(
         command_set.sort_commands()
         command_set.add_to_subparsers(subcommands, context)
 
-    # Filling in the CLI context exits with an error when no access token is found. A new user runs `roboto setup`
-    # before saving one, and `roboto upgrade` must work whatever state the credentials are in, so entry() calls both
-    # without it.
+    # Filling in the CLI context exits with an error when it finds neither an access token nor a config file. A new
+    # user runs `roboto setup` before saving either, and `roboto upgrade` must work whatever state the credentials are
+    # in, so entry() calls both without it.
     for name, command in (("setup", setup_command), ("upgrade", upgrade_command)):
         command_parser = subcommands.add_parser(
             name,
@@ -213,35 +223,29 @@ def construct_parser(
 
 
 def entry():
-    # `roboto upgrade` and install.ps1 rename a running roboto.exe aside, since Windows won't replace or delete it.
+    # Delete the old roboto.exe that `roboto upgrade` or install.ps1 renamed aside, since Windows cannot replace or
+    # delete a running executable.
     if getattr(sys, "frozen", False) and sys.platform == "win32":
         remove_replaced_executable(pathlib.Path(sys.executable))
 
     context = CLIContext()
     parser = construct_parser(context)
 
-    # By default, as soon as we figure out we're running a sub-parser, any field encountered after that subparser
-    # will be ignored. This means that `roboto --debug datasets search` will work but
-    # `roboto datasets search --debug` will not. In order to work around this, we can use parser_known_args,
-    # which gives us back the list of un-evaluated args, and then take a second pass at parse_args with those args.
-    # This will only work if our subparsers never re-define top level parameters like --debug, --config-file, etc.
-    #
-    # This solution was based on a stack overflow post about this issue:
-    # https://stackoverflow.com/questions/46962065/add-top-level-argparse-arguments-after-subparser-args
+    # Parse in two passes so that top-level options also work after the command, as in
+    # `roboto datasets search --log-level DEBUG`. The first pass leaves options the command does not define in
+    # unparsed, and the second parses them as top-level options into the same namespace. A command that defines an
+    # option with a top-level option's name takes that option for itself.
     args, unparsed = parser.parse_known_args()
 
     args = parser.parse_args(unparsed, args)
 
-    # Set log level from --log-level or --verbose (deprecated)
+    # The deprecated `--verbose` overrides `--log-level`: `-v` sets WARNING, `-vv` INFO, and `-vvv` or more DEBUG.
     if args.verbose > 0:
-        # Deprecated --verbose flag takes precedence for backward compatibility
         warnings.warn(
             "The --verbose flag is deprecated. Use --log-level instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        # Map verbose count to log level
-        # 0 = ERROR, 1 = WARNING, 2 = INFO, 3+ = DEBUG
         log_level_map = {
             logging.ERROR: "ERROR",  # 40
             logging.WARNING: "WARNING",  # 30
@@ -286,6 +290,13 @@ def __populate_context(
     cache_dir_override: typing.Optional[pathlib.Path] = None,
     config_file_override: typing.Optional[pathlib.Path] = None,
 ):
+    """Load the Roboto config and fill in ``context`` with it and a client configured from it.
+
+    Raises:
+        SystemExit: The config cannot be loaded, such as when the config file is missing or has no profile by the
+            chosen name; the status is 2 and the reason is the exception's message. ``parser.error`` prints the usage
+            text and the reason to stderr.
+    """
     try:
         config = RobotoConfig.from_env(profile_override=profile_override, env=cli_roboto_env(config_file_override))
     except Exception as exc:

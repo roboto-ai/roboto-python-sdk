@@ -4,13 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""
-Action runtime setup utilities.
-
-This module provides utilities for preparing action runtime (invocation) environments,
-both in hosted execution and local development contexts.
-"""
-
 import collections.abc
 import json
 import pathlib
@@ -50,14 +43,11 @@ def _merge_parameters_with_defaults(
     action_parameters: collections.abc.Iterable[actions.ActionParameter],
     parameter_values: typing.Optional[collections.abc.Mapping[str, typing.Any]],
 ) -> dict[str, typing.Any]:
-    """Merge supplied parameter values with action parameter defaults."""
+    """Return ``parameter_values`` plus the default of each parameter it leaves out that has a default."""
     log.info("Merging action parameters with defaults")
     supplied_values = parameter_values or {}
 
-    # Start with defaults for all parameters that have them
     merged = {param.name: param.default for param in action_parameters if param.default is not None}
-
-    # Override with supplied values
     merged |= supplied_values
 
     return merged
@@ -71,6 +61,31 @@ def prepare_invocation_parameters(
     org_id: typing.Optional[str],
     roboto_client: RobotoClient,
 ):
+    """Write an invocation's parameter values, and the values of the secrets they name, to files the action reads.
+
+    Roboto calls this when it sets up an invocation, before the action's code starts, and ``roboto actions
+    invoke-local`` calls it to run an action on your computer. The action reads both files through
+    :py:class:`~roboto.action_runtime.InvocationContext`. Each file holds a JSON object keyed by parameter name, and
+    is created, with its parent directories, when missing.
+
+    A parameter that ``provided_parameter_values`` leaves out takes its default, when it has one. A value that is a
+    secret URI (``roboto-secret://<name>`` or ``roboto-secret://<name>@<org_id>``) is written as given to
+    ``parameters_values_file``, and the secret's value is written under the same parameter name to ``secrets_file``.
+    ``secrets_file`` is written only when some value names a secret.
+
+    Args:
+        action_parameters: Parameters the action declares, whose defaults fill in the values left out.
+        provided_parameter_values: Parameter values the invocation gives, by parameter name. They override defaults.
+        parameters_values_file: File to write every parameter value to.
+        secrets_file: File to write the values of the secrets the parameters name to.
+        org_id: Organization that owns a secret whose URI names none. ``None`` uses the organization the caller acts
+            in.
+        roboto_client: Client to make requests to Roboto with.
+
+    Raises:
+        PrepareEnvException: A parameter names a secret that does not exist or the caller cannot read. Its exit code
+            is :py:attr:`~roboto.action_runtime.ExitCode.InternalError`.
+    """
     merged_parameters = _merge_parameters_with_defaults(action_parameters, provided_parameter_values)
 
     secret_params: dict[str, str] = {}
@@ -119,16 +134,12 @@ def _hardlink_resolved_input_to_target_directory(
             files_relative_to_target_dir.append((record, None))
             continue
 
-        # GM (2025-11-26):
-        # Fix for ENG-1848: Handle multi-dataset input files
-        # Previously: files downloaded to `<input_dir>/<relative_path>`
-        # Now: files from multiple datasets prefixed with `<dataset_id>/<relative_path>`
-        # Single dataset maintains backward compatibility to avoid breaking existing actions
-        # that do not use `InvocationContext.get_input()`
+        # A directory per dataset keeps two datasets' files at the same path apart. Input from one dataset keeps
+        # each file at its path within the dataset, where actions that read the input directory without
+        # InvocationContext.get_input expect it.
         if unique_dataset_count > 1:
             target = join_within(target_directory / record.association_id, record.relative_path)
         else:
-            # backward compat behavior
             target = join_within(target_directory, record.relative_path)
 
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -148,10 +159,39 @@ def prepare_invocation_input_data(
     roboto_client: RobotoClient,
     roboto_search: RobotoSearch,
 ):
-    # Resolve and optionally download inputs. A no-input invocation (e.g. running an action with
-    # just a dataset ID) passes input_data=None; treat that as empty input rather than skipping
-    # setup entirely, so the manifest is always written. The action container's get_input() expects
-    # the manifest file to exist whenever setup completes.
+    """Resolve an invocation's input to the files, sessions, and topics it selects, and write them to a manifest.
+
+    Roboto calls this when it sets up an invocation, before the action's code starts, and ``roboto actions
+    invoke-local`` calls it to run an action on your computer. The action reads the manifest through
+    :py:meth:`~roboto.action_runtime.InvocationContext.get_input`, which expects it to exist once setup completes, so
+    an invocation with no input, such as one run against only a dataset, gets a manifest that selects nothing.
+
+    With ``requires_downloaded_inputs``, the selected files are downloaded to ``download_directory`` and, when
+    ``target_directory`` differs from it, hard-linked into ``target_directory`` at their paths within their datasets.
+    When the files come from more than one dataset, each link goes under a directory named for its dataset's ID, as
+    ``<target_directory>/<dataset_id>/<path>``. The manifest records each file's linked path, or its downloaded path
+    when no link is made.
+
+    Args:
+        requires_downloaded_inputs: Whether to download the selected files.
+        input_data: Input selectors of the invocation. ``None`` selects nothing.
+        target_directory: Directory the action reads its input files from.
+        download_directory: Directory to download the files to, as
+            :py:meth:`~roboto.action_runtime.action_input.ActionInputResolver.resolve_input_spec` lays them out.
+        inputs_data_manifest_file: File to write the manifest to, as
+            :py:class:`~roboto.action_runtime.action_input.ActionInputRecord` JSON. Created, with its parent
+            directories, when missing.
+        roboto_client: Client to make requests to Roboto with.
+        roboto_search: :py:class:`~roboto.roboto_search.RobotoSearch` that runs the selectors' RoboQL queries.
+
+    Raises:
+        PrepareEnvException: A request to Roboto failed, such as a lookup of an ID that matches nothing. Its exit
+            code is :py:attr:`~roboto.action_runtime.ExitCode.InternalError` when Roboto failed (HTTP status 500 or
+            above) and :py:attr:`~roboto.action_runtime.ExitCode.UsageError` otherwise.
+        ExceptionGroup: With ``requires_downloaded_inputs``, one or more files still failed to download after three
+            attempts.
+        RobotoIllegalArgumentException: A file's path within its dataset resolves outside ``target_directory``.
+    """
     resolved_input = ActionInputRecord()
     if input_data is not None:
         log.info("Resolving input data")
@@ -173,7 +213,6 @@ def prepare_invocation_input_data(
             is_server_error = exc.http_status_code >= 500
             raise PrepareEnvException(ExitCode.InternalError if is_server_error else ExitCode.UsageError, msg) from None
 
-        # Modify resolved paths to be relative to the target directory
         if requires_downloaded_inputs and download_directory != target_directory:
             resolved_input = _hardlink_resolved_input_to_target_directory(resolved_input, target_directory)
 
@@ -185,6 +224,16 @@ def prepare_invocation_input_data(
 def prepare_metadata_changeset_manifest(
     dataset_metadata_changeset_path: pathlib.Path,
 ):
+    """Create the empty file in which an action records changes to its dataset's tags and metadata.
+
+    Roboto calls this when it sets up an invocation, before the action's code starts, and ``roboto actions
+    invoke-local`` calls it to run an action on your computer. Roboto applies the changes the action records when the
+    invocation finishes.
+
+    Args:
+        dataset_metadata_changeset_path: File to create, with its parent directories. An existing file is left
+            unchanged.
+    """
     log.info(
         "Creating dataset metadata changeset file at %s",
         dataset_metadata_changeset_path,

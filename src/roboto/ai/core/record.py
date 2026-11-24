@@ -14,12 +14,9 @@ from ...compat import StrEnum
 from ...time import utcnow
 from ..goals import AgentGoal, AgentGoalStatus
 
-# Message-content primitives live in the leaf ``content`` module so the goals
-# layer can build on them without importing ``record`` (which depends on
-# ``goals`` for ``AgentGoal``). They are re-exported here — and listed in
-# ``__all__`` below — so the historical ``roboto.ai.core.record`` import path
-# keeps resolving for downstream consumers (see ``test_core_exports`` and
-# ``roboto_service``).
+# The message content types are defined in content so that goals can import them without importing this module,
+# which imports goals. They are re-exported here, and listed in __all__, so they also import from
+# roboto.ai.core.record.
 from .content import (
     AGENT_CONTENT_MODEL_BY_TYPE,
     AgentClientContextEntry,
@@ -33,9 +30,8 @@ from .content import (
     AgentToolUseContent,
 )
 
-# Task records live in the leaf ``task`` module (no dependency on ``record``)
-# and are re-exported here — and in ``__all__`` — so they import from
-# ``roboto.ai.core.record`` alongside the rest of the thread types.
+# Re-exported here, and listed in __all__, so the task types import from roboto.ai.core.record with the rest of the
+# thread types.
 from .task import (
     AgentSubtask,
     AgentSubtaskStatus,
@@ -47,125 +43,110 @@ from .task import (
 
 
 class ThreadOrigin(StrEnum):
-    """The surface an :class:`AgentThreadRecord` was started from, and the one that owns it.
+    """Origin of a thread: the surface it was started from, which owns it.
 
-    Distinct from :py:attr:`AgentThreadRecord.created_by_principal`, which records *who*
-    started a thread. This records where the conversation lives, which is what decides whether
-    it can be added to over the API.
-
-    Import as :class:`roboto.ai.agent_thread.ThreadOrigin`.
+    The origin decides whether the thread accepts new messages over the API. It differs from
+    ``AgentThreadRecord.created_by_principal``, which records who started the thread. Import it from
+    ``roboto.ai.agent_thread``.
     """
 
     API = "api"
-    """Started through Roboto itself -- the web app, the CLI, the SDK, or a direct REST call.
+    """Roboto itself: the Roboto web app, the CLI, the SDK, or a direct REST request.
 
-    These surfaces read the thread back from Roboto rather than mirroring it somewhere else, so
-    there is nothing for a new turn to fall out of sync with and the thread stays writable.
+    These surfaces read the thread back from Roboto and keep no copy elsewhere, so the thread accepts new messages.
     """
 
     SLACK = "slack"
-    """Started by mentioning @Roboto in Slack, and mirrored into that Slack conversation."""
+    """Slack, where a user started the thread by mentioning @Roboto, and where Roboto mirrors the conversation."""
 
 
 class ThreadVisibility(StrEnum):
-    """Read-scope for an :class:`AgentThreadRecord`.
+    """Visibility of a thread: who can read it.
 
-    Set when the thread is created, and changed afterwards only by the thread's creator,
-    via :meth:`roboto.ai.agent_thread.AgentThread.set_visibility` (``POST /v1/ai/threads/<thread_id>/visibility``).
-    Roboto admins read every thread but cannot re-scope one they did not create.
-
-    Import as :class:`roboto.ai.agent_thread.ThreadVisibility`.
+    Set when the thread is created. Only the thread's creator can change it, with
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.set_visibility`. Roboto administrators can read every thread but
+    cannot change the visibility of one they did not create. Import it from ``roboto.ai.agent_thread``.
     """
 
     PRIVATE = "private"
-    """Only the creating user (and Roboto admins) may read the thread.
+    """Only the thread's creator and Roboto administrators can read the thread.
 
-    Default for threads created via ``POST /v1/ai/threads`` so an
-    in-flight experiment does not leak to the rest of the org until the
-    caller opts in.
+    Default for threads started with :py:meth:`~roboto.ai.agent_thread.AgentThread.start`, so a thread is not shared
+    with the organization until its creator chooses to share it. Every fork is ``PRIVATE``, whatever the visibility
+    of the thread it was forked from.
     """
 
     ORG = "org"
-    """Any member of the thread's organization (and Roboto admins) may
-    read the thread.
+    """Every member of the thread's organization, and Roboto administrators, can read the thread.
 
-    Default for threads produced by the agent launch flow, since agents
-    exist to share workflows across teammates. Forks of an ``ORG`` thread
-    do not inherit visibility — every fork lands as ``PRIVATE``."""
+    Default for threads started by :py:meth:`~roboto.ai.agent.Agent.launch`, since agents exist to share work across
+    an organization.
+    """
 
 
 CLIENT_TOOL_NAME_PREFIX = "client_"
-"""Required prefix for every client-declared tool name.
+"""Prefix every client tool's name must start with.
 
-Distinguishes client tools from server-side tools at every layer (API,
-SDK, UI, Bedrock toolConfig) without ambiguity. Underscore is used rather
-than a colon so the resulting name still matches Bedrock's Converse
-``toolSpec.name`` pattern (``^[a-zA-Z][a-zA-Z0-9_]*$``).
+Roboto tells client tools from its own tools by this prefix. Tool names may contain only letters, digits, and
+underscores, so the prefix ends in an underscore. The full name must match ``^client_[a-z][a-z0-9_]*$``.
 """
 
 _CLIENT_TOOL_NAME_RE = re.compile(r"^client_[a-z][a-z0-9_]*$")
-"""Pattern enforced on ``ClientToolSpec.name`` — see ``CLIENT_TOOL_NAME_PREFIX``."""
+"""Regular expression a ``ClientToolSpec`` name must match in full."""
 
 
 class ModelProfileResponse(pydantic.BaseModel):
-    """Metadata about an available model profile, returned by the API."""
+    """Item of the response body of ``GET /v1/ai/model-profiles``: a model profile the organization can pick.
+
+    A model profile names the AI model a thread runs on.
+    """
 
     id: str
-    """Profile identifier, e.g. 'standard' or 'advanced'."""
+    """ID of the model profile, such as ``standard`` or ``advanced``."""
 
     label: str
-    """Human-readable display label."""
+    """Human-readable name of the model profile."""
 
     description: str
-    """Short description of the profile's characteristics."""
+    """Human-readable description of the model profile."""
 
     is_default: bool = False
-    """Whether this profile is selected by default for new threads."""
+    """Whether a new thread runs on this model profile when it requests none."""
 
 
 class AgentRole(StrEnum):
-    """Enumeration of possible roles in an agent thread.
-
-    Defines the different participants that can send messages in a thread.
-    """
+    """Role of a message's sender in a thread."""
 
     USER = "user"
-    """Human user sending messages to the agent."""
+    """Caller, a person or program, sending messages to Roboto's AI."""
 
     ASSISTANT = "assistant"
-    """AI agent responding to user queries and requests."""
+    """Roboto's AI, responding to the caller."""
 
     ROBOTO = "roboto"
-    """Roboto system providing tool results and system information."""
+    """Roboto itself, sending tool results and system information."""
 
 
 class AgentMessageStatus(StrEnum):
-    """Enumeration of possible message generation states.
-
-    Tracks the lifecycle of message generation from initiation to completion.
-    """
+    """Status of a message's generation."""
 
     NOT_STARTED = "not_started"
-    """Message has been queued but generation has not begun."""
+    """Generation has not begun."""
 
     GENERATING = "generating"
-    """Message content is currently being generated."""
+    """Generation is in progress."""
 
     COMPLETED = "completed"
-    """Message generation has finished and content is complete."""
+    """Generation finished, and the message's content is complete."""
 
     FAILED = "failed"
-    """Message generation failed due to an error."""
+    """Generation failed with an error."""
 
     CANCELLED = "cancelled"
-    """Message generation was cancelled by the user."""
+    """Generation was cancelled before it finished."""
 
     def is_terminal(self) -> bool:
-        """Check if the message generation is in a terminal state.
-
-        Returns:
-            True if the message is in a terminal state, False otherwise.
-        """
+        """Return whether generation has ended: ``COMPLETED``, ``FAILED``, or ``CANCELLED``."""
         return self in (
             AgentMessageStatus.COMPLETED,
             AgentMessageStatus.FAILED,
@@ -174,50 +155,60 @@ class AgentMessageStatus(StrEnum):
 
 
 class AgentThreadStatus(StrEnum):
-    """Enumeration of possible agent thread states.
-
-    Tracks the overall status of an agent thread from creation to termination.
-    """
+    """Status of a thread: whose turn it is, or why the thread stopped."""
 
     NOT_STARTED = "not_started"
-    """Thread has been created but no messages have been sent."""
+    """The thread exists, but no message has been sent to it."""
 
     USER_TURN = "user_turn"
-    """User has the turn to send a message."""
+    """Waiting for the caller's next message."""
 
     ROBOTO_TURN = "roboto_turn"
-    """Roboto is generating a message."""
+    """Roboto's AI is generating a response."""
 
     CLIENT_TOOL_TURN = "client_tool_turn"
-    """Client must execute pending tool uses and submit results."""
+    """Waiting for the caller to run the client tools the AI requested and submit their results."""
 
     GOALS_FAILED = "goals_failed"
-    """The agent runner exhausted its corrective re-prompt budget without achieving every declared goal for the
-    most-recent turn. Signals to clients that the thread needs human intervention before it can continue."""
+    """The AI used up its retries for the latest turn without achieving every goal declared for it.
+
+    The thread needs a person to act before it can continue.
+    """
 
 
 class ClientToolSpec(pydantic.BaseModel):
-    """Declarative specification for a client-side tool.
+    """Specification of a client tool: a tool Roboto's AI can ask the caller to run, whose result the caller submits.
 
-    Unlike AgentTool (which is an ABC with a __call__ method for server-side
-    execution), ClientToolSpec is a plain data model. The backend includes it
-    in the LLM's tool list but never executes it — the client is responsible
-    for execution and submitting the result.
+    Carried in the ``client_tools`` field of :py:class:`~roboto.ai.agent_thread.StartAgentThreadRequest`,
+    :py:class:`~roboto.ai.agent_thread.SendMessageRequest`, and
+    :py:class:`~roboto.ai.agent_thread.SubmitToolResultsRequest`. Roboto offers the tool to the AI but never runs it.
+    :py:class:`~roboto.ai.agent_thread.ClientTool` pairs a specification with a function that
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.run` calls for you; for a bare specification, submit the results
+    yourself with :py:meth:`~roboto.ai.agent_thread.AgentThread.submit_client_tool_results`.
+
+    Building a specification raises ``pydantic.ValidationError`` when ``name`` does not match
+    ``^client_[a-z][a-z0-9_]*$``.
     """
 
     name: str
+    """Name of the tool, which the AI uses to request it.
+
+    Starts with ``CLIENT_TOOL_NAME_PREFIX``, followed by a lowercase letter and then
+    lowercase letters, digits, and underscores.
+    """
+
     description: str
+    """Human-readable description of what the tool does, which the AI reads to decide when to use it."""
+
     input_schema: dict[str, Any]
+    """JSON Schema of the tool's input."""
 
     @pydantic.field_validator("name")
     @classmethod
     def _validate_client_prefix(cls, v: str) -> str:
-        # Enforced at deserialization so the API rejects bad names with a 400
-        # before any thread state is persisted. The prefix is the disambiguator
-        # the dispatcher relies on (``tool_name.startswith("client_")``); if a
-        # client snuck a prefix-less name past this check it would either
-        # collide with a server tool or fail Bedrock's Converse validation
-        # later, after the thread was already on disk.
+        # Roboto runs this check when it reads a request too, so it rejects a bad name with HTTP 400 before it
+        # stores anything about the thread. Roboto tells client tools from its own tools by the prefix, so a name
+        # without it could collide with one of Roboto's tools.
         if not _CLIENT_TOOL_NAME_RE.fullmatch(v):
             raise ValueError(
                 f"client tool name {v!r} must match {_CLIENT_TOOL_NAME_RE.pattern} "
@@ -228,46 +219,39 @@ class ClientToolSpec(pydantic.BaseModel):
 
 
 class AgentMessage(pydantic.BaseModel):
-    """A single message within an agent thread.
+    """Message in a thread from one sender, made of content blocks such as text, tool uses, and tool results.
 
-    Represents one message in the conversation, containing the sender role,
-    content blocks, and generation status. Messages can contain multiple
-    content blocks of different types (text, tool use, tool results).
+    Carried in ``AgentThreadRecord.messages``.
     """
 
     role: AgentRole
-    """The role of the message sender (user, assistant, or roboto)."""
+    """Role of the message's sender."""
 
     content: list[AgentContent]
-    """List of content blocks that make up this message."""
+    """Content blocks of the message, in order."""
 
     status: AgentMessageStatus = AgentMessageStatus.NOT_STARTED
-    """Current generation status of this message."""
+    """Status of the message's generation."""
 
     created: datetime.datetime = pydantic.Field(default_factory=utcnow)
-    """Timestamp when this message was created."""
+    """Time the message was created."""
 
     created_by: Optional[str] = None
-    """ID of the Roboto user who sent this message.
+    """ID of the user who sent the message.
 
-    Set by Roboto on user messages that a person sent, so that in a thread shared with an organization you can tell
-    which member asked what. ``None`` on assistant and Roboto messages, on messages an agent launch, trigger, or Slack
-    mention wrote, and on messages sent before Roboto recorded authors. A forked thread keeps the authors of the
-    messages it copied. Roboto ignores this field on messages you send; the author is always the caller.
+    Roboto sets it on user messages a person sent, so a thread shared with an organization shows which member asked
+    what. ``None`` on assistant and Roboto messages, on messages an agent launch, trigger, or Slack mention wrote, and
+    on messages sent before Roboto stored it. A fork keeps the authors of the messages it copied. Roboto ignores this
+    field on messages a caller sends, and records the caller instead.
     """
 
     @classmethod
     def text(cls, text: str, role: AgentRole = AgentRole.USER) -> "AgentMessage":
-        """Create a simple text message.
-
-        Convenience method for creating a message containing only text content.
+        """Build a message holding only ``text``.
 
         Args:
-            text: The text content for the message.
-            role: The role of the message sender. Defaults to USER.
-
-        Returns:
-            AgentMessage instance containing the text content.
+            text: Text of the message.
+            role: Role of the message's sender. Defaults to ``USER``.
         """
         return cls(role=role, content=[AgentTextContent(text=text)])
 
@@ -276,18 +260,13 @@ class AgentMessage(pydantic.BaseModel):
         return f"== {self.role.value.upper()} ==\n{combined_content}"
 
     def is_complete(self) -> bool:
-        """Check if message generation is complete.
-
-        Returns:
-            True if the message status is COMPLETED, False otherwise.
-        """
+        """Return whether generation of the message is complete."""
         return self.status == AgentMessageStatus.COMPLETED
 
     def is_unsuccessful(self) -> bool:
-        """Check if message generation failed or was cancelled.
+        """Return whether generation of the message failed or was cancelled.
 
-        Returns:
-            True if the message status is FAILED or CANCELLED, False otherwise.
+        Always ``False`` for a message with role ``USER``.
         """
         return self.role != AgentRole.USER and self.status in (
             AgentMessageStatus.FAILED,
@@ -296,254 +275,286 @@ class AgentMessage(pydantic.BaseModel):
 
 
 class AgentThreadGoalRecord(pydantic.BaseModel):
-    """Customer-visible read shape of a goal declared on an agent thread."""
+    """Data record of a goal declared on a turn of a thread, as the Roboto API returns it.
+
+    A goal is a structured outcome attached to a turn of a thread, which Roboto's AI must achieve before the turn
+    completes. Carried in ``AgentThreadRecord.goals``.
+    :py:class:`~roboto.ai.agent_thread.AgentThreadGoalView` wraps this record, and
+    :py:attr:`~roboto.ai.agent_thread.AgentThread.goals` returns those wrappers.
+    """
 
     goal_type: str
-    """Discriminator selecting which :class:`AgentGoal` model the
-    :attr:`goal_data` payload conforms to (e.g. ``"dataset_summary"``)."""
+    """Kind of goal, such as ``"dataset_summary"``, which selects the model ``goal_data`` follows."""
 
     goal_data: dict[str, Any]
-    """The validated goal payload as JSON. Use :meth:`to_agent_goal` to
-    recover the typed model the caller declared."""
+    """:py:const:`~roboto.ai.goals.AgentGoal` as a JSON-compatible dictionary.
+
+    ``to_agent_goal`` builds the typed goal from it.
+    """
 
     status: AgentGoalStatus
-    """Current lifecycle state of the goal."""
+    """Status of the goal."""
 
     message_sequence_num: int
-    """Index in the thread's full messages list of the :attr:`AgentRole.USER`
-    message that declared this goal. Use to render goals adjacent to the turn
-    they were attached to."""
+    """Index, in the thread's ``messages``, of the user message that declared the goal."""
 
     created: datetime.datetime
-    """Timestamp when the goal was registered."""
+    """Time the goal was declared."""
 
     concluded_at: Optional[datetime.datetime] = None
-    """Timestamp when the goal transitioned to a terminal state (ACHIEVED or
-    FAILED). ``None`` while the goal is still PENDING."""
+    """Time the goal was achieved or failed, or ``None`` while it is pending."""
 
     achieve_tool_use_id: Optional[str] = None
-    """``tool_use_id`` of the achieve-tool invocation associated with this
-    goal. Populated by the turn runner on every achieve-tool attempt, so
-    its final value depends on the goal's terminal status:
+    """ID of the tool use in which the AI submitted the goal's result, through the tool Roboto gives it for that goal.
 
-    - ``ACHIEVED``: the ``tool_use_id`` of the successful invocation.
-    - ``FAILED``: the ``tool_use_id`` of the last attempted invocation,
-      or ``None`` if the LLM never invoked the achieve-tool before the
-      retry budget exhausted.
-    - ``PENDING``: ``None`` (or the most recent attempt so far).
+    It locates the matching :py:class:`~roboto.ai.agent_thread.AgentToolUseContent` and
+    :py:class:`~roboto.ai.agent_thread.AgentToolResultContent` in the thread's messages without searching by tool
+    name. Roboto records each attempt, so its value depends on the goal's ``status``, a
+    :py:class:`~roboto.ai.goals.AgentGoalStatus`:
 
-    Use with :class:`AgentThread.goals` and the ``GoalResult`` accessor on
-    the SDK wrapper to locate the exact ``AgentToolUseContent`` /
-    ``AgentToolResultContent`` pair without scanning by tool name."""
+    - ``ACHIEVED``: the successful attempt.
+    - ``FAILED``: the last attempt, or ``None`` if the AI never attempted it before running out of retries.
+    - ``PENDING``: ``None``, or the latest attempt so far.
+
+    :py:attr:`~roboto.ai.agent_thread.AgentThreadGoalView.result` reads the submitted result from that tool use.
+    """
 
     def to_agent_goal(self) -> AgentGoal:
-        """Re-hydrate :attr:`goal_data` into the typed :data:`AgentGoal` the caller declared.
+        """Build the typed goal from ``goal_data``.
 
         Returns:
-            The validated, discriminated :data:`AgentGoal` instance — for
-            ``"dataset_summary"`` rows, a :class:`DatasetSummaryAgentGoal`;
-            for ``"dataset_triage"`` rows, a :class:`DatasetTriageGoal`; etc.
+            The goal as the :py:const:`~roboto.ai.goals.AgentGoal` member ``goal_type`` selects, such as
+            :py:class:`~roboto.ai.goals.DatasetSummaryAgentGoal` for ``"dataset_summary"`` or
+            :py:class:`~roboto.ai.goals.DatasetTriageGoal` for ``"dataset_triage"``.
         """
         return pydantic.TypeAdapter(AgentGoal).validate_python(self.goal_data)
 
 
 class AgentThreadRecord(pydantic.BaseModel):
-    """Complete record of an agent thread.
+    """Data record of a thread, as the Roboto API returns it.
 
-    Contains all the persistent data for a thread including metadata,
-    message history, and synchronization state.
+    A thread is a persistent, multi-turn conversation with Roboto's AI. :py:class:`~roboto.ai.agent_thread.AgentThread`
+    wraps this record with methods that act on the thread, and
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.from_id` fetches it.
     """
 
-    # ``model_profile`` overlaps Pydantic's reserved ``model_`` namespace, which
-    # emits a ``UserWarning`` at import time on Pydantic < 2.10 (permitted by the
-    # SDK's ``pydantic>=2.5`` floor). Opting out keeps the CLI warning-free
-    # across all supported Pydantic versions.
+    # model_profile starts with pydantic's reserved model_ prefix, which makes pydantic before 2.10 warn on import,
+    # and the SDK supports pydantic 2.5 and later. Clearing the protected namespaces silences the warning.
     model_config = pydantic.ConfigDict(protected_namespaces=())
 
     thread_id: str = pydantic.Field(
         validation_alias=pydantic.AliasChoices("thread_id", "session_id", "chat_id"),
     )
-    """Unique identifier for this agent thread.
+    """Unique ID of the thread.
 
-    Deserialization also accepts the legacy ``session_id`` and ``chat_id``
-    spellings for backward compatibility; the canonical attribute name is
-    ``thread_id``."""
+    Also accepted under the key ``session_id`` or ``chat_id``.
+    """
 
     created: datetime.datetime
-    """Timestamp when this agent thread was created."""
+    """Time the thread was created."""
 
     created_by: str
-    """User ID of the person who created this agent thread."""
+    """ID of the user who created the thread."""
 
     created_by_principal: Optional[str] = None
-    """Serialized :py:class:`~roboto.principal.RobotoPrincipal` (``"ptype:id"``) that started
-    this thread, e.g. ``"user:jo@example.com"`` or ``"invocation:iv_123"``. Unlike
-    :py:attr:`created_by`, this preserves whether the thread was driven by a person, a
-    device, or an action invocation. ``None`` on threads created before this field existed."""
+    """Principal that started the thread, as ``<type>:<id>``.
+
+    For example, ``user:<user_id>`` or ``invocation:<invocation_id>``. Unlike ``created_by``, it records whether a
+    person, a device, or an action invocation started the thread. ``None`` on forks and on threads started before
+    Roboto stored it.
+    """
 
     org_id: str
-    """Organization ID that owns this agent thread."""
+    """ID of the organization that owns the thread."""
 
     messages: list[AgentMessage] = pydantic.Field(default_factory=list)
-    """Complete list of messages in the conversation."""
+    """Messages in the thread, oldest first.
+
+    Empty when the thread was fetched with ``load_messages=False``, as
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.from_id` allows.
+    """
 
     continuation_token: str
-    """Token used for incremental updates and synchronization."""
+    """Token marking how much of the thread this record holds.
+
+    Pass it as ``next_token`` to ``GET /v1/ai/threads/{thread_id}/delta`` to fetch what changed since.
+    """
+
+    has_more: bool = False
+    """Whether Roboto left the thread's later messages out of ``messages`` to keep the response small.
+
+    ``True`` only in a response to a request sent with ``paged=true``. To fetch the messages left out, request
+    ``GET /v1/ai/threads/{thread_id}/delta`` with ``paged=true``, passing ``continuation_token`` as ``next_token``,
+    and repeat with each delta's token until a delta reports ``has_more`` as ``False``.
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.from_id` does this, so a thread it returns holds every message.
+    """
 
     status: AgentThreadStatus
-    """Current status of this agent thread."""
+    """Status of the thread: whose turn it is, or why the thread stopped."""
 
     activity: Optional[str] = None
-    """A sentence for display saying what the agent is doing that the thread's messages don't show yet. For example,
-    while the service summarizes the thread's older messages so the conversation fits the model's context window, it is
-    "Summarizing older messages to fit the model's context window". While a tool runs and reports its progress, it is
-    that tool's latest report, such as "Starting the Python sandbox". ``None`` when there is no such activity."""
+    """Sentence for display saying what Roboto's AI is doing that the thread's messages do not show yet.
+
+    ``None`` when there is no such activity. While Roboto summarizes the thread's older messages so the conversation
+    fits the AI model's context window, it is "Summarizing older messages to fit the model's context window". While a
+    tool runs and reports its progress, it is that tool's latest report, such as "Starting the Python sandbox".
+    """
 
     title: Optional[str] = None
-    """Title of this agent thread."""
+    """Title of the thread, or ``None`` if it has none."""
 
     model_profile: Optional[str] = None
-    """Model profile used for this agent thread (e.g., 'standard', 'advanced')."""
+    """ID of the model profile the thread runs on, such as ``standard`` or ``advanced``."""
 
     forked_from_thread_id: Optional[str] = pydantic.Field(
         default=None,
         validation_alias=pydantic.AliasChoices("forked_from_thread_id", "forked_from_session_id"),
     )
-    """If this thread was forked, the id of the source thread. ``None`` otherwise.
+    """ID of the thread this thread was forked from, or ``None`` if it is not a fork.
 
-    Deserialization also accepts the legacy ``forked_from_session_id``
-    spelling for backward compatibility."""
-
-    forked_from_message_sequence_num: Optional[int] = None
-    """Message sequence number in the source thread that this fork was taken from.
-
-    Populated in tandem with ``forked_from_thread_id``; both are ``None`` for
-    threads that were not created as a fork.
+    Also accepted under the key ``forked_from_session_id``.
     """
 
+    forked_from_message_sequence_num: Optional[int] = None
+    """Index of the last message the fork copied from the source thread, or ``None`` if the thread is not a fork."""
+
     visibility: ThreadVisibility = ThreadVisibility.PRIVATE
-    """Who can read this thread. ``PRIVATE`` (the default) restricts reads
-    to the :attr:`created_by` user and Roboto admins; ``ORG`` opens the
-    thread to every member of :attr:`org_id`."""
+    """Visibility of the thread: who can read it."""
 
     created_from_agent_id: Optional[str] = None
-    """If this thread was started via the agent launch flow, the id of
-    the agent that produced it. ``None`` for threads started directly
-    through ``POST /v1/ai/threads``. Forks do not inherit this field —
-    a fork is its own thread."""
+    """ID of the agent whose launch started the thread, or ``None`` if no agent launch started it.
+
+    A fork does not inherit it.
+    """
 
     created_from_trigger_id: Optional[str] = None
-    """If a trigger's ``start_agent`` target launched this thread, the id of
-    that trigger. ``None`` for every other thread, including one launched from
-    the same agent by a person. Set alongside :attr:`created_from_agent_id`,
-    which names the agent; this names what decided to run it. Forks do not
-    inherit this field — a fork is its own thread."""
+    """ID of the trigger that started the thread, or ``None`` if no trigger started it.
+
+    The trigger started the thread through its :py:attr:`~roboto.domain.triggers.TriggerTargetType.StartAgent`
+    target. It is ``None`` when a person launched the same agent. When it is set, ``created_from_agent_id`` names
+    the agent the trigger launched. A fork does not inherit it.
+    """
 
     origin: Optional[ThreadOrigin] = None
-    """The surface that owns this thread.
+    """Origin of the thread: the surface it was started from, which owns it.
 
-    Set by Roboto when the thread is created; it cannot be supplied by a caller. A thread owned
-    by a surface outside Roboto refuses new messages over the API, raising
-    :class:`~roboto.exceptions.RobotoThreadReadOnlyException`; reading, cancelling, and rating
-    it stay open, and a fork does not inherit the origin, so the copy is writable.
-
-    ``None`` on threads created before this field existed, and equivalent to
-    :attr:`ThreadOrigin.API` — every surface that predates the field was Roboto's own. It stays
-    nullable until those rows are backfilled."""
+    Roboto sets it; no request does. When the origin is a surface outside Roboto, such as ``ThreadOrigin.SLACK``,
+    Roboto refuses new messages to the thread over the API
+    with :py:class:`~roboto.exceptions.RobotoThreadReadOnlyException`; reading, cancelling, and rating the thread
+    still work. A fork does not inherit the origin, so a fork accepts new messages. ``None`` on forks and on threads
+    started before Roboto stored it, and means the same as ``API``.
+    """
 
     pinned_at: Optional[datetime.datetime] = None
-    """When the calling user pinned this thread, or ``None`` if they have not.
+    """Time the calling user pinned the thread, or ``None`` if they have not.
 
-    A pin is a personal bookmark, so two users reading the same thread see
-    different values here. Pin and unpin through
-    :meth:`roboto.ai.agent_thread.AgentThread.set_pinned`. Only
-    ``GET /v1/ai/threads`` and ``POST /v1/ai/threads/search`` report it; reads
-    of a single thread leave it ``None`` whatever the pin state."""
+    A pin is a personal bookmark, so two users reading the same thread see different values. Pin and unpin with
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.set_pinned`. Only ``GET /v1/ai/threads`` and
+    ``POST /v1/ai/threads/search`` report it; a read of a single thread leaves it ``None`` whatever the pin state.
+    """
 
     goals: Optional[list[AgentThreadGoalRecord]] = None
-    """Goals declared across this thread's turns, ordered by the turn
-    that declared them. ``None`` means goals were not loaded for this
-    record; an empty list means they were loaded but the thread never
-    declared any."""
+    """Goals declared across the thread's turns, ordered by the turn that declared them.
+
+    ``None`` when the record was returned without its goals; an empty list when the thread declared none.
+    """
 
     tasks: Optional[list[AgentTask]] = None
-    """The thread's task list, ordered by :attr:`AgentTask.position`. ``None``
-    means tasks were not loaded for this record; an empty list means they were
-    loaded but the thread has none."""
+    """Task list of the thread, ordered by :py:attr:`~roboto.ai.agent_thread.AgentTask.position`.
+
+    ``None`` when the record was returned without its tasks; an empty list when the thread has none.
+    """
 
     turn_notice: Optional[str] = None
-    """A short, human-readable note about the turn in progress, for example that the
-    worker running it stopped unexpectedly and the turn is being retried. ``None``
-    when there is nothing to report, including whenever the thread is not in
-    :attr:`AgentThreadStatus.ROBOTO_TURN`. Display-only; not persisted with the thread."""
+    """Short, human-readable note about the turn in progress.
+
+    For example, that the turn stopped unexpectedly and Roboto is retrying it. ``None`` when there is nothing to
+    report, and always ``None`` unless ``status`` is ``ROBOTO_TURN``. Roboto computes it on each read of a single
+    thread and each delta, and does not store it with the thread.
+    """
 
 
 class AgentThreadDelta(pydantic.BaseModel):
-    """Incremental update to an agent thread.
+    """Response body of ``GET /v1/ai/threads/{thread_id}/delta``: a thread's changes since a continuation token.
 
-    Contains only the changes since the last synchronization, used for
-    efficient real-time updates without transferring the entire thread history.
+    Read by :py:meth:`~roboto.ai.agent_thread.AgentThread.refresh` and
+    :py:meth:`~roboto.ai.agent_thread.AgentThread.events`, which merge it into the thread they hold.
     """
 
     messages_by_idx: dict[int, AgentMessage]
-    """New or updated messages indexed by their position in the conversation."""
+    """Messages that are new or changed since the token, keyed by index in the thread's ``messages``.
+
+    At an index the client already holds, the message carries only the content blocks the client has not seen; the
+    client appends them to the message it holds and takes the new ``status``.
+    """
 
     continuation_token: str
-    """Updated token for the next incremental synchronization."""
+    """Token to pass as ``next_token`` on the next request for a delta."""
 
     reset_from_message_sequence_num: Optional[int] = None
-    """Discard held messages from this index onward before applying this delta.
+    """Index from which the client discards the messages it holds before applying this delta.
 
-    A delta's messages normally *extend* what a client already holds, because the server sends
-    only content the client has not seen. That breaks when a turn is abandoned partway and
-    regenerated: the replacement message reuses the same index, so what the client holds at that
-    index is text from an attempt that no longer exists, and appending to it would splice the real
-    reply onto a discarded draft.
+    ``None`` means the client discards nothing. Roboto sets it when a turn stopped partway and Roboto regenerated it.
+    The replacement message reuses the same index, so appending to the message the client holds there would join the
+    reply onto text from the abandoned attempt. When it is set, the client:
 
-    When this field is set, the client must truncate its held messages to indices strictly below
-    it, then apply ``messages_by_idx`` and adopt ``continuation_token`` as usual — the server has
-    rewound the stream to that point and will resend it. ``None`` (the common case) means append
-    as normal.
+    1. Drops the messages it holds at this index and after.
+    2. Applies ``messages_by_idx`` and adopts ``continuation_token``.
     """
 
     status: Optional[AgentThreadStatus] = None
-    """Updated status of the agent thread."""
+    """New status of the thread, or ``None`` if it has not changed."""
 
     activity: Optional[str] = None
-    """The thread's :py:attr:`AgentThreadRecord.activity` as of this delta.
+    """The thread's ``AgentThreadRecord.activity`` as of this delta.
 
     Unlike ``status``, ``title``, ``goals`` and ``tasks``, ``None`` does not mean unchanged: every delta carries the
     thread's current activity, so ``None`` means there is none. A client replaces the activity it holds with this
-    value on every delta."""
+    value on every delta.
+    """
 
     title: Optional[str] = None
-    """Updated title of the agent thread."""
+    """New title of the thread, or ``None`` if it has not changed."""
 
     goals: Optional[list[AgentThreadGoalRecord]] = None
-    """Latest snapshot of every goal declared in the thread, ordered by
-    allocation. ``None`` means there has been no change since the previous
-    delta — clients should retain the snapshot they already hold. An empty
-    list means the thread has no declared goals. A non-empty list is the
-    authoritative current snapshot and replaces any prior value."""
+    """Every goal declared in the thread, in the order they were declared.
+
+    ``None`` if none has changed since the previous delta. A list, even an empty one, replaces the goals the client
+    holds.
+    """
 
     tasks: Optional[list[AgentTask]] = None
-    """Latest snapshot of the thread's task list, ordered by position. ``None``
-    means no change since the previous delta — clients should retain the
-    snapshot they already hold. An empty list means the thread has no tasks. A
-    non-empty list is the authoritative current snapshot and replaces any prior
-    value."""
+    """Task list of the thread, ordered by :py:attr:`~roboto.ai.agent_thread.AgentTask.position`.
+
+    ``None`` if it has not changed since the previous delta. A list, even an empty one, replaces the tasks the client
+    holds.
+    """
 
     turn_notice: Optional[str] = None
-    """The thread's :py:attr:`AgentThreadRecord.turn_notice` as of this delta.
+    """The thread's ``AgentThreadRecord.turn_notice`` as of this delta.
 
     Like ``activity``, and unlike ``status``, ``title``, ``goals`` and ``tasks``, ``None`` does not mean unchanged:
     every delta carries the thread's current notice, so ``None`` means there is nothing to report. A client replaces
-    the notice it holds with this value on every delta."""
+    the notice it holds with this value on every delta.
+    """
+
+    has_more: bool = False
+    """Whether the thread has changes after the ones this delta carries, for the client to fetch at once.
+
+    ``True`` in two cases. For a request sent with ``paged=true``, Roboto ends a delta early to keep the response
+    small. A delta that sets ``reset_from_message_sequence_num`` carries none of the messages from that index on,
+    whether or not the request was sent with ``paged=true``.
+
+    When it is ``True``, the client requests the next delta with ``continuation_token`` without waiting, and repeats
+    until a delta reports ``False``; only then does it hold every message the thread had. ``status`` describes the
+    whole thread, so a delta that reports ``True`` can say the turn is over before the client holds the turn's last
+    message. A delta that Roboto ended early carries ``goals`` and ``tasks`` as ``None``, changed or not; a later
+    delta carries them.
+    """
 
 
-# Explicit public surface. Includes the message-content primitives and
-# ``AgentGoalStatus`` re-exported above so they stay importable from
-# ``roboto.ai.core.record`` even though they now live in ``content`` / ``goals``.
+# Lists the content and task types and AgentGoalStatus, which this module imports from other modules, so they import
+# from roboto.ai.core.record too.
 __all__ = [
     "AGENT_CONTENT_MODEL_BY_TYPE",
     "CLIENT_TOOL_NAME_PREFIX",

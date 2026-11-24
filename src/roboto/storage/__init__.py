@@ -4,12 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Remote file storage I/O.
+"""Transfer of file contents between local disk and Roboto, and reads of byte ranges from a file Roboto stores.
 
-Whole-file transfer (upload transactions, download sessions, credentials, and
-the object-store abstraction) for moving files in and out of Roboto storage,
-plus the range-reader, local cache, and sparse-buffer primitives for streaming
-byte-range reads that the format decoders in ``roboto.formats`` build on.
+To move whole files between local disk and Roboto, use :py:class:`~roboto.storage.FileService`; to read a file at a
+URL, such as a signed download URL, fetching only the bytes read and writing nothing to disk, use
+:py:class:`~roboto.storage.HttpRangeReader`. Methods such as :py:meth:`~roboto.domain.datasets.Dataset.upload_files`,
+:py:meth:`~roboto.domain.files.File.download` and :py:meth:`~roboto.domain.topics.Topic.get_data` move data through
+this package, so most code never calls it.
 """
 
 from .api_operations import (

@@ -53,11 +53,11 @@ if typing.TYPE_CHECKING:
 logger = default_logger()
 
 OUTFILE_NAME_PATTERN = "{repr_id}_{file_id}.parquet"
-"""Filename template for locally cached Parquet files."""
+"""Name of a Parquet file in the local cache, filled in with the representation's ID and the file's ID."""
 
 
 class _ReadContext(typing.NamedTuple):
-    """Shared state prepared for reading a Parquet-backed topic."""
+    """The opened Parquet file and what to read from it, shared by ``get_data`` and ``get_data_as_df``."""
 
     parquet_file: pyarrow.parquet.ParquetFile
     timestamp_field: TimestampDescriptor
@@ -66,13 +66,22 @@ class _ReadContext(typing.NamedTuple):
 
 
 class ParquetTopicReader(TopicReader):
-    """Private interface for retrieving topic data stored in Parquet files.
+    """Reader of topic data stored in Parquet files.
 
-    Note:
-        This is not intended as a public API.
-        To access topic data, prefer the ``get_data`` or ``get_data_as_df`` methods
-        on :py:class:`~roboto.domain.topics.Topic`, :py:class:`~roboto.domain.topics.MessagePath`,
-        or :py:class:`~roboto.domain.events.Event`.
+    The SDK's own code uses it; to read topic data, use the ``get_data`` or ``get_data_as_df`` methods of
+    :py:class:`~roboto.domain.topics.Topic`, :py:class:`~roboto.domain.topics.MessagePath` or
+    :py:class:`~roboto.domain.events.Event` instead.
+
+    Skips each row group whose timestamp statistics show it lies outside the requested time range, and reads only
+    the columns that hold the requested message paths and the timestamp. Without a cache directory, it reads every
+    file over HTTP and writes nothing to disk.
+
+    Args:
+        roboto_client: Client to make requests to Roboto with.
+        cache_dir: Directory to keep downloaded Parquet files in. A file already there is read from it; a file not
+            there is downloaded to it when the read requests at least 10 message paths
+            (:py:const:`~roboto.storage.cache.COLUMN_COUNT_LOCAL_CACHE_THRESHOLD`), and read over HTTP otherwise.
+            ``None`` caches nothing.
     """
 
     __cache_dir: typing.Optional[pathlib.Path]
@@ -82,6 +91,10 @@ class ParquetTopicReader(TopicReader):
     def accepts(
         message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
     ) -> bool:
+        """Return whether every mapping's representation is stored as Parquet, and so whether this reader can read it.
+
+        An empty iterable returns ``True``.
+        """
         for mapping in message_paths_to_representations:
             if mapping.representation.storage_format != RepresentationStorageFormat.PARQUET:
                 return False
@@ -102,6 +115,34 @@ class ParquetTopicReader(TopicReader):
         end_time: typing.Optional[int] = None,
         timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
     ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
+        """Yield ``(timestamp, row)`` pairs from the Parquet file that stores the message paths, in file order.
+
+        A message path the file has no column for is left out of every row, and a row whose timestamp is null is
+        skipped; each logs a warning. As a generator, it raises each exception under Raises on the first iteration,
+        not when called.
+
+        Args:
+            message_paths_to_representations: Message paths to read, each paired with the representation that stores
+                it. Every mapping must name the same representation, and only the first mapping's message paths are
+                read.
+            start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch. ``None`` leaves the
+                range unbounded below.
+            end_time: Exclusive end of the time range, in nanoseconds since the Unix epoch. ``None`` leaves the range
+                unbounded above.
+            timestamp_message_path_representation_mapping: Mapping whose message paths include the one with canonical
+                data type :py:attr:`~roboto.domain.topics.CanonicalDataType.Timestamp`, stored in the same
+                representation. Its values become each row's timestamp and are compared with the time range.
+
+        Yields:
+            ``(timestamp, row)`` tuples: the timestamp in nanoseconds since the Unix epoch, and a dictionary of the
+            row's requested fields.
+
+        Raises:
+            ImportError: The ``roboto[analytics]`` extra is not installed.
+            NotImplementedError: ``timestamp_message_path_representation_mapping`` is ``None``, the mappings name
+                more than one representation, or the representation does not belong to a file.
+            Exception: The timestamp mapping has no message path with canonical data type ``Timestamp``.
+        """
         pc = import_optional_dependency("pyarrow.compute", "analytics")
 
         if timestamp_message_path_representation_mapping is None:
@@ -140,7 +181,6 @@ class ParquetTopicReader(TopicReader):
                 row_group_table = pc.filter(row_group_table, filter_mask)
                 timestamps = pc.filter(timestamps, filter_mask)
 
-            # Yield tuples of (timestamp, row_dict)
             for idx, row in enumerate(row_group_table.to_pylist()):
                 timestamp = timestamps[idx]
                 if pc.is_null(timestamp, nan_is_null=True):
@@ -156,6 +196,31 @@ class ParquetTopicReader(TopicReader):
         end_time: typing.Optional[int] = None,
         timestamp_message_path_representation_mapping: typing.Optional[MessagePathRepresentationMapping] = None,
     ) -> tuple[pandas.Series, pandas.DataFrame]:
+        """Read the requested rows of the Parquet file as a series of timestamps and a data frame.
+
+        A message path the file has no column for is left out of the data frame, with a logged warning.
+
+        Args:
+            message_paths_to_representations: Message paths to read, as for ``get_data``.
+            start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch. ``None`` leaves the
+                range unbounded below.
+            end_time: Exclusive end of the time range, in nanoseconds since the Unix epoch. ``None`` leaves the range
+                unbounded above.
+            timestamp_message_path_representation_mapping: Mapping that holds the timestamp message path, as for
+                ``get_data``.
+
+        Returns:
+            ``(timestamps, data_frame)``: the timestamp of each row in nanoseconds since the Unix epoch, and a data
+            frame with one row per Parquet row read. Both are empty when there is no message path to read or no row
+            group overlaps the time range.
+
+        Raises:
+            ImportError: The ``roboto[analytics]`` extra is not installed.
+            NotImplementedError: ``timestamp_message_path_representation_mapping`` is ``None``, the mappings name
+                more than one representation, or the representation does not belong to a file.
+            Exception: The timestamp mapping has no message path with canonical data type
+                :py:attr:`~roboto.domain.topics.CanonicalDataType.Timestamp`.
+        """
         pd = import_optional_dependency("pandas", "analytics")
         pa = import_optional_dependency("pyarrow", "analytics")
         pc = import_optional_dependency("pyarrow.compute", "analytics")
@@ -214,11 +279,10 @@ class ParquetTopicReader(TopicReader):
         self,
         message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
     ):
-        """
-        Support pulling data out of a single Parquet file per Topic.
-        This is a non-essential limitation; it is done for expediency of initial implementation.
-        This class can and should be extended to support splitting a Topic's MessagePaths
-        across multiple underlying files.
+        """Reject mappings that name more than one representation, by raising ``NotImplementedError``.
+
+        This reader reads one Parquet file per topic, so it cannot read a topic whose message paths are split across
+        several files.
         """
         repr_ids = {mapping.representation.representation_id for mapping in message_paths_to_representations}
         if len(repr_ids) > 1:
@@ -248,7 +312,10 @@ class ParquetTopicReader(TopicReader):
         return parquet_file_from_url(signed_url)
 
     def __cached_outfile_for(self, representation: RepresentationRecord) -> pathlib.Path:
-        """Return the local cache path for a representation. Requires ``cache_dir`` to be set."""
+        """Return the local cache path for a representation.
+
+        Raises ``RuntimeError`` when ``cache_dir`` is ``None``.
+        """
         if self.__cache_dir is None:
             raise RuntimeError("Expected self.__cache_dir to be set")
         return self.__cache_dir / OUTFILE_NAME_PATTERN.format(
@@ -259,18 +326,13 @@ class ParquetTopicReader(TopicReader):
     def __open_parquet_file(
         self, representation: RepresentationRecord, estimated_column_count: int
     ) -> pyarrow.parquet.ParquetFile:
-        """Pick the cheapest available source for the Parquet file.
+        """Open the representation's Parquet file from the first of these sources that applies.
 
-        Priority:
-
-        1. If ``cache_dir`` is configured and the file is already cached locally,
-           use it. A previously-downloaded file is always cheaper to open than
-           streaming over HTTP, regardless of how many columns the current call
-           projects.
-        2. Else, if a ``cache_dir`` is configured and the request projects enough
-           columns to justify a full download (``>=
-           COLUMN_COUNT_LOCAL_CACHE_THRESHOLD``), download to cache and use it.
-        3. Else, stream via HTTP range requests without writing to disk.
+        1. With ``cache_dir`` set and the file already in the cache, the cached copy, however many columns the read
+           needs.
+        2. With ``cache_dir`` set and ``estimated_column_count`` at least 10
+           (:py:const:`~roboto.storage.cache.COLUMN_COUNT_LOCAL_CACHE_THRESHOLD`), a copy downloaded to the cache.
+        3. Otherwise, the remote file, read over HTTP without writing to disk.
         """
         mode = choose_fetch_mode(
             policy=CachePolicy.ADAPTIVE if self.__cache_dir is not None else CachePolicy.NEVER,
@@ -298,14 +360,11 @@ class ParquetTopicReader(TopicReader):
         return self.__parquet_file_from_remote_streaming(representation)
 
     def __parquet_file_from_local_cache(self, representation: RepresentationRecord) -> pyarrow.parquet.ParquetFile:
-        """Download the Parquet file to local cache (if not already cached) and open it.
+        """Download the Parquet file to ``<cache_dir>/<repr_id>_<file_id>.parquet`` unless it is there, and open it.
 
-        Files are stored under ``<cache_dir>/<repr_id>_<file_id>.parquet`` and
-        re-used across calls. Concurrent access is safe: an in-process lock keyed
-        on the cache path dedupes downloads between threads, and an atomic
-        temp-file-plus-rename pattern guarantees that any file visible at the
-        final path is complete — readers in this or other processes never
-        observe a partial download.
+        Threads in one process that ask for the same file wait on a lock keyed on its cache path, so the file is
+        downloaded once. The download is written to a temporary file and renamed into place when complete, so no
+        reader in any process finds a partial file at the cache path.
         """
         pq = import_optional_dependency("pyarrow.parquet", "analytics")
 
@@ -323,17 +382,12 @@ class ParquetTopicReader(TopicReader):
         message_paths_to_representations: collections.abc.Iterable[MessagePathRepresentationMapping],
         timestamp_message_path_representation_mapping: MessagePathRepresentationMapping,
     ) -> typing.Optional[_ReadContext]:
-        """Shared preamble for ``get_data`` and ``get_data_as_df``.
+        """Open the Parquet file and find the timestamp field and the columns to read, for both read methods.
 
-        Validates inputs, opens the Parquet file (via ``__open_parquet_file``,
-        which prefers an existing local cache file, falls back to downloading
-        when the projection is column-heavy enough to justify it, and otherwise
-        streams via HTTP), resolves the timestamp field, and builds the column
-        projection list. A message path the file has no column for is left out
-        of the projection, with a warning.
+        A message path the file has no column for is left out of the fields to read, with a logged warning.
 
-        Returns ``None`` when *message_paths_to_representations* is empty
-        (i.e. there is nothing to read).
+        Returns:
+            The read's context, or ``None`` when ``message_paths_to_representations`` is empty.
         """
         self.__ensure_single_parquet_file_per_topic(
             [

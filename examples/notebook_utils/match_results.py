@@ -4,11 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""
-This is a collection of utilities used by the similarity search example notebook
-to format and display the results of a Roboto similarity search.
-"""
-
 import base64
 import io
 import math
@@ -26,6 +21,14 @@ NANO_SEC_PER_SEC = 1e9
 
 
 def images_frames_to_encoded_gif(image_frames, fps=10, loops=math.inf, resize_factor=0.5) -> str:
+    """Build an animated GIF from encoded image frames, and return it base64-encoded.
+
+    Args:
+        image_frames: Encoded images (such as JPEG or PNG bytes) that PIL can open, one per frame, in playback order.
+        fps: Frames shown per second.
+        loops: Number of times the GIF loops. ``math.inf`` loops forever.
+        resize_factor: Factor each frame's width and height are scaled by.
+    """
     images = [PIL.Image.open(io.BytesIO(frame)) for frame in image_frames]
     resized_images = [
         img.resize(
@@ -38,7 +41,6 @@ def images_frames_to_encoded_gif(image_frames, fps=10, loops=math.inf, resize_fa
     buffer = io.BytesIO()
     frame_duration_ms = (1 / fps) * 1000
 
-    # Save the images as a GIF
     resized_images[0].save(
         buffer,
         format="GIF",
@@ -54,11 +56,16 @@ def images_frames_to_encoded_gif(image_frames, fps=10, loops=math.inf, resize_fa
 
 
 def format_log_time(log_time: int) -> str:
+    """Render a time in nanoseconds since the Unix epoch as ``<seconds>.<nanoseconds>``."""
     sec, nano_sec = divmod(log_time, NANO_SEC_PER_SEC)
     return f"{int(sec)}.{int(nano_sec)}"
 
 
 def plot_match(match: roboto.analytics.Match) -> matplotlib.pyplot.Figure:
+    """Plot a match's data, with ticks at its first and last message.
+
+    You own the returned figure: close it with ``matplotlib.pyplot.close``.
+    """
     fig, ax = matplotlib.pyplot.subplots()
 
     fig.set_size_inches(5, 3)
@@ -76,6 +83,16 @@ def format_match(
     additional_image_context_duration_seconds: float = 1.5,
     roboto_client: roboto.RobotoClient | None = None,
 ) -> str:
+    """Render a match as an HTML row: its distance, a plot of its data, a GIF of its images, and a link to its file.
+
+    Args:
+        image_topic_name: Name of the topic, in the match's file, whose messages hold encoded images in a ``data``
+            field.
+        additional_image_context_duration_seconds: Seconds of images to include before the match's first message and
+            after its last.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            ``roboto.RobotoClient.from_env``.
+    """
     additional_image_context_duration_ns = int(additional_image_context_duration_seconds * NANO_SEC_PER_SEC)
     FALLBACK_GIF = "R0lGODlhAQABAIAAAAUEBA=="  # 1x1 transparent GIF
     gif = FALLBACK_GIF
@@ -91,6 +108,8 @@ def format_match(
             image_frames = [msg["data"] for msg in image_topic_data]
             gif = images_frames_to_encoded_gif(image_frames)
         except BaseException:
+            # Catches every exception, KeyboardInterrupt included: any failure to fetch or encode the images, such as
+            # a missing topic, keeps the 1x1 placeholder so that the row still renders.
             pass
 
     fig = plot_match(match)
@@ -137,6 +156,18 @@ def print_match_results(
     additional_image_context_duration_seconds: float = 1.5,
     roboto_client: roboto.RobotoClient | None = None,
 ) -> None:
+    """Display similarity search matches in a notebook, as a table with one row per match.
+
+    The similarity search example notebook calls this. Each row is built by ``format_match``.
+
+    Args:
+        matches: Matches to display, in display order.
+        image_topic: Name of the topic, in each match's file, whose messages hold encoded images in a ``data`` field.
+        additional_image_context_duration_seconds: Seconds of images to include before each match's first message and
+            after its last.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            ``roboto.RobotoClient.from_env``.
+    """
     HEADER_HTML = """\
     <div style="display: flex; align-items: center; margin-bottom: 10px; width: 100%; font-weight: bold;">
         <div style="flex: 0 0 10%; margin-right: 10px; text-align: center;">Distance</div>

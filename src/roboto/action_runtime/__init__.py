@@ -4,6 +4,13 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+"""Tools for an action's code to use while an invocation of the action runs.
+
+Use :py:class:`~roboto.action_runtime.InvocationContext`, which replaces the deprecated
+:py:class:`~roboto.action_runtime.ActionRuntime`, to read the invocation's parameters, secrets, and input data, and to
+set tags and metadata on the files the action writes to its output directory.
+"""
+
 from .action_input import (
     ActionInput,
     ActionInputResolver,

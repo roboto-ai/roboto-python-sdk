@@ -25,23 +25,32 @@ logger = logging.getLogger(LOGGER_NAME)
 
 GITHUB_RELEASES_URL = "https://api.github.com/repos/roboto-ai/roboto-python-sdk/releases/latest"
 
-# Names the CLI in its requests to sites other than Roboto. Some sites refuse the user agent Python sends by default.
 USER_AGENT = f"roboto-cli/{__version__} (+https://github.com/roboto-ai)"
+"""User agent the CLI sends in its requests to sites other than Roboto, such as GitHub.
+
+Some sites refuse the user agent Python sends by default.
+"""
 
 
 class CLIState(pydantic.BaseModel):
+    """Result of the CLI's last check for a newer release, saved in ``~/.roboto/tmp/cli_state.json``."""
+
     last_checked_version: Optional[datetime.datetime] = None
+    """Time of the last check that reached GitHub, or ``None`` if none has."""
+
     last_version: str = "0.0.0"
+    """Version of the CLI that ran the last check."""
+
     out_of_date: bool = True
+    """Whether the last check found a release newer than the CLI version that ran it."""
 
 
 def get_latest_version() -> Optional[str]:
-    """
-    Fetch the latest release version from GitHub Releases API.
+    """Look up the version of the latest release of the Roboto Python SDK on GitHub.
 
     Returns:
-        The latest version string (without 'v' prefix), or None if the request fails or GitHub's answer names no
-        release tag.
+        The release's tag without its leading ``v``, such as ``"0.44.0"``, or ``None`` if the request fails or the
+        response names no tag.
     """
     http = HttpClient()
 
@@ -64,22 +73,17 @@ def get_latest_version() -> Optional[str]:
 
         return version
     except Exception as exc:
-        # Every error is logged and reported as None, so the hourly check for a newer release never stops a command.
+        # Catches every exception, such as a network failure, an error status, or a body that is not a JSON object, so
+        # the check after each command never fails the command. `roboto upgrade` reports the None as a failed lookup.
         logger.debug("Failed to fetch latest version from GitHub: %s", exc)
         return None
 
 
 def is_version_outdated(current: str, latest: str) -> bool:
-    """
-    Check if the current version is older than the latest version.
+    """Return whether ``current`` is an older version than ``latest``.
 
-    Args:
-        current: The current version string (e.g., "1.0.0").
-        latest: The latest available version string (e.g., "1.1.0").
-
-    Returns:
-        True if current version is older than latest, False otherwise.
-        Returns False if either version string is invalid.
+    Versions compare by the rules of ``packaging.version.Version``, so ``"1.10.0"`` is newer than ``"1.9.0"``. When
+    either string is not a valid version, the result is ``False``.
     """
     try:
         return Version(current) < Version(latest)
@@ -89,6 +93,24 @@ def is_version_outdated(current: str, latest: str) -> bool:
 
 
 def check_last_update():
+    """Print a notice to standard error when a newer release of the CLI is available.
+
+    The ``roboto`` command calls this after each command, unless ``--suppress-upgrade-check`` is passed. It saves each
+    check's result in ``~/.roboto/tmp/cli_state.json`` and looks up the latest release on GitHub only when:
+
+    - no check has been saved,
+    - the saved check ran under a different CLI version,
+    - the saved check found the CLI out of date, or
+    - the saved check is more than an hour old.
+
+    So once a newer release is found, every command looks it up again and prints the notice until the CLI is upgraded.
+    When the lookup fails, nothing is saved or printed. Setting ``ROBOTO_CLI_SUPPRESS_UPGRADE_PROMPT`` to any value
+    other than ``false``, in any letter case, still runs the check but prints no notice.
+
+    Raises:
+        pydantic.ValidationError: ``~/.roboto/tmp/cli_state.json`` does not hold a saved check.
+        OSError: ``~/.roboto/tmp`` cannot be created, or the state file cannot be read or written.
+    """
     roboto_tmp_dir = pathlib.Path.home() / ".roboto" / "tmp"
     roboto_tmp_dir.mkdir(parents=True, exist_ok=True)
     cli_state_file = roboto_tmp_dir / "cli_state.json"

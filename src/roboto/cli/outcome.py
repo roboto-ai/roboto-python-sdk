@@ -13,48 +13,54 @@ from .terminal import AnsiColor, print_list_item
 
 
 class StepStatus(enum.Enum):
-    """How one step of ``roboto setup`` or ``roboto upgrade`` ended.
+    """Status of one step of ``roboto setup`` or ``roboto upgrade``: how the step ended.
 
     Both commands run every step whatever the earlier ones returned. ``Failed`` is the only status that makes either
     command exit with status 1; ``ActionNeeded`` leaves the exit status at 0.
     """
 
     ActionNeeded = "action_needed"
-    """The step isn't complete, and only the user can complete it, as the outcome's ``next_steps`` say."""
+    """The step is not complete, and only the user can complete it, as the outcome's ``next_steps`` say."""
 
     AlreadyDone = "already_done"
-    """The machine was already in the state this step produces, so the command changed nothing."""
+    """The machine was already in the state the step produces, so the command changed nothing."""
 
     Done = "done"
-    """The command made the change this step is responsible for."""
+    """The command made the change the step is responsible for."""
 
     Failed = "failed"
-    """The command hit an error on this step, possibly after making some of its changes; ``summary`` says what went
-    wrong."""
+    """The command hit an error on the step, possibly after making some of its changes.
+
+    The outcome's ``summary`` says what went wrong.
+    """
 
     Optional = "optional"
-    """The step isn't complete, or the command can't tell whether it is, and nothing else the command sets up depends
-    on it, so the user may leave it."""
+    """The step is not complete, or the command cannot tell whether it is.
+
+    Nothing else the command sets up depends on the step, so the user may leave it.
+    """
 
 
 @dataclasses.dataclass(frozen=True)
 class StepOutcome:
-    """The result of one step of ``roboto setup`` or ``roboto upgrade``, as reported to the user."""
+    """Result of one step of ``roboto setup`` or ``roboto upgrade``, as the command reports it to the user."""
 
     step: str
-    """What the step sets up, checks, or upgrades, e.g. ``Access token``, ``Cursor``, or ``Roboto CLI``."""
+    """Name of what the step sets up, checks, or upgrades, such as ``Access token``, ``Cursor``, or ``Roboto CLI``."""
 
     status: StepStatus
 
     summary: str
-    """A short account of what happened. A failure may quote another program's output, which can span lines."""
+    """Short account of what happened. A failure may quote another program's output, which can span lines."""
 
     next_steps: tuple[str, ...] = ()
-    """What the user should do next, one instruction per entry, printed under the summary. Any status may carry
-    them."""
+    """Instructions for what the user should do next, one per entry, printed under the summary.
+
+    An outcome of any status may carry them.
+    """
 
 
-# An optional step has no marker, so it doesn't read as work the command left undone.
+# An optional step has no marker, so it does not read as work the command left undone.
 _MARKERS = {
     StepStatus.ActionNeeded: (AnsiColor.BLUE, "todo"),
     StepStatus.AlreadyDone: (AnsiColor.GREEN, "ok"),

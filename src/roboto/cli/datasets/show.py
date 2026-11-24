@@ -14,6 +14,7 @@ from .shared_helpdoc import DATASET_ID_HELP
 
 
 def show(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print the record of the dataset ``--dataset-id`` names, as JSON."""
     record = Dataset.from_id(args.dataset_id, context.roboto_client)
     print(json.dumps(record.to_dict(), indent=2))
 

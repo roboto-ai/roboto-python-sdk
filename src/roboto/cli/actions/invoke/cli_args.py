@@ -4,12 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""CLI argument setup utilities.
-
-This module contains shared argparse configuration functions used by both
-hosted and local invocation commands.
-"""
-
 import argparse
 
 from ...command import (
@@ -19,9 +13,10 @@ from ...command import (
 
 
 def add_input_specification_args(parser: argparse.ArgumentParser) -> None:
-    """Register the optional flags that select an action invocation's input data.
+    """Add the flags that select an action invocation's input data to ``parser``.
 
-    Two argument groups are added, each rendered as its own section of ``--help`` output:
+    ``roboto actions invoke`` and ``roboto actions invoke-local`` both use these flags. This adds two argument groups,
+    each rendered as its own section of ``--help`` output:
 
     1. Selector-based input: ``--file-query``, ``--session-id``, ``--session-query``, ``--topic-query``
     2. Dataset and file path input: ``--dataset``, ``--file-path``
@@ -29,9 +24,6 @@ def add_input_specification_args(parser: argparse.ArgumentParser) -> None:
     A user may supply flags from one group or the other, not both, and ``--file-path`` requires ``--dataset``.
     argparse enforces neither rule, so a command that adds these flags must also pass its parsed arguments
     through ``validate_input_specification``.
-
-    Args:
-        parser: Parser for ``roboto actions invoke`` or ``roboto actions invoke-local``.
     """
     selector_group = parser.add_argument_group(
         "Selector-Based Input",
@@ -104,7 +96,13 @@ def add_input_specification_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_parameter_args(parser: argparse.ArgumentParser) -> None:
-    """Add parameter specification arguments to parser."""
+    """Add the flags that set an action invocation's parameter values to ``parser``.
+
+    ``roboto actions invoke`` and ``roboto actions invoke-local`` both use the repeatable ``-p``/``--parameter``
+    flag this adds. Each use of the flag adds one ``<name>=<value>`` pair to ``params``, a dictionary of strings that
+    is empty when the flag is absent. The value is everything after the first ``=``, and a name given twice keeps its
+    last value.
+    """
     parser.add_argument(
         "-p",
         "--parameter",
@@ -112,7 +110,7 @@ def add_parameter_args(parser: argparse.ArgumentParser) -> None:
         metavar="<PARAMETER_NAME>=<PARAMETER_VALUE>",
         dest="params",
         action=KeyValuePairsAction,
-        parse_json=False,  # Passed to KeyValuePairsAction
+        parse_json=False,  # Forwarded to KeyValuePairsAction, which then keeps each value a string.
         default=dict(),
         help=(
             "Parameter in ``<parameter_name>=<parameter_value>`` format. "

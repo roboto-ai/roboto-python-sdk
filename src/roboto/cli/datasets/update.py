@@ -20,6 +20,10 @@ from .shared_helpdoc import DATASET_ID_HELP
 
 
 def update(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Update the dataset's name, description, device, tags and metadata, and print its updated record as JSON.
+
+    Exits with status 2, before making any request, when no flag changes anything.
+    """
     metadata_changeset = MetadataChangeset(
         put_tags=args.put_tags,
         remove_tags=args.remove_tags,
@@ -36,7 +40,8 @@ def update(args: argparse.Namespace, context: CLIContext, parser: argparse.Argum
 
     dataset = Dataset.from_id(args.dataset_id, context.roboto_client)
 
-    # Build update kwargs, only including fields that were explicitly set.
+    # Pass only the flags the user gave, so Dataset.update leaves the other fields unchanged. A flag given as `null`
+    # passes None, which clears its field.
     update_kwargs: dict[str, typing.Any] = {
         "metadata_changeset": metadata_changeset,
     }
@@ -82,13 +87,13 @@ def update_parser(parser: argparse.ArgumentParser):
     parser.add_argument(
         "--put-tags",
         help="Add each tag in this sequence if it doesn't exist",
-        nargs="*",  # 0 or more
+        nargs="*",
     )
 
     parser.add_argument(
         "--remove-tags",
         help="Remove each tag in this sequence if it exists",
-        nargs="*",  # 0 or more
+        nargs="*",
     )
 
     parser.add_argument(

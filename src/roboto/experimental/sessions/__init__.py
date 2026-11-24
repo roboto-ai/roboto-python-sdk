@@ -4,11 +4,12 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Compose sessions: the operational time windows of a device, and the files that belong to them.
+"""Sessions: operational time windows of a device, such as a drone flight, a vehicle drive, or a robot run.
 
-A session can be created empty and composed file by file, or declared whole, with its files and the topic
-data they carry, in one call. The types describing a file's contents live in
-:py:mod:`roboto.experimental.ingest`.
+Use :py:class:`~roboto.experimental.sessions.Session` to create sessions, add files to them, mark them complete, and
+read their topic data. Pass :py:class:`~roboto.experimental.sessions.SessionDeclaration` to
+:py:meth:`~roboto.domain.devices.Device.create_sessions` to create sessions with their files in one call, declaring
+each file's topics with :py:class:`~roboto.experimental.ingest.TopicDeclaration`.
 """
 
 from .operations import (

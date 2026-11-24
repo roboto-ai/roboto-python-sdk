@@ -20,23 +20,27 @@ from .record import DeviceTypeRecord
 
 
 class DeviceType:
-    """A named kind of device within an organization, such as one robot model.
+    """A device type: a named kind of device within an organization, such as one robot model.
 
     A :py:class:`~roboto.domain.devices.Device` has at most one device type, whose ID is its
     :py:attr:`~roboto.domain.devices.Device.device_type_id`. A device type has its own configurations
-    (:py:attr:`configurations`), such as a URDF or a bill of materials that applies to every device of that type, and
-    its own description, metadata and tags. Devices inherit none of the type's description, metadata or tags. A
-    device's configurations listed with ``include_inherited=True``
-    (:py:meth:`~roboto.domain.files.FileSystem.list_files`) include its type's configurations beside its own.
+    (``configurations``), such as a URDF or a bill of materials that applies to every device of the type, and its own
+    description, metadata and tags. Devices inherit none of the type's description, metadata or tags. Listing a
+    device's configurations with ``include_inherited=True`` (:py:meth:`~roboto.domain.files.FileSystem.list_files`)
+    includes its type's configurations beside its own; where both have a file at the same path, only the device's is
+    listed.
 
-    Device type IDs (``dt_...``) are assigned by Roboto; the name is user-provided and unique within the org.
+    Get a ``DeviceType`` from ``create``, ``from_id``, or ``for_org``. To wrap a ``DeviceTypeRecord`` already fetched
+    from Roboto, build a ``DeviceType`` from it directly. Each instance holds a copy of the device type's record;
+    ``update`` returns a new instance and leaves this one's record unchanged.
 
-    Note:
-        Device types cannot be instantiated directly through the constructor. Use the class methods
-        :py:meth:`create`, :py:meth:`from_id`, or :py:meth:`for_org` to obtain DeviceType instances.
+    Args:
+        record: Record of the device type.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
 
     Examples:
-        Give every device of a type the same URDF, then read it back from one device:
+        Give every device of a type the same URDF, then list it among one device's configurations:
 
         >>> import pathlib
         >>> from roboto import Device, DeviceType
@@ -45,7 +49,6 @@ class DeviceType:
         >>> device = Device.from_id("robot_001").set_device_type(device_type.device_type_id)
         >>> for file in device.configurations.list_files(include_inherited=True):
         ...     print(file.relative_path, file.association.is_device_type)
-        mk2.urdf True
     """
 
     __record: DeviceTypeRecord
@@ -64,28 +67,24 @@ class DeviceType:
         """Create a device type in an organization.
 
         Args:
-            name: Name of the device type, unique within the organization.
-            description: Optional free-text description of the device type.
-            metadata: Optional key-value pairs to associate with the device type.
-            tags: Optional tags to associate with the device type.
-            caller_org_id: The organization to create the device type in. If not specified and the caller belongs
-                to only one organization, that organization will be used. Required if the caller belongs to
-                multiple organizations.
-            roboto_client: Optional RobotoClient instance for API communication. If not provided, the default
-                client configuration will be used.
+            name: Human-readable name of the device type, unique within its organization.
+            description: Human-readable description of the device type.
+            metadata: Key-value metadata to set on the device type. ``None`` sets none.
+            tags: Tags to set on the device type. ``None`` sets none.
+            caller_org_id: Organization to create the device type in. Required when the caller belongs to more than
+                one organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The newly created device type.
+            The new device type.
 
         Raises:
             RobotoConflictException: The organization already has a device type with this name.
-            RobotoFeatureNotAvailableException: Device types are not enabled for the organization.
-            RobotoUnauthorizedException: The caller lacks permission to manage devices in the organization.
 
         Examples:
             >>> device_type = DeviceType.create(name="mk2", description="Second-generation arm", tags=["arm"])
-            >>> device_type.device_type_id
-            'dt_abc123'
+            >>> print(device_type.device_type_id)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         request = CreateDeviceTypeRequest(
@@ -106,22 +105,20 @@ class DeviceType:
         """List an organization's device types, newest first.
 
         Args:
-            org_id: The organization ID to list device types for.
-            roboto_client: Optional RobotoClient instance for API communication. If not provided, the default
-                client configuration will be used.
+            org_id: ID of the organization whose device types to list.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Each of the organization's device types, fetched a page at a time.
+            Each of the organization's device types, fetched a page at a time as the generator advances.
 
         Raises:
-            RobotoFeatureNotAvailableException: Device types are not enabled for the organization.
-            RobotoUnauthorizedException: The caller lacks permission to manage devices in the organization.
+            RobotoUnauthorizedException: The caller cannot manage devices in the organization. It surfaces on the
+                first iteration.
 
         Examples:
             >>> for device_type in DeviceType.for_org("og_abc123"):
             ...     print(device_type.name)
-            mk3
-            mk2
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -150,28 +147,21 @@ class DeviceType:
         roboto_client: typing.Optional[RobotoClient] = None,
         org_id: typing.Optional[str] = None,
     ) -> "DeviceType":
-        """Retrieve a device type by its ID.
+        """Fetch a device type by its ID.
 
         Args:
-            device_type_id: The Roboto-assigned ``dt_`` ID of the device type, not its name.
-            roboto_client: Optional RobotoClient instance for API communication. If not provided, the default
-                client configuration will be used.
-            org_id: The organization that owns the device type. If not specified and the caller belongs to only
-                one organization, that organization will be used. Required if the caller belongs to multiple
-                organizations.
-
-        Returns:
-            The device type.
+            device_type_id: Unique ID of the device type, beginning with ``dt_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            org_id: Organization that owns the device type. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
 
         Raises:
-            RobotoFeatureNotAvailableException: Device types are not enabled for the organization.
             RobotoNotFoundException: The organization has no device type with this ID.
-            RobotoUnauthorizedException: The caller lacks permission to view the device type.
 
         Examples:
             >>> device_type = DeviceType.from_id("dt_abc123", org_id="og_abc123")
-            >>> device_type.name
-            'mk2'
+            >>> print(device_type.name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(
@@ -189,30 +179,30 @@ class DeviceType:
 
     @property
     def created(self) -> datetime.datetime:
-        """The timestamp when this device type was created."""
+        """Time the device type was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """The user ID of the person who created this device type."""
+        """Principal that created the device type, as ``<type>:<id>``, such as ``user:<user_id>``."""
         return self.__record.created_by
 
     @property
     def description(self) -> typing.Optional[str]:
-        """Free-text description of this device type."""
+        """Human-readable description of the device type, or ``None`` if it has none."""
         return self.__record.description
 
     @property
     def device_count(self) -> int:
-        """Number of devices of this device type, counted when Roboto returned this device type.
+        """Number of devices of this device type, counted when Roboto returned this record.
 
-        The count does not follow devices added or removed later; call :py:meth:`from_id` for a current count.
+        The count does not change as devices later gain or lose this type; ``from_id`` fetches a current count.
         """
         return self.__record.device_count
 
     @property
     def device_type_id(self) -> str:
-        """This device type's Roboto-assigned ``dt_`` ID, unique across all orgs and never changed."""
+        """Unique ID of the device type, beginning with ``dt_``."""
         return self.__record.device_type_id
 
     @property
@@ -226,55 +216,49 @@ class DeviceType:
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
-        """Key-value metadata pairs associated with this device type."""
+        """Key-value metadata on the device type."""
         return self.__record.metadata
 
     @property
     def modified(self) -> datetime.datetime:
-        """The timestamp when this device type was last modified."""
+        """Time the device type was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """The user ID of the person who last modified this device type."""
+        """Principal that last modified the device type, in the same ``<type>:<id>`` form as ``created_by``."""
         return self.__record.modified_by
 
     @property
     def name(self) -> str:
-        """This device type's name, unique within its org."""
+        """Human-readable name of the device type, unique within its organization."""
         return self.__record.name
 
     @property
     def org_id(self) -> str:
-        """The ID of the org to which this device type belongs."""
+        """ID of the organization that owns the device type."""
         return self.__record.org_id
 
     @property
     def record(self) -> DeviceTypeRecord:
-        """Underlying :py:class:`DeviceTypeRecord` for this device type.
-
-        This is the raw record as returned by Roboto and may evolve over time; prefer the public
-        :py:class:`DeviceType` API unless you need direct access to the record.
-        """
+        """Record of the device type that this instance holds."""
         return self.__record
 
     @property
     def tags(self) -> list[str]:
-        """List of tags associated with this device type."""
+        """Tags on the device type."""
         return self.__record.tags
 
     def delete(self) -> None:
         """Delete this device type.
 
-        Refused while any device is of this type; reassign or clear those devices' types first. The device type's
-        configurations (:py:attr:`configurations`) are deleted with it, every version of each file, shortly after
-        this call returns. Links elsewhere that point at those files stop working.
-        Deleting a device type that no longer exists succeeds.
+        Roboto refuses while any device is of this type; give those devices another type, or none, first. Shortly
+        after this call returns, Roboto deletes every version of every file in the device type's configurations
+        (``configurations``). Downloading a link elsewhere that points at one of those files then raises
+        ``RobotoNotFoundException``. Deleting a device type that no longer exists succeeds and changes nothing.
 
         Raises:
             RobotoConflictException: At least one device is of this type.
-            RobotoFeatureNotAvailableException: Device types are not enabled for the organization.
-            RobotoUnauthorizedException: The caller lacks permission to delete this device type.
 
         Examples:
             >>> device_type = DeviceType.from_id("dt_abc123")
@@ -286,22 +270,20 @@ class DeviceType:
         )
 
     def devices(self) -> collections.abc.Generator[Device, None, None]:
-        """List the devices that are of this device type, newest first.
+        """List the devices of this device type, newest first.
 
         Yields:
-            Each device of this type, fetched a page at a time.
+            Each :py:class:`~roboto.domain.devices.Device` of this type, fetched a page at a time as the generator
+            advances.
 
         Raises:
-            RobotoFeatureNotAvailableException: Device types are not enabled for the organization.
-            RobotoUnauthorizedException: The caller lacks permission to view this device type, or to manage devices in
-                its org.
+            RobotoUnauthorizedException: The caller cannot manage devices in the device type's organization. It
+                surfaces on the first iteration.
 
         Examples:
             >>> device_type = DeviceType.from_id("dt_abc123")
             >>> for device in device_type.devices():
             ...     print(device.device_id)
-            robot_002
-            robot_001
         """
         next_token: typing.Optional[str] = None
         while True:
@@ -326,15 +308,13 @@ class DeviceType:
         """Update this device type's name, description, metadata or tags.
 
         Args:
-            request: The changes to apply. Fields left at their defaults change nothing.
+            request: Changes to make, as ``UpdateDeviceTypeRequest`` describes.
 
         Returns:
-            Updated DeviceType instance with the changes applied.
+            A new ``DeviceType`` holding the updated record. This instance keeps its earlier record.
 
         Raises:
-            RobotoConflictException: The new name is already taken by another device type in the org.
-            RobotoFeatureNotAvailableException: Device types are not enabled for the organization.
-            RobotoUnauthorizedException: The caller lacks permission to edit this device type.
+            RobotoConflictException: Another device type in the organization already has the new name.
 
         Examples:
             Rename a device type and clear its description:

@@ -67,27 +67,17 @@ logger = default_logger()
 
 
 class Topic:
-    """Represents a topic within the Roboto platform.
+    """A topic: a sequence of structured time-series data, called messages, linked to a source file.
 
-    A topic is a sequence of structured time-series data linked to a source file, typically
-    containing sensor readings, robot state information, or other timestamped data streams.
-    Topics are fundamental building blocks for data analysis in robotics, providing organized
-    access to time-synchronized data from various sources like ROS bags, MCAP files, or other
-    structured data formats.
+    Each message follows the topic's schema, whose fields or signals are the topic's message paths. Data under one
+    topic name in one file forms one topic, so a recording split across several files has one topic per file for each
+    topic name. Ingestion usually creates topics. A ``Topic`` reads their data, with ``get_data`` and
+    ``get_data_as_df``, and manages their message paths, representations, and metadata. Access to a topic follows
+    access to its file.
 
-    Each topic follows a defined schema where message paths represent the individual fields
-    or signals within that schema. Topics enable efficient querying, filtering, and analysis
-    of time-series data, supporting operations like temporal slicing, field selection, and
-    data export to various formats including pandas DataFrames.
-
-    Topics are associated with files and inherit access permissions from their parent dataset.
-    They provide the primary interface for accessing ingested robotics data in the Roboto
-    platform, supporting both programmatic access through the SDK and visualization in the
-    web interface.
-
-    The Topic class serves as the main interface for topic operations in the Roboto SDK,
-    providing methods for data retrieval, message path management, metadata operations,
-    and schema management.
+    Get a ``Topic`` from ``from_id``, ``from_name_and_file``, ``get_by_file``, or
+    :py:meth:`~roboto.domain.files.File.get_topics`. Each instance holds a copy of the topic's record: methods that
+    change the topic update that copy from Roboto's response, and ``refresh`` fetches changes made elsewhere.
     """
 
     __record: TopicRecord
@@ -109,52 +99,48 @@ class Topic:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Topic":
-        """Create a new topic associated with a file.
+        """Create a topic in a file.
 
-        Creates a new topic record in the Roboto platform, associating it with the specified
-        file and defining its schema and temporal boundaries. This method is typically used
-        during data ingestion to register topics found in robotics data files.
-
-        Note:
-            On successful creation, the topic will be a metadata-only container and will not
-            be visualizable or usable via data access methods like :py:meth:`get_data_as_df`
-            until one or more representations have been registered. This is typically handled
-            automatically by ingestion actions, but power users may need to manage
-            representations manually.
+        Ingestion actions usually create topics. A new topic describes its data but holds none: it cannot be read
+        with ``get_data`` or visualized until a representation of its data is registered, with
+        ``set_default_representation`` or ``add_message_path_representation``. To create a topic and store its data
+        from a pandas DataFrame in one call, use :py:meth:`~roboto.domain.files.File.add_topic`.
 
         Args:
-            file_id: Unique identifier of the file this topic is associated with.
-            topic_name: Name of the topic (e.g., "/camera/image", "/imu/data").
-            end_time: End time of the topic data in nanoseconds since UNIX epoch.
-            message_count: Total number of messages in this topic.
-            metadata: Additional metadata to associate with the topic.
-            schema_checksum: Checksum of the topic's message schema for validation.
-            schema_name: Name of the message schema (e.g., "sensor_msgs/Image").
-            start_time: Start time of the topic data in nanoseconds since UNIX epoch.
-            message_paths: Message paths to create along with the topic.
-            caller_org_id: Organization ID to create the topic in. Required for multi-org users.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            file_id: ID of the file the topic belongs to.
+            topic_name: Name of the topic, such as ``"/imu/data"``. Unique within the file.
+            end_time: End of the topic's data, in nanoseconds since the Unix epoch. Must not be negative.
+            message_count: Number of messages in the topic. Must not be negative.
+            metadata: Key-value metadata to set on the topic. ``None`` sets none.
+            schema_checksum: Checksum of the topic's message schema.
+            schema_name: Name of the topic's message schema, such as ``"sensor_msgs/Imu"``.
+            start_time: Start of the topic's data, in nanoseconds since the Unix epoch. Must not be negative.
+            message_paths: Message paths to create with the topic. No two may have the same ``message_path``.
+                ``None`` creates none.
+            caller_org_id: Organization to create the topic in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            Topic instance representing the newly created topic.
+            The new topic.
 
         Raises:
-            RobotoInvalidRequestException: Invalid topic parameters.
-            RobotoUnauthorizedException: Caller lacks permission to create topics.
+            RobotoConflictException: The file already has a topic named ``topic_name``.
+            RobotoInvalidRequestException: ``topic_name`` is blank, a time or ``message_count`` is negative, or two
+                of ``message_paths`` have the same ``message_path``.
 
         Examples:
-            Create a basic topic for camera data:
+            Create a topic for camera data:
 
             >>> topic = Topic.create(
-            ...     file_id="file_abc123",
+            ...     file_id="fl_12345",
             ...     topic_name="/camera/image",
             ...     schema_name="sensor_msgs/Image",
             ...     start_time=1722870127699468923,
             ...     end_time=1722870127799468923,
             ...     message_count=100,
             ... )
-            >>> print(topic.topic_id)
-            topic_xyz789
 
             Create a topic with metadata and message paths:
 
@@ -164,10 +150,12 @@ class Topic:
             ...         message_path="header.stamp.sec",
             ...         data_type="uint32",
             ...         canonical_data_type=CanonicalDataType.Timestamp,
+            ...         path_in_schema=["header", "stamp", "sec"],
+            ...         metadata={"unit": "s"},
             ...     )
             ... ]
             >>> topic = Topic.create(
-            ...     file_id="file_abc123",
+            ...     file_id="fl_12345",
             ...     topic_name="/imu/data",
             ...     schema_name="sensor_msgs/Imu",
             ...     metadata={"sensor_type": "IMU", "frequency": 100},
@@ -206,44 +194,47 @@ class Topic:
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> Topic:
-        """Create a Topic from a pandas DataFrame and associate it with a file.
+        """Create a topic in a file from a pandas DataFrame, or replace the data of the file's topic of that name.
 
-        If a topic with the same name already exists for the specified file, it will be
-        updated with the new data and schema.
+        :py:meth:`~roboto.domain.files.File.add_topic` does the same and needs only the file. Each row of ``df`` is
+        one message. The method:
+
+        1. Writes ``df`` to a Parquet file.
+        2. Creates the topic, with message paths, a message count, and a time range read from that file. When the
+           file already has a topic named ``topic_name``, it replaces that topic's message paths, message count,
+           time range, and schema name instead.
+        3. Uploads the Parquet file to the dataset's ``.VISUALIZATION_ASSETS`` directory and makes it the topic's
+           default representation, so the data can be read and visualized.
+
+        If the upload fails, the topic keeps the message paths from step 2 without the data to match them.
 
         Args:
-            file_id: ID of the file to associate this topic with.
-            dataset_id: ID of the dataset containing the file.
-            topic_name: Name for the topic. Must be unique within the file.
-            df: pandas DataFrame containing the data to ingest. Must include a timestamp
-                column (either explicitly specified or automatically detectable).
-            timestamp_column: Name of the column to use as the timestamp. If not provided,
-                the method will attempt to automatically detect a timestamp column by looking
-                for the first column that is a timezone-aware timestamp type.
-            timestamp_unit: Unit of the timestamp column values. Required when timestamp_column
-                contains numeric values (int, float, decimal). Valid values include "s", "ms",
-                "us", "ns". Not needed for datetime columns or when timestamp_column is not specified.
-            caller_org_id: Organization ID of the caller. If not provided, uses the default
-                from the client context.
-            roboto_client: Roboto client instance. If not provided, uses the default client.
+            file_id: ID of the file the topic belongs to.
+            dataset_id: ID of the dataset that contains the file. The Parquet file is uploaded to it.
+            topic_name: Name of the topic, unique within the file. Also set as the topic's schema name.
+            df: Data of the topic, one row per message. It must have a timestamp column, named by
+                ``timestamp_column`` or found automatically.
+            timestamp_column: Name of the column that holds each message's timestamp. ``None`` uses the first column
+                of a timezone-aware timestamp type.
+            timestamp_unit: Unit of the timestamp column's values: ``"s"``, ``"ms"``, ``"us"`` or ``"ns"``, or a
+                :py:class:`~roboto.time.TimeUnit`. Required when the column is numeric. A timestamp-typed column
+                carries its own unit, which this overrides.
+            caller_org_id: Organization to create the topic in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The created or updated Topic instance.
+            The created or updated topic.
 
         Raises:
-            IngestionException: If the timestamp column cannot be determined, is not present
-                in the DataFrame, has an invalid type, or if the timestamp unit is required
-                but not provided.
-            ImportError: If pandas or pyarrow are not installed. Install with
-                ``pip install roboto[ingestion]`` to use this feature.
-            RobotoUnauthorizedException: If the caller lacks permission to create topics
-                or upload files to the specified dataset.
-
-        Notes:
-            - For most use cases, prefer :py:meth:`File.add_topic` instead
+            IngestionException: The timestamp column is not in ``df``, cannot be found automatically, is neither
+                numeric nor a timezone-aware timestamp type, or is numeric with no ``timestamp_unit``; or the upload
+                finished without Roboto returning an ID for the Parquet file.
+            ImportError: The ``roboto[ingestion]`` extra is not installed.
 
         Examples:
-            Create a topic when you have file and dataset IDs:
+            Create a topic from a DataFrame with a timestamp column in seconds:
 
             >>> import pandas as pd
             >>> from roboto.domain.topics import Topic
@@ -255,8 +246,8 @@ class Topic:
             ...     }
             ... )
             >>> topic = Topic.create_from_df(
-            ...     file_id="file_abc123",
-            ...     dataset_id="ds_xyz789",
+            ...     file_id="fl_12345",
+            ...     dataset_id="ds_12345",
             ...     topic_name="sensor_data",
             ...     df=df,
             ...     timestamp_column="timestamp",
@@ -265,31 +256,28 @@ class Topic:
             >>> print(f"Created topic: {topic.name}")
             Created topic: sensor_data
 
-            Using File.add_topic() is typically more convenient:
+            Do the same with :py:meth:`~roboto.domain.files.File.add_topic`, which finds the dataset itself:
 
             >>> from roboto import File
-            >>> file = File.from_id("file_abc123")
+            >>> file = File.from_id("fl_12345")
             >>> topic = file.add_topic("sensor_data", df, timestamp_column="timestamp", timestamp_unit="s")
         """
-        # PyArrow is required by Pandas to serialize to Parquet.
-        # Re-use the `import_optional_dependency` code path as an assert
-        # with a action-oriented error message.
+        # pandas needs pyarrow to write Parquet. Checking first raises an ImportError that names the extra to install.
         import_optional_dependency("pyarrow", "ingestion")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = pathlib.Path(tmpdir)
 
-            # Serialize to file
             file_name = make_topic_filename_safe(topic_name)
             parquet_path = tmpdir_path / f"{file_name}_{file_id}.parquet"
             df.to_parquet(parquet_path, engine="pyarrow")
 
-            # Index as topic and message_paths
             parser = ParquetParser(parquet_path)
             timestamp = parser.extract_timestamp_info(timestamp_column, timestamp_unit)
             message_path_requests = list(generate_message_path_requests(parser, timestamp))
 
-            # Create or update topic
+            # RobotoConflictException means the file already has a topic named topic_name; replace its message paths
+            # and time range instead.
             try:
                 topic = Topic.create(
                     file_id=file_id,
@@ -318,7 +306,6 @@ class Topic:
                     end_time=timestamp.end_time_ns(),
                 )
 
-            # Upload representation file and set as default representation for topic
             representation_file_id = upload_representation_file(
                 parquet_path,
                 Association.dataset(dataset_id),
@@ -339,28 +326,19 @@ class Topic:
         topic_id: str,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Topic":
-        """Retrieve a topic by its unique identifier.
-
-        Fetches a topic record from the Roboto platform using its unique topic ID.
-        This is the most direct way to access a specific topic when you know its identifier.
+        """Fetch a topic by its ID.
 
         Args:
-            topic_id: Unique identifier for the topic.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-
-        Returns:
-            Topic instance representing the requested topic.
+            topic_id: Unique ID of the topic, beginning with ``tp_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: Topic with the given ID does not exist.
-            RobotoUnauthorizedException: Caller lacks permission to access the topic.
+            RobotoNotFoundException: No topic has this ID.
 
         Examples:
-            >>> topic = Topic.from_id("topic_xyz789")
-            >>> print(topic.name)
-            '/camera/image'
-            >>> print(topic.message_count)
-            100
+            >>> topic = Topic.from_id("tp_12345")
+            >>> print(topic.name, topic.message_count)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
 
@@ -378,31 +356,23 @@ class Topic:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> "Topic":
-        """Retrieve a topic by its name and associated file.
+        """Fetch a topic by its name and the file it belongs to.
 
-        Fetches a topic record using its name and the file it's associated with. This is
-        useful when you know the topic name (e.g., "/camera/image") and the file containing
-        the topic data.
+        Topic names are unique within a file, so a name and a file identify one topic.
 
         Args:
-            topic_name: Name of the topic to retrieve.
-            file_id: Unique identifier of the file containing the topic.
-            owner_org_id: Organization ID to scope the search. If None, uses caller's org.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
-
-        Returns:
-            Topic instance representing the requested topic.
+            topic_name: Name of the topic, such as ``"/camera/image"``.
+            file_id: ID of the file the topic belongs to.
+            owner_org_id: Organization that owns the file. Defaults to the organization the caller acts in.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: Topic with the given name does not exist in the specified file.
-            RobotoUnauthorizedException: Caller lacks permission to access the topic.
+            RobotoNotFoundException: The file has no topic with this name.
 
         Examples:
-            >>> topic = Topic.from_name_and_file(topic_name="/camera/image", file_id="file_abc123")
+            >>> topic = Topic.from_name_and_file(topic_name="/camera/image", file_id="fl_12345")
             >>> print(topic.topic_id)
-            topic_xyz789
-            >>> print(len(topic.message_paths))
-            5
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         quoted_topic_name = urllib.parse.quote_plus(topic_name)
@@ -419,41 +389,36 @@ class Topic:
     def get_by_dataset(
         cls, dataset_id: str, roboto_client: typing.Optional[RobotoClient] = None
     ) -> collections.abc.Generator["Topic", None, None]:
-        """List all topics associated with files in a dataset.
+        """List the topics of a dataset's files.
 
-        Retrieves all topics from files within the specified dataset. If multiple files
-        contain topics with the same name (e.g., chunked files with the same schema),
-        they are returned as separate topic objects.
+        When several files have a topic with the same name, such as files split from one recording, each file's
+        topic is yielded separately.
 
         Note:
-            This method returns topics WITHOUT message_paths populated (for performance).
-            The message_paths list will be empty. If you need message_paths, use
-            Topic.get_by_file() for each file instead.
+            The topics come without message paths: each topic's ``message_paths`` is empty. To get them, use
+            ``get_by_file`` on each file instead.
 
         Args:
-            dataset_id: Unique identifier of the dataset to search.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            dataset_id: ID of the dataset.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Topic instances associated with files in the dataset.
+            Each topic of the dataset's files.
 
         Raises:
-            RobotoNotFoundException: Dataset with the given ID does not exist.
-            RobotoUnauthorizedException: Caller lacks permission to access the dataset.
+            RobotoNotFoundException: No dataset has this ID. It surfaces on the first iteration.
 
         Examples:
-            >>> for topic in Topic.get_by_dataset("ds_abc123"):
-            ...     print(f"Topic: {topic.name} (File: {topic.file_id})")
-            Topic: /camera/image (File: file_001)
-            Topic: /imu/data (File: file_001)
-            Topic: /camera/image (File: file_002)
-            Topic: /imu/data (File: file_002)
+            Print each topic with the file it belongs to:
 
-            >>> # Count topics by name
+            >>> for topic in Topic.get_by_dataset("ds_12345"):
+            ...     print(topic.name, topic.file_id)
+
+            Count the files that have each topic name:
+
             >>> from collections import Counter
-            >>> topic_names = [topic.name for topic in Topic.get_by_dataset("ds_abc123")]
-            >>> print(Counter(topic_names))
-            Counter({'/camera/image': 2, '/imu/data': 2})
+            >>> topic_name_counts = Counter(topic.name for topic in Topic.get_by_dataset("ds_12345"))
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         page_token: typing.Optional[str] = None
@@ -482,33 +447,26 @@ class Topic:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> collections.abc.Generator["Topic", None, None]:
-        """List all topics associated with a specific file.
-
-        Retrieves all topics contained within the specified file. This is useful for
-        exploring the structure of robotics data files and understanding what data
-        streams are available.
+        """List the topics of a file.
 
         Args:
-            file_id: Unique identifier of the file to search.
-            owner_org_id: Organization ID to scope the search. If None, uses caller's org.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            file_id: ID of the file.
+            owner_org_id: Organization that owns the file. Defaults to the organization the caller acts in.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Yields:
-            Topic instances associated with the specified file.
-
-        Raises:
-            RobotoNotFoundException: File with the given ID does not exist.
-            RobotoUnauthorizedException: Caller lacks permission to access the file.
+            Each topic of the file, with its message paths.
 
         Examples:
-            >>> for topic in Topic.get_by_file("file_abc123"):
-            ...     print(f"Topic: {topic.name} ({topic.message_count} messages)")
-            Topic: /camera/image (150 messages)
-            Topic: /imu/data (1500 messages)
-            Topic: /gps/fix (50 messages)
+            Print each topic's name and message count:
 
-            >>> # Get topics with specific schema
-            >>> camera_topics = [topic for topic in Topic.get_by_file("file_abc123") if "camera" in topic.name]
+            >>> for topic in Topic.get_by_file("fl_12345"):
+            ...     print(topic.name, topic.message_count)
+
+            Keep only the topics whose names contain ``"camera"``:
+
+            >>> camera_topics = [topic for topic in Topic.get_by_file("fl_12345") if "camera" in topic.name]
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         encoded_association = Association.file(file_id).url_encode()
@@ -535,31 +493,30 @@ class Topic:
         owner_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
     ) -> TopicTimeBounds:
-        """Get the earliest start and latest end across every topic of a file or dataset.
+        """Fetch the earliest start time and latest end time across the topics of a file or other entity.
 
-        The same aggregate you would reach by folding ``start_time`` and ``end_time`` over the
-        topics of that file or dataset, computed server-side in one request instead of one per
-        page of topics.
+        For a file, returns the same values as taking the minimum ``start_time`` and maximum ``end_time`` over
+        ``get_by_file``, in one request instead of one per page of topics.
+
+        Note:
+            Only topics that belong to ``association`` itself count. Topics usually belong to files, so a dataset
+            association leaves out the topics of the dataset's files; for those, use
+            :py:meth:`~roboto.domain.datasets.Dataset.get_topic_time_bounds`.
 
         Args:
-            association: The file or dataset whose topics are aggregated, e.g.
-                ``Association.file("file_abc123")``.
-            owner_org_id: Organization ID to scope the lookup. If None, uses caller's org.
-            roboto_client: HTTP client for API communication. If None, uses the default client.
+            association: Entity whose topics to cover, such as ``Association.file("fl_12345")``.
+            owner_org_id: Organization that owns the entity. Defaults to the organization the caller acts in.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            Bounds in nanoseconds since the Unix epoch. Both fields are None when the
-            association holds no topics, and either is None when no topic of the association
-            carries that timestamp.
-
-        Raises:
-            RobotoUnauthorizedException: Caller lacks permission to access the file or dataset.
+            Bounds in nanoseconds since the Unix epoch. Both are ``None`` when the entity has no topics, and either
+            is ``None`` when no topic has that bound.
 
         Examples:
             >>> from roboto.association import Association
-            >>> bounds = Topic.get_time_bounds_by_association(Association.file("file_abc123"))
+            >>> bounds = Topic.get_time_bounds_by_association(Association.file("fl_12345"))
             >>> print(bounds.start_time, bounds.end_time)
-            1722870127699468923 1722870187004821001
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         encoded_association = association.url_encode()
@@ -578,6 +535,26 @@ class Topic:
         self.__record = record
         self.__roboto_client = RobotoClient.defaulted(roboto_client)
         self.__topic_data_service = topic_data_service or TopicDataService(self.__roboto_client)
+        self.__fetch_message_paths_left_out()
+
+    def __fetch_message_paths_left_out(self) -> None:
+        """Fetch the message paths the record leaves out, a page at a time, so ``message_paths`` holds every one."""
+        page_token = self.__record.message_paths_next_token
+        if page_token is None:
+            return
+        message_paths = list(self.__record.message_paths)
+        while page_token is not None:
+            page = self.__roboto_client.get(
+                f"v1/topics/id/{self.__record.topic_id}/message-paths",
+                query={"page_token": page_token},
+                owner_org_id=self.__record.org_id,
+            ).to_paginated_list(MessagePathRecord)
+            message_paths.extend(page.items)
+            page_token = page.next_token
+        # Replace the record rather than change it, because it may be the record the caller passed to Topic(record).
+        self.__record = self.__record.model_copy(
+            update={"message_paths": message_paths, "message_paths_next_token": None}
+        )
 
     def __eq__(self, other: typing.Any):
         if not isinstance(other, Topic):
@@ -590,27 +567,30 @@ class Topic:
 
     @property
     def association(self) -> Association:
-        """Association linking this topic to its source entity (typically a file)."""
+        """Resource the topic belongs to, usually the file its data came from."""
         return self.__record.association
 
     @property
     def created(self) -> datetime:
-        """Timestamp when this topic was created in the Roboto platform."""
+        """Time the topic was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """Identifier of the user or system that created this topic."""
+        """ID of the user who created the topic."""
         return self.__record.created_by
 
     @property
     def dataset_id(self) -> typing.Optional[str]:
-        """Unique identifier of the dataset containing this topic, if applicable."""
+        """ID of the dataset the topic or its file belongs to, or ``None`` if the topic belongs to neither.
+
+        When the topic belongs to a file, each access makes a request to Roboto for the file's record.
+        """
         if self.association.is_dataset:
             return self.association.association_id
 
         if self.association.is_file:
-            # This is equivalent to File.from_id(file_id), but without introducing a circular dependency
+            # Reads the file's record directly, because importing File here would create a circular import.
             return self.__roboto_client.get(f"v1/files/record/{self.association.association_id}").to_dict(
                 json_path=["data", "association_id"]
             )
@@ -619,17 +599,21 @@ class Topic:
 
     @property
     def default_representation(self) -> typing.Optional[RepresentationRecord]:
-        """Default representation used for accessing this topic's data."""
+        """Record of the representation that holds the data of each message path without one of its own.
+
+        ``None`` if the topic has no default representation, in which case only message paths with representations of
+        their own can be read.
+        """
         return self.__record.default_representation
 
     @property
     def end_time(self) -> typing.Optional[int]:
-        """End time of the topic data in nanoseconds since UNIX epoch."""
+        """Timestamp of the topic's latest message, in nanoseconds since the Unix epoch, or ``None`` if unknown."""
         return self.__record.end_time
 
     @property
     def file_id(self) -> typing.Optional[str]:
-        """Unique identifier of the file containing this topic, if applicable."""
+        """ID of the file the topic belongs to, or ``None`` if the topic belongs to something other than a file."""
         if self.association.is_file:
             return self.association.association_id
 
@@ -637,81 +621,89 @@ class Topic:
 
     @property
     def message_count(self) -> typing.Optional[int]:
-        """Total number of messages in this topic."""
+        """Number of messages in the topic, or ``None`` if unknown."""
         return self.__record.message_count
 
     @property
     def message_paths(self) -> collections.abc.Sequence[MessagePathRecord]:
-        """Sequence of message path records defining the topic's schema."""
+        """Message paths of the topic.
+
+        Empty for a topic listed by ``get_by_dataset``, which leaves them out.
+        """
         return self.__record.message_paths
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
-        """Metadata dictionary associated with this topic."""
+        """Key-value metadata on the topic.
+
+        Each access returns a copy, so changing it does not change the topic.
+        """
         return dict(self.__record.metadata)
 
     @property
     def modified(self) -> datetime:
-        """Timestamp when this topic was last modified."""
+        """Time the topic was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """Identifier of the user or system that last modified this topic."""
+        """ID of the user who last modified the topic."""
         return self.__record.modified_by
 
     @property
     def name(self) -> str:
-        """Name of the topic (e.g., '/camera/image', '/imu/data')."""
+        """Name of the topic, such as ``"/imu/data"``.
+
+        Unique within its file. Same as ``topic_name``.
+        """
         return self.__record.topic_name
 
     @property
     def org_id(self) -> str:
-        """Organization ID that owns this topic."""
+        """ID of the organization that owns the topic."""
         return self.__record.org_id
 
     @property
     def record(self) -> TopicRecord:
-        """Topic representation in the Roboto database.
+        """Record of the topic that this instance holds.
 
-        This property is on the path to deprecation. All ``TopicRecord`` attributes
-        are accessible directly using a ``Topic`` instance.
+        Each of its fields is also a property of ``Topic``. ``refresh`` replaces it with the current one.
         """
 
         return self.__record
 
     @property
     def schema_checksum(self) -> typing.Optional[str]:
-        """Checksum of the topic's message schema for validation."""
+        """Checksum of the topic's schema, or ``None`` if the topic has no known schema."""
         return self.__record.schema_checksum
 
     @property
     @experimental
     def schema_id(self) -> typing.Optional[str]:
-        """ID of the schema for this topic.
-
-        ``None`` if the topic has no schema, or if the schema has not yet been populated.
-        """
+        """ID of the topic's schema, or ``None`` if the topic has no schema or Roboto has not yet recorded it."""
         return self.__record.schema_id
 
     @property
     def schema_name(self) -> typing.Optional[str]:
-        """Name of the message schema (e.g., 'sensor_msgs/Image')."""
+        """Name of the topic's message type, such as ``"sensor_msgs/PointCloud2"``, or ``None`` if it is unknown."""
         return self.__record.schema_name
 
     @property
     def start_time(self) -> typing.Optional[int]:
-        """Start time of the topic data in nanoseconds since UNIX epoch."""
+        """Timestamp of the topic's earliest message, in nanoseconds since the Unix epoch, or ``None`` if unknown."""
         return self.__record.start_time
 
     @property
     def topic_id(self) -> str:
-        """Unique identifier for this topic."""
+        """Unique ID of the topic, beginning with ``tp_``."""
         return self.__record.topic_id
 
     @property
     def topic_name(self) -> str:
-        """Name of the topic (e.g., '/camera/image', '/imu/data')."""
+        """Name of the topic, such as ``"/imu/data"``.
+
+        Unique within its file.
+        """
         return self.__record.topic_name
 
     def add_message_path(
@@ -722,42 +714,36 @@ class Topic:
         path_in_schema: typing.Optional[list[str]] = None,
         metadata: typing.Optional[dict[str, typing.Any]] = None,
     ) -> MessagePathRecord:
-        """Add a new message path to this topic.
+        """Add a message path to the topic.
 
-        Creates a new message path within this topic, defining a specific field or signal
-        that can be extracted from the topic's data. Message paths use dot notation to
-        specify nested attributes within the topic's schema.
+        Fetches the topic's record afterwards, so ``message_paths`` includes the new message path.
 
         Args:
-            message_path: Dot-delimited path to the attribute (e.g., "pose.position.x").
-            data_type: Native data type of the attribute as it appears in the original data
-                source (e.g., "float32", "uint8[]", "geometry_msgs/Pose"). Used primarily
-                for display purposes and should match the robot's runtime language or
-                schema definitions.
-            canonical_data_type: Normalized Roboto data type that enables specialized
-                platform features for maps, images, timestamps, and other data with
-                special interpretations.
-            path_in_schema: List of path components representing the field's location
-                in the source data schema. Unlike message_path, which assumes dots
-                separate path parts implying nested data, this preserves the exact path
-                from the source data for accurate attribute access.
-            metadata: Additional metadata to associate with the message path.
+            message_path: Dot-delimited path to a field within the topic's messages, such as ``"pose.position.x"``.
+                Unique within the topic.
+            data_type: Native data type of the field, as the source data's framework names it, such as
+                ``"float32"``, ``"uint8[]"`` or ``"geometry_msgs/Pose"``.
+            canonical_data_type: Framework-independent data type of the field, which Roboto uses to choose how to
+                display its data, such as on a map or as an image.
+            path_in_schema: Components of the field's path in the source data's schema, in order from the schema
+                root. Unlike ``message_path``, it keeps a field name that contains a dot as one component. ``None``
+                splits ``message_path`` at each dot.
+            metadata: Key-value metadata to set on the message path. ``None`` sets none.
 
         Returns:
-            MessagePathRecord representing the newly created message path.
+            Record of the new message path.
 
         Raises:
-            RobotoConflictException: Message path already exists for this topic.
-            RobotoUnauthorizedException: Caller lacks permission to modify the topic.
+            RobotoConflictException: The topic already has a message path at ``message_path``.
 
         Examples:
             >>> from roboto.domain.topics import CanonicalDataType
-            >>> topic = Topic.from_id("topic_xyz789")
+            >>> topic = Topic.from_id("tp_12345")
             >>> message_path = topic.add_message_path(
             ...     message_path="pose.position.x",
             ...     data_type="float64",
             ...     canonical_data_type=CanonicalDataType.Number,
-            ...     metadata={"unit": "meters"},
+            ...     metadata={"frame": "map"},
             ... )
             >>> print(message_path.message_path)
             pose.position.x
@@ -790,39 +776,41 @@ class Topic:
         format: typing.Optional[str] = None,
         transformations: typing.Optional[list[str]] = None,
     ) -> RepresentationRecord:
-        """Add a representation for a specific message path.
+        """Register a representation of one of the topic's message paths.
 
-        Associates a message path with a data representation, enabling efficient access
-        to specific fields within the topic data. Representations can be in different
-        storage formats like MCAP or Parquet.
+        A representation is a stored copy of the data, in one file format and possibly transformed, such as encoded
+        as JPEG. Within the topic, ``association``, ``storage_format`` and ``version`` together identify a
+        representation, so registering a combination the topic already has updates that representation's ``format``
+        and ``transformations`` instead of adding another. Fetches the topic's record afterwards.
 
         Args:
-            message_path_id: Unique identifier of the message path.
-            association: Association pointing to the representation data.
-            storage_format: Format of the representation data.
+            message_path_id: ID of the message path the representation holds data for, beginning with ``mp_``.
+            association: File, or other entity, that holds the representation's data. It must exist.
+            storage_format: File format the representation's data is stored in.
             version: Version number of the representation.
-            format: Content format descriptor (e.g. "jpeg", "sensor_msgs/Image").
-            transformations: Transformation descriptors applied (e.g. ["downsample:0.5"]).
+            format: Content format of the data, such as an image encoding (``"jpeg"``) or a message schema name
+                (``"sensor_msgs/Image"``). ``None`` keeps the stored format when the representation already exists.
+            transformations: Transformations applied to produce the representation, in order, as
+                ``"<kind>:<param>"`` strings such as ``"downsample:0.5"``
+                (see :py:class:`~roboto.domain.topics.TransformationKind`). ``None`` keeps the stored list when the
+                representation already exists, and records none otherwise.
 
         Returns:
-            RepresentationRecord representing the newly created representation.
+            Record of the registered representation.
 
         Raises:
-            RobotoNotFoundException: Message path with the given ID does not exist.
-            RobotoUnauthorizedException: Caller lacks permission to modify the topic.
+            RobotoNotFoundException: The topic has no message path with ID ``message_path_id``.
 
         Examples:
             >>> from roboto.association import Association
             >>> from roboto.domain.topics import RepresentationStorageFormat
-            >>> topic = Topic.from_id("topic_xyz789")
+            >>> topic = Topic.from_id("tp_12345")
             >>> representation = topic.add_message_path_representation(
-            ...     message_path_id="mp_123",
-            ...     association=Association.file("file_repr_456"),
+            ...     message_path_id="mp_12345",
+            ...     association=Association.file("fl_12345"),
             ...     storage_format=RepresentationStorageFormat.MCAP,
             ...     version=1,
             ... )
-            >>> print(representation.representation_id)
-            repr_789
         """
         request = AddMessagePathRepresentationRequest(
             association=association,
@@ -843,19 +831,15 @@ class Topic:
         return representation_record
 
     def delete(self) -> None:
-        """Delete this topic from the Roboto platform.
+        """Delete the topic. This cannot be undone.
 
-        Permanently removes this topic and all its associated message paths and representations
-        from the platform. This operation cannot be undone.
-
-        Raises:
-            RobotoNotFoundException: Topic does not exist or has already been deleted.
-            RobotoUnauthorizedException: Caller lacks permission to delete the topic.
+        Also deletes the topic's message paths and representations, the MCAP files that hold its representations,
+        and each event linked to nothing but this topic and its message paths. Deleting a topic that no longer exists
+        succeeds and changes nothing.
 
         Examples:
-            >>> topic = Topic.from_id("topic_xyz789")
+            >>> topic = Topic.from_id("tp_12345")
             >>> topic.delete()
-            # Topic and all its data are now permanently deleted
         """
         self.__roboto_client.delete(
             f"v1/topics/id/{self.topic_id}",
@@ -864,17 +848,16 @@ class Topic:
 
     @experimental
     def get_schema(self) -> typing.Optional["TopicSchema"]:
-        """Retrieve the schema for this topic, if one exists.
+        """Fetch the topic's schema, or return ``None`` if the topic has no schema.
 
         Returns:
-            A :py:class:`TopicSchema` describing the message structure of this topic,
-            or ``None`` if this topic has no schema.
+            The ``TopicSchema`` that the topic's messages follow, or ``None`` when ``schema_id`` is ``None``.
 
         Raises:
-            RobotoNotFoundException: ``schema_id`` references a schema that no longer exists.
+            RobotoNotFoundException: ``schema_id`` names a schema that no longer exists.
 
         Examples:
-            >>> topic = Topic.from_id("topic_xyz789")
+            >>> topic = Topic.from_id("tp_12345")
             >>> schema = topic.get_schema()
             >>> if schema is not None:
             ...     for field in schema.fields:
@@ -894,96 +877,63 @@ class Topic:
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
         representation_selector: RepresentationSelector = RepresentationSelector.raw(),
     ) -> collections.abc.Generator[tuple[Timestamp, dict[str, typing.Any]], None, None]:
-        """Return this topic's underlying data.
+        """Yield this topic's messages, optionally limited to some message paths and a time range.
 
-        Retrieves and yields data records from this topic, with optional filtering by
-        message paths and time range. Each yielded datum is a dictionary that matches
-        this topic's schema.
+        Each yielded item is a ``(timestamp, message)`` tuple, where ``message`` is a dictionary that follows the
+        topic's schema.
 
         Args:
-            message_paths_include: Dot notation paths that match attributes of individual
-                data records to include. If None, all paths are included.
-            message_paths_exclude: Dot notation paths that match attributes of individual
-                data records to exclude. If None, no paths are excluded.
-            start_time: Start time (inclusive) as nanoseconds since UNIX epoch or
-                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
-            end_time: End time (exclusive) as nanoseconds since UNIX epoch or
-                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
-            cache_dir: Directory where topic data will be downloaded if necessary.
-                Defaults to :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
-            representation_selector: Criteria for selecting among multiple representations.
-                Defaults to :py:meth:`RepresentationSelector.raw` — original, untransformed data.
-                Pass a ``RepresentationSelector`` to request a specific content format or
-                transformation pipeline.
+            message_paths_include: Message paths to include. ``None`` includes every message path.
+            message_paths_exclude: Message paths to leave out. ``None`` leaves out none.
+            start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+            end_time: Exclusive end of the time range, in the same form.
+            cache_dir: Directory to download the topic's data to. ``None`` uses
+                :py:attr:`~roboto.domain.topics.TopicDataService.DEFAULT_CACHE_DIR`.
+            representation_selector: Which of the topic's stored representations to read. Defaults to the raw,
+                untransformed data. A message path with no representation that meets it is left out.
 
         Yields:
-            Timestamp and dictionary records that match this topic's schema, filtered according to the parameters.
-
-        Notes:
-            The path-filtering example below assumes this topic's records look like this sample:
-
-            ::
-
-                {
-                    "angular_velocity": {
-                        "x": <uint32>,
-                        "y": <uint32>,
-                        "z": <uint32>
-                    },
-                    "orientation": {
-                        "x": <uint32>,
-                        "y": <uint32>,
-                        "z": <uint32>,
-                        "w": <uint32>
-                    }
-                }
+            ``(timestamp, message)`` tuples, limited by the arguments.
 
         Examples:
-            Print all data to stdout:
+            Print every message:
 
-            >>> topic = Topic.from_name_and_file(...)
-            >>> for timestamp, record in topic.get_data():
-            ...     print(timestamp, record)
+            >>> topic = Topic.from_name_and_file(topic_name="/imu/data", file_id="fl_12345")
+            >>> for timestamp, message in topic.get_data():
+            ...     print(timestamp, message)
 
-            Only include the "angular_velocity" sub-object, but filter out its "y" property:
+            Include ``angular_velocity`` but leave out its ``y`` axis:
 
-            >>> topic = Topic.from_name_and_file(...)
-            >>> for timestamp, record in topic.get_data(
+            >>> for timestamp, message in topic.get_data(
             ...     message_paths_include=["angular_velocity"],
             ...     message_paths_exclude=["angular_velocity.y"],
             ... ):
-            ...     ...
+            ...     print(message)
 
-            Only include data between two timestamps:
+            Read only the messages in a time range:
 
-            >>> topic = Topic.from_name_and_file(...)
-            >>> for timestamp, record in topic.get_data(
+            >>> for timestamp, message in topic.get_data(
             ...     start_time=1722870127699468923,
-            ...     end_time=1722870127699468924,
+            ...     end_time=1722870127799468923,
             ... ):
-            ...     ...
+            ...     print(timestamp)
 
-            Collect all topic data into a dataframe (requires installing the ``roboto[analytics]`` extra):
+            Read the JPEG-encoded representation of an image topic:
 
-            >>> topic = Topic.from_name_and_file(...)
-            >>> df = topic.get_data_as_df()
-
-            Get the JPEG-encoded version of image data:
-
-            >>> topic = Topic.from_name_and_file(...)
-            >>> for timestamp, record in topic.get_data(
+            >>> from roboto.domain.topics import RepresentationSelector
+            >>> image_topic = Topic.from_name_and_file(topic_name="/camera/image", file_id="fl_12345")
+            >>> for timestamp, message in image_topic.get_data(
             ...     representation_selector=RepresentationSelector(content_format="jpeg"),
             ... ):
-            ...     ...
+            ...     print(timestamp)
 
-        Tip:
-            For many topics, parallelize with a thread pool:
+            Read many topics in parallel with a thread pool:
 
             >>> from concurrent.futures import ThreadPoolExecutor
-            >>> from itertools import chain
-            >>> with ThreadPoolExecutor(max_workers=16) as ex:  # tune for your workload
-            ...     results = list(ex.map(lambda t: list(t.get_data()), topics))
-            >>> merged = list(chain.from_iterable(results))
+            >>> topics = list(Topic.get_by_file("fl_12345"))
+            >>> with ThreadPoolExecutor(max_workers=16) as executor:
+            ...     messages_by_topic = list(executor.map(lambda t: list(t.get_data()), topics))
         """
         yield from self.__topic_data_service.get_data(
             topic_id=self.__record.topic_id,
@@ -1004,73 +954,60 @@ class Topic:
         cache_dir: typing.Union[str, pathlib.Path, None] = None,
         representation_selector: RepresentationSelector = RepresentationSelector.raw(),
     ) -> pandas.DataFrame:
-        """Return this topic's underlying data as a pandas DataFrame.
+        """Fetch this topic's messages as a pandas DataFrame, optionally limited to some message paths and a time range.
 
-        Retrieves topic data and converts it to a pandas DataFrame for analysis and
-        visualization. The DataFrame is indexed by log time and contains columns for
-        each message path in the topic data.
+        Each row is one message. Nested fields become columns with dot-delimited names, such as
+        ``angular_velocity.x``. The index, named ``_index``, is a UTC ``pandas.DatetimeIndex`` of each message's
+        timestamp.
 
         Args:
-            message_paths_include: Dot notation paths that match attributes of individual
-                data records to include. If None, all paths are included.
-            message_paths_exclude: Dot notation paths that match attributes of individual
-                data records to exclude. If None, no paths are excluded.
-            start_time: Start time (inclusive) as nanoseconds since UNIX epoch or
-                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
-            end_time: End time (exclusive) as nanoseconds since UNIX epoch or
-                convertible to such by :py:func:`~roboto.time.to_epoch_nanoseconds`.
-            cache_dir: Directory where topic data will be downloaded if necessary.
-                Defaults to :py:attr:`~roboto.domain.topics.topic_data_service.TopicDataService.DEFAULT_CACHE_DIR`.
-            representation_selector: Criteria for selecting among multiple representations.
-                Defaults to :py:meth:`RepresentationSelector.raw` — original, untransformed data.
-                Pass a ``RepresentationSelector`` to request a specific content format or
-                transformation pipeline.
-
-        Returns:
-            pandas DataFrame containing the topic data, indexed by log time.
+            message_paths_include: Message paths to include. ``None`` includes every message path.
+            message_paths_exclude: Message paths to leave out. ``None`` leaves out none.
+            start_time: Inclusive start of the time range, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+            end_time: Exclusive end of the time range, in the same form.
+            cache_dir: Directory to download the topic's data to. ``None`` uses
+                :py:attr:`~roboto.domain.topics.TopicDataService.DEFAULT_CACHE_DIR`.
+            representation_selector: Which of the topic's stored representations to read. Defaults to the raw,
+                untransformed data. A message path with no representation that meets it is left out.
 
         Raises:
-            ImportError: pandas is not installed. Install with ``roboto[analytics]`` extra.
+            ImportError: The ``roboto[analytics]`` extra is not installed.
 
-        Notes:
-            Requires installing this package using the ``roboto[analytics]`` extra.
-
-            An array-typed message path (for example a ``float32[3]`` acceleration) becomes a
-            single column whose values are lists. Individual array elements are not addressable
-            on their own — neither as separate DataFrame columns nor as message paths in
-            ``message_paths_include`` / ``message_paths_exclude``. Filter by the array's path
-            and unpack the column with numpy, as in the example below. ``np.stack`` requires
-            every row to have the same length; a variable-length array path (for example a
-            point cloud) must instead be processed row-wise, e.g. with ``df[col].map(...)``.
+        Note:
+            An array-typed message path, such as a ``float32[3]`` acceleration, becomes one column whose values are
+            lists. Its elements are not message paths, so neither a column nor ``message_paths_include`` or
+            ``message_paths_exclude`` can name one. Select the array's path and unpack the column, as in the last
+            example. ``numpy.stack`` needs every row to have the same length, so process a variable-length array, such
+            as a point cloud, row by row, for example with ``df[column].map(...)``.
 
         Examples:
-            >>> topic = Topic.from_name_and_file("/imu/data", "file_abc123")
+            Read every message:
+
+            >>> topic = Topic.from_name_and_file(topic_name="/imu/data", file_id="fl_12345")
             >>> df = topic.get_data_as_df()
             >>> print(df.head())
-                                    angular_velocity.x  angular_velocity.y  ...
-            log_time
-            1722870127699468923                  0.1                 0.2  ...
-            1722870127699468924                  0.15                0.25 ...
 
-            >>> # Filter specific message paths
+            Include ``angular_velocity`` but leave out its ``z`` axis:
+
             >>> df_filtered = topic.get_data_as_df(
-            ...     message_paths_include=["angular_velocity"], message_paths_exclude=["angular_velocity.z"]
+            ...     message_paths_include=["angular_velocity"],
+            ...     message_paths_exclude=["angular_velocity.z"],
             ... )
-            >>> print(df_filtered.columns.tolist())
-            ['angular_velocity.x', 'angular_velocity.y']
 
-            >>> # Unpack a fixed-length array-typed path (a list-valued column) into a numpy array
+            Unpack a fixed-length array message path, a column of lists, into a numpy array of shape ``(N, 3)``:
+
             >>> import numpy as np
             >>> df_accel = topic.get_data_as_df(message_paths_include=["acceleration"])
-            >>> xyz = np.stack(df_accel["acceleration"].to_numpy())  # shape (N, 3)
+            >>> xyz = np.stack(df_accel["acceleration"].to_numpy())
 
-        Tip:
-            For many topics, parallelize with a thread pool:
+            Read many topics in parallel with a thread pool, then combine them in time order:
 
             >>> import pandas as pd
             >>> from concurrent.futures import ThreadPoolExecutor
-            >>> with ThreadPoolExecutor(max_workers=16) as ex:  # tune for your workload
-            ...     dfs = list(ex.map(lambda t: t.get_data_as_df(), topics))
+            >>> topics = list(Topic.get_by_file("fl_12345"))
+            >>> with ThreadPoolExecutor(max_workers=16) as executor:
+            ...     dfs = list(executor.map(lambda t: t.get_data_as_df(), topics))
             >>> combined = pd.concat(dfs).sort_index()
         """
         return self.__topic_data_service.get_data_as_df(
@@ -1084,31 +1021,24 @@ class Topic:
         )
 
     def get_message_path(self, message_path: str) -> MessagePath:
-        """Get a specific message path from this topic.
+        """Return the topic's message path at ``message_path``.
 
-        Retrieves a MessagePath object for the specified path, enabling access to
-        individual fields or signals within the topic's data schema.
+        Looks the path up in this instance's record, without a request to Roboto.
 
         Args:
-            message_path: Dot-delimited path to the desired attribute (e.g., "pose.position.x").
+            message_path: Dot-delimited path to a field within the topic's messages, such as ``"pose.position.x"``.
 
         Returns:
-            MessagePath instance for the specified path.
+            The :py:class:`~roboto.domain.topics.MessagePath`, which reads that field's data and statistics.
 
         Raises:
-            ValueError: No message path with the given name exists in this topic.
+            ValueError: The topic has no message path at ``message_path``, or this instance's record has no message
+                paths, as for a topic listed by ``get_by_dataset``.
 
         Examples:
-            >>> topic = Topic.from_name_and_file("/imu/data", "file_abc123")
-            >>> angular_vel_x = topic.get_message_path("angular_velocity.x")
-            >>> print(angular_vel_x.canonical_data_type)
-            CanonicalDataType.Number
-
-            >>> # Access message path statistics
-            >>> print(angular_vel_x.mean)
-            0.125
-            >>> print(angular_vel_x.std_dev)
-            0.05
+            >>> topic = Topic.from_name_and_file(topic_name="/imu/data", file_id="fl_12345")
+            >>> angular_velocity_x = topic.get_message_path("angular_velocity.x")
+            >>> print(angular_velocity_x.mean, angular_velocity_x.stddev)
         """
         for message_path_record in self.__record.message_paths:
             if message_path_record.message_path == message_path:
@@ -1121,17 +1051,17 @@ class Topic:
         raise ValueError(f"Topic '{self.name}' does not have a message path matching '{message_path}'")
 
     def refresh(self) -> None:
-        """Refresh this topic instance with the latest data from the platform.
+        """Replace this instance's record with the topic's current record from Roboto.
 
-        Fetches the current state of the topic from the Roboto platform and updates
-        this instance's data. Useful when the topic may have been modified by other
-        processes or users.
+        Use it to see changes that other users or processes made after this instance was loaded.
+
+        Raises:
+            RobotoNotFoundException: The topic no longer exists.
 
         Examples:
-            >>> topic = Topic.from_id("topic_xyz789")
-            >>> # Topic may have been updated by another process
+            >>> topic = Topic.from_id("tp_12345")
             >>> topic.refresh()
-            >>> print(f"Current message count: {topic.message_count}")
+            >>> print(topic.message_count)
         """
         topic = Topic.from_id(self.topic_id, self.__roboto_client)
         self.__record = topic.__record
@@ -1144,36 +1074,38 @@ class Topic:
         format: typing.Optional[str] = None,
         transformations: typing.Optional[list[str]] = None,
     ) -> RepresentationRecord:
-        """Set the default representation for this topic.
+        """Register a representation of the topic's data and make it the topic's default.
 
-        Designates a specific representation as the default for this topic, which will
-        be used when accessing topic data without specifying a particular representation.
+        Roboto reads the default representation for every message path that has no representation of its own, so
+        registering one is what makes a new topic's data readable; ingestion actions do it after uploading the data.
+        The topic's other representations stay registered and stop being the default. Within the topic,
+        ``association``, ``storage_format`` and ``version`` together identify a representation, so registering a
+        combination the topic already has updates that representation instead of adding another. Fetches the topic's
+        record afterwards, so ``default_representation`` is the new default.
 
         Args:
-            association: Association pointing to the representation data.
-            storage_format: Format of the representation data.
+            association: File, or other entity, that holds the representation's data. It must exist.
+            storage_format: File format the representation's data is stored in.
             version: Version number of the representation.
-            format: Content format descriptor (e.g. "jpeg", "sensor_msgs/Image").
-            transformations: Transformation descriptors applied (e.g. ["downsample:0.5"]).
+            format: Content format of the data, such as an image encoding (``"jpeg"``) or a message schema name
+                (``"sensor_msgs/Image"``). ``None`` keeps the stored format when the representation already exists.
+            transformations: Transformations applied to produce the representation, in order, as
+                ``"<kind>:<param>"`` strings such as ``"downsample:0.5"``
+                (see :py:class:`~roboto.domain.topics.TransformationKind`). ``None`` keeps the stored list when the
+                representation already exists, and records none otherwise.
 
         Returns:
-            RepresentationRecord representing the newly set default representation.
-
-        Raises:
-            RobotoNotFoundException: Specified representation does not exist.
-            RobotoUnauthorizedException: Caller lacks permission to modify the topic.
+            Record of the registered representation.
 
         Examples:
             >>> from roboto.association import Association
             >>> from roboto.domain.topics import RepresentationStorageFormat
-            >>> topic = Topic.from_id("topic_xyz789")
-            >>> default_repr = topic.set_default_representation(
-            ...     association=Association.file("file_repr_456"),
+            >>> topic = Topic.from_id("tp_12345")
+            >>> representation = topic.set_default_representation(
+            ...     association=Association.file("fl_12345"),
             ...     storage_format=RepresentationStorageFormat.MCAP,
             ...     version=2,
             ... )
-            >>> print(topic.default_representation.representation_id)
-            repr_789
         """
         request = SetDefaultRepresentationRequest(
             association=association,
@@ -1192,21 +1124,15 @@ class Topic:
         return representation_record
 
     def to_association(self) -> Association:
-        """Convert this topic to an Association object.
-
-        Creates an Association object that can be used to reference this topic
-        in other parts of the Roboto platform.
-
-        Returns:
-            Association object representing this topic.
+        """Return an association that refers to this topic, such as to link an event to it.
 
         Examples:
-            >>> topic = Topic.from_id("topic_xyz789")
+            >>> topic = Topic.from_id("tp_12345")
             >>> association = topic.to_association()
             >>> print(association.association_type)
             AssociationType.Topic
             >>> print(association.association_id)
-            topic_xyz789
+            tp_12345
         """
         return Association.topic(self.topic_id)
 
@@ -1220,39 +1146,49 @@ class Topic:
         metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
         message_path_changeset: typing.Union[MessagePathChangeset, NotSetType] = NotSet,
     ) -> "Topic":
-        """Updates a topic's attributes and (optionally) its message paths.
+        """Update the topic's properties and, optionally, its message paths.
+
+        An argument left unset (``NotSet``) leaves that property unchanged. Roboto applies the whole update, or none
+        of it if any part is refused.
 
         Args:
-            schema_name:
-              topic schema name. Setting to ``None`` clears the attribute.
-            schema_checksum:
-              topic schema checksum. Setting to ``None`` clears the attribute.
-            start_time:
-              topic data start time, in epoch nanoseconds.
-              Must be non-negative. Setting to ``None`` clears the attribute.
-            end_time:
-              topic data end time, in epoch nanoseconds. Must be non-negative, and greater than `start_time`.
-              Setting to `None` clears the attribute.
-            message_count:
-              number of messages recorded for this topic. Must be non-negative.
-            metadata_changeset:
-              a set of changes to apply to the topic's metadata
-            message_path_changeset:
-              a set of additions, deletions or updates to this topic's message paths.
-              Updating or deleting non-existent message paths has no effect.
-              Attempting to (re-)add existing message paths raises ``RobotoConflictException``,
-              unless the changeset's ``replace_all`` flag is set to ``True``
+            end_time: End of the topic's data, in nanoseconds since the Unix epoch. Must not be negative, and must not
+                be before ``start_time`` when this call sets both. ``None`` clears it.
+            message_count: Number of messages in the topic. Must not be negative.
+            schema_checksum: Checksum of the topic's message schema. Setting it requires a schema name, already on
+                the topic or set by this call. ``None`` clears it.
+            schema_name: Name of the topic's message schema, such as ``"sensor_msgs/Imu"``. ``None`` clears it; when
+                the topic has a schema checksum, this call must clear that too.
+            start_time: Start of the topic's data, in nanoseconds since the Unix epoch. Must not be negative.
+                ``None`` clears it.
+            metadata_changeset: Changes to the topic's metadata. Topics have no tags, so the changeset's tag changes
+                have no effect.
+            message_path_changeset: Message paths to add, update, and delete. Updating or deleting a message path
+                the topic does not have is skipped.
 
         Returns:
-            this ``Topic`` object with any updates applied
+            This instance, with its record updated. When ``message_path_changeset`` has changes, the method fetches
+            the topic's record afterwards, so ``message_paths`` shows them.
 
         Raises:
-            RobotoInvalidRequestException:
-              if any method argument has an invalid value, e.g. a negative ``message_count``
-            RobotoConflictException:
-              if, as part of the update, an attempt is made to add an already extant
-              message path, and to this topic, and ``replace_all`` is not toggled
-              on the ``message_path_changeset``
+            RobotoInvalidRequestException: An argument has a value Roboto rejects, such as a negative
+                ``message_count``.
+            RobotoConflictException: ``message_path_changeset`` adds a message path the topic already has, and its
+                ``replace_all`` is not set.
+
+        Examples:
+            Set the message count and a metadata field:
+
+            >>> from roboto.updates import MetadataChangeset
+            >>> topic = Topic.from_id("tp_12345")
+            >>> topic.update(
+            ...     message_count=1500,
+            ...     metadata_changeset=MetadataChangeset(put_fields={"sensor": "imu"}),
+            ... )
+
+            Clear the schema name and checksum:
+
+            >>> topic.update(schema_name=None, schema_checksum=None)
         """
 
         request = remove_not_set(
@@ -1274,7 +1210,8 @@ class Topic:
         )
 
         record = response.to_record(TopicRecord)
-        self.__record = record
+        # The response holds no message paths, so keep the ones this topic has. A message path change refreshes them.
+        self.__record = record.model_copy(update={"message_paths": self.__record.message_paths})
 
         if is_set(message_path_changeset) and message_path_changeset.has_changes():
             self.refresh()
@@ -1289,37 +1226,40 @@ class Topic:
         canonical_data_type: typing.Union[CanonicalDataType, NotSetType] = NotSet,
         path_in_schema: typing.Union[list[str], NotSetType] = NotSet,
     ) -> MessagePath:
-        """Update the metadata and attributes of a message path.
+        """Update one of the topic's message paths.
 
-        Modifies an existing message path within this topic, allowing updates to
-        its metadata, data type, and canonical data type. This is useful for
-        correcting or enhancing message path definitions after initial creation.
+        An argument left unset (``NotSet``) leaves that property of the message path unchanged. Fetches the topic's
+        record afterwards, so ``message_paths`` shows the change.
 
         Args:
-            message_path: Name of the message path to update (e.g., "pose.position.x").
-            metadata_changeset: Metadata changeset to apply to any existing metadata.
-            data_type: Native (application-specific) message path data type.
-            canonical_data_type: Canonical Roboto data type corresponding to the native data type.
+            message_path: Dot-delimited path of the message path to update, such as ``"pose.position.x"``.
+            metadata_changeset: Changes to the message path's metadata.
+            data_type: Native data type of the field, as the source data's framework names it, such as
+                ``"float32"``.
+            canonical_data_type: Framework-independent data type of the field. Changing it changes how Roboto
+                displays the field's data.
+            path_in_schema: Components of the field's path in the source data's schema, in order from the schema
+                root.
 
         Returns:
-            MessagePath instance representing the updated message path.
+            The updated message path.
 
         Raises:
-            RobotoNotFoundException: No message path with the given name exists for this topic.
-            RobotoUnauthorizedException: Caller lacks permission to modify the topic.
+            RobotoNotFoundException: The topic has no message path at ``message_path``.
 
         Examples:
-            >>> from roboto.updates import TaglessMetadataChangeset
-            >>> from roboto.domain.topics import CanonicalDataType
-            >>> topic = Topic.from_id("topic_xyz789")
-            >>>
-            >>> # Update metadata for a message path
-            >>> changeset = TaglessMetadataChangeset(put_fields={"unit": "meters"})
-            >>> updated_path = topic.update_message_path(message_path="pose.position.x", metadata_changeset=changeset)
-            >>> print(updated_path.metadata["unit"])
-            meters
+            Set a metadata field on a message path:
 
-            >>> # Update data type and canonical type
+            >>> from roboto.updates import TaglessMetadataChangeset
+            >>> topic = Topic.from_id("tp_12345")
+            >>> changeset = TaglessMetadataChangeset(put_fields={"frame": "map"})
+            >>> updated_path = topic.update_message_path(message_path="pose.position.x", metadata_changeset=changeset)
+            >>> print(updated_path.metadata["frame"])
+            map
+
+            Change a message path's data types:
+
+            >>> from roboto.domain.topics import CanonicalDataType
             >>> updated_path = topic.update_message_path(
             ...     message_path="velocity", data_type="float64", canonical_data_type=CanonicalDataType.Number
             ... )

@@ -21,6 +21,7 @@ from ..collection_utils import get_by_path
 from ..compat import StrEnum
 
 ConditionValue = typing.Optional[typing.Union[str, bool, int, float, decimal.Decimal, datetime.datetime]]
+"""Value a condition compares a field with: a string, boolean, number, ``decimal.Decimal``, datetime, or ``None``."""
 
 
 def _like_matches(pattern: str, text: str) -> bool:
@@ -30,15 +31,14 @@ def _like_matches(pattern: str, text: str) -> bool:
     character, and a backslash makes the next character literal (a trailing lone backslash is
     itself literal). Matching is case-sensitive and anchored at both ends.
 
-    This is a two-pointer wildcard matcher rather than a translation to ``re``: with each ``%``
-    compiled to ``.*``, a failing match backtracks over every split of the text between
-    wildcards, so a dozen ``%`` in a user-authored pattern never finishes. Retrying only from
-    the most recent ``%`` is sufficient for ``LIKE`` and bounds the work by
-    ``len(text) * len(pattern)``.
+    The pattern is not translated to a regular expression: with each ``%`` compiled to ``.*``, a
+    failing match backtracks over every split of the text between wildcards, so a dozen ``%`` in a
+    user-written pattern never finishes. Retrying only from the most recent ``%`` is sufficient for
+    ``LIKE`` and bounds the work by ``len(text) * len(pattern)``.
     """
     p = 0
     t = 0
-    # After a mismatch, resume just past the most recent ``%`` with it absorbing one more character.
+    # After a mismatch, resume just past the most recent `%` with it absorbing one more character.
     star_p = -1
     star_t = 0
 
@@ -76,25 +76,62 @@ def _like_matches(pattern: str, text: str) -> bool:
 
 
 class Comparator(StrEnum):
-    """The comparator to use when comparing a field to a value."""
+    """Comparator of a condition: how it compares a field's value with the condition's value."""
 
     Equals = "EQUALS"
+    """Field's value equals the condition's value."""
+
     NotEquals = "NOT_EQUALS"
+    """Field's value differs from the condition's value."""
+
     GreaterThan = "GREATER_THAN"
+    """Field's value is greater than the condition's value."""
+
     GreaterThanOrEqual = "GREATER_THAN_OR_EQUAL"
+    """Field's value is greater than or equal to the condition's value."""
+
     LessThan = "LESS_THAN"
+    """Field's value is less than the condition's value."""
+
     LessThanOrEqual = "LESS_THAN_OR_EQUAL"
+    """Field's value is less than or equal to the condition's value."""
+
     Contains = "CONTAINS"
+    """Field's value, a list or string, contains the condition's value."""
+
     NotContains = "NOT_CONTAINS"
+    """Field's value, a list or string, does not contain the condition's value."""
+
     IsNull = "IS_NULL"
+    """Field has no value: it is absent or null."""
+
     IsNotNull = "IS_NOT_NULL"
+    """Field has a value: it is present and not null."""
+
     Exists = "EXISTS"
+    """Field has a value, as with ``IsNotNull``."""
+
     NotExists = "NOT_EXISTS"
+    """Field has no value, as with ``IsNull``."""
+
     BeginsWith = "BEGINS_WITH"
-    Like = "LIKE"  # SQL Syntax
-    NotLike = "NOT_LIKE"  # SQL Syntax
+    """Field's value, a string, begins with the condition's value."""
+
+    Like = "LIKE"
+    """Field's value, a string, matches the condition's value as a SQL ``LIKE`` pattern.
+
+    In the pattern, ``%`` matches any run of characters, ``_`` matches one character, and a backslash makes the next
+    character literal. Matching is case-sensitive.
+    """
+
+    NotLike = "NOT_LIKE"
+    """Field's value, a string, does not match the condition's value as a SQL ``LIKE`` pattern."""
 
     def to_compact_string(self):
+        """Render the comparator as its symbol, such as ``>=``, or as its name, such as ``CONTAINS``, if it has none.
+
+        The equality and ordering comparators have symbols: ``=``, ``!=``, ``>``, ``>=``, ``<``, and ``<=``.
+        """
         if self is Comparator.Equals:
             return "="
         elif self is Comparator.NotEquals:
@@ -112,6 +149,14 @@ class Comparator(StrEnum):
 
     @staticmethod
     def from_string(value: str) -> "Comparator":
+        """Return the comparator a name, such as ``GREATER_THAN``, or a symbol, such as ``>``, stands for.
+
+        Args:
+            value: Comparator name, in any case, or one of the symbols ``=``, ``!=``, ``>``, ``>=``, ``<``, ``<=``.
+
+        Raises:
+            ValueError: ``value`` names no comparator.
+        """
         as_comparator: typing.Optional[Comparator] = {
             "EQUALS": Comparator.Equals,
             "=": Comparator.Equals,
@@ -143,55 +188,33 @@ class Comparator(StrEnum):
 
 
 class FieldTarget(typing.NamedTuple):
-    """An immutable field path with an optional resource type hint for query interpretation.
+    """A condition's field path, split into the resource it names and the path within that resource.
 
-    FieldTarget pairs a field path with an optional resource qualifier to help the query
-    system resolve which resource type the field belongs to (dataset, file, topic, or message_path).
-    When the resource is omitted, the query context infers it.
-
-    Examples:
-        >>> target = FieldTarget("org_id", "dataset")
-        >>> target.path
-        'org_id'
-        >>> target.resource
-        'dataset'
-
-        >>> target = FieldTarget("metadata.min", None)
-        >>> target.resource is None
-        True
+    ``Field.target`` returns one.
     """
 
     path: str
-    """Field path within the target resource, using dot notation for nested fields."""
+    """Path to the field within the resource, with a dot between nested keys, such as ``metadata.foo``."""
 
     resource: typing.Optional[typing.Literal["dataset", "file", "topic", "message_path"]]
-    """Optional resource type hint to disambiguate field path interpretation."""
+    """Resource the field path names, or ``None`` if it names none.
+
+    A field whose path names no resource is read from the resource the condition is applied to, such as the one a query
+    targets.
+    """
 
 
 class Field(str):
-    """A string-like field path that parses resource qualifiers and extracts the target path.
+    """A condition's field path, as a string that also holds the resource the path names.
 
-    Field extends str to provide automatic parsing of qualified field paths like
-    "dataset.metadata.owner" or "topic.name" into their constituent parts. It identifies
-    the target resource type (dataset, file, topic, or message_path) and extracts the
-    actual field path within that resource.
+    A path that starts with ``dataset.``, ``file.``, ``topic.`` or ``msgpath.`` names that resource, and the rest of
+    the path is the field within it: ``dataset.metadata.foo`` is the dataset field ``metadata.foo``. These prefixes
+    chain from a message path to its topic, file, and dataset, and the last prefix in the chain names the resource:
+    ``msgpath.topic.name`` is the topic field ``name``. A path with none of these prefixes, such as ``org_id``, names no
+    resource. The string's value is the path as written, prefixes included.
 
-    The class supports both qualified paths (e.g., "dataset.org_id") and unqualified paths
-    (e.g., "org_id"). For qualified paths, it strips the resource prefix and stores both
-    the original fully qualified path and the extracted target information.
-
-    Examples:
-        >>> field = Field("dataset.metadata.foo")
-        >>> field.target.resource
-        'dataset'
-        >>> field.target.path
-        'metadata.foo'
-
-        >>> field = Field("org_id")
-        >>> field.target.resource is None
-        True
-        >>> field.target.path
-        'org_id'
+    Args:
+        path: Field path, optionally starting with a resource prefix.
     """
 
     __MESSAGE_PATH_REGEX: typing.ClassVar[re.Pattern] = re.compile(r"msgpath[.](?P<msgpath_property>.+)")
@@ -207,6 +230,11 @@ class Field(str):
 
     @classmethod
     def wrap(cls, field: typing.Union[str, "Field"]) -> Field:
+        """Return ``field`` unchanged if it is a ``Field`` already, or parse it into one.
+
+        Args:
+            field: Field path to wrap.
+        """
         if isinstance(field, Field):
             return field
         else:
@@ -216,10 +244,10 @@ class Field(str):
     def __get_pydantic_core_schema__(
         cls, source_type: typing.Any, handler: pydantic.GetCoreSchemaHandler
     ) -> pydantic_core.CoreSchema:
-        """Define the Pydantic core schema for validation.
+        """Build the pydantic schema that validates a field path into a ``Field``.
 
-        This follows the pattern from _SecretField in pydantic/types.py:
-        (https://github.com/pydantic/pydantic/blob/f42171c760d43b9522fde513ae6e209790f7fefb/pydantic/types.py#L1746C7-L1746C19)
+        From Python it accepts a ``Field`` or a string, and from JSON a string. It serializes a ``Field`` as its string
+        and describes it in JSON Schema as a string.
         """
 
         def get_json_schema(
@@ -229,10 +257,9 @@ class Field(str):
             return handler(pydantic_core.core_schema.str_schema())
 
         def get_schema(strict: bool) -> pydantic_core.CoreSchema:
-            # Create inner schema with strict mode
             inner_schema = {**pydantic_core.core_schema.str_schema(), "strict": strict}
 
-            # JSON schema: validate string, then construct Field instance
+            # Validates a string, then parses it into a Field.
             json_schema = pydantic_core.core_schema.no_info_after_validator_function(
                 cls,
                 inner_schema,  # type: ignore[arg-type]
@@ -241,9 +268,7 @@ class Field(str):
             return pydantic_core.core_schema.json_or_python_schema(
                 python_schema=pydantic_core.core_schema.union_schema(
                     [
-                        # Accept existing Field instances
                         pydantic_core.core_schema.is_instance_schema(cls),
-                        # Or validate and construct from string
                         json_schema,
                     ],
                     custom_error_type="string_type",
@@ -252,7 +277,6 @@ class Field(str):
                 serialization=pydantic_core.core_schema.to_string_ser_schema(),
             )
 
-        # Return lax or strict schema based on mode
         return pydantic_core.core_schema.lax_or_strict_schema(
             lax_schema=get_schema(strict=False),
             strict_schema=get_schema(strict=True),
@@ -265,9 +289,12 @@ class Field(str):
 
     @property
     def target(self) -> FieldTarget:
+        """Resource the path names, and the path to the field within that resource."""
         return FieldTarget(path=self.__target_path, resource=self.__target_resource)
 
     def __parse(self) -> None:
+        # Try the resources from dataset to message path, so that in a chain of prefixes such as topic.file.name
+        # the last prefix names the resource.
         dataset_match = self.__DATASET_REGEX.match(self.__fully_qualified_path)
         if dataset_match:
             self.__target_resource = "dataset"
@@ -296,14 +323,34 @@ class Field(str):
 
 
 class Condition(pydantic.BaseModel):
-    """A filter for any arbitrary attribute for a Roboto resource."""
+    """A comparison of one field of a resource with a value, the smallest part of a query's or trigger's condition.
+
+    Combine conditions with ``ConditionGroup``.
+    """
 
     field: typing.Annotated[str, Field]
+    """Path of the field to compare, such as ``name`` or ``dataset.metadata.foo``.
+
+    See ``Field`` for the resource prefixes a path can start with.
+    """
+
     comparator: Comparator
+    """How to compare the field's value with ``value``."""
+
     value: ConditionValue = None
+    """Value to compare the field's value with.
+
+    Comparators that test only whether the field has a value, such as ``Comparator.Exists``, ignore it.
+    """
 
     @classmethod
     def equals_cond(cls, field: str, value: ConditionValue) -> "Condition":
+        """Build a condition that holds when a field's value equals ``value``.
+
+        Args:
+            field: Path of the field to compare.
+            value: Value the field's value must equal.
+        """
         return cls(field=field, comparator=Comparator.Equals, value=value)
 
     def __str__(self):
@@ -320,6 +367,29 @@ class Condition(pydantic.BaseModel):
         return self.model_dump_json()
 
     def matches(self, target: dict) -> bool:
+        """Return whether the condition holds for a record, evaluated without a request to Roboto.
+
+        The field's value is read from ``target`` at the field's path within its resource, with any resource prefix
+        removed: ``dataset.metadata.foo`` reads ``target["metadata"]["foo"]``. Before comparing:
+
+        - A missing or ``None`` value makes every comparator false except those that test for no value, such as
+          ``Comparator.IsNull``. So ``NotEquals`` does not match a record that lacks the field.
+        - A string value is converted to the type of the condition's ``value`` when that is not a string: a number, a
+          ``decimal.Decimal``, or a datetime from an ISO 8601 string, which may end in ``Z``.
+        - A datetime value compared with a string ``value`` parses ``value`` as ISO 8601. The condition is false when
+          ``value`` does not parse, or when only one of the two datetimes has a time zone.
+
+        ``Contains`` and ``NotContains`` are false when the value is not a collection, and ``BeginsWith``,
+        ``Like`` and ``NotLike`` are false unless both the value and ``value`` are strings.
+
+        Args:
+            target: Record of the resource to evaluate, as a dictionary, such as a dataset record from ``model_dump()``.
+
+        Raises:
+            ValueError: A string value cannot be converted to the type of ``value``, such as ``"abc"`` compared with a
+                number.
+            TypeError: An ordering comparator compares values that cannot be ordered, such as a number and a string.
+        """
         field = Field.wrap(self.field)
         target_value = get_by_path(target, field.target.path.split("."))
         my_value = self.value
@@ -330,7 +400,6 @@ class Condition(pydantic.BaseModel):
         if self.comparator in [Comparator.Exists, Comparator.IsNotNull]:
             return target_value is not None
 
-        # We need the value for everything else
         if target_value is None:
             return False
 
@@ -396,35 +465,48 @@ class Condition(pydantic.BaseModel):
         return False
 
     def target_unspecified(self) -> bool:
-        """Is the target resource of this query condition unspecified?"""
+        """Return whether the condition's field path names no resource, as ``org_id`` does."""
         return Field.wrap(self.field).target.resource is None
 
     def targets_dataset(self) -> bool:
-        """Does this query condition target a dataset?"""
+        """Return whether the condition's field path names a dataset, as ``dataset.name`` does."""
         return Field.wrap(self.field).target.resource == "dataset"
 
     def targets_file(self) -> bool:
-        """Does this query condition target a file?"""
+        """Return whether the condition's field path names a file, as ``file.relative_path`` does."""
         return Field.wrap(self.field).target.resource == "file"
 
     def targets_topic(self) -> bool:
-        """Does this query condition target a topic?"""
+        """Return whether the condition's field path names a topic, as ``topic.name`` does."""
         return Field.wrap(self.field).target.resource == "topic"
 
     def targets_message_path(self) -> bool:
-        """Does this query condition target a message path?"""
+        """Return whether the condition's field path names a message path, as ``msgpath.data_type`` does."""
         return Field.wrap(self.field).target.resource == "message_path"
 
 
 class ConditionOperator(StrEnum):
-    """The operator to use when combining multiple conditions."""
+    """Operator of a condition group: how it combines the group's conditions."""
 
     And = "AND"
+    """Every condition holds."""
+
     Or = "OR"
+    """At least one condition holds."""
+
     Not = "NOT"
+    """No condition holds."""
 
     @staticmethod
     def from_string(value: str) -> "ConditionOperator":
+        """Return the operator a name, such as ``AND``, stands for.
+
+        Args:
+            value: ``AND``, ``OR``, or ``NOT``, in any case.
+
+        Raises:
+            ValueError: ``value`` names no operator.
+        """
         if value.lower() == "and":
             return ConditionOperator.And
         elif value.lower() == "or":
@@ -436,12 +518,27 @@ class ConditionOperator(StrEnum):
 
 
 class ConditionGroup(pydantic.BaseModel):
-    """A group of conditions that are combined together."""
+    """A group of conditions combined by one operator, which can hold other groups.
+
+    Building a group raises ``pydantic.ValidationError`` when ``conditions`` is empty.
+    """
 
     operator: ConditionOperator
+    """How the group combines ``conditions``."""
+
     conditions: collections.abc.Sequence[ConditionType]
+    """Conditions and nested groups to combine; at least one."""
 
     def matches(self, target: dict | typing.Callable[[ConditionType], bool]):
+        """Return whether the group holds for a record, evaluated without a request to Roboto.
+
+        Every condition in the group is evaluated, then combined by ``operator``.
+
+        Args:
+            target: Record of the resource to evaluate each condition against, as a dictionary, with the same meaning
+                as in ``Condition.matches``. Or a function that takes each of the group's conditions and returns whether
+                it holds, to evaluate them some other way.
+        """
         if callable(target):
             conditions_match = [target(condition) for condition in self.conditions]
         else:
@@ -460,14 +557,25 @@ class ConditionGroup(pydantic.BaseModel):
 
     @staticmethod
     def or_group(*conditions: ConditionType) -> "ConditionGroup":
+        """Build a group that holds when at least one of ``conditions`` holds.
+
+        Args:
+            conditions: Conditions and nested groups to combine; at least one.
+        """
         return ConditionGroup(operator=ConditionOperator.Or, conditions=conditions)
 
     @staticmethod
     def and_group(*conditions: ConditionType) -> "ConditionGroup":
+        """Build a group that holds when every one of ``conditions`` holds.
+
+        Args:
+            conditions: Conditions and nested groups to combine; at least one.
+        """
         return ConditionGroup(operator=ConditionOperator.And, conditions=conditions)
 
     @pydantic.field_validator("conditions")
     def validate_conditions(cls, v: collections.abc.Sequence[ConditionType]):
+        """Reject a group with no conditions."""
         if len(v) == 0:
             raise ValueError("At least one condition must be provided to a ConditionGroup, got 0!")
 
@@ -481,3 +589,4 @@ class ConditionGroup(pydantic.BaseModel):
 
 
 ConditionType = typing.Union[Condition, ConditionGroup]
+"""Condition of any kind: one of ``Condition`` and ``ConditionGroup``."""

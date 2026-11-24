@@ -13,8 +13,10 @@ from .shared_helpdoc import DATASET_ID_HELP
 
 
 def delete_files(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Delete the files of the ``--dataset-id`` dataset that ``--include`` selects and ``--exclude`` does not."""
     dataset = Dataset.from_id(args.dataset_id, context.roboto_client)
 
+    # Without `--include`, every file in the dataset not matched by `--exclude` is deleted.
     dataset.delete_files(include_patterns=args.include, exclude_patterns=args.exclude)
 
 

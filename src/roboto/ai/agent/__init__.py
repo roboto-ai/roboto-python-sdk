@@ -4,15 +4,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Reusable, parameterized agent definitions.
+"""Agents: AI workers an organization defines and runs on its data, each a saved request to start a thread.
 
-An agent captures a parameterized
-:py:class:`~roboto.ai.agent_thread.StartAgentThreadRequest` alongside the
-variables it declares, so the same workflow (triage, summary, etc.) can be
-re-invoked against new subjects without re-authoring the request. Variables
-appear as ``{{name}}`` placeholders in any string leaf of the request body and
-are substituted client-side before the request is sent — unresolved or unknown
-placeholders raise rather than reach the service.
+Each launch fills the agent's typed ``{{name}}`` placeholders with its own values and starts a thread, so one agent can
+be launched repeatedly with different inputs. Use :py:class:`~roboto.ai.agent.Agent` to create, find, update, and
+launch agents.
 """
 
 from .agent import Agent
@@ -34,11 +30,8 @@ from .resolver import (
 )
 from .subject import infer_agent_subject
 
-# Note: ``ThreadVisibility`` is intentionally not re-exported here. The
-# canonical SDK path is :py:class:`roboto.ai.agent_thread.ThreadVisibility`,
-# co-located with the request and record types that carry the field. Adding a
-# third re-export here would fragment SDK reference docs and IDE auto-import
-# suggestions across multiple paths for one symbol.
+# ThreadVisibility is not re-exported here, so the SDK reference and IDE auto-import suggestions give it one import
+# path: roboto.ai.agent_thread, next to the requests and records that carry it.
 
 __all__ = [
     "Agent",

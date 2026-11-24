@@ -4,11 +4,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Boards a person builds on the Roboto platform and opens again from anywhere.
+"""Boards: panels arranged on a canvas, and the stages that provide their data, stored as a named JSON document.
 
-A board is a named JSON document, stored on the platform, describing panels arranged on a canvas and the stages
-that provide their data. A board is either personal to the user who owns it or shared with every member of its
-organization.
+A new board is personal to the user who created it, and sharing it with its organization, which cannot be undone,
+lets every member open and edit it. Use ``Board`` to create, list, update, and share boards, and ``BoardDefinition``
+to build a definition whose outline is checked as it is built.
 """
 
 from .board import Board

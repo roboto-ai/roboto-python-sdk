@@ -4,9 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""The ``roboto triggers`` command set: subscribe to platform events or a schedule,
-filter with a condition, and dispatch one or more targets."""
-
 import argparse
 import datetime
 import json
@@ -41,6 +38,16 @@ NAME_PARAM_HELP = "The unique name used to reference a trigger."
 
 
 def _parse_condition(condition_json: typing.Optional[dict], parser: argparse.ArgumentParser) -> ConditionType | None:
+    """Parse ``--condition-json`` into a condition or a group of conditions.
+
+    Return ``None`` when the flag is not given. An object with an ``operator`` key parses as a
+    :py:class:`~roboto.query.ConditionGroup`, and one with a ``comparator`` key as a
+    :py:class:`~roboto.query.Condition`.
+
+    Raises:
+        SystemExit: The object has neither key. ``parser.error`` prints the usage text and the reason to stderr.
+        pydantic.ValidationError: The object has one of the keys but is not a valid condition or group.
+    """
     if condition_json is None:
         return None
     if "operator" in condition_json:
@@ -54,6 +61,12 @@ _TARGETS_ADAPTER: pydantic.TypeAdapter[list[TriggerTargetSpec]] = pydantic.TypeA
 
 
 def _parse_targets(targets_json: typing.Any, parser: argparse.ArgumentParser) -> list[TriggerTargetSpec]:
+    """Parse ``--targets-json``, one target spec or a list of them, into a list of target specs.
+
+    Raises:
+        SystemExit: The value is neither a JSON object nor a list, or a target spec in it is invalid. ``parser.error``
+            prints the usage text and the reason to stderr.
+    """
     if isinstance(targets_json, dict):
         targets_json = [targets_json]
     if not isinstance(targets_json, list):
@@ -122,6 +135,10 @@ def create_setup_parser(parser):
 
 
 def update(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Change the named trigger's fields given as options, and print its updated record as JSON.
+
+    A field whose option is left out keeps its current value; giving no option exits with a usage error.
+    """
     if args.schedule is not None and (args.on or args.once_per is not None):
         parser.error("'--schedule' cannot be combined with '--on' or '--once-per'.")
     trigger = Trigger.from_name(name=args.name, owner_org_id=args.org, roboto_client=context.roboto_client)
@@ -238,6 +255,12 @@ def delete(args, context: CLIContext, parser: argparse.ArgumentParser):
 
 
 def dry_run(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print whether the named trigger would fire, gate by gate, without running its targets.
+
+    The output is the verdict, then one line per gate, marked ``PASS``, ``FAIL`` or ``SKIP`` (not evaluated). Under a
+    gate come its condition comparisons, each with the value the event supplied and ``ok`` or ``miss``, and its
+    targets, each accepting or declining the event.
+    """
     trigger = Trigger.from_name(name=args.name, owner_org_id=args.org, roboto_client=context.roboto_client)
     trace = trigger.dry_run(
         dataset_id=args.dataset_id,
@@ -347,6 +370,10 @@ dry_run_command = RobotoCommand(
 
 
 def sample(args, context: CLIContext, parser: argparse.ArgumentParser):
+    """Print the sample of one platform event type: the event and every record a condition or template can read.
+
+    With ``--paths``, print instead each ``<root>.<path>`` a condition field or ``{{ }}`` placeholder may name.
+    """
     samples = Trigger.platform_event_samples(roboto_client=context.roboto_client)
     sample = samples[PlatformEventType(args.event_type)]
     if args.paths:

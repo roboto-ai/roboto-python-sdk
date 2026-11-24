@@ -29,15 +29,25 @@ from .record import EventRecord, EventTopic
 
 @experimental
 class Event:
-    """A moment or span of interest in one session's data.
+    """A session event: a moment or span of interest in one session's data.
 
-    An event belongs to exactly one session, fixed when it is created. It has a start and an end time in nanoseconds
-    since the Unix epoch, and may name one or more topics, or fields of a topic, to say which of the session's data it
-    is about. Like other Roboto entities it carries tags, metadata, custom-field values, and display options such as a
-    color.
+    An event belongs to one session, fixed when it is created, and spans an inclusive start and end time in
+    nanoseconds since the Unix epoch. It can name topics, or fields of topics, to say which of the session's data it is
+    about; naming none makes it about all of the session's data. It also carries tags, key-value metadata,
+    custom-field values, and display options such as a color.
 
-    These events are separate from the events that belong to a dataset, which :py:class:`roboto.domain.events.Event`
-    reads: their IDs start with ``evt_`` rather than ``ev_``, and each class reads only its own kind.
+    These events are separate from the events that belong to a dataset, which :py:class:`~roboto.domain.events.Event`
+    reads. Their IDs begin with ``evt_`` rather than ``ev_``, and each class reads only its own kind.
+
+    Get an ``Event`` from ``create``, ``from_id``, or :py:meth:`~roboto.experimental.sessions.Session.list_events`. To
+    wrap an ``EventRecord`` already fetched from Roboto, build an ``Event`` from it directly. Each instance holds a
+    copy of the event's record: methods that change the event update that copy from Roboto's response, and ``refresh``
+    fetches changes made elsewhere.
+
+    Args:
+        record: Record of the event.
+        roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment, by
+            :py:meth:`~roboto.http.RobotoClient.from_env`.
     """
 
     __record: EventRecord
@@ -62,33 +72,40 @@ class Event:
         """Create an event on a session.
 
         Args:
-            name: A brief human-readable name, such as ``"Takeoff"``. Many events can share a name.
-            session_id: The session the event belongs to.
-            start_time: The start of the event, inclusive, as nanoseconds since the Unix epoch or any value
+            name: Human-readable name of the event, such as ``"Takeoff"``. Roboto does not require names to be unique.
+            session_id: ID of the session the event belongs to, beginning with ``se_``.
+            start_time: Inclusive start of the event, in nanoseconds since the Unix epoch or any value
                 :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
-            end_time: The end of the event, inclusive. Omit it for an instantaneous event.
-            topics: The topics, or topic fields, the event is about. Empty means all of the session's data.
-            description: An optional description.
-            tags: Initial tags.
-            metadata: Initial metadata.
-            color: A CSS color to display the event in.
-            custom_fields: Initial values for Ready custom fields defined on events in the caller's org.
-            caller_org_id: The caller's org. Required when the caller belongs to several orgs.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
+            end_time: Inclusive end of the event, in the same form. ``None`` makes the event instantaneous, ending at
+                ``start_time``.
+            topics: Topics, or fields of topics, the event is about. Empty makes the event about all of the session's
+                data.
+            description: Human-readable description of the event. ``None`` sets none.
+            tags: Tags to set on the event. ``None`` sets none.
+            metadata: Key-value metadata to set on the event. ``None`` sets none.
+            color: Display color of the event, as any CSS color value, such as ``"red"``. ``None`` lets Roboto choose a
+                color.
+            custom_fields: Values for the event's custom fields, keyed by field name. Each name must be a custom field
+                defined for events in the organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`, and each value must match that
+                field's type. ``None`` sets none.
+            caller_org_id: Organization to create the event in. Required when the caller belongs to more than one
+                organization; otherwise the caller's only organization.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Returns:
-            The created event.
+            The new event.
 
         Raises:
-            RobotoFeatureNotAvailableException: The caller's org does not have session events; its events belong to
-                datasets and files.
-            RobotoIllegalArgumentException: A custom field is not a Ready field on events, or its value does not
-                satisfy the field's type.
+            RobotoFeatureNotAvailableException: The organization stores its events on datasets and files, not on
+                sessions.
+            RobotoIllegalArgumentException: A ``custom_fields`` name is not a ready custom field for events, or its
+                value does not match the field's type.
             RobotoInvalidRequestException: The name is blank, the start is negative or after the end, the session is
-                not in the caller's org, or ``topics`` is invalid: it names a topic twice, names a topic outside the
-                caller's org, names a field ID that isn't in the topic's data in this session, or gives an
+                not in the organization, or ``topics`` is invalid: it names a topic twice, names a topic outside the
+                organization, names a field ID that no schema of the topic's data in this session has, or gives an
                 empty ``field_ids``.
-            RobotoUnauthorizedException: The caller is not a member of the org or may not view its sessions.
 
         Examples:
             Mark a hard landing on the IMU's vertical acceleration within a session:
@@ -122,21 +139,20 @@ class Event:
 
     @classmethod
     def from_id(cls, event_id: str, roboto_client: typing.Optional[RobotoClient] = None) -> "Event":
-        """Load an event by its ID.
+        """Fetch a session event by its ID.
 
         Args:
-            event_id: The event's ID, which starts with ``evt_``.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
+            event_id: Unique ID of the event, beginning with ``evt_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: No session event has this ID. A dataset event's ``ev_*`` ID raises this too.
-            RobotoUnauthorizedException: The caller may not view sessions in the event's org.
+            RobotoNotFoundException: No session event has this ID. A dataset event's ``ev_`` ID raises it too.
 
         Examples:
             >>> from roboto.experimental.events import Event
             >>> event = Event.from_id("evt_0123456789abcdef")
-            >>> event.name
-            'Hard landing'
+            >>> print(event.name)
         """
         roboto_client = RobotoClient.defaulted(roboto_client)
         record = roboto_client.get(f"v2/events/id/{event_id}").to_record(EventRecord)
@@ -144,18 +160,16 @@ class Event:
 
     @classmethod
     def delete_many(cls, event_ids: StrSequence, roboto_client: typing.Optional[RobotoClient] = None) -> None:
-        """Delete several events. IDs of events that do not exist are ignored.
+        """Delete several events, ignoring IDs that match no event.
 
-        The IDs are sent in batches of :py:data:`~roboto.experimental.events.MAX_EVENTS_PER_DELETE_BATCH`, in order.
-        If the caller may not delete one event of a batch, none of that batch is deleted and the call raises; batches
-        sent before it stay deleted.
+        Sends the IDs one request per batch of 1000 (``MAX_EVENTS_PER_DELETE_BATCH``), in order. If the caller cannot
+        delete one event of a batch, none of that batch is deleted and the call raises; batches sent before it stay
+        deleted.
 
         Args:
-            event_ids: IDs of the events to delete, each starting with ``evt_``.
-            roboto_client: Optional RobotoClient; defaults to the ambient one.
-
-        Raises:
-            RobotoUnauthorizedException: The caller may not delete one of the events.
+            event_ids: IDs of the events to delete, each beginning with ``evt_``.
+            roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
+                by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Examples:
             >>> from roboto.experimental.events import Event
@@ -177,99 +191,118 @@ class Event:
 
     @property
     def color(self) -> typing.Optional[str]:
-        """The CSS color the event is displayed in, or ``None`` for an automatically chosen one."""
+        """Display color of the event, as a CSS color value, or ``None`` if Roboto chooses the color."""
         return self.__record.display_options.color if self.__record.display_options else None
 
     @property
     def created(self) -> datetime.datetime:
-        """When the event was created."""
+        """Time the event was created."""
         return self.__record.created
 
     @property
     def created_by(self) -> str:
-        """The user who created the event."""
+        """Principal that created the event, as ``<type>:<id>``, such as ``user:<user_id>``."""
         return self.__record.created_by
 
     @property
     def custom_fields(self) -> dict[str, typing.Any]:
-        """Values of the custom fields defined on events in this event's org; an unset field reads ``None``."""
+        """Values of the custom fields the organization defines for events, keyed by field name.
+
+        ``EventRecord.custom_fields`` says which fields appear as keys. Changing the returned dictionary does not
+        change the event.
+        """
         return dict(self.__record.custom_fields)
 
     @property
     def description(self) -> typing.Optional[str]:
-        """The event's description, if any."""
+        """Human-readable description of the event, or ``None`` if it has none."""
         return self.__record.description
 
     @property
     def display_options(self) -> typing.Optional[EventDisplayOptions]:
-        """The event's display options, such as its color."""
+        """How the Roboto web app displays the event, such as its color, or ``None`` if no display options are set."""
         return self.__record.display_options
 
     @property
     def end_time(self) -> int:
-        """The end of the event, inclusive, in nanoseconds since the Unix epoch."""
+        """Inclusive end of the event's time span, in nanoseconds since the Unix epoch."""
         return self.__record.end_time
 
     @property
     def event_id(self) -> str:
-        """The event's unique ID (``evt_*``)."""
+        """Unique ID of the event, beginning with ``evt_``."""
         return self.__record.event_id
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
-        """The event's metadata."""
+        """Copy of the key-value metadata on the event."""
         return dict(self.__record.metadata)
 
     @property
     def modified(self) -> datetime.datetime:
-        """When the event was last modified."""
+        """Time the event was last modified."""
         return self.__record.modified
 
     @property
     def modified_by(self) -> str:
-        """The user who last modified the event."""
+        """Principal that last modified the event, in the same ``<type>:<id>`` form as ``created_by``."""
         return self.__record.modified_by
 
     @property
     def name(self) -> str:
-        """The event's name."""
+        """Human-readable name of the event, such as ``"Takeoff"``. Roboto does not require names to be unique."""
         return self.__record.name
 
     @property
     def org_id(self) -> str:
-        """The org that owns the event and its session."""
+        """ID of the organization that owns the event, which also owns the event's session."""
         return self.__record.org_id
 
     @property
     def record(self) -> EventRecord:
-        """The event's wire representation."""
+        """Record of the event that this instance holds.
+
+        ``refresh`` replaces it with the current one.
+        """
         return self.__record
 
     @property
     def session_id(self) -> str:
-        """The session the event belongs to."""
+        """ID of the session the event belongs to. Fixed when the event is created."""
         return self.__record.session_id
 
     @property
     def start_time(self) -> int:
-        """The start of the event, inclusive, in nanoseconds since the Unix epoch."""
+        """Inclusive start of the event's time span, in nanoseconds since the Unix epoch."""
         return self.__record.start_time
 
     @property
     def tags(self) -> list[str]:
-        """The event's tags."""
+        """Copy of the tags on the event."""
         return list(self.__record.tags)
 
     @property
     def topics(self) -> list[EventTopic]:
-        """The topics, or topic fields, the event is about. Empty means all of its session's data."""
+        """Topics, or fields of topics, the event is about, ordered by topic name.
+
+        Empty when the event is about all of the session's data.
+        """
         return list(self.__record.topics)
 
     def clear_custom_field(self, name: str) -> "Event":
-        """Clear one custom-field value, so that it reads ``None``.
+        """Clear one custom-field value on the event, so that it reads ``None``.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            name: Name of a custom field defined for events in the event's organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoIllegalArgumentException: ``name`` is not a Ready custom field on events.
+            RobotoIllegalArgumentException: ``name`` is not a ready custom field for events.
 
         Examples:
             >>> event.clear_custom_field("root_cause")
@@ -277,10 +310,19 @@ class Event:
         return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=[name]))
 
     def clear_custom_fields(self, names: StrSequence) -> "Event":
-        """Clear custom-field values, so that they read ``None``.
+        """Clear custom-field values on the event, so that they read ``None``.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            names: Names of custom fields defined for events in the event's organization, each with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoIllegalArgumentException: A name is not a Ready custom field on events.
+            RobotoIllegalArgumentException: A name is not a ready custom field for events.
 
         Examples:
             >>> event.clear_custom_fields(["root_cause", "severity"])
@@ -288,10 +330,9 @@ class Event:
         return self.update(custom_fields_changeset=CustomFieldChangeset(clear_fields=list(names)))
 
     def delete(self) -> None:
-        """Delete this event. Deleting an event that no longer exists is not an error.
+        """Delete the event.
 
-        Raises:
-            RobotoUnauthorizedException: The caller may not delete the event.
+        Deleting an event that no longer exists succeeds and changes nothing.
 
         Examples:
             >>> from roboto.experimental.events import Event
@@ -300,19 +341,18 @@ class Event:
         self.__roboto_client.delete(f"v2/events/id/{self.event_id}")
 
     def get_topic(self, topic_name: str) -> Topic:
-        """Return the named topic of this event's session, scoped to the event.
+        """Fetch a topic of the event's session by name, scoped to the event.
 
-        Works for any topic of the session, whether or not the event is about it. The topic carries an
-        :py:class:`~roboto.experimental.topics.EventContext`, so its ``get_data*`` methods read only this session's
-        data and default their read window to this event's span, from :py:attr:`start_time` to :py:attr:`end_time`
-        inclusive. Pass ``start_time`` and ``end_time`` to them to read around the event instead. Requires the
-        ``roboto[analytics]`` extra to read data.
+        The topic need not be one the event is about. It carries a ``roboto.experimental.topics.EventContext``, so its
+        ``get_data*`` methods read only the data in the session's files, and by default only the event's time span,
+        from ``start_time`` to ``end_time`` inclusive. Pass ``start_time`` and ``end_time`` to those methods to read
+        around the event instead. Reading data requires the ``roboto[analytics]`` extra.
 
         Args:
-            topic_name: Exact name of the topic (e.g. ``"/imu"``).
+            topic_name: Exact name of the topic, such as ``"/imu"``.
 
         Raises:
-            RobotoNotFoundException: The event's session holds no data of a topic with that name.
+            RobotoNotFoundException: The event's session holds no data of a topic with this name.
 
         Examples:
             Read the IMU data within the event:
@@ -334,10 +374,11 @@ class Event:
         return Topic.from_record(record, roboto_client=self.__roboto_client, context=self.__topic_context())
 
     def get_topics(self) -> list[Topic]:
-        """Return the topics this event is about, ordered by name, scoped as :py:meth:`get_topic` scopes them.
+        """Fetch the topics the event is about, ordered by topic name, scoped as ``get_topic`` scopes them.
 
-        An event about all of its session's data is about no topic in particular, and returns an empty list.
-        The event's field IDs for a topic are in :py:attr:`topics`; pass them as ``fields_include`` to read only them.
+        Makes one request per topic. An event about all of its session's data names no topic, so it returns an empty
+        list. ``topics`` holds the fields the event names for each topic, in the same order; pass their IDs as
+        ``fields_include`` to read only those fields.
 
         Examples:
             >>> from roboto.experimental.topics import FieldAddress
@@ -351,7 +392,15 @@ class Event:
         ]
 
     def put_metadata(self, metadata: dict[str, typing.Any]) -> "Event":
-        """Add or overwrite metadata keys.
+        """Set metadata keys on the event, adding new keys and overwriting existing ones.
+
+        Keys the dictionary does not name keep their values.
+
+        Args:
+            metadata: Key-value metadata to set on the event.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> event.put_metadata({"severity": "high"})
@@ -359,7 +408,13 @@ class Event:
         return self.update(metadata_changeset=MetadataChangeset(put_fields=metadata))
 
     def put_tags(self, tags: StrSequence) -> "Event":
-        """Add tags.
+        """Add tags to the event, keeping its existing tags.
+
+        Args:
+            tags: Tags to add to the event.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> event.put_tags(["needs-review"])
@@ -367,7 +422,13 @@ class Event:
         return self.update(metadata_changeset=MetadataChangeset(put_tags=list(tags)))
 
     def refresh(self) -> "Event":
-        """Reload this event from Roboto.
+        """Replace this instance's record with the event's current record from Roboto.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
+
+        Raises:
+            RobotoNotFoundException: The event no longer exists.
 
         Examples:
             >>> event.refresh()
@@ -376,7 +437,13 @@ class Event:
         return self
 
     def remove_metadata(self, keys: StrSequence) -> "Event":
-        """Remove metadata keys.
+        """Remove metadata keys from the event.
+
+        Args:
+            keys: Metadata keys to remove.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> event.remove_metadata(["severity"])
@@ -384,7 +451,13 @@ class Event:
         return self.update(metadata_changeset=MetadataChangeset(remove_fields=list(keys)))
 
     def remove_tags(self, tags: StrSequence) -> "Event":
-        """Remove tags.
+        """Remove tags from the event.
+
+        Args:
+            tags: Tags to remove from the event.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> event.remove_tags(["needs-review"])
@@ -392,7 +465,14 @@ class Event:
         return self.update(metadata_changeset=MetadataChangeset(remove_tags=list(tags)))
 
     def set_color(self, color: typing.Optional[str]) -> "Event":
-        """Set the CSS color the event is displayed in, or ``None`` to use an automatically chosen one.
+        """Set the event's display color.
+
+        Args:
+            color: Display color of the event, as any CSS color value, such as ``"#ff0000"``. ``None`` clears it, so
+                Roboto chooses one.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> event.set_color("#ff0000")
@@ -400,11 +480,21 @@ class Event:
         return self.update(display_options_changeset=EventDisplayOptionsChangeset(color=color))
 
     def set_custom_field(self, name: str, value: typing.Any) -> "Event":
-        """Set one value of a Ready custom field defined on events in this event's org.
+        """Set one custom-field value on the event.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            name: Name of a custom field defined for events in the event's organization, with status
+                :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`.
+            value: Value to set, which must match the field's type.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoIllegalArgumentException: ``name`` is not a Ready custom field on events, or ``value`` does not
-                satisfy its type.
+            RobotoIllegalArgumentException: ``name`` is not a ready custom field for events, or ``value`` does not
+                match its type.
 
         Examples:
             >>> event.set_custom_field("root_cause", "wind")
@@ -412,10 +502,20 @@ class Event:
         return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields={name: value}))
 
     def set_custom_fields(self, values: dict[str, typing.Any]) -> "Event":
-        """Set values of Ready custom fields defined on events in this event's org.
+        """Set custom-field values on the event. Fields the dictionary does not name keep their values.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            values: Values to set, keyed by field name. Each name must be a custom field defined for events in the
+                event's organization, with status :py:attr:`~roboto.domain.custom_fields.CustomFieldStatus.Ready`,
+                and each value must match that field's type.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoIllegalArgumentException: A name is not a Ready custom field on events, or a value does not satisfy
+            RobotoIllegalArgumentException: A name is not a ready custom field for events, or a value does not match
                 its field's type.
 
         Examples:
@@ -424,7 +524,13 @@ class Event:
         return self.update(custom_fields_changeset=CustomFieldChangeset(set_fields=values))
 
     def set_description(self, description: typing.Optional[str]) -> "Event":
-        """Set the event's description, or ``None`` to clear it.
+        """Set the event's description.
+
+        Args:
+            description: Human-readable description of the event. ``None`` clears it.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Examples:
             >>> event.set_description("Checked against the flight log")
@@ -433,6 +539,14 @@ class Event:
 
     def set_name(self, name: str) -> "Event":
         """Rename the event.
+
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            name: Human-readable name of the event. Roboto does not require names to be unique.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Raises:
             RobotoInvalidRequestException: ``name`` is blank.
@@ -443,12 +557,19 @@ class Event:
         return self.update(name=name)
 
     def set_topics(self, topics: collections.abc.Sequence[EventTopicRequest]) -> "Event":
-        """Replace the topics, or topic fields, the event is about.
+        """Replace the topics, or fields of topics, the event is about.
 
-        An empty list makes the event about all of its session's data.
+        It calls ``update``, whose failures also apply.
+
+        Args:
+            topics: Topics, or fields of topics, the event is about. Empty makes the event about all of its session's
+                data.
+
+        Returns:
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoInvalidRequestException: ``topics`` is invalid, as described on :py:meth:`create`.
+            RobotoInvalidRequestException: ``topics`` is invalid, as ``create`` describes.
 
         Examples:
             >>> from roboto.experimental.events import EventTopicRequest
@@ -457,7 +578,7 @@ class Event:
         return self.update(topics=list(topics))
 
     def to_dict(self) -> dict[str, typing.Any]:
-        """Return the event's record as a dictionary of JSON-compatible values.
+        """Return the record this instance holds, as a JSON-compatible dictionary.
 
         Examples:
             >>> import json
@@ -476,28 +597,33 @@ class Event:
         display_options_changeset: typing.Union[EventDisplayOptionsChangeset, NotSetType] = NotSet,
         custom_fields_changeset: typing.Optional[CustomFieldChangeset] = None,
     ) -> "Event":
-        """Change mutable fields of this event; arguments left ``NotSet`` keep their values. The session cannot change.
+        """Update the event's properties. Arguments left at their default (``NotSet`` or ``None``) are unchanged.
+
+        An event's session cannot change.
 
         Args:
-            name: A new name.
-            description: A new description, or ``None`` to clear it.
-            start_time: A new start time.
-            end_time: A new end time. The resulting end must not be before the resulting start.
-            topics: A replacement for every topic, or topic field, the event is about.
-            metadata_changeset: Tag and metadata changes.
-            display_options_changeset: Display option changes.
-            custom_fields_changeset: Custom-field value changes.
+            name: Human-readable name of the event. Roboto does not require names to be unique.
+            description: Human-readable description of the event. ``None`` clears it.
+            start_time: Inclusive start of the event, in nanoseconds since the Unix epoch or any value
+                :py:func:`~roboto.time.to_epoch_nanoseconds` accepts.
+            end_time: Inclusive end of the event, in the same form. Once both time changes apply, the end must not be
+                before the start.
+            topics: Topics, or fields of topics, the event is about, replacing every one it names. Empty makes the
+                event about all of its session's data.
+            metadata_changeset: Changes to the event's tags and metadata.
+            display_options_changeset: Changes to the event's display options.
+            custom_fields_changeset: Changes to the event's custom-field values. Fields the changeset does not name
+                keep their values. ``None`` changes none.
 
         Returns:
-            This event, refreshed from the response.
+            This instance, with its record updated from Roboto's response.
 
         Raises:
-            RobotoIllegalArgumentException: The changeset names a custom field that is not a Ready field on events,
-                or sets a value that does not satisfy its field's type.
-            RobotoInvalidRequestException: The update is invalid, such as a blank name, a negative time, an end before
-                the start, or ``topics`` that is invalid as described on :py:meth:`create`.
+            RobotoIllegalArgumentException: The custom-field changeset names a field that is not a ready custom field
+                for events, or sets a value that does not match its field's type.
+            RobotoInvalidRequestException: The name is blank, a time is negative, the end is before the start, or
+                ``topics`` is invalid, as ``create`` describes.
             RobotoNotFoundException: The event no longer exists.
-            RobotoUnauthorizedException: The caller is not a member of the event's org or may not view its sessions.
 
         Examples:
             >>> event.update(name="Hard landing (confirmed)", description="Checked against the flight log")

@@ -17,6 +17,11 @@ from ..context import CLIContext
 
 
 def show(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
+    """Print the record of the action the reference names, as JSON.
+
+    The action's owner is the organization in the reference, or else the ``--org`` organization. A reference with no
+    digest selects the latest version of the action.
+    """
     owner_org_id = args.action.owner if args.action.owner else args.org
     action = actions.Action.from_name(
         name=args.action.name,

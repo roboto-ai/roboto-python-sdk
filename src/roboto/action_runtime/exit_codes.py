@@ -8,42 +8,28 @@ import enum
 
 
 class ExitCode(enum.IntEnum):
-    """
-    Defined exit codes used by the action runtime.
-    Exception codes are adapted from /usr/include/sysexits.h
+    """Exit code an action's process ends with: whether it succeeded and, if not, why.
+
+    Every code but ``Success`` takes its value and meaning from the ``sysexits.h`` convention of Unix systems. An
+    action exits with one through ``sys.exit``, as in ``sys.exit(ExitCode.DataError)``, and any code but ``Success``
+    fails the invocation. :py:class:`~roboto.action_runtime.PrepareEnvException` carries one.
     """
 
     Success = 0
+    """The action succeeded."""
 
     UsageError = 64
-    """
-    From /usr/include/sysexits.h:
-      > EX_USAGE -- The command was used incorrectly, e.g., with
-      >             the wrong number of arguments, a bad flag, a bad
-      >             syntax in a parameter, or whatever.
-    """
+    """The action was invoked incorrectly, such as with a missing or malformed parameter (``EX_USAGE``)."""
 
     DataError = 65
-    """
-    From /usr/include/sysexits.h:
-      > EX_DATAERR -- The input data was incorrect in some way.
-      >               This should only be used for user's data & not system
-      >               files.
+    """The input data was invalid, such as a file in the wrong format, corrupted, or empty (``EX_DATAERR``).
 
-    We use this in our own ingestion actions to signify "the ingestion action did the right thing, but the input
-    file was the wrong format, corrupted, a 0-byte file, etc."
+    Use it for a problem with the data the action was given, not with the action or its environment. Roboto's
+    ingestion actions exit with it when they ran correctly but could not ingest the input file.
     """
 
     InternalError = 70
-    """
-    From /usr/include/sysexits.h:
-      > EX_SOFTWARE -- An internal software error has been detected.
-      >                This should be limited to non-operating system related
-      >                errors as possible.
-    """
+    """The action, or Roboto's setup for it, failed for a reason other than input or configuration (``EX_SOFTWARE``)."""
 
     ConfigurationError = 78
-    """
-    From /usr/include/sysexits.h:
-      > EX_CONFIG       78      /* configuration error */
-    """
+    """The action's configuration is invalid, such as a required environment variable that is unset (``EX_CONFIG``)."""

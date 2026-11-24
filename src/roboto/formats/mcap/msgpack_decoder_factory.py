@@ -4,24 +4,6 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""MCAP decoder factory for msgpack-encoded messages.
-
-Exposes an :py:class:`mcap.decoder.DecoderFactory` that decodes ``msgpack``
-messages (typically described by a ``jsonschema`` schema), for use by
-:py:class:`~roboto.formats.mcap.reader.McapReader`. Decoding is delegated to the
-shared Rust decoder (the ``mcap_codec`` extension built from
-``roboto-mcap-codec``), which returns nested ``dict`` / ``list`` / scalar values.
-
-Known limitation: msgpack-numpy ndarray fields — nested maps with *binary* keys
-(``nd``/``type``/``shape``/``data``), used by compressed-video packet payloads —
-are silently dropped by the codec: the field decodes to an empty ``{}`` and the
-payload bytes are unrecoverable downstream. Every other field of such a message
-decodes normally. Tracked in
-https://github.com/roboto-ai/roboto-mcap-codec/issues/5; until that lands,
-consumers must treat non-``bytes`` payload fields as undecodable rather than
-assume frame data is present.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -35,21 +17,40 @@ from .ros_cdr_decoder_factory import UNDECODABLE_MESSAGE
 
 _logger = logging.getLogger(__name__)
 
-# mcap.well_known.MessageEncoding has no member for msgpack; this is the
-# channel message-encoding string our recorders write.
+# Channel message encoding of msgpack messages. mcap.well_known.MessageEncoding has no member for it.
 _MSGPACK = "msgpack"
 
 
 class MsgpackDecodeError(McapError):
-    """Raised when a ``msgpack`` message cannot be decoded."""
+    """A msgpack-encoded MCAP message could not be decoded.
+
+    The function that ``MsgpackDecoderFactory.decoder_for`` returns raises it, so it surfaces while
+    :py:class:`~roboto.formats.mcap.McapReader` reads a msgpack channel. A message with a field the decoder does not
+    support is skipped instead, and does not raise it.
+    """
 
 
 class MsgpackDecoderFactory(McapDecoderFactory):
-    """Decode msgpack-encoded MCAP messages via the shared Rust ``mcap_codec`` decoder.
+    """Decoder factory that decodes msgpack-encoded MCAP messages into nested dictionaries, lists, and scalar values.
 
-    Supply an instance to :py:func:`mcap.reader.make_reader`. The schema is
-    parsed once per schema id; the returned callable then decodes each message
-    into nested ``dict`` / ``list`` / scalar values.
+    :py:class:`~roboto.formats.mcap.McapReader` decodes msgpack channels with it; to decode them with the ``mcap``
+    library directly, pass an instance to ``mcap.reader.make_reader``. It decodes with the ``roboto-mcap-codec``
+    package, and parses each schema once, then reuses the result for every message on that schema.
+
+    It skips messages it cannot decode rather than stop the rest of the file being read: for each one, its decoder
+    returns :py:const:`~roboto.formats.mcap.ros_cdr_decoder_factory.UNDECODABLE_MESSAGE`, which
+    :py:class:`~roboto.formats.mcap.McapReader` passes over. It skips:
+
+    - Every message on a schema it cannot parse.
+    - Each message with a field the decoder does not support.
+
+    In both cases it logs one warning per schema.
+
+    Note:
+        A field that msgpack-numpy encoded, a map with binary keys (``nd``, ``type``, ``shape``, ``data``) such as
+        the payload of a compressed-video packet, decodes to an empty dictionary and its bytes are lost. The
+        message's other fields decode normally. Treat a payload field that is not ``bytes`` as undecodable rather
+        than assume it holds frame data.
     """
 
     def __init__(self) -> None:
@@ -58,6 +59,22 @@ class MsgpackDecoderFactory(McapDecoderFactory):
     def decoder_for(
         self, message_encoding: str, schema: typing.Optional[Schema]
     ) -> typing.Optional[typing.Callable[[bytes], typing.Any]]:
+        """Return a function that decodes messages on a msgpack channel with this schema.
+
+        The ``mcap`` library's reader calls this when it decodes the first message on a channel.
+
+        Args:
+            message_encoding: Message encoding of the channel.
+            schema: Schema of the channel, or ``None`` when the channel has none.
+
+        Returns:
+            Function that decodes one message's bytes, or ``None`` when ``message_encoding`` is not ``msgpack`` or
+            ``schema`` is ``None``, so the ``mcap`` reader tries its other decoder factories.
+
+        Raises:
+            MsgpackDecodeError: A message cannot be decoded, for a reason other than a field the decoder does not
+                support. Raised when the returned function is called.
+        """
         if message_encoding != _MSGPACK or schema is None:
             return None
         decoder = self._decoders.get(schema.id)
@@ -67,18 +84,15 @@ class MsgpackDecoderFactory(McapDecoderFactory):
         return decoder
 
     def _build_decoder(self, schema: Schema) -> typing.Callable[[bytes], typing.Any]:
-        """Build a per-schema msgpack decoder backed by the shared Rust ``mcap_codec`` decoder."""
-        # Imported lazily (rather than at module top) so the Rust extension only loads when a
-        # msgpack channel is actually decoded; see the equivalent note in the omgidl factory.
+        # Imported here rather than at module top so the Rust extension loads only when a msgpack channel is decoded.
         from mcap_codec import RosCdrCodec, UnsupportedMessage
 
         try:
             codec = RosCdrCodec(schema.encoding, _MSGPACK, schema.data, schema.name)
         except Exception as exc:
-            # mcap calls decoder_for the first time it sees a schema; letting a parse failure
-            # propagate would abort iteration over the entire file, including every other channel
-            # that decodes fine. Mirror the omgidl factory: log once and return a decoder that
-            # skips every message on this (unparseable) schema.
+            # mcap calls decoder_for when it decodes the first message on a channel, so any exception from parsing
+            # the schema would stop the whole file being read, every other channel included. Catch it, log it, and
+            # skip every message on this schema instead.
             _logger.warning(
                 "msgpack schema %r could not be parsed (%s); skipping every message on this channel",
                 schema.name,
@@ -90,8 +104,7 @@ class MsgpackDecoderFactory(McapDecoderFactory):
 
             return decode_unparseable
 
-        # Log the first skip per schema (not per message) so a file full of undecodable
-        # messages doesn't flood the logs.
+        # Warn on the first skipped message of the schema only, so a file of undecodable messages logs one warning.
         skip_logged = [False]
 
         def decode(data: bytes) -> typing.Any:
@@ -114,6 +127,9 @@ class MsgpackDecoderFactory(McapDecoderFactory):
 
 
 def make_msgpack_decoder_factory() -> MsgpackDecoderFactory:
-    """Build a decoder factory for msgpack-encoded messages, backed by the shared
-    Rust ``mcap_codec`` decoder."""
+    """Build a decoder factory for msgpack-encoded MCAP messages.
+
+    :py:class:`~roboto.formats.mcap.McapReader` decodes msgpack channels through it, so most code never calls it.
+    ``MsgpackDecoderFactory()`` builds the same factory.
+    """
     return MsgpackDecoderFactory()

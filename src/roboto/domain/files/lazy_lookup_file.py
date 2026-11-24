@@ -10,16 +10,18 @@ from .file import File
 
 
 class LazyLookupFile(File):
-    """
-    A File subclass that defers instantiation (hydration) of the real File until any non‐internal attribute is
-    first accessed.
+    """A file handle that defers fetching the file until one of its attributes is first read or set.
 
-    This is useful for scenarios where we know how to dereference a File (e.g., by ID), and we want to return a handle
-    in case the caller wants to work with it, but we don’t want to pay the cost of dereferencing it unless necessary.
+    :py:meth:`~roboto.domain.files.FileSystem.upload_file` returns one, so a caller who never uses the uploaded file
+    makes no request for it. The first attribute access calls ``hydrate_fn``, the function the handle was built with,
+    and forwards that access, and every later one, to the :py:class:`~roboto.domain.files.File` it returns. If
+    ``hydrate_fn`` raises, the exception propagates from that attribute access, and the next access calls
+    ``hydrate_fn`` again.
     """
 
     def __init__(self, hydrate_fn: Callable[[], File]) -> None:
-        # We don’t call super().__init__; we’ll get a real File from hydrate_fn.
+        # File.__init__ is not called. These attributes are set through object.__setattr__ because this class's
+        # __setattr__ forwards to the fetched file.
         object.__setattr__(self, "_hydrate_fn", hydrate_fn)
         object.__setattr__(self, "_file", None)
 
@@ -29,6 +31,7 @@ class LazyLookupFile(File):
             object.__setattr__(self, "_file", real)
 
     def __getattribute__(self, name: str) -> Any:
+        # These names belong to the handle; every other name is read from, or set on, the fetched file.
         if name in ["_hydrate", "_hydrate_fn", "_file"]:
             return object.__getattribute__(self, name)
 

@@ -4,16 +4,15 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Bounds of the signed 64-bit integers that hold Roboto's nanosecond timestamps, timeline offsets, and row positions.
+INT64_MIN = -(2**63)
+"""Smallest signed 64-bit integer, and the lowest nanosecond timestamp, timeline offset, or row position Roboto stores.
 
-Roboto cannot store a nanosecond timestamp, timeline offset, or row position outside ``[INT64_MIN, INT64_MAX]``. Many
-fields accept only part of this range; a file's timeline offset, for example, must not be negative.
+As nanoseconds since the Unix epoch, it is the instant 1677-09-21 00:12:43.145224192 UTC. Many fields accept only part
+of the range from ``INT64_MIN`` to ``INT64_MAX``; a file's timeline offset, for example, must not be negative.
 """
 
-INT64_MIN = -(2**63)
-"""The smallest value a signed 64-bit integer holds. As nanoseconds since the Unix epoch, it is the instant
-1677-09-21 00:12:43.145224192 UTC."""
-
 INT64_MAX = 2**63 - 1
-"""The largest value a signed 64-bit integer holds. As nanoseconds since the Unix epoch, it is the instant
-2262-04-11 23:47:16.854775807 UTC."""
+"""Largest signed 64-bit integer, and the highest nanosecond timestamp, timeline offset, or row position Roboto stores.
+
+As nanoseconds since the Unix epoch, it is the instant 2262-04-11 23:47:16.854775807 UTC.
+"""
