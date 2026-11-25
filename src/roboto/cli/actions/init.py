@@ -21,6 +21,10 @@ from ..terminal import print_error_and_exit, print_warning
 COOKIECUTTER_REPO = "https://github.com/roboto-ai/cookiecutter-roboto-actions.git"
 GIT_INSTALL_URL = "https://git-scm.com/downloads"
 
+COOKIECUTTER_CHECKOUT = "v2"
+"""The template branch whose action.json uses ``schema_version`` 2. Earlier SDKs take the default branch,
+whose action.json uses the legacy schema they read."""
+
 
 def init(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
     """Create an action package under ``path`` from Roboto's action package template, and print ``path``.
@@ -65,6 +69,7 @@ def init(args: argparse.Namespace, context: CLIContext, parser: argparse.Argumen
         try:
             cookiecutter(
                 COOKIECUTTER_REPO,
+                checkout=COOKIECUTTER_CHECKOUT,
                 output_dir=str(path),
                 default_config=cookiecutter_config,  # type: ignore
             )

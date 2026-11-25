@@ -78,6 +78,8 @@ class Board:
                 definition's ``title``, or ``BoardDefinition`` refuses the definition's top level. Raised before any
                 request is made.
             RobotoConflictException: The caller already owns a board with this name in the organization.
+            RobotoUnauthorizedException: The caller is a guest of the organization and holds no role that turns on
+                the ``build_views`` switch.
             RobotoFeatureNotAvailableException: Boards are not enabled for the caller.
 
         Examples:
@@ -151,6 +153,8 @@ class Board:
         Raises:
             RobotoFeatureNotAvailableException: Boards are not enabled for the caller. It surfaces on the first
                 iteration.
+            RobotoUnauthorizedException: The caller is a guest of the organization and holds no role that turns on
+                the ``view_data`` switch. It surfaces on the first iteration.
 
         Examples:
             >>> from roboto.experimental.boards import Board

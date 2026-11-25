@@ -11,28 +11,28 @@ import typing
 from ...exceptions import (
     RobotoIllegalArgumentException,
 )
-from ...http import RobotoClient
+from ...http import ACTION_CONFIG_VERSION_HEADER, RobotoClient
 from ...query import QuerySpecification
 from ...sentinels import (
     NotSet,
     NotSetType,
     is_set,
-    remove_not_set,
 )
-from ...updates import MetadataChangeset
 from .action_operations import (
-    CreateActionRequest,
     SetActionAccessibilityRequest,
-    UpdateActionRequest,
 )
 from .action_record import (
     Accessibility,
     ActionParameter,
-    ActionParameterChangeset,
     ActionRecord,
     ActionReference,
     ComputeRequirements,
     ContainerParameters,
+)
+from .action_version import (
+    ActionVersion,
+    CreateReleaseRequest,
+    CreateVersionedActionRequest,
 )
 from .invocation import Invocation
 from .invocation_operations import (
@@ -71,115 +71,122 @@ class Action:
     def create(
         cls,
         name: str,
-        compute_requirements: typing.Optional[ComputeRequirements] = None,
-        container_parameters: typing.Optional[ContainerParameters] = None,
+        release: CreateReleaseRequest,
         description: typing.Optional[str] = None,
-        inherits: typing.Optional[ActionReference] = None,
-        metadata: typing.Optional[dict[str, typing.Any]] = None,
-        parameters: typing.Optional[list[ActionParameter]] = None,
-        requires_downloaded_inputs: typing.Optional[bool] = None,
         short_description: typing.Optional[str] = None,
         tags: typing.Optional[list[str]] = None,
-        timeout: typing.Optional[int] = None,
-        uri: typing.Optional[str] = None,
+        metadata: typing.Optional[dict[str, typing.Any]] = None,
         caller_org_id: typing.Optional[str] = None,
         roboto_client: typing.Optional[RobotoClient] = None,
+        action_config_version: typing.Optional[int] = None,
     ) -> "Action":
-        """Create an action.
+        """Create an action together with its first release.
+
+        The first release is version ``1.0.0`` unless ``release.version`` names another. Publish later releases
+        with :py:meth:`create_release`.
 
         Args:
             name: Human-readable name of the action, unique within its organization. Letters, digits, underscores,
                 and dashes only.
-            compute_requirements: CPU, memory, and storage for each invocation of the action. ``None`` uses the
-                defaults of :py:class:`~roboto.domain.actions.ComputeRequirements`.
-            container_parameters: Command, entry point, environment variables, and working directory for the
-                action's container. ``None`` sets none of them.
+            release: What the first release runs, on which compute, and with which defaults.
             description: Human-readable description of the action.
-            inherits: Deprecated. Roboto rejects a request that sets it; set the configuration on the action itself.
-            metadata: Key-value metadata to set on the action. ``None`` sets none.
-            parameters: Parameters an invocation of the action can give values for. ``None`` sets none.
-            requires_downloaded_inputs: Whether Roboto downloads an invocation's input files into the action's
-                container before it runs. ``None`` means ``True``.
             short_description: Brief human-readable description of the action, at most 140 characters
                 (``SHORT_DESCRIPTION_LENGTH``).
             tags: Tags to set on the action. ``None`` sets none.
-            timeout: Maximum time, in minutes, an invocation of the action may run before Roboto stops it. ``None``
-                uses Roboto's default.
-            uri: URI of the container image the action runs, such as ``"ubuntu:latest"``. An action without one
-                cannot be invoked.
+            metadata: Key-value metadata to set on the action. ``None`` sets none.
             caller_org_id: Organization to create the action in. Required when the caller belongs to more than one
                 organization; otherwise the caller's only organization.
             roboto_client: Client to make requests to Roboto with. Defaults to one configured from the environment,
                 by :py:meth:`~roboto.http.RobotoClient.from_env`.
+            action_config_version: Schema version of the ``action.json`` file the request was built from (see
+                :py:class:`~roboto.domain.actions.ActionConfig`). ``None`` when the request was not built from one.
 
         Returns:
-            The new action.
+            The new action, fetched by name after it is created. :py:meth:`get_version` returns its release.
 
         Raises:
             RobotoIllegalArgumentException: ``short_description`` is longer than 140 characters. Raised before any
                 request.
             RobotoConflictException: The organization already has an action with this name.
-            RobotoInvalidRequestException: ``inherits`` is set, two parameters share a name, or a required
-                parameter has a default.
-            RobotoLimitExceededException: The organization has as many actions as its plan allows, or ``timeout``
-                is above the organization's limit.
+            RobotoInvalidRequestException: The release is malformed or cannot run as declared.
+            RobotoLimitExceededException: The organization has as many actions as its plan allows, or the release's
+                ``timeout_s_default`` is above the organization's limit.
+            RobotoUnauthorizedException: The caller's credential holds fewer grants than the release states.
 
         Examples:
-            Create an action that runs a public image:
+            Create an action that runs a container image:
 
+            >>> from roboto.domain.actions import (
+            ...     Action,
+            ...     ComputeShape,
+            ...     CreateReleaseRequest,
+            ...     ReleaseExecutable,
+            ...     Substrate,
+            ... )
             >>> action = Action.create(
-            ...     name="hello_world", uri="ubuntu:latest", description="A simple hello world action"
+            ...     name="hello_world",
+            ...     release=CreateReleaseRequest(
+            ...         substrate=Substrate.Fargate,
+            ...         executable=ReleaseExecutable(image_ref="ubuntu:latest"),
+            ...         shape=ComputeShape(vcpu=0.5, memory_mib=1024),
+            ...         timeout_s_default=600,
+            ...     ),
+            ...     description="A simple hello world action",
             ... )
 
-            Create an action with parameters and compute requirements:
+            Create an action whose runs write data, with parameters and container settings:
 
-            >>> from roboto.domain.actions import ComputeRequirements, ActionParameter
+            >>> from roboto.domain.actions import ActionParameter, FargateSubstrateConfig
             >>> action = Action.create(
             ...     name="data_processor",
-            ...     uri="my-registry.com/processor:v1.0",
-            ...     description="Processes sensor data with configurable parameters",
-            ...     compute_requirements=ComputeRequirements(vCPU=4096, memory=8192),
-            ...     parameters=[
-            ...         ActionParameter(name="threshold", required=True, description="Processing threshold"),
-            ...         ActionParameter(name="output_format", default="json", description="Output format"),
-            ...     ],
+            ...     release=CreateReleaseRequest(
+            ...         substrate=Substrate.Fargate,
+            ...         executable=ReleaseExecutable(image_ref="my-registry.com/processor:v1.0"),
+            ...         shape=ComputeShape(vcpu=4, memory_mib=8192),
+            ...         timeout_s_default=3600,
+            ...         grants=["*:*"],
+            ...         parameters=[ActionParameter(name="threshold", required=True)],
+            ...         substrate_config=FargateSubstrateConfig(env_vars={"MODE": "fast"}),
+            ...     ),
             ...     tags=["data-processing", "sensors"],
-            ...     timeout=60,
+            ... )
+
+            Create an action that runs a Python file:
+
+            >>> import pathlib
+            >>> action = Action.create(
+            ...     name="summarize",
+            ...     release=CreateReleaseRequest(
+            ...         substrate=Substrate.Microvm,
+            ...         executable=ReleaseExecutable(payload=pathlib.Path("summarize.py").read_bytes()),
+            ...         shape=ComputeShape(memory_mib=2048),
+            ...         timeout_s_default=300,
+            ...     ),
             ... )
         """
-        request = CreateActionRequest(
-            compute_requirements=compute_requirements,
-            container_parameters=container_parameters,
-            description=description,
-            inherits=inherits,
-            metadata=metadata or {},
-            name=name,
-            parameters=parameters or [],
-            requires_downloaded_inputs=requires_downloaded_inputs,
-            short_description=short_description,
-            tags=tags or [],
-            timeout=timeout,
-            uri=uri,
-        )
-
-        if (
-            is_set(request.short_description)
-            and request.short_description is not None
-            and len(request.short_description) > SHORT_DESCRIPTION_LENGTH
-        ):
+        if short_description is not None and len(short_description) > SHORT_DESCRIPTION_LENGTH:
             raise RobotoIllegalArgumentException(
                 f"Short description exceeds max length of {SHORT_DESCRIPTION_LENGTH} characters"
             )
 
-        roboto_client = RobotoClient.defaulted(roboto_client)
-
-        response = roboto_client.post(
-            "v1/actions",
-            data=request,
-            caller_org_id=caller_org_id,
+        request = CreateVersionedActionRequest(
+            description=description,
+            short_description=short_description,
+            tags=tags or [],
+            metadata=metadata or {},
+            release=release,
         )
-        record = response.to_record(ActionRecord)
-        return cls(record, roboto_client)
+
+        roboto_client = RobotoClient.defaulted(roboto_client)
+        # Dumped in full: a model passed as data is sent with only the fields the caller set, which would drop the
+        # substrate_config and output discriminators (they are defaults), and Roboto needs them to parse the body.
+        roboto_client.post(
+            f"v1/actions/{name}",
+            data=request.model_dump(mode="json"),
+            caller_org_id=caller_org_id,
+            headers=_action_config_headers(action_config_version),
+        )
+        return cls.from_name(name, owner_org_id=caller_org_id, roboto_client=roboto_client)
 
     @classmethod
     def from_name(
@@ -453,6 +460,51 @@ class Action:
         """Maximum time an invocation of the action may run, in minutes, or ``None`` if the action sets none."""
         return self.__record.timeout
 
+    def create_release(
+        self, release: CreateReleaseRequest, action_config_version: typing.Optional[int] = None
+    ) -> ActionVersion:
+        """Publish a new release of this action, which invocations that name no version then run.
+
+        Releases are immutable: this never changes what an existing release runs. This instance keeps its earlier
+        record; fetch the action again with :py:meth:`from_name` to see the new release.
+
+        Args:
+            release: What the new release runs, on which compute, and with which defaults. Unless
+                ``release.version`` names a number, Roboto publishes a patch bump of the highest number this action
+                has used, deleted releases included.
+            action_config_version: Schema version of the ``action.json`` file the request was built from (see
+                :py:class:`~roboto.domain.actions.ActionConfig`). ``None`` when the request was not built from one.
+
+        Returns:
+            The published release.
+
+        Raises:
+            RobotoConflictException: ``release.version`` is not higher than every number this action has used, or
+                the release names only an image and the latest release already runs exactly the same content.
+            RobotoInvalidRequestException: The release is malformed or cannot run as declared.
+            RobotoUnauthorizedException: The caller's credential holds fewer grants than the release states.
+
+        Examples:
+            >>> from roboto.domain.actions import ComputeShape, CreateReleaseRequest, ReleaseExecutable, Substrate
+            >>> action = Action.from_name("data_processor")
+            >>> version = action.create_release(
+            ...     CreateReleaseRequest(
+            ...         substrate=Substrate.Fargate,
+            ...         executable=ReleaseExecutable(image_ref="my-registry.com/processor:v1.1"),
+            ...         shape=ComputeShape(vcpu=4, memory_mib=8192),
+            ...         timeout_s_default=3600,
+            ...     )
+            ... )
+            >>> print(version.version)
+        """
+        response = self.__roboto_client.post(
+            f"v1/actions/{self.name}/versions",
+            data=release.model_dump(mode="json"),
+            owner_org_id=self.org_id,
+            headers=_action_config_headers(action_config_version),
+        )
+        return response.to_record(ActionVersion)
+
     def delete(self) -> None:
         """Delete this action and every version of it.
 
@@ -467,6 +519,22 @@ class Action:
             f"v1/actions/{self.name}",
             owner_org_id=self.org_id,
         )
+
+    def get_version(self, ref: str = "latest") -> ActionVersion:
+        """Fetch one of this action's releases.
+
+        Args:
+            ref: ``"latest"``, a version number such as ``"1.2.0"``, or a label.
+
+        Raises:
+            RobotoNotFoundException: No live release of this action matches ``ref``.
+
+        Examples:
+            >>> action = Action.from_name("data_processor")
+            >>> print(action.get_version().grants)
+        """
+        response = self.__roboto_client.get(f"v1/actions/{self.name}/versions/{ref}", owner_org_id=self.org_id)
+        return response.to_record(ActionVersion)
 
     def invoke(
         self,
@@ -645,6 +713,25 @@ class Action:
         self.__record = record
         return self
 
+    def set_label(self, label: str, version: str) -> None:
+        """Point a label, such as ``"stable"``, at one of this action's releases, creating the label if needed.
+
+        Args:
+            label: Name of the label. ``"latest"`` is reserved: it always names the newest release.
+            version: Version number of the release, such as ``"1.2.0"``.
+
+        Raises:
+            RobotoInvalidRequestException: ``label`` is ``"latest"``.
+            RobotoNotFoundException: This action has no live release with this number.
+
+        Examples:
+            >>> action = Action.from_name("data_processor")
+            >>> action.set_label("stable", "1.2.0")
+        """
+        self.__roboto_client.put(
+            f"v1/actions/{self.name}/labels/{label}", data={"version": version}, owner_org_id=self.org_id
+        )
+
     def to_dict(self) -> dict[str, typing.Any]:
         """Return this action's record as a dictionary of JSON-compatible values.
 
@@ -661,105 +748,110 @@ class Action:
 
     def update(
         self,
-        compute_requirements: typing.Optional[typing.Union[ComputeRequirements, NotSetType]] = NotSet,
-        container_parameters: typing.Optional[typing.Union[ContainerParameters, NotSetType]] = NotSet,
-        description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
-        inherits: typing.Optional[typing.Union[ActionReference, NotSetType]] = NotSet,
-        metadata_changeset: typing.Union[MetadataChangeset, NotSetType] = NotSet,
-        parameter_changeset: typing.Union[ActionParameterChangeset, NotSetType] = NotSet,
-        short_description: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
-        timeout: typing.Optional[typing.Union[int, NotSetType]] = NotSet,
-        uri: typing.Optional[typing.Union[str, NotSetType]] = NotSet,
-        requires_downloaded_inputs: typing.Union[bool, NotSetType] = NotSet,
+        release: typing.Optional[CreateReleaseRequest] = None,
+        description: typing.Union[str, None, NotSetType] = NotSet,
+        short_description: typing.Union[str, None, NotSetType] = NotSet,
+        tags: typing.Union[list[str], NotSetType] = NotSet,
+        metadata: typing.Union[dict[str, typing.Any], NotSetType] = NotSet,
+        labels: typing.Optional[collections.abc.Sequence[str]] = None,
+        action_config_version: typing.Optional[int] = None,
     ) -> "Action":
-        """Update this action's properties.
+        """Publish a new release of this action, edit its descriptions, tags and metadata, or both.
 
-        Each argument left unset (``NotSet``) leaves that property unchanged. A change to what the action runs (its
-        image, container, compute, parameters, timeout, or input downloading) creates a new version of the action,
-        with a new digest. A change to only its descriptions, tags, or metadata does not.
+        Each argument left unset (``NotSet``, or ``None`` for ``release`` and ``labels``) leaves that property
+        unchanged; editing only the descriptions, tags or metadata publishes no release. The steps run in this
+        order, and a failure leaves the earlier ones done:
+
+        1. Publish ``release``, as :py:meth:`create_release` does.
+        2. Point each of ``labels`` at it, as :py:meth:`set_label` does.
+        3. Edit the descriptions, tags and metadata.
 
         Args:
-            compute_requirements: CPU, memory, and storage for each invocation of the action. ``None`` resets them to
-                the defaults of :py:class:`~roboto.domain.actions.ComputeRequirements`.
-            container_parameters: Command, entry point, environment variables, and working directory for the
-                action's container. ``None`` clears them.
-            description: Human-readable description of the action. ``None`` or ``""`` clears it.
-            inherits: Deprecated. Roboto rejects a request that sets it to an action reference; set the
-                configuration on the action itself.
-            metadata_changeset: Changes to the action's tags and metadata.
-            parameter_changeset: Parameters to add, replace, or remove, matched by name.
+            release: Release to publish. Invocations that name no version run it from then on.
+            description: Human-readable description of the action. ``None`` clears it.
             short_description: Brief human-readable description of the action, at most 140 characters
-                (``SHORT_DESCRIPTION_LENGTH``). ``None`` or ``""`` clears it.
-            timeout: Maximum time, in minutes, an invocation of the action may run before Roboto stops it. ``None``
-                clears it, so invocations use Roboto's default.
-            uri: URI of the container image the action runs, with surrounding whitespace stripped. ``None`` clears
-                it.
-            requires_downloaded_inputs: Whether Roboto downloads an invocation's input files into the action's
-                container before it runs.
+                (``SHORT_DESCRIPTION_LENGTH``). ``None`` clears it.
+            tags: Tags to set on the action, replacing the ones it has.
+            metadata: Key-value metadata to set on the action, replacing what it has.
+            labels: Labels, such as ``"stable"``, to point at the release this call publishes. Requires
+                ``release``.
+            action_config_version: Schema version of the ``action.json`` file the request was built from (see
+                :py:class:`~roboto.domain.actions.ActionConfig`). ``None`` when the request was not built from one.
 
         Returns:
-            This instance, with its record updated from Roboto's response.
+            This instance, with its record fetched again from Roboto when anything changed.
 
         Raises:
-            RobotoIllegalArgumentException: ``short_description`` is longer than 140 characters. Raised before any
-                request.
-            RobotoInvalidRequestException: ``inherits`` is set to an action reference, two added parameters share a
-                name, or an added required parameter has a default.
-            RobotoLimitExceededException: ``compute_requirements`` or ``timeout`` is above the organization's
-                limits.
+            RobotoIllegalArgumentException: ``short_description`` is longer than 140 characters, or ``labels`` is
+                given without ``release``. Raised before any request.
+            RobotoConflictException: ``release.version`` is not higher than every number this action has used, or
+                ``release`` names only an image and the latest release already runs exactly the same content.
+            RobotoInvalidRequestException: ``release`` is malformed or cannot run as declared, or ``labels``
+                includes ``"latest"``.
+            RobotoUnauthorizedException: The caller's credential holds fewer grants than ``release`` states.
 
         Examples:
-            Update the description and timeout:
+            Run a new image and point the ``stable`` label at it:
 
+            >>> from roboto.domain.actions import ComputeShape, CreateReleaseRequest, ReleaseExecutable, Substrate
             >>> action = Action.from_name("my_action")
-            >>> action.update(description="Updated description of what this action does", timeout=45)
-
-            Update the compute requirements:
-
-            >>> from roboto.domain.actions import ComputeRequirements
-            >>> action.update(compute_requirements=ComputeRequirements(vCPU=4096, memory=8192))
-
-            Set two metadata fields and add a tag:
-
-            >>> from roboto.updates import MetadataChangeset
-            >>> changeset = (
-            ...     MetadataChangeset.Builder()
-            ...     .put_field("version", "2.0")
-            ...     .put_field("team", "ml")
-            ...     .put_tag("ml")
-            ...     .build()
+            >>> action.update(
+            ...     release=CreateReleaseRequest(
+            ...         substrate=Substrate.Fargate,
+            ...         executable=ReleaseExecutable(image_ref="my-registry.com/my_action:v2"),
+            ...         shape=ComputeShape(vcpu=1, memory_mib=2048),
+            ...         timeout_s_default=2700,
+            ...     ),
+            ...     labels=["stable"],
             ... )
-            >>> action.update(metadata_changeset=changeset)
+
+            Edit the description and tags, which publishes nothing:
+
+            >>> action.update(description="Detects anomalies in IMU data", tags=["imu", "anomaly"])
         """
-        request = remove_not_set(
-            UpdateActionRequest(
-                compute_requirements=compute_requirements,
-                container_parameters=container_parameters,
-                description=description,
-                inherits=inherits,
-                metadata_changeset=metadata_changeset,
-                parameter_changeset=parameter_changeset,
-                uri=uri,
-                short_description=short_description,
-                timeout=timeout,
-                requires_downloaded_inputs=requires_downloaded_inputs,
-            )
-        )
+        if labels and release is None:
+            raise RobotoIllegalArgumentException("labels can only be moved to a release this update publishes")
 
         if (
-            is_set(request.short_description)
-            and request.short_description is not None
-            and len(request.short_description) > SHORT_DESCRIPTION_LENGTH
+            is_set(short_description)
+            and short_description is not None
+            and len(short_description) > SHORT_DESCRIPTION_LENGTH
         ):
             raise RobotoIllegalArgumentException(
                 f"Short description exceeds max length of {SHORT_DESCRIPTION_LENGTH} characters"
             )
 
-        response = self.__roboto_client.put(
-            f"v1/actions/{self.name}",
-            data=request,
-            owner_org_id=self.org_id,
-        )
-        record = response.to_record(ActionRecord)
-        self.__record = record
+        if release is not None:
+            version = self.create_release(release, action_config_version=action_config_version)
+            for label in labels or []:
+                self.set_label(label, version.version)
+
+        details = {
+            field: value
+            for field, value in (
+                ("description", description),
+                ("short_description", short_description),
+                ("tags", tags),
+                ("metadata", metadata),
+            )
+            if is_set(value)
+        }
+        if details:
+            self.__roboto_client.put(
+                f"v1/actions/{self.name}/details",
+                data=details,
+                owner_org_id=self.org_id,
+                headers=_action_config_headers(action_config_version),
+            )
+
+        if release is not None or details:
+            self.__record = Action.from_name(
+                self.name, owner_org_id=self.org_id, roboto_client=self.__roboto_client
+            ).record
         return self
+
+
+def _action_config_headers(action_config_version: typing.Optional[int]) -> typing.Optional[dict[str, str]]:
+    if action_config_version is None:
+        return None
+    return {ACTION_CONFIG_VERSION_HEADER: str(action_config_version)}

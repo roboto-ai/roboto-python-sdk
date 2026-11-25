@@ -497,6 +497,35 @@ class RobotoBoardRevisionConflictException(RobotoConflictException):
         return result
 
 
+class RobotoClientToolResultsNotPendingException(RobotoConflictException):
+    """
+    Thrown when client tool results reach a thread that no longer waits on them.
+
+    ``reason`` says why, so a client can tell its user without reading the thread: ``answered_elsewhere`` when
+    another submission (from another browser tab) answered the same calls, ``turn_ended`` when the turn was stopped,
+    expired, or moved on before any submission answered them.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        reason: str,
+        stack_trace: list[str] = [],
+        headers: dict[str, str] = {},
+        *args,
+        **kwargs,
+    ):
+        super().__init__(message, stack_trace, headers, *args, **kwargs)
+        self.reason = reason
+
+    def to_dict(self) -> dict[str, Any]:
+        result = super().to_dict()
+        # The payload key must match this class's ``reason`` constructor parameter: RobotoDomainException.from_json
+        # splats the error body into the constructor.
+        result["error"]["reason"] = self.reason
+        return result
+
+
 class RobotoLayoutConflictException(RobotoConflictException):
     """Several layouts the caller can see have the name the request looks up, so the name alone picks none of them."""
 

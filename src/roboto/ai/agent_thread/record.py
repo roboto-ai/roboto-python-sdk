@@ -194,6 +194,18 @@ class SendMessageRequest(pydantic.BaseModel):
     and its result. Defaults to none.
     """
 
+    client_tab_id: Optional[str] = None
+    """Opaque id of the browser tab sending this request.
+
+    Only that tab runs the client-side tools of the turn this request starts. SDK callers leave
+    this unset."""
+
+    page_state: Optional[dict[str, Any]] = None
+    """What the sending browser tab shows when it sends this request, as the Roboto web UI
+    describes it: the kind of page, its entities, and the board or session visualizer on it. The service
+    validates it, keeps the newest per thread, and shows it to the model on each model call until
+    a later request replaces it. SDK callers leave this unset."""
+
     @pydantic.model_validator(mode="after")
     def _at_least_one_trigger(self) -> "SendMessageRequest":
         if self.message is None and not self.goals and not self.invoke_skills:
@@ -315,6 +327,18 @@ class StartAgentThreadRequest(pydantic.BaseModel):
     unless its caller passes another value.
     """
 
+    client_tab_id: Optional[str] = None
+    """Opaque id of the browser tab sending this request.
+
+    Only that tab runs the client-side tools of the turn this request starts. SDK callers leave
+    this unset."""
+
+    page_state: Optional[dict[str, Any]] = None
+    """What the sending browser tab shows when it sends this request, as the Roboto web UI
+    describes it: the kind of page, its entities, and the board or session visualizer on it. The service
+    validates it, keeps the newest per thread, and shows it to the model on each model call until
+    a later request replaces it. SDK callers leave this unset."""
+
     @pydantic.model_validator(mode="after")
     def _at_least_one_trigger(self) -> "StartAgentThreadRequest":
         if not self.messages and not self.goals and not self.invoke_skills:
@@ -404,6 +428,35 @@ class SubmitToolResultsRequest(pydantic.BaseModel):
 
     ``None`` leaves them unchanged, and an empty list removes them.
     """
+
+    client_tab_id: Optional[str] = None
+    """Opaque id of the browser tab submitting these results.
+
+    The first complete set of results for a turn is accepted. A resend of that set from the same
+    tab has no effect; a later set from another tab is rejected with
+    :class:`~roboto.exceptions.RobotoClientToolResultsNotPendingException`. SDK callers leave this
+    unset."""
+
+    page_state: Optional[dict[str, Any]] = None
+    """What the sending browser tab shows when it sends this request, as the Roboto web UI
+    describes it: the kind of page, its entities, and the board or session visualizer on it. The service
+    validates it, keeps the newest per thread, and shows it to the model on each model call until
+    a later request replaces it. SDK callers leave this unset."""
+
+
+class ClientToolTurnHeartbeatRequest(pydantic.BaseModel):
+    """Request payload telling the service that the tab running a thread's client tools is still open.
+
+    While a thread waits on client-side tool results, the tab that runs them sends this
+    periodically. If the heartbeats stop, each pending tool call is answered with an error
+    result five minutes after the last one.
+    """
+
+    client_tab_id: Optional[str] = None
+    """Opaque id of the sending browser tab.
+
+    Only the tab that sent the turn's user message keeps the turn alive; when that message named
+    no tab, any caller does."""
 
 
 class ForkAgentThreadRequest(pydantic.BaseModel):

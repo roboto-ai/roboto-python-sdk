@@ -47,6 +47,8 @@ class ActionSource:
     @property
     def action_params(self) -> list[actions.ActionParameter]:
         """Parameters that an invocation of the action can give values for."""
+        if self.action_config and self.action_config.release is not None:
+            return self.action_config.release.parameters
         if self.action_config:
             return self.action_config.parameters
         elif self.action_record:
@@ -56,6 +58,8 @@ class ActionSource:
     @property
     def requires_downloaded_inputs(self) -> bool:
         """Whether the action's input files are downloaded before it runs. ``True`` when the action leaves it unset."""
+        if self.action_config and self.action_config.release is not None:
+            return self.action_config.release.requires_downloaded_inputs
         if self.action_config and self.action_config.requires_downloaded_inputs is not None:
             return self.action_config.requires_downloaded_inputs
         elif self.action_record and self.action_record.requires_downloaded_inputs is not None:
@@ -65,6 +69,13 @@ class ActionSource:
     @property
     def container_params(self) -> typing.Optional[actions.ContainerParameters]:
         """How to run the action's container image, or ``None`` when the action sets none."""
+        if self.action_config and self.action_config.release is not None:
+            config = self.action_config.release.substrate_config
+            if not isinstance(config, actions.FargateSubstrateConfig):
+                return None
+            return actions.ContainerParameters(
+                entry_point=config.entry_point, command=config.command, env_vars=config.env_vars, workdir=config.workdir
+            )
         if self.action_config:
             return self.action_config.container_parameters
         elif self.action_record:

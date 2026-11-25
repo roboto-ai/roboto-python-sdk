@@ -12,6 +12,7 @@ config profile. SDK methods that take a ``roboto_client`` default to the one cli
 """
 
 from .constants import (
+    ACTION_CONFIG_VERSION_HEADER,
     BEARER_TOKEN_HEADER,
     CONNECTION_CONSISTENCY_HEADER,
     ORG_OVERRIDE_HEADER,
@@ -62,6 +63,7 @@ from .response import (
 from .roboto_client import DEFAULT_HTTP_TIMEOUT, RobotoClient
 
 __all__ = (
+    "ACTION_CONFIG_VERSION_HEADER",
     "BEARER_TOKEN_HEADER",
     "BatchRequest",
     "BatchResponse",

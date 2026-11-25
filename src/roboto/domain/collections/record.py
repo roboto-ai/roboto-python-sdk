@@ -11,6 +11,7 @@ import pydantic
 
 from ...compat import StrEnum
 from ...pydantic.serializers import field_serializer_custom_field_values
+from ...query import QuerySpecification
 
 
 class CollectionResourceType(StrEnum):
@@ -176,6 +177,26 @@ class CollectionChangeSet(pydantic.BaseModel):
     """New values of the ``name`` and ``description`` the update set, keyed by field name.
 
     Holds only the fields the update set. Changes to custom fields are not recorded.
+    """
+
+    added_from_query: typing.Optional[QuerySpecification] = None
+    """The search whose results this change added, when the change added everything a search matched.
+
+    ``added_resources`` still lists each resource that was added. ``None`` for a change that added resources by
+    ID.
+    """
+
+    added_resources_count: typing.Optional[int] = None
+    """Number of resources this change added, set only when ``added_resources`` was left out of the response.
+
+    The change history leaves a long ``added_resources`` list out when asked to summarize large changes, and
+    reports its length here instead.
+    """
+
+    removed_resources_count: typing.Optional[int] = None
+    """Number of resources this change removed, set only when ``removed_resources`` was left out of the response.
+
+    See ``added_resources_count``.
     """
 
 

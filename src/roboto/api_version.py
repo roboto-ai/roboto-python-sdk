@@ -195,6 +195,17 @@ class RobotoApiVersion(StrEnum):
     Clients on older API versions receive every View as ``view_v1`` with the three older fields.
     """
 
+    v2026_11_17 = "2026-11-17"
+    """``PUT /v1/actions/<name>`` refuses with HTTP 409 an update that sets what an action runs to what it already runs.
+
+    Such an update sets the action's image, parameters, compute requirements, container parameters, timeout, or input
+    downloading to exactly what the latest version of the action already has. A version of an action never changes
+    once it exists, and a new version must differ from the latest one, so the update has no version to create. The
+    whole request is refused: a description, tag, or metadata change sent with it is not applied. Clients on older API
+    versions receive HTTP 200 for such an update, which changes nothing. An update that sets only descriptions, tags,
+    or metadata succeeds at every API version.
+    """
+
     v2026_11_19 = "2026-11-19"
     """The access routes of datasets, collections and Views take and return grants instead of tuples.
 

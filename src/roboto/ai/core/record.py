@@ -465,6 +465,13 @@ class AgentThreadRecord(pydantic.BaseModel):
     ``None`` when the record was returned without its tasks; an empty list when the thread has none.
     """
 
+    client_tool_executor_tab_id: Optional[str] = None
+    """Opaque id of the browser tab that sent the latest turn's user message.
+
+    That tab is the only one that runs the turn's client-side tools. ``None`` when the message
+    came from a caller that does not identify its tab, such as the SDK; any client may then run
+    them."""
+
     turn_notice: Optional[str] = None
     """Short, human-readable note about the turn in progress.
 
@@ -512,6 +519,13 @@ class AgentThreadDelta(pydantic.BaseModel):
     thread's current activity, so ``None`` means there is none. A client replaces the activity it holds with this
     value on every delta.
     """
+
+    client_tool_executor_tab_id: Optional[str] = None
+    """The thread's :py:attr:`AgentThreadRecord.client_tool_executor_tab_id` as of this delta.
+
+    Sent whenever :attr:`status` is, and then authoritative: ``None`` alongside a status means the
+    turn names no tab. When :attr:`status` is ``None``, clients should retain the value they
+    already hold."""
 
     title: Optional[str] = None
     """New title of the thread, or ``None`` if it has not changed."""

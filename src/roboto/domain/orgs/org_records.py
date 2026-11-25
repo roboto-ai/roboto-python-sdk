@@ -253,9 +253,8 @@ class OrgBuiltInRole(StrEnum):
 
     Presets and roles the organization defines add to a member's built-in role, whether held by the member or by a
     group they are in. Every such role gives only what a member already has, so it changes what a guest may do and
-    nothing for anyone else. Guest exists only on a Roboto deployment that decides access from Roboto's own tables
-    alone, in an organization whose ``access_control_features`` is on; everywhere else every member is a member, admin
-    or owner.
+    nothing for anyone else. Guest exists only in an organization whose ``access_control_features`` is on; in every
+    other organization every member is a member, admin or owner.
     """
 
     guest = "guest"
@@ -373,8 +372,7 @@ class OrgUserRecord(pydantic.BaseModel):
     built_in_role: typing.Optional[OrgBuiltInRole] = None
     """The user's built-in role in the organization: ``owner``, ``admin``, ``guest`` or ``member``. Filled on every
     membership a Roboto deployment returns; ``None`` only from an older deployment. It reads ``guest`` only where roles
-    apply: on a Roboto deployment that decides access from Roboto's own tables alone, in an organization whose
-    ``access_control_features`` is on. Elsewhere a guest reads ``member``."""
+    apply: in an organization whose ``access_control_features`` is on. Elsewhere a guest reads ``member``."""
 
     held_roles: typing.Optional[list[OrgHeldRoleRecord]] = None
     """The roles, presets included, that the user holds, themselves or through a group, one entry per role with every
@@ -438,8 +436,8 @@ class OrgRoleRecord(pydantic.BaseModel):
     member may do. Every switch gives only what a member already has, so these roles change what a guest may do and
     nothing for a member, admin or owner.
 
-    Presets and roles the organization defined take effect only on a Roboto deployment that decides access from
-    Roboto's own tables alone, and can be given only in an organization whose ``access_control_features`` is on.
+    Presets and roles the organization defined can be given only in an organization whose ``access_control_features``
+    is on.
     """
 
     role_id: str

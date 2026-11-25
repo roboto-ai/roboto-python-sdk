@@ -8,6 +8,7 @@ import argparse
 import collections.abc
 import enum
 import json
+import pathlib
 import shlex
 import typing
 
@@ -440,5 +441,73 @@ def add_container_parameters_args(parser: argparse.ArgumentParser) -> None:
             "Zero or more ``<key>=<value>`` formatted pairs to set as container ENV vars. "
             "Do not use ENV vars for secrets (such as API keys). "
             "See documentation: https://docs.docker.com/engine/reference/run/#env-environment-variables"
+        ),
+    )
+
+
+def add_release_args(parser: argparse.ArgumentParser) -> None:
+    """Add the flags that describe an action release beyond its image, compute and container settings to ``parser``.
+
+    The flags are ``--payload``, ``--substrate``, ``--grant``, ``--egress``, ``--requires-downloaded-inputs`` and
+    ``--release-version``. ``roboto actions create`` and ``roboto actions update`` take them.
+    """
+    group = parser.add_argument_group("Release", "What the published release runs on and may do.")
+    group.add_argument(
+        "--payload",
+        required=False,
+        type=pathlib.Path,
+        metavar="PYTHON_FILE",
+        help="Python file the release runs, at most 1 MiB. Needs a substrate that runs Python payloads.",
+    )
+    group.add_argument(
+        "--substrate",
+        required=False,
+        choices=[substrate.value for substrate in actions.Substrate],
+        help=(
+            "Compute the release runs on. ``fargate`` runs a container image or a Python payload; ``microvm`` runs a "
+            "Python payload. Container parameters apply only to ``fargate``. A new action defaults to ``fargate``; "
+            "an update keeps the latest release's substrate."
+        ),
+    )
+    group.add_argument(
+        "--grant",
+        required=False,
+        nargs="+",
+        action="extend",
+        metavar="ENTITY:VERB",
+        help=(
+            "What the release's runs may do in Roboto, as ``entity:verb`` grants; ``*`` matches any entity or verb. "
+            "For example ``*:read`` reads everything, ``*:*`` performs every ordinary operation, and "
+            "``credential:read`` reads the organization's secrets. The grants given replace the release's. A new "
+            "action defaults to ``*:read``, so one that writes data, such as by creating topics or uploading files, "
+            "must name grants that allow it; an update keeps the latest release's grants."
+        ),
+    )
+    group.add_argument(
+        "--egress",
+        required=False,
+        choices=[posture.value for posture in actions.EgressPosture],
+        help=(
+            "Whether runs may reach the public internet. A new action defaults to the substrate's own default; an "
+            "update keeps the latest release's."
+        ),
+    )
+    group.add_argument(
+        "--requires-downloaded-inputs",
+        required=False,
+        choices=["true", "false"],
+        type=str.lower,
+        help=(
+            "Whether a run's input files are downloaded before it starts. A new action defaults to ``true``; an "
+            "update keeps the latest release's."
+        ),
+    )
+    group.add_argument(
+        "--release-version",
+        required=False,
+        dest="release_version",
+        help=(
+            "Version number to publish, e.g. ``1.0.0``. Defaults to ``1.0.0`` for a new action and to a patch bump "
+            "of the highest version used when publishing a release of an existing one."
         ),
     )

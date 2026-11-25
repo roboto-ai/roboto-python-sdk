@@ -54,6 +54,7 @@ class _Expectation:
     request_body_matcher: typing.Optional[RequestBodyMatcher] = None
     owner_org_id: typing.Optional[str] = None
     caller_org_id: typing.Optional[str] = None
+    headers: typing.Optional[dict[str, str]] = None
 
     def describe(self) -> str:
         parts = [self.method, self.path]
@@ -61,6 +62,8 @@ class _Expectation:
             parts.append(f"caller_org_id={self.caller_org_id}")
         if self.owner_org_id is not None:
             parts.append(f"owner_org_id={self.owner_org_id}")
+        if self.headers is not None:
+            parts.append(f"headers={self.headers}")
         return " ".join(parts)
 
 
@@ -75,7 +78,8 @@ class StubRobotoClient(RobotoClient):
     - raises ``AssertionError`` when none matches, naming the request and the expectations still pending.
 
     An expectation matches a request with the same method and path that also meets each condition the expectation
-    sets: the same ``query``, ``caller_org_id`` or ``owner_org_id``, and a body its ``request_body_matcher`` accepts.
+    sets: the same ``query``, ``caller_org_id`` or ``owner_org_id``, a body its ``request_body_matcher`` accepts, and,
+    for POST and PUT, the ``headers`` it names.
 
     Used as a context manager, the client calls ``verify_no_pending_expectations`` when the ``with`` block ends, unless
     the block raised.
@@ -151,6 +155,7 @@ class StubRobotoClient(RobotoClient):
         query: typing.Optional[dict[str, typing.Any]] = None,
         request_body_matcher: typing.Optional[RequestBodyMatcher] = None,
         caller_org_id: typing.Optional[str] = None,
+        headers: typing.Optional[dict[str, str]] = None,
     ) -> StubRobotoClient:
         """Register an expected POST request and the response to answer it with.
 
@@ -163,12 +168,16 @@ class StubRobotoClient(RobotoClient):
                 pydantic request model), that returns whether the request matches. ``None`` matches any body.
             caller_org_id: Organization ID the request must pass as ``caller_org_id``. ``None`` matches any,
                 including none.
+            headers: Headers the request must pass with these values; it may pass others too. ``None`` matches
+                any headers.
 
         Returns:
             This client, so that calls can be chained.
         """
         self.__expectations.append(
-            _Expectation("POST", path, response, query, request_body_matcher, caller_org_id=caller_org_id)
+            _Expectation(
+                "POST", path, response, query, request_body_matcher, caller_org_id=caller_org_id, headers=headers
+            )
         )
         return self
 
@@ -179,6 +188,7 @@ class StubRobotoClient(RobotoClient):
         query: typing.Optional[dict[str, typing.Any]] = None,
         request_body_matcher: typing.Optional[RequestBodyMatcher] = None,
         caller_org_id: typing.Optional[str] = None,
+        headers: typing.Optional[dict[str, str]] = None,
     ) -> StubRobotoClient:
         """Register an expected PUT request and the response to answer it with.
 
@@ -191,12 +201,16 @@ class StubRobotoClient(RobotoClient):
                 pydantic request model), that returns whether the request matches. ``None`` matches any body.
             caller_org_id: Organization ID the request must pass as ``caller_org_id``. ``None`` matches any,
                 including none.
+            headers: Headers the request must pass with these values; it may pass others too. ``None`` matches
+                any headers.
 
         Returns:
             This client, so that calls can be chained.
         """
         self.__expectations.append(
-            _Expectation("PUT", path, response, query, request_body_matcher, caller_org_id=caller_org_id)
+            _Expectation(
+                "PUT", path, response, query, request_body_matcher, caller_org_id=caller_org_id, headers=headers
+            )
         )
         return self
 
@@ -312,7 +326,7 @@ class StubRobotoClient(RobotoClient):
             path: Route of the request, as a string or as segments joined with ``/``.
             caller_org_id: Organization ID matched against each expectation's ``caller_org_id``.
             data: Request body, passed to each expectation's ``request_body_matcher``.
-            headers: Ignored.
+            headers: Headers matched against each expectation's ``headers``.
             idempotent: Ignored.
             owner_org_id: Organization ID matched against each expectation's ``owner_org_id``.
             query: Query parameters matched against each expectation's ``query``.
@@ -327,7 +341,7 @@ class StubRobotoClient(RobotoClient):
             Exception: The response registered for the matching expectation, when it is an exception.
         """
         return self.__consume_expectation(
-            "POST", path, query, data, owner_org_id=owner_org_id, caller_org_id=caller_org_id
+            "POST", path, query, data, owner_org_id=owner_org_id, caller_org_id=caller_org_id, headers=headers
         )
 
     def put(
@@ -350,7 +364,7 @@ class StubRobotoClient(RobotoClient):
             path: Route of the request, as a string or as segments joined with ``/``.
             caller_org_id: Organization ID matched against each expectation's ``caller_org_id``.
             data: Request body, passed to each expectation's ``request_body_matcher``.
-            headers: Ignored.
+            headers: Headers matched against each expectation's ``headers``.
             idempotent: Ignored.
             owner_org_id: Organization ID matched against each expectation's ``owner_org_id``.
             query: Query parameters matched against each expectation's ``query``.
@@ -365,7 +379,7 @@ class StubRobotoClient(RobotoClient):
             Exception: The response registered for the matching expectation, when it is an exception.
         """
         return self.__consume_expectation(
-            "PUT", path, query, data, owner_org_id=owner_org_id, caller_org_id=caller_org_id
+            "PUT", path, query, data, owner_org_id=owner_org_id, caller_org_id=caller_org_id, headers=headers
         )
 
     def patch(
@@ -463,6 +477,7 @@ class StubRobotoClient(RobotoClient):
         body: typing.Any,
         owner_org_id: typing.Optional[str] = None,
         caller_org_id: typing.Optional[str] = None,
+        headers: typing.Optional[dict[str, str]] = None,
     ) -> HttpResponse:
         """Answer a request from the first matching expectation, and remove that expectation."""
         normalized_path = self.__normalize_path(path)
@@ -480,6 +495,10 @@ class StubRobotoClient(RobotoClient):
                 continue
             if expectation.request_body_matcher and not expectation.request_body_matcher(body):
                 continue
+            if expectation.headers is not None and any(
+                (headers or {}).get(name) != value for name, value in expectation.headers.items()
+            ):
+                continue
 
             self.__expectations.pop(i)
             if isinstance(expectation.response, Exception):
@@ -491,6 +510,7 @@ class StubRobotoClient(RobotoClient):
             f"Unexpected request: {method} {normalized_path}\n"
             f"Caller org: {caller_org_id}, owner org: {owner_org_id}\n"
             f"Query: {query}\n"
+            f"Headers: {headers}\n"
             f"Body: {body}\n"
             f"Pending expectations: {[e.describe() for e in self.__expectations]}"
         )

@@ -118,7 +118,7 @@ class OrgCreationEligibility(pydantic.BaseModel):
     """
 
     sign_up_policy: typing.Optional[str] = None
-    """Sign-up policy of the Roboto deployment: ``open``, ``request_access``, or ``closed``.
+    """Sign-up policy of the Roboto deployment: ``request_access`` or ``closed``.
 
     ``None`` when the deployment sets none, which Roboto treats as ``closed``.
     """
@@ -423,7 +423,6 @@ class CreateOrgInviteRequest(pydantic.BaseModel):
     built_in_role: typing.Optional[GuestOrMember] = None
     """Built-in role the invited user gets by accepting an invite with the ``user`` role, or ``None`` for a member.
 
-    ``guest`` also needs a Roboto deployment that decides access from Roboto's own tables alone and an organization
-    whose ``access_control_features`` is on, and is refused with any other role. ``member`` with another role is
-    ignored.
+    ``guest`` also needs an organization whose ``access_control_features`` is on, and is refused with any other role.
+    ``member`` with another role is ignored.
     """

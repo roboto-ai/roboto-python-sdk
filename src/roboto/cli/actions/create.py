@@ -5,14 +5,14 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import argparse
-import collections.abc
 import json
 import pathlib
+import sys
 import typing
 
 from ...domain import actions
+from ...domain.actions.action_config import CPU_UNITS_PER_VCPU
 from ...exceptions import RobotoConflictException
-from ...updates import MetadataChangeset
 from ..command import (
     KeyValuePairsAction,
     RobotoCommand,
@@ -20,171 +20,115 @@ from ..command import (
 from ..common_args import (
     ActionParameterArg,
     ActionTimeoutArg,
-    add_action_reference_arg,
     add_compute_requirements_args,
     add_container_parameters_args,
     add_org_arg,
-    parse_compute_requirements,
-    parse_container_overrides,
+    add_release_args,
 )
 from ..context import CLIContext
 from ..terminal import print_error_and_exit
 from ..validation import (
     pydantic_validation_handler,
 )
+from .release_flags import overlay_release_flags
+
+LEGACY_FARGATE_COMPUTE = actions.ComputeRequirements()
+"""The compute a new Fargate action gets for any dimension the command line leaves unset: 0.5 vCPU,
+1024 MiB and 21 GiB, as actions created by this command always have."""
+
+ACTION_JSON_DOCS_URL = "https://docs.roboto.ai/reference/action-json.html"
 
 
-def determine_updates(action_config: actions.ActionConfig, existing_action: actions.Action) -> collections.abc.Mapping:
-    """Build the keyword arguments to update an existing action so that it matches an action config.
+def base_release(
+    args: argparse.Namespace, config: typing.Optional[actions.ActionConfig], config_dir: pathlib.Path
+) -> dict[str, typing.Any]:
+    """Return the release a ``create`` invocation starts from, before its flags are laid over it.
 
-    The result holds only the properties that differ, as keyword arguments to
-    :py:meth:`~roboto.domain.actions.Action.update`. The config's metadata, tags, and parameters replace the action's:
-    anything the action has and the config lacks is removed, and every entry in the config is put again, so the result
-    always includes a changeset when the config has any metadata, tags, or parameters. A
-    ``requires_downloaded_inputs`` of ``None`` in the config leaves the action's setting unchanged.
+    That is the config file's release, translated from the legacy schema for a v1 file, or for a command
+    line without a file, a new action's defaults: Fargate unless ``--substrate`` says otherwise, the legacy
+    compute on Fargate and 1024 MiB elsewhere, and the API's default grants. Exits with an error when the
+    release would run nothing, or when the Python file the config file names cannot be read.
 
-    When the config inherits from an action reference with no owner, this sets the reference's owner to the existing
-    action's organization, changing ``action_config`` in place.
-
-    Returns:
-        Keyword arguments for ``Action.update``; empty when nothing differs.
+    Args:
+        args: The parsed command line of ``roboto actions create``.
+        config: The ``--from-file`` config file, or ``None`` without one.
+        config_dir: The directory the config file's relative paths resolve against.
     """
-    updates: dict[str, typing.Any] = dict()
-    if action_config.compute_requirements != existing_action.compute_requirements:
-        updates["compute_requirements"] = action_config.compute_requirements
+    if config is None:
+        substrate = actions.Substrate(args.substrate) if args.substrate is not None else actions.Substrate.Fargate
+        compute = LEGACY_FARGATE_COMPUTE
+        shape = (
+            {"vcpu": compute.vCPU / CPU_UNITS_PER_VCPU, "memory_mib": compute.memory, "storage_gib": compute.storage}
+            if substrate is actions.Substrate.Fargate
+            else {"memory_mib": compute.memory}
+        )
+        return {"substrate": substrate, "shape": shape, "executable": None}
 
-    if action_config.container_parameters != existing_action.container_parameters:
-        updates["container_parameters"] = action_config.container_parameters
+    if config.effective_schema_version == 1:
+        if args.payload is not None:
+            print_error_and_exit("--payload needs a schema_version 2 action.json; a legacy one runs an image.")
+        if args.image is not None:
+            config = config.model_copy(update={"image_uri": args.image})
+        if config.image_uri is None:
+            print_error_and_exit("A release must run something: pass --image, or set image_uri in the file.")
 
-    if action_config.description != existing_action.record.description:
-        updates["description"] = action_config.description
+    elif config.release is not None:
+        executable = config.release.executable
+        if args.image is not None or args.payload is not None:
+            # The flags replace the file's executable before it is translated, so a file whose image is
+            # pushed at deploy time need not name one.
+            executable = actions.ActionConfigExecutable(
+                image_ref=args.image, python=str(args.payload.resolve()) if args.payload is not None else None
+            )
+            config = config.model_copy(update={"release": config.release.model_copy(update={"executable": executable})})
+        if executable.image_ref is None and executable.python is None:
+            print_error_and_exit(
+                "A release must run something: pass --image or --payload, or name release.executable in the file."
+            )
 
-    if action_config.short_description != existing_action.record.short_description:
-        updates["short_description"] = action_config.short_description
+    with pydantic_validation_handler("Action config file"):
+        try:
+            release = config.to_create_request(config_dir).release
+        except OSError as error:
+            print_error_and_exit(f"Could not read the Python file the action.json names: {error}")
+    return release.model_dump()
 
-    if action_config.timeout != existing_action.record.timeout:
-        updates["timeout"] = action_config.timeout
 
-    if (
-        action_config.requires_downloaded_inputs is not None
-        and action_config.requires_downloaded_inputs != existing_action.record.requires_downloaded_inputs
-    ):
-        updates["requires_downloaded_inputs"] = action_config.requires_downloaded_inputs
+def _discovery_changes(action_config: actions.ActionConfig, existing_action: actions.Action) -> dict[str, typing.Any]:
+    """Return the ``Action.update`` keyword arguments that make the action's description, tags and metadata match.
 
-    metadata_changeset_builder = MetadataChangeset.Builder()
-    existing_keys = existing_action.record.metadata.keys()
-    new_keys = action_config.metadata.keys()
-
-    for key in existing_keys - new_keys:
-        metadata_changeset_builder.remove_field(key)
-
-    for key in new_keys:
-        metadata_changeset_builder.put_field(key, action_config.metadata[key])
-
-    existing_tags = set(existing_action.record.tags)
-    new_tags = set(action_config.tags)
-
-    for tag in existing_tags - new_tags:
-        metadata_changeset_builder.remove_tag(tag)
-
-    for tag in new_tags:
-        metadata_changeset_builder.put_tag(tag)
-
-    metadata_changeset = metadata_changeset_builder.build()
-    if not metadata_changeset.is_empty():
-        updates["metadata_changeset"] = metadata_changeset
-
-    parameter_changeset_builder = actions.ActionParameterChangeset.Builder()
-    existing_params = {param.name for param in existing_action.record.parameters}
-    new_params = {param.name for param in action_config.parameters}
-
-    for param_name in existing_params - new_params:
-        parameter_changeset_builder.remove_parameter(param_name)
-
-    for param in action_config.parameters:
-        parameter_changeset_builder.put_parameter(param)
-
-    parameter_changeset = parameter_changeset_builder.build()
-    if not parameter_changeset.is_empty():
-        updates["parameter_changeset"] = parameter_changeset
-
-    if action_config.image_uri != existing_action.uri:
-        updates["uri"] = action_config.image_uri
-
-    if action_config.inherits:
-        if not action_config.inherits.owner:
-            action_config.inherits.owner = existing_action.record.org_id
-
-    if action_config.inherits != existing_action.record.inherits:
-        updates["inherits"] = action_config.inherits
-
-    return updates
+    These fields belong to the action, not to any release, so changing them publishes nothing.
+    """
+    record = existing_action.record
+    wanted = {
+        "description": (action_config.description, record.description),
+        "short_description": (action_config.short_description, record.short_description),
+        "tags": (sorted(action_config.tags), sorted(record.tags)),
+        "metadata": (action_config.metadata, record.metadata),
+    }
+    return {field: new for field, (new, existing) in wanted.items() if new != existing}
 
 
 def create(args: argparse.Namespace, context: CLIContext, parser: argparse.ArgumentParser) -> None:
-    """Create an action from a config file and CLI arguments, or update the action with that name, and print its record.
-
-    CLI arguments override the config file's values, except that ``--metadata`` and ``--tag`` add to the config file's
-    metadata and tags. When the ``--org`` organization already has an action with the name, the command asks before
-    updating it, unless ``--yes`` is given, and changes only the properties that differ.
-    """
     config: typing.Optional[actions.ActionConfig] = None
     if args.action_config_file:
         with pydantic_validation_handler("Action config file"):
             config = actions.ActionConfig.from_file(args.action_config_file)
 
-    default_compute_reqs_from_file = config.compute_requirements if config else None
-    compute_requirements = parse_compute_requirements(args, defaults=default_compute_reqs_from_file)
+    if config is not None and config.effective_schema_version == 1:
+        print(
+            f"[warning] This action.json uses the legacy (v1) schema; see {ACTION_JSON_DOCS_URL} for schema_version 2. "
+            "A command to migrate it is coming.",
+            file=sys.stderr,
+        )
 
-    default_container_parameters_from_file = config.container_parameters if config else None
-    container_parameters = parse_container_overrides(args, defaults=default_container_parameters_from_file)
-
-    metadata = config.metadata if config else dict()
-    if args.metadata:
-        metadata.update(args.metadata)
-
-    tags = config.tags if config else list()
-    if args.tag:
-        tags.extend(args.tag)
-
-    parameters = config.parameters if config else list()
-    if args.parameter:
-        cli_param_names = {param.name for param in args.parameter}
-        # Drop the config file's parameters that share a name with a `--parameter`.
-        parameters = [param for param in parameters if param.name not in cli_param_names]
-        parameters.extend(args.parameter)
-
-    if not args.name and not config:
+    if config is not None and config.inherits is not None:
         print_error_and_exit(
-            "Action name is required. Please specify either the `--name` CLI argument or the `name` property in your "
-            "Action config file.",
+            "Action inheritance is no longer supported. Remove 'inherits' from the config file and state the "
+            "configuration directly."
         )
 
-    config_params = {
-        "name": args.name,
-        "description": args.description,
-        "inherits": args.inherits_from,
-        "compute_requirements": compute_requirements,
-        "container_parameters": container_parameters,
-        "metadata": metadata,
-        "parameters": args.parameter,
-        "requires_downloaded_inputs": args.requires_downloaded_inputs,
-        "tags": tags,
-        "image_uri": args.image,
-        "short_description": args.short_description,
-        "timeout": args.timeout,
-    }
-    config_params = {k: v for k, v in config_params.items() if v is not None}
-
-    with pydantic_validation_handler("Action configuration"):
-        config_with_overrides = (
-            actions.ActionConfig.model_validate(config_params)
-            if config is None
-            else config.model_copy(update=config_params)
-        )
-
-    image_uri = None
-    if config_with_overrides.docker_config:
+    if config is not None and config.docker_config:
         print_error_and_exit(
             [
                 "Support for building and pushing Docker images as part of Action creation is forthcoming.",
@@ -194,51 +138,83 @@ def create(args: argparse.Namespace, context: CLIContext, parser: argparse.Argum
                 "to associate your Action with the Docker image you just pushed.",
             ]
         )
-    else:
-        image_uri = config_with_overrides.image_uri
+
+    metadata = config.metadata if config else dict()
+    if args.metadata:
+        metadata.update(args.metadata)
+
+    tags = config.tags if config else list()
+    if args.tag:
+        tags.extend(args.tag)
+
+    if not args.name and not config:
+        print_error_and_exit(
+            "Action name is required. Please specify either the `--name` CLI argument or the `name` property in your "
+            "Action config file.",
+        )
+
+    discovery_params = {
+        "name": args.name,
+        "description": args.description,
+        "short_description": args.short_description,
+        "metadata": metadata,
+        "tags": tags,
+    }
+    discovery_params = {k: v for k, v in discovery_params.items() if v is not None}
+    with pydantic_validation_handler("Action configuration"):
+        action_config = (
+            actions.ActionConfig.model_validate(discovery_params)
+            if config is None
+            else config.model_copy(update=discovery_params)
+        )
+
+    config_dir = args.action_config_file.parent if args.action_config_file else pathlib.Path.cwd()
+    release = overlay_release_flags(args, base_release(args, config, config_dir))
+    config_version = config.effective_schema_version if config is not None else None
 
     try:
         action = actions.Action.create(
-            name=config_with_overrides.name,
-            parameters=config_with_overrides.parameters,
-            uri=image_uri,
-            inherits=config_with_overrides.inherits,
-            description=config_with_overrides.description,
-            compute_requirements=config_with_overrides.compute_requirements,
-            container_parameters=config_with_overrides.container_parameters,
-            metadata=config_with_overrides.metadata,
-            tags=config_with_overrides.tags,
-            short_description=config_with_overrides.short_description,
-            timeout=config_with_overrides.timeout,
-            requires_downloaded_inputs=config_with_overrides.requires_downloaded_inputs,
+            name=action_config.name,
+            release=release,
+            description=action_config.description,
+            short_description=action_config.short_description,
+            metadata=action_config.metadata,
+            tags=action_config.tags,
             caller_org_id=args.org,
             roboto_client=context.roboto_client,
+            action_config_version=config_version,
         )
 
         print(f"Successfully created action '{action.name}'. Record: ")
         print(json.dumps(action.to_dict(), indent=2))
+        return
     except RobotoConflictException:
         action = actions.Action.from_name(
-            name=config_with_overrides.name,
+            name=action_config.name,
             owner_org_id=args.org,
             roboto_client=context.roboto_client,
         )
 
-        if not args.yes:
-            print(f"Action '{action.name}' already exists. Do you want to update it? [y/n]")
-            choice = input().lower()
-            if choice not in ["y", "yes"]:
-                return
+    if not args.yes:
+        print(f"Action '{action.name}' already exists. Do you want to publish this as a new release of it? [y/n]")
+        choice = input().lower()
+        if choice not in ["y", "yes"]:
+            return
 
-        updates = determine_updates(config_with_overrides, action)
+    discovery_changes = _discovery_changes(action_config, action)
+    if discovery_changes:
+        action.update(**discovery_changes, action_config_version=config_version)
 
-        if updates:
-            action.update(**updates)
-            print(f"Successfully updated action '{action.name}'. Record: ")
-            print(json.dumps(action.to_dict(), indent=2))
-        else:
-            print(f"Action '{action.name}' is up-to-date. Record: ")
-            print(json.dumps(action.to_dict(), indent=2))
+    try:
+        version = action.create_release(release, action_config_version=config_version)
+    except RobotoConflictException as conflict:
+        # The platform compares the release after pinning its image, so an unchanged tag is no change.
+        print(f"Action '{action.name}' already runs this release ({conflict}).")
+        return
+
+    action = actions.Action.from_name(name=action.name, owner_org_id=action.org_id, roboto_client=context.roboto_client)
+    print(f"Published version {version.version} of action '{action.name}'. Record: ")
+    print(json.dumps(action.to_dict(), indent=2))
 
 
 def create_parser(parser: argparse.ArgumentParser):
@@ -256,10 +232,7 @@ def create_parser(parser: argparse.ArgumentParser):
         "--name",
         required=False,
         action="store",
-        help=(
-            "Name of the action. Not modifiable after creation. "
-            "An action is considered unique by its (name, docker_image_name, docker_image_tag) tuple."
-        ),
+        help="Name of the action, unique within its organization. Not modifiable after creation.",
     )
 
     parser.add_argument(
@@ -273,27 +246,19 @@ def create_parser(parser: argparse.ArgumentParser):
         "--short_description",
         required=False,
         action="store",
-        help="Optional description of action. Modifiable after creation.",
+        help="Optional short description of action, at most 140 characters. Modifiable after creation.",
     )
 
-    add_action_reference_arg(
-        parser=parser,
-        arg_name="inherits_from",
-        arg_help=(
-            "Partially or fully qualified reference to action from which to inherit configuration. "
-            "Inheriting from another action is mutually exclusive with specifying a container image (``--image``), "
-            "entrypoint (``--entrypoint``), command (``--command``), working directory (``--workdir``), "
-            "env vars (``--env``), or parameter(s) (``--parameter``). "
-        ),
-        positional=False,
-        required=False,
-    )
     parser.add_argument(
         "--image",
         required=False,
         action="store",
         dest="image",
-        help="Associate a Docker image with this action. Modifiable after creation.",
+        help=(
+            "Container image the release runs. An image in Roboto's registry is pinned to the digest its tag "
+            "names now, so pushing the tag again does not change what the release runs. "
+            "A release needs ``--image``, ``--payload``, or both."
+        ),
     )
     parser.add_argument(
         "--parameter",
@@ -306,9 +271,9 @@ def create_parser(parser: argparse.ArgumentParser):
             "``name`` is the only required attribute. "
             "``default`` values, if provided, are JSON parsed. "
             "This argument can be specified multiple times. "
-            "Parameters can be modified after creation. "
+            "A parameter replaces one of the same name in the config file. "
             "Argument values must be wrapped in quotes. e.g. "
-            "``--put-parameter 'name=my_param|required=true|description=My description of my_param'``"
+            "``--parameter 'name=my_param|required=true|description=My description of my_param'``"
         ),
     )
     parser.add_argument(
@@ -335,28 +300,25 @@ def create_parser(parser: argparse.ArgumentParser):
         "--timeout",
         required=False,
         action=ActionTimeoutArg,
-        help="Optional timeout for an action in minutes, defaults to 30 minutes or 12 hours depending on tier.",
+        help=(
+            "Default timeout for a run, in whole minutes; an invocation may set its own. Unset here and in the "
+            "config file, each run gets the organization's default: 30 minutes on the free tier, 12 hours otherwise."
+        ),
     )
     add_org_arg(parser=parser)
 
+    add_release_args(parser)
     add_compute_requirements_args(parser)
     add_container_parameters_args(parser)
 
     parser.add_argument(
-        "--requires-downloaded-inputs",
-        required=False,
-        type=bool,
-        action="store",
-        help=(
-            "Optional flag which indicates that invocations of this action require their inputs downloaded "
-            "to the working directory before running. This is the default."
-        ),
-    )
-
-    parser.add_argument(
         "--yes",
         required=False,
-        help="If action with same name already exists, update the existing action without prompting for confirmation.",
+        help=(
+            "If an action with this name already exists, publish this as a new release of it, and update its "
+            "description, tags and metadata, without prompting. Nothing is published when the action already runs "
+            "this release."
+        ),
         action="store_true",
     )
 
@@ -365,5 +327,5 @@ create_command = RobotoCommand(
     name="create",
     logic=create,
     setup_parser=create_parser,
-    command_kwargs={"help": "Create a new action."},
+    command_kwargs={"help": "Create an action and its first release."},
 )

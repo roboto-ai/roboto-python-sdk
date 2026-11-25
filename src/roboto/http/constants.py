@@ -64,3 +64,6 @@ Without the header, a request on an API version before ``2026-03-13`` reads stro
 later version reads eventually consistently. Only some endpoints that query or list data honor the header, such as
 ``POST /v1/datasets/query`` and ``POST /v1/files/query``; every other endpoint ignores it. No SDK method reads it.
 """
+
+ACTION_CONFIG_VERSION_HEADER = "X-Roboto-Action-Config-Version"
+"""Which ``action.json`` schema version a create or update request was built from, when it was built from one."""

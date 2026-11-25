@@ -379,6 +379,18 @@ class ActionRecord(pydantic.BaseModel):
     timeout: typing.Optional[int] = None
     """Maximum time an invocation of the action may run, in minutes, or ``None`` if the action sets none."""
 
+    version: typing.Optional[str] = None
+    """Release this record describes, as ``<major>.<minor>.<patch>``.
+
+    Set on records the service returns; a record built by a client leaves it unset.
+    """
+
+    hub_rank: typing.Optional[int] = None
+    """Action's position in the Action Hub's curated order (lower comes first).
+
+    Set only on records the service returns for an action listed on the hub that Roboto has ranked.
+    """
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.digest = self.compute_digest() if not self.digest else self.digest

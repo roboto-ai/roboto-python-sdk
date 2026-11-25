@@ -698,8 +698,8 @@ class Collection:
         Raises:
             RobotoInvalidRequestException: A ``User``, ``Group`` or ``OrgMembers`` subject has no ID, an ``Everyone``
                 subject has an ID or a role other than ``Viewer``, a grant in ``add`` names the members of another
-                organization, or, on a deployment that decides access from Roboto's own tables, a grant in ``add``
-                names a group that is not one of the collection's organization's groups.
+                organization, or a grant in ``add`` names a group that is not one of the collection's organization's
+                groups.
 
         Examples:
             >>> from roboto.auth import AccessGrant, AccessRole, AccessSubject

@@ -23,6 +23,7 @@ Each is a subclass of :py:class:`~roboto.exceptions.RobotoDomainException`.
 from .domain import (
     ReadPlanExecutionErrorKind,
     RobotoBoardRevisionConflictException,
+    RobotoClientToolResultsNotPendingException,
     RobotoConditionException,
     RobotoConflictException,
     RobotoContextTooLongException,
@@ -76,6 +77,7 @@ __all__ = [
     "ServerError",
     "TimestampFieldNotFoundException",
     "RobotoBoardRevisionConflictException",
+    "RobotoClientToolResultsNotPendingException",
     "RobotoConditionException",
     "RobotoConflictException",
     "RobotoContextTooLongException",

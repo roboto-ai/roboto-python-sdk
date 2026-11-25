@@ -14,6 +14,7 @@ from typing import Optional, Union
 
 from ...http import RobotoClient
 from ..core import AnalysisScope, ClientViewingContext
+from ..core.record import CLIENT_TOOL_NAME_PREFIX
 from ..goals import AgentGoal
 from .agent_thread_goal_view import AgentThreadGoalView
 from .client_tool import ClientTool
@@ -172,7 +173,8 @@ class AgentThread:
 
         The AI starts replying as soon as the thread exists; follow its reply with ``run`` or ``events``. The thread
         needs at least one of ``message``, ``goals`` and ``invoke_skills``. It is
-        :py:attr:`~roboto.ai.agent_thread.ThreadVisibility.PRIVATE`; share it with ``set_visibility``.
+        :py:attr:`~roboto.ai.agent_thread.ThreadVisibility.PRIVATE`; share it with ``set_visibility``. A guest of the
+        organization starts a thread only when a role they hold lets them use AI.
 
         Args:
             message: Message or messages to start the thread with. A string becomes a user message. A sequence of
@@ -218,7 +220,7 @@ class AgentThread:
             RobotoNotFoundException: A skill in ``invoke_skills`` or ``available_skills`` does not exist, the caller
                 cannot see it, or it has no version with the number given.
             RobotoUnauthorizedException: A skill in ``invoke_skills`` is one the caller neither wrote nor subscribes
-                to.
+                to, or the caller is a guest of the organization and holds no role that lets them use AI.
 
         Examples:
             Start a thread with a client tool, and run it until it is your turn:
@@ -288,9 +290,6 @@ class AgentThread:
         self.__roboto_client: RobotoClient = RobotoClient.defaulted(roboto_client)
         # Tools with a function, which run calls.
         self.__client_tools: dict[str, ClientTool] = {}
-        # Names of every tool declared client-side on this instance, with or without a function. run answers calls
-        # to these tools only; __dispatch_pending_client_tools says why.
-        self.__declared_client_tool_names: set[str] = set()
         # Indexes of messages whose text span is open: events has yielded AgentStartTextEvent for them but not yet
         # AgentTextEndEvent. Kept across events calls, so text a later poll brings for a message still generating
         # continues its span instead of starting another.
@@ -404,15 +403,14 @@ class AgentThread:
             >>> thread.run()
         """
         self.__client_tools[tool.name] = tool
-        self.__declared_client_tool_names.add(tool.name)
         return self
 
     def unregister_client_tool(self, name: str) -> bool:
         """Remove a client tool's function from this instance.
 
-        Roboto keeps offering the tool to the AI until a request replaces the thread's client tools. The tool still
-        counts as a client tool on this instance, so ``run`` answers later calls to it with an error result, which the
-        AI can recover from.
+        Roboto keeps offering the tool to the AI until a request replaces the thread's client tools. Its name still has
+        the ``client_`` prefix, so ``run`` answers later calls to it with an error result, which the AI can recover
+        from.
 
         Args:
             name: Name of the client tool.
@@ -595,9 +593,11 @@ class AgentThread:
             This instance, with its status set to ``ROBOTO_TURN``.
 
         Raises:
-            RobotoInvalidRequestException: The thread's status is not ``CLIENT_TOOL_TURN``, or a result answers a tool
-                use that is not an unanswered call to one of the thread's client tools, such as one another client
-                already answered.
+            RobotoClientToolResultsNotPendingException: The thread no longer waits on these results. Its ``reason`` is
+                ``answered_elsewhere`` when another submission answered the same calls first, or ``turn_ended`` when the
+                turn was stopped or expired before any submission answered them.
+            RobotoInvalidRequestException: The results do not answer exactly the client tool calls the thread waits
+                on.
             RobotoThreadReadOnlyException: The thread's origin is a surface outside Roboto, such as Slack.
 
         Examples:
@@ -841,11 +841,12 @@ class AgentThread:
         - A function's return value becomes the result's output: a dictionary as it is, ``None`` as an empty
           dictionary, and any other value under the key ``"result"``.
         - A function that raises an ``Exception`` gives an error result holding the exception's type and message.
-        - A call to a tool with no registered function gives an error result saying so, which the AI can recover from.
+        - A call to a client tool (a name with the ``client_`` prefix) with no registered function gives an error
+          result saying so, which the AI can recover from.
         - A call Roboto answers itself
-          (:py:attr:`~roboto.ai.agent_thread.AgentToolUseContent.answered_by_server`), or a call to a tool not declared
-          client-side on this instance, is left unanswered. When only such calls remain, ``run`` polls again after
-          ``tick`` seconds.
+          (:py:attr:`~roboto.ai.agent_thread.AgentToolUseContent.answered_by_server`), or a call to a server tool (a
+          name without the ``client_`` prefix), is left unanswered. When only such calls remain, ``run`` polls again
+          after ``tick`` seconds.
 
         Returns once the thread's status is :py:attr:`~roboto.ai.agent_thread.AgentThreadStatus.USER_TURN`.
 
@@ -862,8 +863,8 @@ class AgentThread:
             TimeoutError: ``timeout`` seconds pass before the thread's status is ``USER_TURN``.
             RobotoAgentGoalsFailedException: The AI used up its retries without achieving every goal declared for the
                 turn.
-            RobotoInvalidRequestException: Roboto rejects the submitted results, such as when another client already
-                answered a call.
+            RobotoClientToolResultsNotPendingException: The thread stopped waiting on the results before ``run``
+                submitted them, such as when another client answered the calls first.
             RuntimeError: The thread stops in a status other than ``USER_TURN``, ``CLIENT_TOOL_TURN`` or
                 ``GOALS_FAILED``, or waits on client tools while it has no messages or its latest message is neither
                 from the AI nor a ``ROBOTO`` message right after one from the AI.
@@ -907,8 +908,8 @@ class AgentThread:
                 if len(results) > 0:
                     self.submit_client_tool_results(results)
                 else:
-                    # Roboto or another client answers every unanswered tool use. events returns after one poll while
-                    # the status is CLIENT_TOOL_TURN, so wait here between polls.
+                    # Roboto answers every unanswered tool use. events returns after one poll while the status is
+                    # CLIENT_TOOL_TURN, so wait here between polls.
                     time.sleep(tick)
                 continue
 
@@ -945,6 +946,8 @@ class AgentThread:
 
         if delta.status is not None:
             self.__record.status = delta.status
+            # Sent with every status and authoritative then, None included.
+            self.__record.client_tool_executor_tab_id = delta.client_tool_executor_tab_id
 
         # Copied even when None, unlike status and title: every delta carries the current activity, and None means
         # there is none.
@@ -972,7 +975,7 @@ class AgentThread:
         if tools is None:
             return
         for tool in tools:
-            self.__declared_client_tool_names.add(tool.name)
+            # A ClientToolSpec is declared to the AI but has no function here.
             if isinstance(tool, ClientTool):
                 self.__client_tools[tool.name] = tool
 
@@ -1018,10 +1021,11 @@ class AgentThread:
             # thread yet.
             if tool_use.tool_use_id in answered_ids or tool_use.answered_by_server:
                 continue
-            # In case 2, messages[-2] can also hold server tool uses whose results Roboto has not yet written to
-            # messages[-1]. Roboto rejects a client result for a server tool use, so answer only tools declared
-            # client-side on this instance.
-            if tool_use.tool_name not in self.__declared_client_tool_names:
+            # Answer every tool use whose name has the client_ prefix, the rule Roboto applies: it accepts a
+            # submission only when it answers all of them, so a client tool this instance never declared gets an
+            # error result rather than none. In case 2, messages[-2] can also hold server tool uses whose results
+            # Roboto has not yet written to messages[-1], and answering one would give it two results.
+            if not tool_use.tool_name.startswith(CLIENT_TOOL_NAME_PREFIX):
                 continue
             results.append(self.__execute_single_client_tool(tool_use))
         return results

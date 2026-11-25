@@ -128,7 +128,9 @@ class Agent:
                 by :py:meth:`~roboto.http.RobotoClient.from_env`.
 
         Raises:
-            RobotoNotFoundException: No agent has this ID, or the caller cannot see it.
+            RobotoNotFoundException: No agent has this ID, or it is in an organization the caller does not belong to.
+            RobotoUnauthorizedException: The caller is a guest of the agent's organization and holds no role that
+                turns on the ``use_ai`` switch.
 
         Examples:
             >>> agent = Agent.from_id("agt_12345")
@@ -307,7 +309,7 @@ class Agent:
         Before it starts the thread, Roboto checks that each ID-typed value names a dataset, device, collection, or
         session in the agent's organization. The thread belongs to the agent's organization, whichever organization
         the caller acts in, and its :py:attr:`~roboto.ai.core.AgentThreadRecord.created_from_agent_id` names
-        this agent.
+        this agent. A guest of that organization launches an agent only when a role they hold lets them use AI.
 
         Args:
             values: Value of each variable, keyed by variable name. A variable left out uses its default. ``None``
@@ -329,6 +331,8 @@ class Agent:
                 required variable that has no default, or gives an ID-typed variable an ID that names no resource
                 in the agent's organization.
             RobotoNotFoundException: The agent has been deleted, or the caller cannot see it.
+            RobotoUnauthorizedException: The caller is a guest of the agent's organization and holds no role that
+                lets them use AI.
 
         Examples:
             >>> agent = Agent.from_name("triage")
